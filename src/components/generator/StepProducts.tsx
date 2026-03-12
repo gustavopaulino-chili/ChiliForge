@@ -46,6 +46,17 @@ function deleteSavedVariant(name: string) {
   localStorage.setItem(SAVED_VARIANTS_KEY, JSON.stringify(existing));
 }
 
+function VariantTypeIcon({ type }: { type: VariantType }) {
+  const cls = "h-3 w-3";
+  switch (type) {
+    case 'select': return <Tag className={cls} />;
+    case 'counter': return <Hash className={cls} />;
+    case 'text': return <Type className={cls} />;
+    case 'color': return <Palette className={cls} />;
+    case 'boolean': return <ToggleLeft className={cls} />;
+  }
+}
+
 export function StepProducts({ data, onChange }: Props) {
   const products = data.products.length > 0 ? data.products : [{ ...emptyProduct }];
   const [showPricing, setShowPricing] = useState(() => products.some(p => p.price || p.discountPrice));
