@@ -17,7 +17,7 @@ interface Props {
 
 const emptyProduct: ProductItem = {
   name: '', description: '', price: '', discountPrice: '',
-  images: [], sku: '', category: '', variants: '',
+  images: [], sku: '', category: '', variants: [],
 };
 
 export function StepProducts({ data, onChange }: Props) {
