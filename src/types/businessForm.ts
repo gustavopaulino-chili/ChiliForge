@@ -5,6 +5,12 @@ export interface ProductVariant {
   values: string[];
 }
 
+export interface ProductInput {
+  label: string;
+  placeholder: string;
+  required: boolean;
+}
+
 export interface ProductItem {
   name: string;
   description: string;
@@ -14,6 +20,7 @@ export interface ProductItem {
   sku: string;
   category: string;
   variants: ProductVariant[];
+  inputs: ProductInput[];
 }
 
 export interface FeatureItem {
