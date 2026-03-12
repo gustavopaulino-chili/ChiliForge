@@ -2,8 +2,9 @@ import { useState, useRef } from 'react';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { BusinessFormData } from '@/types/businessForm';
-import { Upload, FileSpreadsheet, Check, AlertCircle, Table, X } from 'lucide-react';
+import { Upload, FileSpreadsheet, Check, AlertCircle, Table, X, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
 
 interface Props {
@@ -11,112 +12,55 @@ interface Props {
   onChange: (updates: Partial<BusinessFormData>) => void;
 }
 
-// Map CSV/sheet column names to form fields
-const COLUMN_MAP: Record<string, (data: Partial<BusinessFormData>, value: string) => void> = {
-  'title': (d, v) => { d.businessName = v; },
-  'business name': (d, v) => { d.businessName = v; },
-  'name': (d, v) => { if (!d.businessName) d.businessName = v; },
-  'description': (d, v) => { d.businessDescription = v; },
-  'business description': (d, v) => { d.businessDescription = v; },
-  'category': (d, v) => { d.businessCategory = v; },
-  'industry': (d, v) => { d.businessCategory = v; },
-  'target audience': (d, v) => { d.targetAudience = v; },
-  'audience': (d, v) => { d.targetAudience = v; },
-  'email': (d, v) => { d.email = v; },
-  'phone': (d, v) => { d.phone = v; },
-  'whatsapp': (d, v) => { d.whatsapp = v; },
-  'city': (d, v) => { d.city = v; },
-  'country': (d, v) => { d.country = v; },
-  'value proposition': (d, v) => { d.valueProposition = v; },
-  'primary color': (d, v) => { d.primaryColor = v; },
-  'secondary color': (d, v) => { d.secondaryColor = v; },
-  'style': (d, v) => {
-    const valid = ['modern', 'corporate', 'minimal', 'bold', 'premium'];
-    if (valid.includes(v.toLowerCase())) d.preferredStyle = v.toLowerCase() as any;
-  },
-  'website type': (d, v) => {
-    const map: Record<string, string> = {
-      corporate: 'corporate', landing: 'landing', ecommerce: 'ecommerce',
-      portfolio: 'portfolio', saas: 'saas', blog: 'blog', educational: 'educational',
-    };
-    const key = v.toLowerCase().replace(/\s+/g, '');
-    if (map[key]) (d as any).websiteType = map[key];
-  },
-  'hero image 1': (d, v) => { if (!d.images) d.images = {} as any; (d.images as any).heroImage1 = v; },
-  'hero image 2': (d, v) => { if (!d.images) d.images = {} as any; (d.images as any).heroImage2 = v; },
-  'logo url': (d, v) => { if (!d.images) d.images = {} as any; (d.images as any).logoUrl = v; },
-  'logo': (d, v) => { if (!d.images) d.images = {} as any; (d.images as any).logoUrl = v; },
-  'brand image': (d, v) => { if (!d.images) d.images = {} as any; (d.images as any).brandImage = v; },
-  'image url': (d, v) => { if (!d.images) d.images = {} as any; (d.images as any).sectionImage1 = v; },
-  'section image 1': (d, v) => { if (!d.images) d.images = {} as any; (d.images as any).sectionImage1 = v; },
-  'section image 2': (d, v) => { if (!d.images) d.images = {} as any; (d.images as any).sectionImage2 = v; },
-  'section image 3': (d, v) => { if (!d.images) d.images = {} as any; (d.images as any).sectionImage3 = v; },
-  'facebook': (d, v) => { if (!d.socialLinks) d.socialLinks = {}; d.socialLinks.facebook = v; },
-  'instagram': (d, v) => { if (!d.socialLinks) d.socialLinks = {}; d.socialLinks.instagram = v; },
-  'twitter': (d, v) => { if (!d.socialLinks) d.socialLinks = {}; d.socialLinks.twitter = v; },
-  'linkedin': (d, v) => { if (!d.socialLinks) d.socialLinks = {}; d.socialLinks.linkedin = v; },
-  'youtube': (d, v) => { if (!d.socialLinks) d.socialLinks = {}; d.socialLinks.youtube = v; },
-};
-
-function sheetToRows(sheet: XLSX.WorkSheet): Record<string, string>[] {
-  const json = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: '' });
-  // Normalize keys to lowercase
-  return json.map(row => {
-    const normalized: Record<string, string> = {};
-    for (const [key, value] of Object.entries(row)) {
-      normalized[key.toLowerCase().trim()] = String(value).trim();
-    }
-    return normalized;
-  });
+function sheetToText(sheet: XLSX.WorkSheet): string {
+  // Convert sheet to CSV text for AI to read
+  return XLSX.utils.sheet_to_csv(sheet, { FS: ' | ', RS: '\n' });
 }
 
-function findMapper(col: string): ((data: Partial<BusinessFormData>, value: string) => void) | null {
-  // Exact match first
-  if (COLUMN_MAP[col]) return COLUMN_MAP[col];
-  
-  // Partial/fuzzy match
-  for (const [key, mapper] of Object.entries(COLUMN_MAP)) {
-    if (col.includes(key) || key.includes(col)) return mapper;
-  }
-  return null;
-}
-
-function mapRowToFormData(rows: Record<string, string>[]): { updates: Partial<BusinessFormData>; matched: string[] } {
-  const row = rows[0];
-  if (!row) return { updates: {}, matched: [] };
-
+function aiDataToFormUpdates(extracted: Record<string, any>): Partial<BusinessFormData> {
   const updates: Partial<BusinessFormData> = {};
-  const matched: string[] = [];
+  const images: Partial<BusinessFormData['images']> = {};
+  const socialLinks: Partial<BusinessFormData['socialLinks']> = {};
 
-  console.log('[CSV Import] Row keys:', Object.keys(row));
-  console.log('[CSV Import] Row data:', row);
+  // Direct mappings
+  if (extracted.websiteType) updates.websiteType = extracted.websiteType;
+  if (extracted.businessName) updates.businessName = extracted.businessName;
+  if (extracted.businessDescription) updates.businessDescription = extracted.businessDescription;
+  if (extracted.businessCategory) updates.businessCategory = extracted.businessCategory;
+  if (extracted.targetAudience) updates.targetAudience = extracted.targetAudience;
+  if (extracted.valueProposition) updates.valueProposition = extracted.valueProposition;
+  if (extracted.preferredStyle) updates.preferredStyle = extracted.preferredStyle;
+  if (extracted.primaryColor) updates.primaryColor = extracted.primaryColor;
+  if (extracted.secondaryColor) updates.secondaryColor = extracted.secondaryColor;
+  if (extracted.city) updates.city = extracted.city;
+  if (extracted.country) updates.country = extracted.country;
+  if (extracted.phone) updates.phone = extracted.phone;
+  if (extracted.whatsapp) updates.whatsapp = extracted.whatsapp;
+  if (extracted.email) updates.email = extracted.email;
 
-  for (const [col, value] of Object.entries(row)) {
-    if (!value) continue;
-    const mapper = findMapper(col);
-    if (mapper) {
-      mapper(updates, value);
-      matched.push(col);
-    }
-  }
+  // Arrays
+  if (extracted.services?.length) updates.services = extracted.services;
+  if (extracted.differentiators?.length) updates.differentiators = extracted.differentiators;
 
-  // Services (semicolon separated)
-  const servicesKey = Object.keys(row).find(k => k.includes('service'));
-  if (servicesKey && row[servicesKey]) {
-    updates.services = row[servicesKey].split(';').map(s => s.trim()).filter(Boolean);
-    if (!matched.includes(servicesKey)) matched.push('services');
-  }
+  // Images
+  if (extracted.heroImage1) images.heroImage1 = extracted.heroImage1;
+  if (extracted.heroImage2) images.heroImage2 = extracted.heroImage2;
+  if (extracted.logoUrl) images.logoUrl = extracted.logoUrl;
+  if (extracted.brandImage) images.brandImage = extracted.brandImage;
+  if (extracted.sectionImage1) images.sectionImage1 = extracted.sectionImage1;
+  if (extracted.sectionImage2) images.sectionImage2 = extracted.sectionImage2;
+  if (extracted.sectionImage3) images.sectionImage3 = extracted.sectionImage3;
+  if (Object.keys(images).length > 0) updates.images = images as any;
 
-  const diffsKey = Object.keys(row).find(k => k.includes('differentiator'));
-  if (diffsKey && row[diffsKey]) {
-    updates.differentiators = row[diffsKey].split(';').map(s => s.trim()).filter(Boolean);
-    if (!matched.includes(diffsKey)) matched.push('differentiators');
-  }
+  // Social
+  if (extracted.facebook) socialLinks.facebook = extracted.facebook;
+  if (extracted.instagram) socialLinks.instagram = extracted.instagram;
+  if (extracted.twitter) socialLinks.twitter = extracted.twitter;
+  if (extracted.linkedin) socialLinks.linkedin = extracted.linkedin;
+  if (extracted.youtube) socialLinks.youtube = extracted.youtube;
+  if (Object.keys(socialLinks).length > 0) updates.socialLinks = socialLinks;
 
-  console.log('[CSV Import] Matched fields:', matched);
-  console.log('[CSV Import] Updates:', updates);
-
-  return { updates, matched };
+  return updates;
 }
 
 export function StepCsvImport({ data, onChange }: Props) {
@@ -126,24 +70,51 @@ export function StepCsvImport({ data, onChange }: Props) {
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>('');
   const [fileName, setFileName] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const processSheet = (wb: XLSX.WorkBook, sheetName: string) => {
+  const processSheetWithAI = async (wb: XLSX.WorkBook, sheetName: string) => {
     const sheet = wb.Sheets[sheetName];
     if (!sheet) return;
 
-    const rows = sheetToRows(sheet);
-    if (rows.length === 0) {
-      toast.error(`Sheet "${sheetName}" has no data rows`);
+    const sheetText = sheetToText(sheet);
+    if (!sheetText.trim()) {
+      toast.error(`Sheet "${sheetName}" is empty`);
       return;
     }
 
-    const { updates, matched } = mapRowToFormData(rows);
-    onChange(updates);
-    setFieldsFound(matched);
-    setImported(true);
+    setIsProcessing(true);
     setSelectedSheet(sheetName);
-    toast.success(`Imported ${matched.length} fields from "${sheetName}"`);
+
+    try {
+      const { data: result, error } = await supabase.functions.invoke('parse-spreadsheet', {
+        body: { sheetData: sheetText },
+      });
+
+      if (error) throw error;
+      if (result?.error) throw new Error(result.error);
+
+      const extracted = result.extracted;
+      if (!extracted) throw new Error('No data extracted');
+
+      const updates = aiDataToFormUpdates(extracted);
+      const matched = Object.keys(updates).filter(k => {
+        const val = (updates as any)[k];
+        if (Array.isArray(val)) return val.length > 0;
+        if (typeof val === 'object') return Object.keys(val).length > 0;
+        return !!val;
+      });
+
+      onChange(updates);
+      setFieldsFound(matched);
+      setImported(true);
+      toast.success(`AI extracted ${matched.length} fields from "${sheetName}"`);
+    } catch (err) {
+      console.error('AI parsing error:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to parse spreadsheet with AI');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleFile = (file: File) => {
@@ -159,33 +130,26 @@ export function StepCsvImport({ data, onChange }: Props) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: 'array' });
+        const arr = new Uint8Array(e.target?.result as ArrayBuffer);
+        const wb = XLSX.read(arr, { type: 'array' });
         const names = wb.SheetNames;
 
         setWorkbook(wb);
         setSheetNames(names);
+        setImported(false);
+        setFieldsFound([]);
+        setSelectedSheet('');
 
         if (names.length === 1) {
-          // Single sheet — process immediately
-          processSheet(wb, names[0]);
+          processSheetWithAI(wb, names[0]);
         } else {
-          // Multiple sheets — let user pick
-          setSelectedSheet('');
-          setImported(false);
-          setFieldsFound([]);
           toast.info(`Found ${names.length} sheets. Select one to import.`);
         }
       } catch {
-        toast.error('Error parsing file. Please check the format.');
+        toast.error('Error reading file. Please check the format.');
       }
     };
     reader.readAsArrayBuffer(file);
-  };
-
-  const handleSheetSelect = (name: string) => {
-    if (!workbook) return;
-    processSheet(workbook, name);
   };
 
   const clearFile = () => {
@@ -195,6 +159,7 @@ export function StepCsvImport({ data, onChange }: Props) {
     setFileName('');
     setImported(false);
     setFieldsFound([]);
+    setIsProcessing(false);
     if (fileRef.current) fileRef.current.value = '';
     toast.info('File removed');
   };
@@ -203,7 +168,9 @@ export function StepCsvImport({ data, onChange }: Props) {
     <div className="space-y-6">
       <div>
         <h3 className="form-section-title">Import from Spreadsheet</h3>
-        <p className="form-section-desc">Upload a CSV or Excel file to auto-fill the form, or skip to fill manually</p>
+        <p className="form-section-desc">
+          Upload a CSV or Excel file — AI will read and map the data to the form fields automatically
+        </p>
       </div>
 
       <div className="space-y-4">
@@ -224,9 +191,18 @@ export function StepCsvImport({ data, onChange }: Props) {
               type="button"
               variant="outline"
               onClick={() => fileRef.current?.click()}
+              disabled={isProcessing}
               className="gap-2 w-full h-24 border-dashed"
             >
-            {fileName ? (
+              {isProcessing ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  <div className="text-left">
+                    <div className="text-sm font-medium">Processing with AI...</div>
+                    <div className="text-xs text-muted-foreground">Extracting business data from spreadsheet</div>
+                  </div>
+                </>
+              ) : fileName ? (
                 <>
                   <FileSpreadsheet className="h-5 w-5 text-primary" />
                   <div className="text-left">
@@ -241,7 +217,7 @@ export function StepCsvImport({ data, onChange }: Props) {
                 </>
               )}
             </Button>
-            {fileName && (
+            {fileName && !isProcessing && (
               <Button
                 type="button"
                 variant="destructive"
@@ -255,8 +231,8 @@ export function StepCsvImport({ data, onChange }: Props) {
           </div>
         </div>
 
-        {/* Sheet tabs — shown when file has multiple sheets */}
-        {sheetNames.length > 1 && (
+        {/* Sheet tabs */}
+        {sheetNames.length > 1 && !isProcessing && (
           <div>
             <Label className="text-foreground">Select Sheet</Label>
             <div className="flex flex-wrap gap-2 mt-2">
@@ -264,7 +240,7 @@ export function StepCsvImport({ data, onChange }: Props) {
                 <button
                   key={name}
                   type="button"
-                  onClick={() => handleSheetSelect(name)}
+                  onClick={() => processSheetWithAI(workbook!, name)}
                   className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-all ${
                     selectedSheet === name
                       ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary/30'
@@ -280,12 +256,27 @@ export function StepCsvImport({ data, onChange }: Props) {
           </div>
         )}
 
-        {imported && fieldsFound.length > 0 && (
+        {/* Processing indicator */}
+        {isProcessing && (
+          <div className="rounded-lg bg-primary/5 border border-primary/20 p-6 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-3" />
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium text-foreground">AI is reading your spreadsheet...</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Extracting business info, colors, images, and more
+            </p>
+          </div>
+        )}
+
+        {/* Success */}
+        {imported && fieldsFound.length > 0 && !isProcessing && (
           <div className="rounded-lg bg-success/10 border border-success/20 p-4">
             <div className="flex items-center gap-2 mb-2">
-              <FileSpreadsheet className="h-4 w-4 text-success" />
+              <Sparkles className="h-4 w-4 text-success" />
               <span className="text-sm font-medium text-success">
-                Fields imported from "{selectedSheet}":
+                AI extracted from "{selectedSheet}":
               </span>
             </div>
             <div className="flex flex-wrap gap-1.5">
@@ -300,8 +291,7 @@ export function StepCsvImport({ data, onChange }: Props) {
           <div className="flex items-start gap-2">
             <AlertCircle className="h-4 w-4 text-muted-foreground mt-0.5" />
             <div className="text-xs text-muted-foreground space-y-1">
-              <p><strong>Supported formats:</strong> CSV, XLSX, XLS. If Excel has multiple sheets, you can select which one to import.</p>
-              <p><strong>Supported columns:</strong> Title, Description, Category, Target Audience, Email, Phone, City, Country, Services (semicolon-separated), Hero Image 1, Logo URL, and more.</p>
+              <p><strong>Supported formats:</strong> CSV, XLSX, XLS — any structure. AI will intelligently extract business data.</p>
               <p>All imported fields can be edited in the following steps.</p>
             </div>
           </div>

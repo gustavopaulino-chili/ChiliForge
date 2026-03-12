@@ -59,18 +59,12 @@ const Index = () => {
   const steps = useMemo(() => getSteps(formData.websiteType), [formData.websiteType]);
 
   const updateForm = (updates: Partial<BusinessFormData>) => {
-    console.log('[SiteForge] updateForm called with:', JSON.stringify(updates, null, 2));
-    setFormData(prev => {
-      const next = {
-        ...prev,
-        ...updates,
-        // Deep merge nested objects so CSV partial data doesn't wipe defaults
-        images: updates.images ? { ...prev.images, ...updates.images } : prev.images,
-        socialLinks: updates.socialLinks ? { ...prev.socialLinks, ...updates.socialLinks } : prev.socialLinks,
-      };
-      console.log('[SiteForge] New formData:', JSON.stringify(next, null, 2));
-      return next;
-    });
+    setFormData(prev => ({
+      ...prev,
+      ...updates,
+      images: updates.images ? { ...prev.images, ...updates.images } : prev.images,
+      socialLinks: updates.socialLinks ? { ...prev.socialLinks, ...updates.socialLinks } : prev.socialLinks,
+    }));
   };
 
   const next = () => setCurrentStep(s => Math.min(s + 1, steps.length - 1));
@@ -219,7 +213,7 @@ const Index = () => {
           </p>
         </div>
 
-        <StepIndicator steps={steps} currentStep={currentStep} />
+        <StepIndicator steps={steps} currentStep={currentStep} onStepClick={setCurrentStep} />
 
         <div className="mt-8 glass-card rounded-xl p-6 sm:p-8 animate-in-up" key={currentStepId}>
           {currentStepId === 'csv' && <StepCsvImport data={formData} onChange={updateForm} />}

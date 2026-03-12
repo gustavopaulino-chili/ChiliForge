@@ -2,3 +2,6 @@ project_id = "kbtsprqtbkzxuzegznco"
 
 [functions.generate-images]
 verify_jwt = false
+
+[functions.parse-spreadsheet]
+verify_jwt = false
