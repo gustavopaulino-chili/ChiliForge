@@ -278,7 +278,7 @@ function Header() {
     <header className="border-b border-border/50 px-6 py-4 relative z-10">
       <div className="mx-auto max-w-6xl flex items-center gap-2">
         <img src="/images/logo.png" alt="Logo" className="h-14 w-auto" />
-        <span style={{ fontFamily: "'Playfair Display', serif" }} className="text-lg font-medium italic gradient-text tracking-wide">
+        <span className="text-lg font-semibold gradient-text tracking-tight font-display">
           Forge
         </span>
       </div>
