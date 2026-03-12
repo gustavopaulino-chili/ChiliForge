@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { BusinessFormData, ProductItem } from '@/types/businessForm';
-import { Plus, X, ShoppingCart } from 'lucide-react';
+import { Plus, X, ShoppingCart, DollarSign } from 'lucide-react';
 
 interface Props {
   data: BusinessFormData;
