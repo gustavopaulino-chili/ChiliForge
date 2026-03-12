@@ -63,7 +63,6 @@ const Index = () => {
   const [currentStep, setCurrentStep] = useState(saved?.currentStep ?? 0);
   const [maxVisitedStep, setMaxVisitedStep] = useState(saved?.maxVisitedStep ?? 0);
   const [formData, setFormData] = useState<BusinessFormData>(saved?.formData ?? defaultFormData);
-  const [formData, setFormData] = useState<BusinessFormData>(saved?.formData ?? defaultFormData);
   const [showResults, setShowResults] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
