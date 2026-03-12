@@ -171,6 +171,17 @@ export function StepCsvImport({ data, onChange }: Props) {
     processSheet(workbook, name);
   };
 
+  const clearFile = () => {
+    setWorkbook(null);
+    setSheetNames([]);
+    setSelectedSheet('');
+    setFileName('');
+    setImported(false);
+    setFieldsFound([]);
+    if (fileRef.current) fileRef.current.value = '';
+    toast.info('File removed');
+  };
+
   return (
     <div className="space-y-6">
       <div>
