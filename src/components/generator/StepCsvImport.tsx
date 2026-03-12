@@ -70,6 +70,17 @@ function sheetToRows(sheet: XLSX.WorkSheet): Record<string, string>[] {
   });
 }
 
+function findMapper(col: string): ((data: Partial<BusinessFormData>, value: string) => void) | null {
+  // Exact match first
+  if (COLUMN_MAP[col]) return COLUMN_MAP[col];
+  
+  // Partial/fuzzy match
+  for (const [key, mapper] of Object.entries(COLUMN_MAP)) {
+    if (col.includes(key) || key.includes(col)) return mapper;
+  }
+  return null;
+}
+
 function mapRowToFormData(rows: Record<string, string>[]): { updates: Partial<BusinessFormData>; matched: string[] } {
   const row = rows[0];
   if (!row) return { updates: {}, matched: [] };
@@ -77,9 +88,12 @@ function mapRowToFormData(rows: Record<string, string>[]): { updates: Partial<Bu
   const updates: Partial<BusinessFormData> = {};
   const matched: string[] = [];
 
+  console.log('[CSV Import] Row keys:', Object.keys(row));
+  console.log('[CSV Import] Row data:', row);
+
   for (const [col, value] of Object.entries(row)) {
     if (!value) continue;
-    const mapper = COLUMN_MAP[col];
+    const mapper = findMapper(col);
     if (mapper) {
       mapper(updates, value);
       matched.push(col);
@@ -90,14 +104,17 @@ function mapRowToFormData(rows: Record<string, string>[]): { updates: Partial<Bu
   const servicesKey = Object.keys(row).find(k => k.includes('service'));
   if (servicesKey && row[servicesKey]) {
     updates.services = row[servicesKey].split(';').map(s => s.trim()).filter(Boolean);
-    matched.push('services');
+    if (!matched.includes(servicesKey)) matched.push('services');
   }
 
   const diffsKey = Object.keys(row).find(k => k.includes('differentiator'));
   if (diffsKey && row[diffsKey]) {
     updates.differentiators = row[diffsKey].split(';').map(s => s.trim()).filter(Boolean);
-    matched.push('differentiators');
+    if (!matched.includes(diffsKey)) matched.push('differentiators');
   }
+
+  console.log('[CSV Import] Matched fields:', matched);
+  console.log('[CSV Import] Updates:', updates);
 
   return { updates, matched };
 }
