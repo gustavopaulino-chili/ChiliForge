@@ -304,7 +304,7 @@ const Index = () => {
                 <Copy className="h-4 w-4" /> {copied ? 'Copiado!' : 'Copiar Prompt'}
               </Button>
               <Button variant="outline" size="lg" onClick={() => {
-                navigator.clipboard.writeText(lovableUrl);
+                navigator.clipboard.writeText(getLovableUrl());
                 setCopiedLink(true);
                 setTimeout(() => setCopiedLink(false), 2000);
                 toast.success('Link copiado!');
