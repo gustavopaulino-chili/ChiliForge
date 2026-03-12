@@ -315,7 +315,7 @@ const Index = () => {
               <Button
                 variant="gradient"
                 size="lg"
-                onClick={() => window.open(lovableUrl, '_blank')}
+                onClick={() => window.open(getLovableUrl(), '_blank')}
                 className="gap-2"
               >
                 <ExternalLink className="h-4 w-4" /> Abrir no Lovable
