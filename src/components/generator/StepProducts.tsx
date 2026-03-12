@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { BusinessFormData, ProductItem } from '@/types/businessForm';
-import { Plus, X, ShoppingCart, DollarSign } from 'lucide-react';
+import { Plus, X, ShoppingCart, DollarSign, Upload, FileSpreadsheet, Loader2, Sparkles, Check } from 'lucide-react';
 import { FieldLabel } from './FieldLabel';
+import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
+import * as XLSX from 'xlsx';
 
 interface Props {
   data: BusinessFormData;
@@ -116,7 +119,157 @@ export function StepProducts({ data, onChange }: Props) {
         <Button variant="outline" onClick={add} className="gap-1 w-full">
           <Plus className="h-4 w-4" /> Add Product
         </Button>
+
+        <ProductCsvImport products={products} onChange={onChange} />
       </div>
+    </div>
+  );
+}
+
+/* ---- CSV Import sub-component ---- */
+
+function sheetToText(sheet: XLSX.WorkSheet): string {
+  return XLSX.utils.sheet_to_csv(sheet, { FS: ' | ', RS: '\n' });
+}
+
+function ProductCsvImport({ products, onChange }: { products: ProductItem[]; onChange: Props['onChange'] }) {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [importedCount, setImportedCount] = useState(0);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const processSheet = async (wb: XLSX.WorkBook, sheetName: string) => {
+    const sheet = wb.Sheets[sheetName];
+    if (!sheet) return;
+
+    const sheetText = sheetToText(sheet);
+    if (!sheetText.trim()) {
+      toast.error(`Sheet "${sheetName}" is empty`);
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const { data: result, error } = await supabase.functions.invoke('parse-products-spreadsheet', {
+        body: { sheetData: sheetText },
+      });
+
+      if (error) throw error;
+      if (result?.error) throw new Error(result.error);
+
+      const extracted: any[] = result.products;
+      if (!extracted?.length) {
+        toast.warning('No products found in the spreadsheet');
+        return;
+      }
+
+      const newProducts: ProductItem[] = extracted.map(p => ({
+        name: p.name || '',
+        description: p.description || '',
+        price: p.price || '',
+        discountPrice: p.discountPrice || '',
+        images: [],
+        sku: p.sku || '',
+        category: p.category || '',
+        variants: p.variants || '',
+      }));
+
+      // Remove empty placeholder products, then append imported ones
+      const existing = products.filter(p => p.name.trim() !== '');
+      onChange({ products: [...existing, ...newProducts] });
+      setImportedCount(newProducts.length);
+      toast.success(`${newProducts.length} products imported successfully`);
+    } catch (err) {
+      console.error('Product CSV import error:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to parse products');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleFile = (file: File) => {
+    const validExts = ['.csv', '.xlsx', '.xls'];
+    const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    if (!validExts.includes(ext)) {
+      toast.error('Please upload a CSV or Excel file (.csv, .xlsx, .xls)');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const arr = new Uint8Array(e.target?.result as ArrayBuffer);
+        const wb = XLSX.read(arr, { type: 'array' });
+        const names = wb.SheetNames;
+
+        if (names.length === 1) {
+          processSheet(wb, names[0]);
+        } else {
+          // Use first sheet by default for simplicity
+          processSheet(wb, names[0]);
+          toast.info(`Using first sheet "${names[0]}" (${names.length} sheets found)`);
+        }
+      } catch {
+        toast.error('Error reading file. Please check the format.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-background px-2 text-muted-foreground">or import from file</span>
+        </div>
+      </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".csv,.xlsx,.xls"
+        className="hidden"
+        onChange={e => {
+          const file = e.target.files?.[0];
+          if (file) handleFile(file);
+          if (fileRef.current) fileRef.current.value = '';
+        }}
+      />
+
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => fileRef.current?.click()}
+        disabled={isProcessing}
+        className="gap-2 w-full h-16 border-dashed"
+      >
+        {isProcessing ? (
+          <>
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            <div className="text-left">
+              <div className="text-sm font-medium">Processing with AI...</div>
+              <div className="text-xs text-muted-foreground">Extracting products from spreadsheet</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <Upload className="h-5 w-5" />
+            <div className="text-left">
+              <div className="text-sm font-medium">Import Products from CSV / Excel</div>
+              <div className="text-xs text-muted-foreground">AI will extract each product automatically</div>
+            </div>
+          </>
+        )}
+      </Button>
+
+      {importedCount > 0 && !isProcessing && (
+        <div className="rounded-lg bg-success/10 border border-success/20 p-3 flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-success" />
+          <span className="text-sm text-success font-medium">
+            {importedCount} products imported successfully
+          </span>
+        </div>
+      )}
     </div>
   );
 }
