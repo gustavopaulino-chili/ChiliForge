@@ -1,9 +1,9 @@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { BusinessFormData } from '@/types/businessForm';
 import { Plus, X } from 'lucide-react';
+import { FieldLabel } from './FieldLabel';
 
 interface Props {
   data: BusinessFormData;
@@ -36,7 +36,9 @@ export function StepServices({ data, onChange }: Props) {
 
       <div className="space-y-4">
         <div>
-          <Label>Services / Products *</Label>
+          <FieldLabel required hint="List each service or product your business offers. Each one will get its own section on the website.">
+            Services / Products
+          </FieldLabel>
           <div className="space-y-2 mt-1.5">
             {data.services.map((s, i) => (
               <div key={i} className="flex gap-2">
@@ -59,7 +61,9 @@ export function StepServices({ data, onChange }: Props) {
         </div>
 
         <div>
-          <Label htmlFor="valueProposition">Main Value Proposition *</Label>
+          <FieldLabel htmlFor="valueProposition" required hint="The main benefit or promise your business delivers. What's the #1 reason customers choose you? e.g. 'We build websites 3x faster at half the cost.'">
+            Main Value Proposition
+          </FieldLabel>
           <Textarea
             id="valueProposition"
             value={data.valueProposition}
@@ -71,7 +75,9 @@ export function StepServices({ data, onChange }: Props) {
         </div>
 
         <div>
-          <Label>Key Differentiators</Label>
+          <FieldLabel hint="What makes you different from competitors? e.g. '10+ years experience', 'Award-winning team', '24/7 support'. Each one will be highlighted on the website.">
+            Key Differentiators
+          </FieldLabel>
           <div className="space-y-2 mt-1.5">
             {data.differentiators.map((d, i) => (
               <div key={i} className="flex gap-2">

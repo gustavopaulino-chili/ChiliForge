@@ -1,6 +1,6 @@
-import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { BusinessFormData, STYLE_OPTIONS } from '@/types/businessForm';
+import { FieldLabel } from './FieldLabel';
 
 interface Props {
   data: BusinessFormData;
@@ -16,9 +16,10 @@ export function StepBrand({ data, onChange }: Props) {
       </div>
 
       <div className="space-y-4">
-        {/* Style selection */}
         <div>
-          <Label>Preferred Style *</Label>
+          <FieldLabel required hint="Choose the visual style that best represents your brand. This affects typography, spacing, colors, and overall layout feel.">
+            Preferred Style
+          </FieldLabel>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
             {STYLE_OPTIONS.map(opt => (
               <button
@@ -38,10 +39,11 @@ export function StepBrand({ data, onChange }: Props) {
           </div>
         </div>
 
-        {/* Colors */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="primaryColor">Primary Color</Label>
+            <FieldLabel htmlFor="primaryColor" hint="The main brand color used for buttons, links, and key UI elements. Pick a color that represents your brand identity.">
+              Primary Color
+            </FieldLabel>
             <div className="flex gap-2 mt-1.5">
               <input
                 type="color"
@@ -58,7 +60,9 @@ export function StepBrand({ data, onChange }: Props) {
             </div>
           </div>
           <div>
-            <Label htmlFor="secondaryColor">Secondary Color</Label>
+            <FieldLabel htmlFor="secondaryColor" hint="A complementary color used for accents, gradients, and secondary elements. Should pair well with the primary color.">
+              Secondary Color
+            </FieldLabel>
             <div className="flex gap-2 mt-1.5">
               <input
                 type="color"

@@ -1,9 +1,9 @@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { BusinessFormData, FeatureItem, PricingPlan } from '@/types/businessForm';
 import { Plus, X, Zap, CreditCard } from 'lucide-react';
+import { FieldLabel } from './FieldLabel';
 
 interface Props {
   data: BusinessFormData;
@@ -61,15 +61,21 @@ export function StepFeatures({ data, onChange }: Props) {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs text-muted-foreground">Feature Name *</Label>
+                <FieldLabel className="text-xs text-muted-foreground" required hint="A short, catchy name for this feature (e.g. 'Real-time Analytics', 'Team Collaboration').">
+                  Feature Name
+                </FieldLabel>
                 <Input value={f.name} onChange={e => updateFeature(i, 'name', e.target.value)} placeholder="Feature name" className="mt-1" />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Icon (emoji or name)</Label>
+                <FieldLabel className="text-xs text-muted-foreground" hint="An emoji or icon name to visually represent this feature (e.g. 🚀, 📊, ⚡).">
+                  Icon (emoji or name)
+                </FieldLabel>
                 <Input value={f.icon} onChange={e => updateFeature(i, 'icon', e.target.value)} placeholder="🚀 or icon-name" className="mt-1" />
               </div>
               <div className="col-span-2">
-                <Label className="text-xs text-muted-foreground">Description</Label>
+                <FieldLabel className="text-xs text-muted-foreground" hint="A 1-2 sentence explanation of what this feature does and how it benefits the user.">
+                  Description
+                </FieldLabel>
                 <Textarea value={f.description} onChange={e => updateFeature(i, 'description', e.target.value)} placeholder="Feature description" rows={2} className="mt-1" />
               </div>
             </div>
@@ -103,16 +109,22 @@ export function StepFeatures({ data, onChange }: Props) {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs text-muted-foreground">Plan Name *</Label>
+                <FieldLabel className="text-xs text-muted-foreground" required hint="The name of this pricing tier (e.g. 'Free', 'Pro', 'Enterprise').">
+                  Plan Name
+                </FieldLabel>
                 <Input value={plan.name} onChange={e => updatePlan(i, 'name', e.target.value)} placeholder="e.g. Pro" className="mt-1" />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Price *</Label>
+                <FieldLabel className="text-xs text-muted-foreground" required hint="The price for this plan including billing period (e.g. '$29/mo', '$299/year', 'Free').">
+                  Price
+                </FieldLabel>
                 <Input value={plan.price} onChange={e => updatePlan(i, 'price', e.target.value)} placeholder="$29/mo" className="mt-1" />
               </div>
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground">Features List</Label>
+              <FieldLabel className="text-xs text-muted-foreground" hint="List what's included in this plan. Each feature appears as a bullet point on the pricing card.">
+                Features List
+              </FieldLabel>
               <div className="space-y-2 mt-1">
                 {plan.features.map((feat, fi) => (
                   <div key={fi} className="flex gap-2">
