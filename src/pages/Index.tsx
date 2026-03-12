@@ -48,9 +48,20 @@ function getSteps(websiteType: WebsiteType): StepDef[] {
   return base;
 }
 
+const STORAGE_KEY = 'siteforge_progress';
+
+const loadSavedProgress = () => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return null;
+};
+
 const Index = () => {
-  const [currentStep, setCurrentStep] = useState(0);
-  const [formData, setFormData] = useState<BusinessFormData>(defaultFormData);
+  const saved = useMemo(() => loadSavedProgress(), []);
+  const [currentStep, setCurrentStep] = useState(saved?.currentStep ?? 0);
+  const [formData, setFormData] = useState<BusinessFormData>(saved?.formData ?? defaultFormData);
   const [showResults, setShowResults] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
@@ -65,6 +76,11 @@ const Index = () => {
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
+  // Persist progress to localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentStep, formData }));
+  }, [currentStep, formData]);
+
   const steps = useMemo(() => getSteps(formData.websiteType), [formData.websiteType]);
 
   const updateForm = (updates: Partial<BusinessFormData>) => {
