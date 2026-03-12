@@ -13,7 +13,7 @@ import { StepFeatures } from '@/components/generator/StepFeatures';
 import { StepCourses } from '@/components/generator/StepCourses';
 import { StepReview } from '@/components/generator/StepReview';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -71,6 +71,11 @@ const Index = () => {
   const [generationStatus, setGenerationStatus] = useState('');
   const [generationProgress, setGenerationProgress] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const getLovableUrl = useCallback(() => {
+    return `https://lovable.dev/?autosubmit=true#prompt=${encodeURIComponent(generatePrompt(formData, generatedImages))}`;
+  }, [formData, generatedImages]);
 
   // Reactive gradient mouse tracker
   useEffect(() => {
@@ -296,18 +301,24 @@ const Index = () => {
             </Button>
             <div className="ml-auto flex gap-3">
               <Button variant="outline" size="lg" onClick={handleCopy} className="gap-2">
-                <Copy className="h-4 w-4" /> {copied ? 'Copied!' : 'Copy Prompt'}
+                <Copy className="h-4 w-4" /> {copied ? 'Copiado!' : 'Copiar Prompt'}
+              </Button>
+              <Button variant="outline" size="lg" onClick={() => {
+                navigator.clipboard.writeText(getLovableUrl());
+                setCopiedLink(true);
+                setTimeout(() => setCopiedLink(false), 2000);
+                toast.success('Link copiado!');
+              }} className="gap-2">
+                {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+                {copiedLink ? 'Copiado!' : 'Copiar Link'}
               </Button>
               <Button
                 variant="gradient"
                 size="lg"
-                onClick={() => {
-                  const url = `https://lovable.dev/?autosubmit=true#prompt=${encodeURIComponent(prompt)}`;
-                  window.open(url, '_blank');
-                }}
+                onClick={() => window.open(getLovableUrl(), '_blank')}
                 className="gap-2"
               >
-                <ExternalLink className="h-4 w-4" /> Open in Lovable
+                <ExternalLink className="h-4 w-4" /> Abrir no Lovable
               </Button>
             </div>
           </div>
