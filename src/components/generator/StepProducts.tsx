@@ -291,6 +291,7 @@ function ProductCsvImport({ products, onChange }: { products: ProductItem[]; onC
         variants: typeof p.variants === 'string' && p.variants
           ? [{ name: 'Variants', values: p.variants.split(',').map((v: string) => v.trim()) }]
           : [],
+        inputs: [],
       }));
 
       // Remove empty placeholder products, then append imported ones
