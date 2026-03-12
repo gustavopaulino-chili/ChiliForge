@@ -151,6 +151,15 @@ export function StepProducts({ data, onChange }: Props) {
                         placeholder="Variant name (e.g. Size, Color)"
                         className="h-8 text-sm"
                       />
+                      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" title="Salvar variante"
+                        onClick={() => {
+                          if (!variant.name.trim()) { toast.error('Dê um nome à variante antes de salvar'); return; }
+                          saveVariant(variant);
+                          refreshSaved();
+                          toast.success(`Variante "${variant.name}" salva!`);
+                        }}>
+                        <BookmarkPlus className="h-3.5 w-3.5 text-primary" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => {
                         const newVariants = p.variants.filter((_, idx) => idx !== vIdx);
                         update(i, 'variants', newVariants);
