@@ -50,7 +50,7 @@
       transparent 100%
     );
 
-    --shadow-glow: 0 0 40px -10px hsl(217 91% 60% / 0.3);
+    --shadow-glow: 0 0 40px -10px hsl(359 100% 60% / 0.3);
     --shadow-card: 0 4px 24px -4px hsl(225 25% 2% / 0.5);
 
     --font-display: 'Space Grotesk', system-ui, sans-serif;
