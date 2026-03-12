@@ -48,9 +48,20 @@ function getSteps(websiteType: WebsiteType): StepDef[] {
   return base;
 }
 
+const STORAGE_KEY = 'siteforge_progress';
+
+const loadSavedProgress = () => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return null;
+};
+
 const Index = () => {
-  const [currentStep, setCurrentStep] = useState(0);
-  const [formData, setFormData] = useState<BusinessFormData>(defaultFormData);
+  const saved = useMemo(() => loadSavedProgress(), []);
+  const [currentStep, setCurrentStep] = useState(saved?.currentStep ?? 0);
+  const [formData, setFormData] = useState<BusinessFormData>(saved?.formData ?? defaultFormData);
   const [showResults, setShowResults] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
