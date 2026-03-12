@@ -74,7 +74,8 @@ const Index = () => {
   const [copiedLink, setCopiedLink] = useState(false);
 
   const getLovableUrl = useCallback(() => {
-    return `https://lovable.dev/?autosubmit=true#prompt=${encodeURIComponent(generatePrompt(formData, generatedImages))}`;
+    const promptText = generatePrompt(formData, generatedImages);
+    return `https://lovable.dev/projects/create#prompt=${encodeURIComponent(promptText)}`;
   }, [formData, generatedImages]);
 
   // Reactive gradient mouse tracker
@@ -312,14 +313,15 @@ const Index = () => {
                 {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
                 {copiedLink ? 'Copiado!' : 'Copiar Link'}
               </Button>
-              <Button
-                variant="gradient"
-                size="lg"
-                onClick={() => window.open(getLovableUrl(), '_blank')}
-                className="gap-2"
+              <a
+                href={getLovableUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
               >
-                <ExternalLink className="h-4 w-4" /> Abrir no Lovable
-              </Button>
+                <Button variant="gradient" size="lg" className="gap-2">
+                  <ExternalLink className="h-4 w-4" /> Abrir no Lovable
+                </Button>
+              </a>
             </div>
           </div>
         </main>
