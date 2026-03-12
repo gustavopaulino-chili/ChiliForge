@@ -1,7 +1,18 @@
 export type WebsiteType = 'corporate' | 'landing' | 'ecommerce' | 'portfolio' | 'saas' | 'blog' | 'educational';
 
+export type VariantType = 'select' | 'counter' | 'text' | 'color' | 'boolean';
+
+export const VARIANT_TYPES: { value: VariantType; label: string; desc: string }[] = [
+  { value: 'select', label: 'Seleção', desc: 'Opções pré-definidas (ex: Tamanho, Cor)' },
+  { value: 'counter', label: 'Quantidade', desc: 'Campo numérico com contador +/-' },
+  { value: 'text', label: 'Texto livre', desc: 'Campo de digitação livre (ex: Gravação, Dedicatória)' },
+  { value: 'color', label: 'Cor', desc: 'Seletor de cores com amostras visuais' },
+  { value: 'boolean', label: 'Sim/Não', desc: 'Toggle liga/desliga (ex: Embrulho p/ presente)' },
+];
+
 export interface ProductVariant {
   name: string;
+  type: VariantType;
   values: string[];
 }
 

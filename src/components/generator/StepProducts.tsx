@@ -3,8 +3,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { BusinessFormData, ProductItem, ProductVariant } from '@/types/businessForm';
-import { Plus, X, ShoppingCart, DollarSign, Upload, FileSpreadsheet, Loader2, Sparkles, Check, Tag, Save, BookmarkPlus, Bookmark } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { BusinessFormData, ProductItem, ProductVariant, VariantType, VARIANT_TYPES } from '@/types/businessForm';
+import { Plus, X, ShoppingCart, DollarSign, Upload, FileSpreadsheet, Loader2, Sparkles, Check, Tag, Save, BookmarkPlus, Bookmark, Hash, Type, Palette, ToggleLeft } from 'lucide-react';
 import { FieldLabel } from './FieldLabel';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -43,6 +44,17 @@ function saveVariant(variant: ProductVariant) {
 function deleteSavedVariant(name: string) {
   const existing = getSavedVariants().filter(v => v.name !== name);
   localStorage.setItem(SAVED_VARIANTS_KEY, JSON.stringify(existing));
+}
+
+function VariantTypeIcon({ type }: { type: VariantType }) {
+  const cls = "h-3 w-3";
+  switch (type) {
+    case 'select': return <Tag className={cls} />;
+    case 'counter': return <Hash className={cls} />;
+    case 'text': return <Type className={cls} />;
+    case 'color': return <Palette className={cls} />;
+    case 'boolean': return <ToggleLeft className={cls} />;
+  }
 }
 
 export function StepProducts({ data, onChange }: Props) {
@@ -148,9 +160,31 @@ export function StepProducts({ data, onChange }: Props) {
                           newVariants[vIdx] = { ...newVariants[vIdx], name: e.target.value };
                           update(i, 'variants', newVariants);
                         }}
-                        placeholder="Variant name (e.g. Size, Color)"
-                        className="h-8 text-sm"
+                        placeholder="Nome da variante (ex: Tamanho, Cor)"
+                        className="h-8 text-sm flex-1"
                       />
+                      <Select
+                        value={variant.type}
+                        onValueChange={(val: VariantType) => {
+                          const newVariants = [...p.variants];
+                          newVariants[vIdx] = { ...newVariants[vIdx], type: val };
+                          update(i, 'variants', newVariants);
+                        }}
+                      >
+                        <SelectTrigger className="h-8 w-[130px] text-xs shrink-0">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {VARIANT_TYPES.map(vt => (
+                            <SelectItem key={vt.value} value={vt.value}>
+                              <span className="flex items-center gap-1.5">
+                                <VariantTypeIcon type={vt.value} />
+                                {vt.label}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" title="Salvar variante"
                         onClick={() => {
                           if (!variant.name.trim()) { toast.error('Dê um nome à variante antes de salvar'); return; }
@@ -167,45 +201,111 @@ export function StepProducts({ data, onChange }: Props) {
                         <X className="h-3 w-3" />
                       </Button>
                     </div>
-                    <div className="pl-5 space-y-1.5">
-                      {(variant.values.length > 0 ? variant.values : ['']).map((val, valIdx) => (
-                        <div key={valIdx} className="flex items-center gap-2">
+
+                    {/* Type-specific hint */}
+                    <p className="text-[10px] text-muted-foreground pl-5">
+                      {VARIANT_TYPES.find(vt => vt.value === variant.type)?.desc}
+                    </p>
+
+                    {/* Values — only for select and color types */}
+                    {(variant.type === 'select' || variant.type === 'color') && (
+                      <div className="pl-5 space-y-1.5">
+                        {(variant.values.length > 0 ? variant.values : ['']).map((val, valIdx) => (
+                          <div key={valIdx} className="flex items-center gap-2">
+                            {variant.type === 'color' && val && (
+                              <div className="h-5 w-5 rounded-full border border-border shrink-0" style={{ backgroundColor: val }} />
+                            )}
+                            <Input
+                              value={val}
+                              onChange={e => {
+                                const newVariants = [...p.variants];
+                                const newValues = [...(variant.values.length > 0 ? variant.values : [''])];
+                                newValues[valIdx] = e.target.value;
+                                newVariants[vIdx] = { ...newVariants[vIdx], values: newValues };
+                                update(i, 'variants', newVariants);
+                              }}
+                              placeholder={variant.type === 'color' ? '#FF0000 ou Red' : 'Valor (ex: M, G, GG)'}
+                              className="h-7 text-xs"
+                            />
+                            {variant.values.length > 1 && (
+                              <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => {
+                                const newVariants = [...p.variants];
+                                newVariants[vIdx] = { ...newVariants[vIdx], values: variant.values.filter((_, idx) => idx !== valIdx) };
+                                update(i, 'variants', newVariants);
+                              }}>
+                                <X className="h-2.5 w-2.5" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        <Button variant="ghost" size="sm" className="gap-1 text-xs h-6 px-2" onClick={() => {
+                          const newVariants = [...p.variants];
+                          newVariants[vIdx] = { ...newVariants[vIdx], values: [...variant.values, ''] };
+                          update(i, 'variants', newVariants);
+                        }}>
+                          <Plus className="h-2.5 w-2.5" /> Adicionar valor
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Counter type config */}
+                    {variant.type === 'counter' && (
+                      <div className="pl-5 flex items-center gap-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-muted-foreground">Min:</span>
                           <Input
-                            value={val}
+                            value={variant.values[0] || '1'}
                             onChange={e => {
                               const newVariants = [...p.variants];
-                              const newValues = [...variant.values.length > 0 ? variant.values : ['']];
-                              newValues[valIdx] = e.target.value;
+                              const newValues = [...variant.values];
+                              newValues[0] = e.target.value;
                               newVariants[vIdx] = { ...newVariants[vIdx], values: newValues };
                               update(i, 'variants', newVariants);
                             }}
-                            placeholder="Value (e.g. M, Red, 32)"
-                            className="h-7 text-xs"
+                            type="number"
+                            className="h-7 w-16 text-xs"
                           />
-                          {variant.values.length > 1 && (
-                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => {
-                              const newVariants = [...p.variants];
-                              newVariants[vIdx] = { ...newVariants[vIdx], values: variant.values.filter((_, idx) => idx !== valIdx) };
-                              update(i, 'variants', newVariants);
-                            }}>
-                              <X className="h-2.5 w-2.5" />
-                            </Button>
-                          )}
                         </div>
-                      ))}
-                      <Button variant="ghost" size="sm" className="gap-1 text-xs h-6 px-2" onClick={() => {
-                        const newVariants = [...p.variants];
-                        newVariants[vIdx] = { ...newVariants[vIdx], values: [...variant.values, ''] };
-                        update(i, 'variants', newVariants);
-                      }}>
-                        <Plus className="h-2.5 w-2.5" /> Add value
-                      </Button>
-                    </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-muted-foreground">Max:</span>
+                          <Input
+                            value={variant.values[1] || '99'}
+                            onChange={e => {
+                              const newVariants = [...p.variants];
+                              const newValues = [...variant.values];
+                              newValues[1] = e.target.value;
+                              newVariants[vIdx] = { ...newVariants[vIdx], values: newValues };
+                              update(i, 'variants', newVariants);
+                            }}
+                            type="number"
+                            className="h-7 w-16 text-xs"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Text type config */}
+                    {variant.type === 'text' && (
+                      <div className="pl-5">
+                        <Input
+                          value={variant.values[0] || ''}
+                          onChange={e => {
+                            const newVariants = [...p.variants];
+                            newVariants[vIdx] = { ...newVariants[vIdx], values: [e.target.value] };
+                            update(i, 'variants', newVariants);
+                          }}
+                          placeholder="Placeholder do campo (ex: Digite sua mensagem)"
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                    )}
+
+                    {/* Boolean — no extra config needed */}
                   </div>
                 ))}
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => {
-                    update(i, 'variants', [...p.variants, { name: '', values: [''] }]);
+                    update(i, 'variants', [...p.variants, { name: '', type: 'select' as VariantType, values: [''] }]);
                   }}>
                     <Plus className="h-3 w-3" /> Nova Variante
                   </Button>
@@ -337,7 +437,7 @@ function ProductCsvImport({ products, onChange }: { products: ProductItem[]; onC
         sku: p.sku || '',
         category: p.category || '',
         variants: typeof p.variants === 'string' && p.variants
-          ? [{ name: 'Variants', values: p.variants.split(',').map((v: string) => v.trim()) }]
+          ? [{ name: 'Variants', type: 'select' as VariantType, values: p.variants.split(',').map((v: string) => v.trim()) }]
           : [],
         inputs: [],
       }));
