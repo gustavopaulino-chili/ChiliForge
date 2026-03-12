@@ -75,18 +75,6 @@ export function StepBrand({ data, onChange }: Props) {
             </div>
           </div>
         </div>
-
-        {/* Logo */}
-        <div>
-          <Label htmlFor="logoUrl">Logo URL (optional)</Label>
-          <Input
-            id="logoUrl"
-            value={data.logoUrl}
-            onChange={e => onChange({ logoUrl: e.target.value })}
-            placeholder="https://example.com/logo.png"
-            className="mt-1.5"
-          />
-        </div>
       </div>
     </div>
   );
