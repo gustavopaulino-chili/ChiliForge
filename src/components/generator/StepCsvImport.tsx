@@ -2,48 +2,16 @@ import { useState, useRef } from 'react';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { BusinessFormData } from '@/types/businessForm';
-import { Upload, FileSpreadsheet, Check, AlertCircle } from 'lucide-react';
+import { Upload, FileSpreadsheet, Check, AlertCircle, Table } from 'lucide-react';
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
 
 interface Props {
   data: BusinessFormData;
   onChange: (updates: Partial<BusinessFormData>) => void;
 }
 
-function parseCsv(text: string): Record<string, string>[] {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  if (lines.length < 2) return [];
-  
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
-  const rows: Record<string, string>[] = [];
-  
-  for (let i = 1; i < lines.length; i++) {
-    const values: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    
-    for (const char of lines[i]) {
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        values.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    values.push(current.trim());
-    
-    const row: Record<string, string> = {};
-    headers.forEach((h, idx) => {
-      row[h] = values[idx] || '';
-    });
-    rows.push(row);
-  }
-  return rows;
-}
-
-// Map CSV column names to form fields
+// Map CSV/sheet column names to form fields
 const COLUMN_MAP: Record<string, (data: Partial<BusinessFormData>, value: string) => void> = {
   'title': (d, v) => { d.businessName = v; },
   'business name': (d, v) => { d.businessName = v; },
@@ -90,86 +58,134 @@ const COLUMN_MAP: Record<string, (data: Partial<BusinessFormData>, value: string
   'youtube': (d, v) => { if (!d.socialLinks) d.socialLinks = {}; d.socialLinks.youtube = v; },
 };
 
-// Handle services/differentiators which can be multi-value (semicolon separated)
-function mapServicesAndDiffs(rows: Record<string, string>[], updates: Partial<BusinessFormData>) {
+function sheetToRows(sheet: XLSX.WorkSheet): Record<string, string>[] {
+  const json = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: '' });
+  // Normalize keys to lowercase
+  return json.map(row => {
+    const normalized: Record<string, string> = {};
+    for (const [key, value] of Object.entries(row)) {
+      normalized[key.toLowerCase().trim()] = String(value).trim();
+    }
+    return normalized;
+  });
+}
+
+function mapRowToFormData(rows: Record<string, string>[]): { updates: Partial<BusinessFormData>; matched: string[] } {
   const row = rows[0];
-  if (!row) return;
-  
-  const servicesKey = Object.keys(row).find(k => k.toLowerCase().includes('service'));
+  if (!row) return { updates: {}, matched: [] };
+
+  const updates: Partial<BusinessFormData> = {};
+  const matched: string[] = [];
+
+  for (const [col, value] of Object.entries(row)) {
+    if (!value) continue;
+    const mapper = COLUMN_MAP[col];
+    if (mapper) {
+      mapper(updates, value);
+      matched.push(col);
+    }
+  }
+
+  // Services (semicolon separated)
+  const servicesKey = Object.keys(row).find(k => k.includes('service'));
   if (servicesKey && row[servicesKey]) {
     updates.services = row[servicesKey].split(';').map(s => s.trim()).filter(Boolean);
+    matched.push('services');
   }
-  
-  const diffsKey = Object.keys(row).find(k => k.toLowerCase().includes('differentiator'));
+
+  const diffsKey = Object.keys(row).find(k => k.includes('differentiator'));
   if (diffsKey && row[diffsKey]) {
     updates.differentiators = row[diffsKey].split(';').map(s => s.trim()).filter(Boolean);
+    matched.push('differentiators');
   }
+
+  return { updates, matched };
 }
 
 export function StepCsvImport({ data, onChange }: Props) {
   const [imported, setImported] = useState(false);
   const [fieldsFound, setFieldsFound] = useState<string[]>([]);
+  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string>('');
+  const [fileName, setFileName] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = (file: File) => {
-    if (!file.name.endsWith('.csv')) {
-      toast.error('Please upload a CSV file');
+  const processSheet = (wb: XLSX.WorkBook, sheetName: string) => {
+    const sheet = wb.Sheets[sheetName];
+    if (!sheet) return;
+
+    const rows = sheetToRows(sheet);
+    if (rows.length === 0) {
+      toast.error(`Sheet "${sheetName}" has no data rows`);
       return;
     }
+
+    const { updates, matched } = mapRowToFormData(rows);
+    onChange(updates);
+    setFieldsFound(matched);
+    setImported(true);
+    setSelectedSheet(sheetName);
+    toast.success(`Imported ${matched.length} fields from "${sheetName}"`);
+  };
+
+  const handleFile = (file: File) => {
+    const validExts = ['.csv', '.xlsx', '.xls'];
+    const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    if (!validExts.includes(ext)) {
+      toast.error('Please upload a CSV or Excel file (.csv, .xlsx, .xls)');
+      return;
+    }
+
+    setFileName(file.name);
 
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const text = e.target?.result as string;
-        const rows = parseCsv(text);
-        if (rows.length === 0) {
-          toast.error('CSV file is empty or has no data rows');
-          return;
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: 'array' });
+        const names = wb.SheetNames;
+
+        setWorkbook(wb);
+        setSheetNames(names);
+
+        if (names.length === 1) {
+          // Single sheet — process immediately
+          processSheet(wb, names[0]);
+        } else {
+          // Multiple sheets — let user pick
+          setSelectedSheet('');
+          setImported(false);
+          setFieldsFound([]);
+          toast.info(`Found ${names.length} sheets. Select one to import.`);
         }
-
-        const row = rows[0]; // Use first data row
-        const updates: Partial<BusinessFormData> = {};
-        const matched: string[] = [];
-
-        for (const [col, value] of Object.entries(row)) {
-          if (!value) continue;
-          const normalizedCol = col.toLowerCase().trim();
-          const mapper = COLUMN_MAP[normalizedCol];
-          if (mapper) {
-            mapper(updates, value);
-            matched.push(col);
-          }
-        }
-
-        mapServicesAndDiffs(rows, updates);
-        if (updates.services) matched.push('services');
-
-        onChange(updates);
-        setFieldsFound(matched);
-        setImported(true);
-        toast.success(`Imported ${matched.length} fields from CSV`);
       } catch {
-        toast.error('Error parsing CSV file');
+        toast.error('Error parsing file. Please check the format.');
       }
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleSheetSelect = (name: string) => {
+    if (!workbook) return;
+    processSheet(workbook, name);
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="form-section-title">Import from CSV</h3>
-        <p className="form-section-desc">Upload a CSV file to auto-fill the form, or skip to fill manually</p>
+        <h3 className="form-section-title">Import from Spreadsheet</h3>
+        <p className="form-section-desc">Upload a CSV or Excel file to auto-fill the form, or skip to fill manually</p>
       </div>
 
       <div className="space-y-4">
         <div>
-          <Label>CSV File (optional)</Label>
+          <Label>Spreadsheet File (optional)</Label>
           <div className="mt-2">
             <input
               ref={fileRef}
               type="file"
-              accept=".csv"
+              accept=".csv,.xlsx,.xls"
               className="hidden"
               onChange={e => {
                 const file = e.target.files?.[0];
@@ -182,26 +198,56 @@ export function StepCsvImport({ data, onChange }: Props) {
               onClick={() => fileRef.current?.click()}
               className="gap-2 w-full h-24 border-dashed"
             >
-              {imported ? (
+              {fileName ? (
                 <>
-                  <Check className="h-5 w-5 text-success" />
-                  <span>CSV Imported — Click to re-upload</span>
+                  <FileSpreadsheet className="h-5 w-5 text-primary" />
+                  <div className="text-left">
+                    <div className="text-sm font-medium">{fileName}</div>
+                    <div className="text-xs text-muted-foreground">Click to upload a different file</div>
+                  </div>
                 </>
               ) : (
                 <>
                   <Upload className="h-5 w-5" />
-                  <span>Click to upload CSV</span>
+                  <span>Click to upload CSV or Excel file</span>
                 </>
               )}
             </Button>
           </div>
         </div>
 
+        {/* Sheet tabs — shown when file has multiple sheets */}
+        {sheetNames.length > 1 && (
+          <div>
+            <Label className="text-foreground">Select Sheet</Label>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {sheetNames.map(name => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => handleSheetSelect(name)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-all ${
+                    selectedSheet === name
+                      ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary/30'
+                      : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground'
+                  }`}
+                >
+                  <Table className="h-3.5 w-3.5" />
+                  {name}
+                  {selectedSheet === name && <Check className="h-3.5 w-3.5 ml-1" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {imported && fieldsFound.length > 0 && (
           <div className="rounded-lg bg-success/10 border border-success/20 p-4">
             <div className="flex items-center gap-2 mb-2">
               <FileSpreadsheet className="h-4 w-4 text-success" />
-              <span className="text-sm font-medium text-success">Fields imported:</span>
+              <span className="text-sm font-medium text-success">
+                Fields imported from "{selectedSheet}":
+              </span>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {fieldsFound.map(f => (
@@ -215,6 +261,7 @@ export function StepCsvImport({ data, onChange }: Props) {
           <div className="flex items-start gap-2">
             <AlertCircle className="h-4 w-4 text-muted-foreground mt-0.5" />
             <div className="text-xs text-muted-foreground space-y-1">
+              <p><strong>Supported formats:</strong> CSV, XLSX, XLS. If Excel has multiple sheets, you can select which one to import.</p>
               <p><strong>Supported columns:</strong> Title, Description, Category, Target Audience, Email, Phone, City, Country, Services (semicolon-separated), Hero Image 1, Logo URL, and more.</p>
               <p>All imported fields can be edited in the following steps.</p>
             </div>
