@@ -93,7 +93,13 @@ const Index = () => {
     }));
   };
 
-  const next = () => setCurrentStep(s => Math.min(s + 1, steps.length - 1));
+  const next = () => {
+    setCurrentStep(s => {
+      const newStep = Math.min(s + 1, steps.length - 1);
+      setMaxVisitedStep(prev => Math.max(prev, newStep));
+      return newStep;
+    });
+  };
   const prev = () => setCurrentStep(s => Math.max(s - 1, 0));
 
   const currentStepId = steps[currentStep]?.id;
