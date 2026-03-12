@@ -380,7 +380,7 @@ ${categoryHint}
 
 ## Requirements
 Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations, fast loading, strong CTAs.
-${data.generateAiImages ? 'Use AI-generated images for hero/banners.' : ''}
+${data.generateAiImages ? 'Use the AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets to be used behind text overlays or as standalone photos.' : ''}
 
 Generate a polished, production-ready website.`;
 }
