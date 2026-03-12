@@ -37,6 +37,14 @@ export function StepProducts({ data, onChange }: Props) {
         <p className="form-section-desc">Add your products for the online store</p>
       </div>
 
+      <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 p-3">
+        <div className="flex items-center gap-2">
+          <DollarSign className="h-4 w-4 text-muted-foreground" />
+          <Label className="text-sm text-foreground">Show pricing fields</Label>
+        </div>
+        <Switch checked={showPricing} onCheckedChange={setShowPricing} />
+      </div>
+
       <div className="space-y-6">
         {products.map((p, i) => (
           <div key={i} className="rounded-lg border border-border bg-card p-4 space-y-3">
@@ -61,14 +69,18 @@ export function StepProducts({ data, onChange }: Props) {
                 <Label className="text-xs text-muted-foreground">Description</Label>
                 <Textarea value={p.description} onChange={e => update(i, 'description', e.target.value)} placeholder="Product description" rows={2} className="mt-1" />
               </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Price</Label>
-                <Input value={p.price} onChange={e => update(i, 'price', e.target.value)} placeholder="$99.99" className="mt-1" />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Discount Price</Label>
-                <Input value={p.discountPrice} onChange={e => update(i, 'discountPrice', e.target.value)} placeholder="$79.99" className="mt-1" />
-              </div>
+              {showPricing && (
+                <>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Price</Label>
+                    <Input value={p.price} onChange={e => update(i, 'price', e.target.value)} placeholder="$99.99" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Discount Price</Label>
+                    <Input value={p.discountPrice} onChange={e => update(i, 'discountPrice', e.target.value)} placeholder="$79.99" className="mt-1" />
+                  </div>
+                </>
+              )}
               <div>
                 <Label className="text-xs text-muted-foreground">SKU</Label>
                 <Input value={p.sku} onChange={e => update(i, 'sku', e.target.value)} placeholder="SKU-001" className="mt-1" />
