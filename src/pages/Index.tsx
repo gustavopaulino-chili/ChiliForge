@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { BusinessFormData, defaultFormData, WebsiteType } from '@/types/businessForm';
 import { StepIndicator } from '@/components/generator/StepIndicator';
 import { StepCsvImport } from '@/components/generator/StepCsvImport';
