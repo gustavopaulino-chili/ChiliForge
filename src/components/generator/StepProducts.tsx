@@ -4,7 +4,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { BusinessFormData, ProductItem, ProductVariant } from '@/types/businessForm';
-import { Plus, X, ShoppingCart, DollarSign, Upload, FileSpreadsheet, Loader2, Sparkles, Check, Tag } from 'lucide-react';
+import { Plus, X, ShoppingCart, DollarSign, Upload, FileSpreadsheet, Loader2, Sparkles, Check, Tag, Save, BookmarkPlus, Bookmark } from 'lucide-react';
 import { FieldLabel } from './FieldLabel';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
