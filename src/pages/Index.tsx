@@ -133,33 +133,51 @@ const Index = () => {
   };
 
   const handleGenerate = async () => {
+    setIsGenerating(true);
+    setGenerationProgress(0);
+
     if (formData.generateAiImages) {
       setIsGeneratingImages(true);
-      try {
-        const purposes = ['hero banner', 'about section background', 'services section'];
-        const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
+      const purposes = ['hero banner', 'about section background', 'services section'];
+      const purposeLabels = ['Banner principal', 'Imagem da seção Sobre', 'Imagem da seção Serviços'];
+      const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
 
-        // Call sequentially to avoid rate limits
+      try {
         const images: string[] = [];
-        for (const purpose of purposes) {
-          const url = await invokeWithRetry(purpose, referenceUrl);
+        for (let idx = 0; idx < purposes.length; idx++) {
+          setGenerationStatus(`Gerando imagem ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
+          setGenerationProgress(Math.round(((idx) / (purposes.length + 1)) * 100));
+          const url = await invokeWithRetry(purposes[idx], referenceUrl);
           if (url) images.push(url);
         }
 
         setGeneratedImages(images);
+        setGenerationStatus('Montando o prompt final...');
+        setGenerationProgress(90);
+
         if (images.length > 0) {
-          toast.success(`Generated ${images.length} AI images`);
+          toast.success(`${images.length} imagens AI geradas com sucesso`);
         } else {
-          toast.error('Could not generate AI images. Try again in a moment.');
+          toast.error('Não foi possível gerar imagens. Tente novamente.');
         }
       } catch (err) {
         console.error('Image generation error:', err);
-        toast.error('Some AI images could not be generated');
+        toast.error('Erro ao gerar imagens AI');
       } finally {
         setIsGeneratingImages(false);
       }
+    } else {
+      setGenerationStatus('Montando o prompt...');
+      setGenerationProgress(50);
     }
 
+    // Small delay for UX
+    await new Promise(r => setTimeout(r, 600));
+    setGenerationProgress(100);
+    setGenerationStatus('Pronto!');
+    await new Promise(r => setTimeout(r, 400));
+
+    setIsGenerating(false);
     setShowResults(true);
   };
 
