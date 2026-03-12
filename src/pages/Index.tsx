@@ -77,7 +77,7 @@ const Index = () => {
     if (formData.generateAiImages) {
       setIsGeneratingImages(true);
       try {
-        const purposes = ['hero banner', 'about section background', 'marketing visual'];
+        const purposes = ['hero banner', 'about section background', 'services section'];
         const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
         
         const results = await Promise.allSettled(
@@ -87,6 +87,9 @@ const Index = () => {
                 referenceImageUrl: referenceUrl,
                 style: formData.preferredStyle,
                 businessName: formData.businessName,
+                businessDescription: formData.businessDescription,
+                businessCategory: formData.businessCategory,
+                websiteType: formData.websiteType,
                 purpose,
               },
             })
@@ -377,7 +380,7 @@ ${categoryHint}
 
 ## Requirements
 Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations, fast loading, strong CTAs.
-${data.generateAiImages ? 'Use AI-generated images for hero/banners.' : ''}
+${data.generateAiImages ? 'Use the AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets to be used behind text overlays or as standalone photos.' : ''}
 
 Generate a polished, production-ready website.`;
 }
