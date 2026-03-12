@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { BusinessFormData, defaultFormData, WebsiteType } from '@/types/businessForm';
 import { StepIndicator } from '@/components/generator/StepIndicator';
 import { StepCsvImport } from '@/components/generator/StepCsvImport';
@@ -56,6 +56,15 @@ const Index = () => {
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
 
+  // Reactive gradient mouse tracker
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
+      document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
   const steps = useMemo(() => getSteps(formData.websiteType), [formData.websiteType]);
 
   const updateForm = (updates: Partial<BusinessFormData>) => {
@@ -129,9 +138,10 @@ const Index = () => {
   // Results view
   if (showResults) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background relative">
+        <div className="reactive-bg" />
         <Header />
-        <main className="mx-auto max-w-4xl px-6 py-8">
+        <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
           <div className="text-center mb-8">
             <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-success/10 mb-4">
               <Sparkles className="h-8 w-8 text-success" />
@@ -203,9 +213,10 @@ const Index = () => {
 
   // Form view
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background relative">
+      <div className="reactive-bg" />
       <Header />
-      <main className="mx-auto max-w-4xl px-6 py-8">
+      <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
         <div className="mb-10 text-center">
           <h2 className="font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
             Generate Your Website
@@ -264,7 +275,7 @@ const Index = () => {
 
 function Header() {
   return (
-    <header className="border-b border-border/50 px-6 py-4">
+    <header className="border-b border-border/50 px-6 py-4 relative z-10">
       <div className="mx-auto max-w-6xl flex items-center gap-3">
         <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
           <Sparkles className="h-4 w-4 text-primary-foreground" />
