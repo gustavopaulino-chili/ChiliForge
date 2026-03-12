@@ -126,9 +126,11 @@
   }
 
   .glass-card {
-    background: hsl(var(--card) / 0.8);
-    backdrop-filter: blur(12px);
-    border: 1px solid hsl(var(--border));
+    background: hsl(var(--card) / 0.4);
+    backdrop-filter: blur(20px) saturate(1.4);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    border: 1px solid hsl(var(--border) / 0.4);
+    box-shadow: 0 8px 32px hsl(225 25% 2% / 0.3), inset 0 1px 0 hsl(var(--foreground) / 0.05);
   }
 
   .glow-effect {
