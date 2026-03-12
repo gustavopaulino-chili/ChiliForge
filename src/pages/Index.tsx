@@ -1,47 +1,121 @@
-import { useState } from 'react';
-import { BusinessFormData, defaultFormData } from '@/types/businessForm';
+import { useState, useMemo } from 'react';
+import { BusinessFormData, defaultFormData, WebsiteType } from '@/types/businessForm';
 import { StepIndicator } from '@/components/generator/StepIndicator';
+import { StepCsvImport } from '@/components/generator/StepCsvImport';
+import { StepWebsiteType } from '@/components/generator/StepWebsiteType';
 import { StepBasics } from '@/components/generator/StepBasics';
 import { StepServices } from '@/components/generator/StepServices';
 import { StepBrand } from '@/components/generator/StepBrand';
+import { StepImages } from '@/components/generator/StepImages';
 import { StepContact } from '@/components/generator/StepContact';
+import { StepProducts } from '@/components/generator/StepProducts';
+import { StepFeatures } from '@/components/generator/StepFeatures';
+import { StepCourses } from '@/components/generator/StepCourses';
 import { StepReview } from '@/components/generator/StepReview';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-const STEPS = [
-  { id: 'basics', label: 'Business Basics' },
-  { id: 'services', label: 'Services' },
-  { id: 'brand', label: 'Brand' },
-  { id: 'contact', label: 'Contact' },
-  { id: 'review', label: 'Review' },
-];
+type StepDef = { id: string; label: string };
+
+function getSteps(websiteType: WebsiteType): StepDef[] {
+  const base: StepDef[] = [
+    { id: 'csv', label: 'Import' },
+    { id: 'type', label: 'Type' },
+    { id: 'basics', label: 'Basics' },
+    { id: 'services', label: 'Services' },
+  ];
+
+  // Type-specific steps
+  if (websiteType === 'ecommerce') {
+    base.push({ id: 'products', label: 'Products' });
+  }
+  if (websiteType === 'saas') {
+    base.push({ id: 'features', label: 'Features & Pricing' });
+  }
+  if (websiteType === 'educational') {
+    base.push({ id: 'courses', label: 'Courses' });
+  }
+
+  base.push(
+    { id: 'brand', label: 'Brand' },
+    { id: 'images', label: 'Images' },
+    { id: 'contact', label: 'Contact' },
+    { id: 'review', label: 'Review' },
+  );
+
+  return base;
+}
 
 const Index = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<BusinessFormData>(defaultFormData);
   const [showResults, setShowResults] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isGeneratingImages, setIsGeneratingImages] = useState(false);
+  const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+
+  const steps = useMemo(() => getSteps(formData.websiteType), [formData.websiteType]);
 
   const updateForm = (updates: Partial<BusinessFormData>) => {
     setFormData(prev => ({ ...prev, ...updates }));
   };
 
-  const next = () => setCurrentStep(s => Math.min(s + 1, STEPS.length - 1));
+  const next = () => setCurrentStep(s => Math.min(s + 1, steps.length - 1));
   const prev = () => setCurrentStep(s => Math.max(s - 1, 0));
 
-  const prompt = generatePrompt(formData);
+  const currentStepId = steps[currentStep]?.id;
+
+  const handleGenerate = async () => {
+    // If AI images enabled, generate them first
+    if (formData.generateAiImages) {
+      setIsGeneratingImages(true);
+      try {
+        const purposes = ['hero banner', 'about section background', 'marketing visual'];
+        const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
+        
+        const results = await Promise.allSettled(
+          purposes.map(purpose =>
+            supabase.functions.invoke('generate-images', {
+              body: {
+                referenceImageUrl: referenceUrl,
+                style: formData.preferredStyle,
+                businessName: formData.businessName,
+                purpose,
+              },
+            })
+          )
+        );
+
+        const images: string[] = [];
+        for (const result of results) {
+          if (result.status === 'fulfilled' && result.value.data?.imageUrl) {
+            images.push(result.value.data.imageUrl);
+          }
+        }
+        setGeneratedImages(images);
+        if (images.length > 0) {
+          toast.success(`Generated ${images.length} AI images`);
+        }
+      } catch (err) {
+        console.error('Image generation error:', err);
+        toast.error('Some AI images could not be generated');
+      } finally {
+        setIsGeneratingImages(false);
+      }
+    }
+
+    setShowResults(true);
+  };
+
+  const prompt = generatePrompt(formData, generatedImages);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(prompt);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     toast.success('Prompt copied! Paste it into a new Lovable project.');
-  };
-
-  const handleGenerate = () => {
-    setShowResults(true);
   };
 
   // Results view
@@ -62,7 +136,17 @@ const Index = () => {
             </p>
           </div>
 
-          {/* Prompt section */}
+          {generatedImages.length > 0 && (
+            <div className="glass-card rounded-xl p-6 mb-6">
+              <h3 className="form-section-title mb-3">AI Generated Images</h3>
+              <div className="grid grid-cols-3 gap-3">
+                {generatedImages.map((img, i) => (
+                  <img key={i} src={img} alt={`AI generated ${i + 1}`} className="rounded-lg w-full h-32 object-cover" />
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="glass-card rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="form-section-title">Generated Lovable Prompt</h3>
@@ -76,7 +160,6 @@ const Index = () => {
             </pre>
           </div>
 
-          {/* How to use */}
           <div className="glass-card rounded-xl p-6 mt-6">
             <h3 className="form-section-title mb-3">Next Steps</h3>
             <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside">
@@ -87,7 +170,6 @@ const Index = () => {
             </ol>
           </div>
 
-          {/* Actions */}
           <div className="mt-6 flex gap-3">
             <Button variant="ghost" onClick={() => setShowResults(false)} className="gap-2">
               <ArrowLeft className="h-4 w-4" /> Edit Details
@@ -99,10 +181,7 @@ const Index = () => {
               <Button
                 variant="gradient"
                 size="lg"
-                onClick={() => {
-                  handleCopy();
-                  window.open('https://lovable.dev', '_blank');
-                }}
+                onClick={() => { handleCopy(); window.open('https://lovable.dev', '_blank'); }}
                 className="gap-2"
               >
                 <ExternalLink className="h-4 w-4" /> Copy & Open Lovable
@@ -129,14 +208,20 @@ const Index = () => {
           </p>
         </div>
 
-        <StepIndicator steps={STEPS} currentStep={currentStep} />
+        <StepIndicator steps={steps} currentStep={currentStep} />
 
-        <div className="mt-8 glass-card rounded-xl p-6 sm:p-8 animate-in-up" key={currentStep}>
-          {currentStep === 0 && <StepBasics data={formData} onChange={updateForm} />}
-          {currentStep === 1 && <StepServices data={formData} onChange={updateForm} />}
-          {currentStep === 2 && <StepBrand data={formData} onChange={updateForm} />}
-          {currentStep === 3 && <StepContact data={formData} onChange={updateForm} />}
-          {currentStep === 4 && <StepReview data={formData} />}
+        <div className="mt-8 glass-card rounded-xl p-6 sm:p-8 animate-in-up" key={currentStepId}>
+          {currentStepId === 'csv' && <StepCsvImport data={formData} onChange={updateForm} />}
+          {currentStepId === 'type' && <StepWebsiteType data={formData} onChange={updateForm} />}
+          {currentStepId === 'basics' && <StepBasics data={formData} onChange={updateForm} />}
+          {currentStepId === 'services' && <StepServices data={formData} onChange={updateForm} />}
+          {currentStepId === 'products' && <StepProducts data={formData} onChange={updateForm} />}
+          {currentStepId === 'features' && <StepFeatures data={formData} onChange={updateForm} />}
+          {currentStepId === 'courses' && <StepCourses data={formData} onChange={updateForm} />}
+          {currentStepId === 'brand' && <StepBrand data={formData} onChange={updateForm} />}
+          {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} />}
+          {currentStepId === 'contact' && <StepContact data={formData} onChange={updateForm} />}
+          {currentStepId === 'review' && <StepReview data={formData} />}
         </div>
 
         <div className="mt-6 flex justify-between">
@@ -144,7 +229,7 @@ const Index = () => {
             <ArrowLeft className="h-4 w-4" /> Back
           </Button>
 
-          {currentStep < STEPS.length - 1 ? (
+          {currentStep < steps.length - 1 ? (
             <Button onClick={next} className="gap-2">
               Next <ArrowRight className="h-4 w-4" />
             </Button>
@@ -153,9 +238,14 @@ const Index = () => {
               variant="gradient"
               size="lg"
               onClick={handleGenerate}
+              disabled={isGeneratingImages}
               className="gap-2"
             >
-              <Sparkles className="h-4 w-4" /> Generate Prompt
+              {isGeneratingImages ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Generating Images...</>
+              ) : (
+                <><Sparkles className="h-4 w-4" /> Generate Prompt</>
+              )}
             </Button>
           )}
         </div>
@@ -179,16 +269,84 @@ function Header() {
   );
 }
 
-function generatePrompt(data: BusinessFormData): string {
+function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
   const servicesText = data.services.filter(Boolean).join(', ');
   const diffsText = data.differentiators.filter(Boolean).join(', ');
   const socialText = Object.entries(data.socialLinks)
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}: ${v}`)
     .join(', ');
-  const categoryHint = getCategoryLayout(data.businessCategory);
+  const categoryHint = getCategoryLayout(data.websiteType, data.businessCategory);
 
-  return `Create a professional, conversion-focused ${data.preferredStyle} website for "${data.businessName}".
+  // Images section
+  const imgLines: string[] = [];
+  if (data.images.logoUrl) imgLines.push(`- Logo: ${data.images.logoUrl}`);
+  if (data.images.heroImage1) imgLines.push(`- Hero Image 1: ${data.images.heroImage1}`);
+  if (data.images.heroImage2) imgLines.push(`- Hero Image 2: ${data.images.heroImage2}`);
+  if (data.images.brandImage) imgLines.push(`- Brand Image: ${data.images.brandImage}`);
+  if (data.images.sectionImage1) imgLines.push(`- Section Image 1: ${data.images.sectionImage1}`);
+  if (data.images.sectionImage2) imgLines.push(`- Section Image 2: ${data.images.sectionImage2}`);
+  if (data.images.sectionImage3) imgLines.push(`- Section Image 3: ${data.images.sectionImage3}`);
+  data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`- Product Image ${i + 1}: ${img}`));
+  aiImages.forEach((img, i) => imgLines.push(`- AI Generated Image ${i + 1}: ${img}`));
+
+  let typeSpecific = '';
+
+  if (data.websiteType === 'ecommerce' && data.products.length > 0) {
+    const prods = data.products.filter(p => p.name);
+    if (prods.length > 0) {
+      typeSpecific += `\n\n## Products\n`;
+      prods.forEach(p => {
+        typeSpecific += `### ${p.name}\n`;
+        if (p.description) typeSpecific += `${p.description}\n`;
+        if (p.price) typeSpecific += `- Price: ${p.price}\n`;
+        if (p.discountPrice) typeSpecific += `- Discount: ${p.discountPrice}\n`;
+        if (p.sku) typeSpecific += `- SKU: ${p.sku}\n`;
+        if (p.category) typeSpecific += `- Category: ${p.category}\n`;
+        if (p.variants) typeSpecific += `- Variants: ${p.variants}\n`;
+      });
+      typeSpecific += `\nInclude: Product Page, Product Listing, Cart, Checkout pages.`;
+    }
+  }
+
+  if (data.websiteType === 'saas') {
+    const feats = data.features.filter(f => f.name);
+    if (feats.length > 0) {
+      typeSpecific += `\n\n## Features\n`;
+      feats.forEach(f => {
+        typeSpecific += `- ${f.icon ? f.icon + ' ' : ''}**${f.name}**: ${f.description}\n`;
+      });
+    }
+    const plans = data.pricingPlans.filter(p => p.name);
+    if (plans.length > 0) {
+      typeSpecific += `\n\n## Pricing Plans\n`;
+      plans.forEach(p => {
+        typeSpecific += `### ${p.name} — ${p.price}\n`;
+        p.features.filter(Boolean).forEach(f => { typeSpecific += `- ${f}\n`; });
+      });
+    }
+  }
+
+  if (data.websiteType === 'educational') {
+    const courses = data.courses.filter(c => c.title);
+    if (courses.length > 0) {
+      typeSpecific += `\n\n## Courses\n`;
+      courses.forEach(c => {
+        typeSpecific += `### ${c.title}\n`;
+        if (c.instructor) typeSpecific += `- Instructor: ${c.instructor}\n`;
+        if (c.price) typeSpecific += `- Price: ${c.price}\n`;
+        if (c.description) typeSpecific += `${c.description}\n`;
+        if (c.modules) typeSpecific += `- Modules:\n${c.modules.split('\n').map(m => `  - ${m}`).join('\n')}\n`;
+      });
+    }
+  }
+
+  const websiteTypeLabel = data.websiteType === 'landing' ? 'landing page' :
+    data.websiteType === 'ecommerce' ? 'e-commerce website' :
+    data.websiteType === 'educational' ? 'educational/course platform' :
+    `${data.websiteType} website`;
+
+  return `Create a professional, conversion-focused ${data.preferredStyle} ${websiteTypeLabel} for "${data.businessName}".
 
 ## Business Overview
 ${data.businessDescription}
@@ -209,13 +367,14 @@ ${diffsText}
 - Style: ${data.preferredStyle}
 - Primary Color: ${data.primaryColor}
 - Secondary Color: ${data.secondaryColor}
-${data.logoUrl ? `- Logo: ${data.logoUrl}` : ''}
+${imgLines.length > 0 ? '\n## Images\n' + imgLines.join('\n') : ''}
 
 ## Contact Information
 - Email: ${data.email}
 ${data.phone ? `- Phone: ${data.phone}` : ''}
 ${data.whatsapp ? `- WhatsApp: ${data.whatsapp}` : ''}
 ${socialText ? `- Social: ${socialText}` : ''}
+${typeSpecific}
 
 ## Website Structure
 ${categoryHint}
@@ -229,19 +388,72 @@ ${categoryHint}
 - Smooth scroll animations
 - Mobile-first approach
 - Fast loading, clean code
+${data.generateAiImages ? '- Use the provided AI-generated images for hero sections, banners, and marketing visuals' : ''}
 
 Generate a polished, production-ready website that feels custom-designed.`;
 }
 
-function getCategoryLayout(category: string): string {
-  if (category.includes('E-commerce') || category.includes('Retail')) {
+function getCategoryLayout(websiteType: WebsiteType, category: string): string {
+  if (websiteType === 'ecommerce') {
     return `1. Hero with strong CTA
 2. Featured Products / Highlights
-3. Benefits / Why Choose Us
-4. Product Categories
+3. Product Categories
+4. Benefits / Why Choose Us
 5. Testimonials
 6. CTA Section
-7. Contact / Footer`;
+7. Product Listing Page
+8. Product Detail Page
+9. Cart Page
+10. Checkout Page
+11. Contact / Footer`;
+  }
+  if (websiteType === 'saas') {
+    return `1. Hero Section with headline & CTA
+2. Trusted By / Social Proof
+3. Features Overview
+4. Feature Deep Dives
+5. Pricing Section
+6. FAQ
+7. Testimonials
+8. CTA Section
+9. Footer`;
+  }
+  if (websiteType === 'educational') {
+    return `1. Hero Section
+2. Featured Courses
+3. Course Catalog
+4. How It Works
+5. Instructor Profiles
+6. Student Testimonials
+7. Pricing / Enrollment CTA
+8. FAQ
+9. Footer`;
+  }
+  if (websiteType === 'landing') {
+    return `1. Hero with compelling headline & CTA
+2. Problem / Pain Points
+3. Solution / How It Works
+4. Benefits
+5. Social Proof / Testimonials
+6. Final CTA
+7. Footer`;
+  }
+  if (websiteType === 'portfolio') {
+    return `1. Hero / Introduction
+2. Selected Work / Projects Gallery
+3. About / Bio
+4. Skills / Expertise
+5. Testimonials
+6. Contact
+7. Footer`;
+  }
+  if (websiteType === 'blog') {
+    return `1. Hero / Featured Post
+2. Recent Articles Grid
+3. Categories
+4. Newsletter Signup
+5. About
+6. Footer`;
   }
   if (category.includes('Restaurant') || category.includes('Food')) {
     return `1. Hero with ambiance imagery
