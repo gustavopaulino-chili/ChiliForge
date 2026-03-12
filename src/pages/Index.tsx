@@ -61,6 +61,7 @@ const loadSavedProgress = () => {
 const Index = () => {
   const saved = useMemo(() => loadSavedProgress(), []);
   const [currentStep, setCurrentStep] = useState(saved?.currentStep ?? 0);
+  const [maxVisitedStep, setMaxVisitedStep] = useState(saved?.maxVisitedStep ?? 0);
   const [formData, setFormData] = useState<BusinessFormData>(saved?.formData ?? defaultFormData);
   const [showResults, setShowResults] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -78,7 +79,7 @@ const Index = () => {
   }, []);
   // Persist progress to localStorage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentStep, formData }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentStep, formData, maxVisitedStep }));
   }, [currentStep, formData]);
 
   const steps = useMemo(() => getSteps(formData.websiteType), [formData.websiteType]);
@@ -92,7 +93,13 @@ const Index = () => {
     }));
   };
 
-  const next = () => setCurrentStep(s => Math.min(s + 1, steps.length - 1));
+  const next = () => {
+    setCurrentStep(s => {
+      const newStep = Math.min(s + 1, steps.length - 1);
+      setMaxVisitedStep(prev => Math.max(prev, newStep));
+      return newStep;
+    });
+  };
   const prev = () => setCurrentStep(s => Math.max(s - 1, 0));
 
   const currentStepId = steps[currentStep]?.id;
@@ -243,7 +250,7 @@ const Index = () => {
           </p>
         </div>
 
-        <StepIndicator steps={steps} currentStep={currentStep} onStepClick={setCurrentStep} />
+        <StepIndicator steps={steps} currentStep={currentStep} maxVisitedStep={maxVisitedStep} onStepClick={setCurrentStep} />
 
         <div className="mt-8 glass-card rounded-xl p-6 sm:p-8 animate-in-up" key={currentStepId}>
           {currentStepId === 'csv' && <StepCsvImport data={formData} onChange={updateForm} />}

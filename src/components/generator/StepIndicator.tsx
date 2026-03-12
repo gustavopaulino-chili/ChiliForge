@@ -1,14 +1,17 @@
 interface StepIndicatorProps {
   steps: { id: string; label: string }[];
   currentStep: number;
+  maxVisitedStep?: number;
   onStepClick?: (step: number) => void;
 }
 
-export function StepIndicator({ steps, currentStep, onStepClick }: StepIndicatorProps) {
+export function StepIndicator({ steps, currentStep, maxVisitedStep, onStepClick }: StepIndicatorProps) {
+  const maxReachable = maxVisitedStep ?? currentStep;
+
   return (
     <div className="flex items-center justify-center gap-2">
       {steps.map((step, i) => {
-        const canClick = onStepClick && i <= currentStep;
+        const canClick = onStepClick && i <= maxReachable;
         return (
           <div key={step.id} className="flex items-center gap-2">
             <div className="flex items-center gap-2">
@@ -23,10 +26,12 @@ export function StepIndicator({ steps, currentStep, onStepClick }: StepIndicator
                     ? 'step-indicator-done'
                     : i === currentStep
                     ? 'step-indicator-active'
+                    : i <= maxReachable
+                    ? 'step-indicator-done'
                     : 'step-indicator-pending'
                 }`}
               >
-                {i < currentStep ? '✓' : i + 1}
+                {i < currentStep ? '✓' : i <= maxReachable && i !== currentStep ? '✓' : i + 1}
               </button>
               <span
                 className={`hidden text-sm font-medium sm:block ${
@@ -40,7 +45,7 @@ export function StepIndicator({ steps, currentStep, onStepClick }: StepIndicator
             {i < steps.length - 1 && (
               <div
                 className={`h-px w-6 sm:w-10 ${
-                  i < currentStep ? 'bg-primary' : 'bg-border'
+                  i < currentStep ? 'bg-primary' : i < maxReachable ? 'bg-primary/40' : 'bg-border'
                 }`}
               />
             )}
