@@ -222,10 +222,13 @@ const Index = () => {
               <Button
                 variant="gradient"
                 size="lg"
-                onClick={() => { handleCopy(); window.open('https://lovable.dev', '_blank'); }}
+                onClick={() => {
+                  const url = `https://lovable.dev/projects/create?prompt=${encodeURIComponent(prompt)}`;
+                  window.open(url, '_blank');
+                }}
                 className="gap-2"
               >
-                <ExternalLink className="h-4 w-4" /> Copy & Open Lovable
+                <ExternalLink className="h-4 w-4" /> Open in Lovable
               </Button>
             </div>
           </div>
