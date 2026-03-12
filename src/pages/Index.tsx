@@ -73,10 +73,9 @@ const Index = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  const lovableUrl = useMemo(() => {
-    if (!showResults) return '';
-    return `https://lovable.dev/?autosubmit=true#prompt=${encodeURIComponent(prompt)}`;
-  }, [showResults, prompt]);
+  const getLovableUrl = useCallback(() => {
+    return `https://lovable.dev/?autosubmit=true#prompt=${encodeURIComponent(generatePrompt(formData, generatedImages))}`;
+  }, [formData, generatedImages]);
 
   // Reactive gradient mouse tracker
   useEffect(() => {
