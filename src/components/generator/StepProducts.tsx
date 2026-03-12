@@ -17,8 +17,33 @@ interface Props {
 
 const emptyProduct: ProductItem = {
   name: '', description: '', price: '', discountPrice: '',
-  images: [], sku: '', category: '', variants: [],
+  images: [], sku: '', category: '', variants: [], inputs: [],
 };
+
+const SAVED_VARIANTS_KEY = 'saved-product-variants';
+
+function getSavedVariants(): ProductVariant[] {
+  try {
+    const raw = localStorage.getItem(SAVED_VARIANTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveVariant(variant: ProductVariant) {
+  const existing = getSavedVariants();
+  const alreadyExists = existing.some(v => v.name.toLowerCase() === variant.name.toLowerCase());
+  if (alreadyExists) {
+    const updated = existing.map(v => v.name.toLowerCase() === variant.name.toLowerCase() ? variant : v);
+    localStorage.setItem(SAVED_VARIANTS_KEY, JSON.stringify(updated));
+  } else {
+    localStorage.setItem(SAVED_VARIANTS_KEY, JSON.stringify([...existing, variant]));
+  }
+}
+
+function deleteSavedVariant(name: string) {
+  const existing = getSavedVariants().filter(v => v.name !== name);
+  localStorage.setItem(SAVED_VARIANTS_KEY, JSON.stringify(existing));
+}
 
 export function StepProducts({ data, onChange }: Props) {
   const products = data.products.length > 0 ? data.products : [{ ...emptyProduct }];
