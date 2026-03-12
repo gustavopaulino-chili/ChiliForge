@@ -215,7 +215,8 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background relative">
       <div className="reactive-bg" />
-      <main className="mx-auto max-w-4xl px-6 py-8">
+      <Header />
+      <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
         <div className="mb-10 text-center">
           <h2 className="font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
             Generate Your Website
