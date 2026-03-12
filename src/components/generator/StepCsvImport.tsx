@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { BusinessFormData } from '@/types/businessForm';
-import { Upload, FileSpreadsheet, Check, AlertCircle, Table } from 'lucide-react';
+import { Upload, FileSpreadsheet, Check, AlertCircle, Table, X } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 
@@ -171,6 +171,17 @@ export function StepCsvImport({ data, onChange }: Props) {
     processSheet(workbook, name);
   };
 
+  const clearFile = () => {
+    setWorkbook(null);
+    setSheetNames([]);
+    setSelectedSheet('');
+    setFileName('');
+    setImported(false);
+    setFieldsFound([]);
+    if (fileRef.current) fileRef.current.value = '';
+    toast.info('File removed');
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -198,7 +209,7 @@ export function StepCsvImport({ data, onChange }: Props) {
               onClick={() => fileRef.current?.click()}
               className="gap-2 w-full h-24 border-dashed"
             >
-              {fileName ? (
+            {fileName ? (
                 <>
                   <FileSpreadsheet className="h-5 w-5 text-primary" />
                   <div className="text-left">
@@ -213,6 +224,17 @@ export function StepCsvImport({ data, onChange }: Props) {
                 </>
               )}
             </Button>
+            {fileName && (
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={clearFile}
+                className="gap-1.5 mt-2"
+              >
+                <X className="h-4 w-4" /> Remove File
+              </Button>
+            )}
           </div>
         </div>
 
