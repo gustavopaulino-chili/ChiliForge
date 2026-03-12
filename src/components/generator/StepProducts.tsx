@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { BusinessFormData, ProductItem } from '@/types/businessForm';
-import { Plus, X, ShoppingCart, DollarSign } from 'lucide-react';
+import { Plus, X, ShoppingCart, DollarSign, Upload, FileSpreadsheet, Loader2, Sparkles, Check } from 'lucide-react';
 import { FieldLabel } from './FieldLabel';
+import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
+import * as XLSX from 'xlsx';
 
 interface Props {
   data: BusinessFormData;
