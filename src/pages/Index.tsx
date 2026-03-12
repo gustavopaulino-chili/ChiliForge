@@ -59,13 +59,18 @@ const Index = () => {
   const steps = useMemo(() => getSteps(formData.websiteType), [formData.websiteType]);
 
   const updateForm = (updates: Partial<BusinessFormData>) => {
-    setFormData(prev => ({
-      ...prev,
-      ...updates,
-      // Deep merge nested objects
-      images: updates.images ? { ...prev.images, ...updates.images } : prev.images,
-      socialLinks: updates.socialLinks ? { ...prev.socialLinks, ...updates.socialLinks } : prev.socialLinks,
-    }));
+    console.log('[SiteForge] updateForm called with:', JSON.stringify(updates, null, 2));
+    setFormData(prev => {
+      const next = {
+        ...prev,
+        ...updates,
+        // Deep merge nested objects so CSV partial data doesn't wipe defaults
+        images: updates.images ? { ...prev.images, ...updates.images } : prev.images,
+        socialLinks: updates.socialLinks ? { ...prev.socialLinks, ...updates.socialLinks } : prev.socialLinks,
+      };
+      console.log('[SiteForge] New formData:', JSON.stringify(next, null, 2));
+      return next;
+    });
   };
 
   const next = () => setCurrentStep(s => Math.min(s + 1, steps.length - 1));
