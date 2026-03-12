@@ -275,7 +275,7 @@ const Index = () => {
 
 function Header() {
   return (
-    <header className="border-b border-border/50 px-6 py-4">
+    <header className="border-b border-border/50 px-6 py-4 relative z-10">
       <div className="mx-auto max-w-6xl flex items-center gap-3">
         <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
           <Sparkles className="h-4 w-4 text-primary-foreground" />
