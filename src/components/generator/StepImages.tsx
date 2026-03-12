@@ -1,0 +1,175 @@
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { BusinessFormData, ImageUrls } from '@/types/businessForm';
+import { Image, Sparkles, Plus, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+
+interface Props {
+  data: BusinessFormData;
+  onChange: (updates: Partial<BusinessFormData>) => void;
+}
+
+export function StepImages({ data, onChange }: Props) {
+  const updateImage = (key: keyof ImageUrls, value: string) => {
+    onChange({ images: { ...data.images, [key]: value } });
+  };
+
+  const addProductImage = () => {
+    onChange({ images: { ...data.images, productImages: [...data.images.productImages, ''] } });
+  };
+
+  const removeProductImage = (i: number) => {
+    onChange({ images: { ...data.images, productImages: data.images.productImages.filter((_, idx) => idx !== i) } });
+  };
+
+  const updateProductImage = (i: number, val: string) => {
+    const updated = [...data.images.productImages];
+    updated[i] = val;
+    onChange({ images: { ...data.images, productImages: updated } });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="form-section-title">Images</h3>
+        <p className="form-section-desc">Add image URLs for your website sections</p>
+      </div>
+
+      <div className="space-y-6">
+        {/* Hero Images */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Image className="h-4 w-4 text-primary" />
+            <Label className="text-foreground font-medium">Hero Images</Label>
+          </div>
+          <div className="space-y-3 pl-6">
+            <div>
+              <Label htmlFor="heroImage1" className="text-xs text-muted-foreground">Hero Image 1 URL</Label>
+              <Input
+                id="heroImage1"
+                value={data.images.heroImage1}
+                onChange={e => updateImage('heroImage1', e.target.value)}
+                placeholder="https://example.com/hero1.jpg"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="heroImage2" className="text-xs text-muted-foreground">Hero Image 2 URL</Label>
+              <Input
+                id="heroImage2"
+                value={data.images.heroImage2}
+                onChange={e => updateImage('heroImage2', e.target.value)}
+                placeholder="https://example.com/hero2.jpg"
+                className="mt-1"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Brand / Identity */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Image className="h-4 w-4 text-primary" />
+            <Label className="text-foreground font-medium">Brand / Identity</Label>
+          </div>
+          <div className="space-y-3 pl-6">
+            <div>
+              <Label htmlFor="logoUrl" className="text-xs text-muted-foreground">Logo URL</Label>
+              <Input
+                id="logoUrl"
+                value={data.images.logoUrl}
+                onChange={e => updateImage('logoUrl', e.target.value)}
+                placeholder="https://example.com/logo.png"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="brandImage" className="text-xs text-muted-foreground">Brand Image URL</Label>
+              <Input
+                id="brandImage"
+                value={data.images.brandImage}
+                onChange={e => updateImage('brandImage', e.target.value)}
+                placeholder="https://example.com/brand.jpg"
+                className="mt-1"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Content Images */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Image className="h-4 w-4 text-primary" />
+            <Label className="text-foreground font-medium">Content Images</Label>
+          </div>
+          <div className="space-y-3 pl-6">
+            {(['sectionImage1', 'sectionImage2', 'sectionImage3'] as const).map((key, i) => (
+              <div key={key}>
+                <Label htmlFor={key} className="text-xs text-muted-foreground">Section Image {i + 1}</Label>
+                <Input
+                  id={key}
+                  value={data.images[key]}
+                  onChange={e => updateImage(key, e.target.value)}
+                  placeholder={`https://example.com/section${i + 1}.jpg`}
+                  className="mt-1"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Product Images */}
+        {(data.websiteType === 'ecommerce' || data.images.productImages.length > 0) && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Image className="h-4 w-4 text-primary" />
+              <Label className="text-foreground font-medium">Product Images</Label>
+            </div>
+            <div className="space-y-2 pl-6">
+              {data.images.productImages.map((img, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input
+                    value={img}
+                    onChange={e => updateProductImage(i, e.target.value)}
+                    placeholder={`Product image ${i + 1} URL`}
+                  />
+                  <Button variant="ghost" size="icon" onClick={() => removeProductImage(i)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" onClick={addProductImage} className="gap-1">
+                <Plus className="h-3 w-3" /> Add Product Image
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* AI Generation Toggle */}
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Sparkles className="h-5 w-5 text-primary" />
+              <div>
+                <Label className="text-foreground font-medium">Generate AI Images</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Use provided images as reference to generate new visuals with AI
+                </p>
+              </div>
+            </div>
+            <Switch
+              checked={data.generateAiImages}
+              onCheckedChange={v => onChange({ generateAiImages: v })}
+            />
+          </div>
+          {data.generateAiImages && (
+            <p className="text-xs text-muted-foreground mt-3 pl-8">
+              AI will generate hero banners, section backgrounds, and marketing visuals matching your brand style.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

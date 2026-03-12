@@ -1,4 +1,51 @@
+export type WebsiteType = 'corporate' | 'landing' | 'ecommerce' | 'portfolio' | 'saas' | 'blog' | 'educational';
+
+export interface ProductItem {
+  name: string;
+  description: string;
+  price: string;
+  discountPrice: string;
+  images: string[];
+  sku: string;
+  category: string;
+  variants: string;
+}
+
+export interface FeatureItem {
+  name: string;
+  description: string;
+  icon: string;
+}
+
+export interface PricingPlan {
+  name: string;
+  price: string;
+  features: string[];
+}
+
+export interface CourseItem {
+  title: string;
+  instructor: string;
+  description: string;
+  modules: string;
+  price: string;
+}
+
+export interface ImageUrls {
+  heroImage1: string;
+  heroImage2: string;
+  logoUrl: string;
+  brandImage: string;
+  sectionImage1: string;
+  sectionImage2: string;
+  sectionImage3: string;
+  productImages: string[];
+}
+
 export interface BusinessFormData {
+  // Website Type
+  websiteType: WebsiteType;
+
   // Business Basics
   businessName: string;
   businessDescription: string;
@@ -13,8 +60,11 @@ export interface BusinessFormData {
   // Brand Identity
   primaryColor: string;
   secondaryColor: string;
-  logoUrl?: string;
   preferredStyle: 'modern' | 'corporate' | 'minimal' | 'bold' | 'premium';
+
+  // Images
+  images: ImageUrls;
+  generateAiImages: boolean;
 
   // Location
   city: string;
@@ -31,9 +81,16 @@ export interface BusinessFormData {
     linkedin?: string;
     youtube?: string;
   };
+
+  // Type-specific
+  products: ProductItem[];
+  features: FeatureItem[];
+  pricingPlans: PricingPlan[];
+  courses: CourseItem[];
 }
 
 export const defaultFormData: BusinessFormData = {
+  websiteType: 'corporate',
   businessName: '',
   businessDescription: '',
   businessCategory: '',
@@ -43,15 +100,39 @@ export const defaultFormData: BusinessFormData = {
   differentiators: [''],
   primaryColor: '#3B82F6',
   secondaryColor: '#8B5CF6',
-  logoUrl: '',
   preferredStyle: 'modern',
+  images: {
+    heroImage1: '',
+    heroImage2: '',
+    logoUrl: '',
+    brandImage: '',
+    sectionImage1: '',
+    sectionImage2: '',
+    sectionImage3: '',
+    productImages: [],
+  },
+  generateAiImages: false,
   city: '',
   country: '',
   phone: '',
   whatsapp: '',
   email: '',
   socialLinks: {},
+  products: [],
+  features: [],
+  pricingPlans: [],
+  courses: [],
 };
+
+export const WEBSITE_TYPES: { value: WebsiteType; label: string; desc: string }[] = [
+  { value: 'corporate', label: 'Corporate Website', desc: 'Professional business website with multiple pages' },
+  { value: 'landing', label: 'Landing Page', desc: 'Single-page conversion-focused site' },
+  { value: 'ecommerce', label: 'Ecommerce', desc: 'Online store with products, cart & checkout' },
+  { value: 'portfolio', label: 'Portfolio', desc: 'Showcase work, projects or case studies' },
+  { value: 'saas', label: 'SaaS', desc: 'Software product with features & pricing' },
+  { value: 'blog', label: 'Blog', desc: 'Content-driven site with articles' },
+  { value: 'educational', label: 'Educational / Course Platform', desc: 'Online courses and learning platform' },
+];
 
 export const BUSINESS_CATEGORIES = [
   'Technology / SaaS',
