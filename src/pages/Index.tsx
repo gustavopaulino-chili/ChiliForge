@@ -223,7 +223,7 @@ const Index = () => {
                 variant="gradient"
                 size="lg"
                 onClick={() => {
-                  const url = `https://lovable.dev/projects/create?prompt=${encodeURIComponent(prompt)}`;
+                  const url = `https://lovable.dev/?autosubmit=true#prompt=${encodeURIComponent(prompt)}`;
                   window.open(url, '_blank');
                 }}
                 className="gap-2"
