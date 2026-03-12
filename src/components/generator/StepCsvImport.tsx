@@ -209,7 +209,7 @@ export function StepCsvImport({ data, onChange }: Props) {
               onClick={() => fileRef.current?.click()}
               className="gap-2 w-full h-24 border-dashed"
             >
-              {fileName ? (
+            {fileName ? (
                 <>
                   <FileSpreadsheet className="h-5 w-5 text-primary" />
                   <div className="text-left">
@@ -224,6 +224,17 @@ export function StepCsvImport({ data, onChange }: Props) {
                 </>
               )}
             </Button>
+            {fileName && (
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={clearFile}
+                className="gap-1.5 mt-2"
+              >
+                <X className="h-4 w-4" /> Remove File
+              </Button>
+            )}
           </div>
         </div>
 
