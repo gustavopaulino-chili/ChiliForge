@@ -4,7 +4,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { BusinessFormData, ProductItem, ProductVariant } from '@/types/businessForm';
-import { Plus, X, ShoppingCart, DollarSign, Upload, FileSpreadsheet, Loader2, Sparkles, Check, Tag } from 'lucide-react';
+import { Plus, X, ShoppingCart, DollarSign, Upload, FileSpreadsheet, Loader2, Sparkles, Check, Tag, Save, BookmarkPlus, Bookmark } from 'lucide-react';
 import { FieldLabel } from './FieldLabel';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -17,13 +17,40 @@ interface Props {
 
 const emptyProduct: ProductItem = {
   name: '', description: '', price: '', discountPrice: '',
-  images: [], sku: '', category: '', variants: [],
+  images: [], sku: '', category: '', variants: [], inputs: [],
 };
+
+const SAVED_VARIANTS_KEY = 'saved-product-variants';
+
+function getSavedVariants(): ProductVariant[] {
+  try {
+    const raw = localStorage.getItem(SAVED_VARIANTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveVariant(variant: ProductVariant) {
+  const existing = getSavedVariants();
+  const alreadyExists = existing.some(v => v.name.toLowerCase() === variant.name.toLowerCase());
+  if (alreadyExists) {
+    const updated = existing.map(v => v.name.toLowerCase() === variant.name.toLowerCase() ? variant : v);
+    localStorage.setItem(SAVED_VARIANTS_KEY, JSON.stringify(updated));
+  } else {
+    localStorage.setItem(SAVED_VARIANTS_KEY, JSON.stringify([...existing, variant]));
+  }
+}
+
+function deleteSavedVariant(name: string) {
+  const existing = getSavedVariants().filter(v => v.name !== name);
+  localStorage.setItem(SAVED_VARIANTS_KEY, JSON.stringify(existing));
+}
 
 export function StepProducts({ data, onChange }: Props) {
   const products = data.products.length > 0 ? data.products : [{ ...emptyProduct }];
   const [showPricing, setShowPricing] = useState(() => products.some(p => p.price || p.discountPrice));
+  const [savedVariants, setSavedVariants] = useState<ProductVariant[]>(getSavedVariants);
 
+  const refreshSaved = () => setSavedVariants(getSavedVariants());
   const update = (i: number, field: keyof ProductItem, value: any) => {
     const updated = [...products];
     updated[i] = { ...updated[i], [field]: value };
@@ -124,6 +151,15 @@ export function StepProducts({ data, onChange }: Props) {
                         placeholder="Variant name (e.g. Size, Color)"
                         className="h-8 text-sm"
                       />
+                      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" title="Salvar variante"
+                        onClick={() => {
+                          if (!variant.name.trim()) { toast.error('Dê um nome à variante antes de salvar'); return; }
+                          saveVariant(variant);
+                          refreshSaved();
+                          toast.success(`Variante "${variant.name}" salva!`);
+                        }}>
+                        <BookmarkPlus className="h-3.5 w-3.5 text-primary" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => {
                         const newVariants = p.variants.filter((_, idx) => idx !== vIdx);
                         update(i, 'variants', newVariants);
@@ -167,11 +203,48 @@ export function StepProducts({ data, onChange }: Props) {
                     </div>
                   </div>
                 ))}
-                <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => {
-                  update(i, 'variants', [...p.variants, { name: '', values: [''] }]);
-                }}>
-                  <Plus className="h-3 w-3" /> Add Variant
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => {
+                    update(i, 'variants', [...p.variants, { name: '', values: [''] }]);
+                  }}>
+                    <Plus className="h-3 w-3" /> Nova Variante
+                  </Button>
+                </div>
+
+                {savedVariants.length > 0 && (
+                  <div className="rounded-md border border-dashed border-primary/30 bg-primary/5 p-3 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Bookmark className="h-3.5 w-3.5 text-primary" />
+                      <span className="text-xs font-medium text-primary">Variantes salvas</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {savedVariants.map((sv, svIdx) => (
+                        <div key={svIdx} className="flex items-center gap-1">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="gap-1 text-xs h-7"
+                            onClick={() => {
+                              const alreadyAdded = p.variants.some(v => v.name.toLowerCase() === sv.name.toLowerCase());
+                              if (alreadyAdded) { toast.info(`"${sv.name}" já está neste produto`); return; }
+                              update(i, 'variants', [...p.variants, { ...sv }]);
+                              toast.success(`Variante "${sv.name}" adicionada`);
+                            }}
+                          >
+                            <Plus className="h-2.5 w-2.5" /> {sv.name} ({sv.values.filter(Boolean).length})
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                            deleteSavedVariant(sv.name);
+                            refreshSaved();
+                            toast.success(`"${sv.name}" removida dos salvos`);
+                          }}>
+                            <X className="h-2.5 w-2.5" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="col-span-2 space-y-2">
                 <FieldLabel className="text-xs text-muted-foreground" hint="Add image URLs for this product. These will be used in the product listing and detail pages.">
@@ -266,6 +339,7 @@ function ProductCsvImport({ products, onChange }: { products: ProductItem[]; onC
         variants: typeof p.variants === 'string' && p.variants
           ? [{ name: 'Variants', values: p.variants.split(',').map((v: string) => v.trim()) }]
           : [],
+        inputs: [],
       }));
 
       // Remove empty placeholder products, then append imported ones
