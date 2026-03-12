@@ -106,11 +106,72 @@ export function StepProducts({ data, onChange }: Props) {
                 </FieldLabel>
                 <Input value={p.category} onChange={e => update(i, 'category', e.target.value)} placeholder="Category" className="mt-1" />
               </div>
-              <div className="col-span-2">
-                <FieldLabel className="text-xs text-muted-foreground" hint="Available options like sizes, colors, or materials. Separate with commas (e.g. S, M, L, XL / Red, Blue).">
-                  Variants (size, color, etc.)
+              <div className="col-span-2 space-y-3">
+                <FieldLabel className="text-xs text-muted-foreground" hint="Add variant types (e.g. Size, Color) and their available options for this product.">
+                  Variants
                 </FieldLabel>
-                <Input value={p.variants} onChange={e => update(i, 'variants', e.target.value)} placeholder="S, M, L, XL / Red, Blue" className="mt-1" />
+                {(p.variants.length > 0 ? p.variants : []).map((variant, vIdx) => (
+                  <div key={vIdx} className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Tag className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <Input
+                        value={variant.name}
+                        onChange={e => {
+                          const newVariants = [...p.variants];
+                          newVariants[vIdx] = { ...newVariants[vIdx], name: e.target.value };
+                          update(i, 'variants', newVariants);
+                        }}
+                        placeholder="Variant name (e.g. Size, Color)"
+                        className="h-8 text-sm"
+                      />
+                      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => {
+                        const newVariants = p.variants.filter((_, idx) => idx !== vIdx);
+                        update(i, 'variants', newVariants);
+                      }}>
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    <div className="pl-5 space-y-1.5">
+                      {(variant.values.length > 0 ? variant.values : ['']).map((val, valIdx) => (
+                        <div key={valIdx} className="flex items-center gap-2">
+                          <Input
+                            value={val}
+                            onChange={e => {
+                              const newVariants = [...p.variants];
+                              const newValues = [...variant.values.length > 0 ? variant.values : ['']];
+                              newValues[valIdx] = e.target.value;
+                              newVariants[vIdx] = { ...newVariants[vIdx], values: newValues };
+                              update(i, 'variants', newVariants);
+                            }}
+                            placeholder="Value (e.g. M, Red, 32)"
+                            className="h-7 text-xs"
+                          />
+                          {variant.values.length > 1 && (
+                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => {
+                              const newVariants = [...p.variants];
+                              newVariants[vIdx] = { ...newVariants[vIdx], values: variant.values.filter((_, idx) => idx !== valIdx) };
+                              update(i, 'variants', newVariants);
+                            }}>
+                              <X className="h-2.5 w-2.5" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                      <Button variant="ghost" size="sm" className="gap-1 text-xs h-6 px-2" onClick={() => {
+                        const newVariants = [...p.variants];
+                        newVariants[vIdx] = { ...newVariants[vIdx], values: [...variant.values, ''] };
+                        update(i, 'variants', newVariants);
+                      }}>
+                        <Plus className="h-2.5 w-2.5" /> Add value
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => {
+                  update(i, 'variants', [...p.variants, { name: '', values: [''] }]);
+                }}>
+                  <Plus className="h-3 w-3" /> Add Variant
+                </Button>
               </div>
               <div className="col-span-2 space-y-2">
                 <FieldLabel className="text-xs text-muted-foreground" hint="Add image URLs for this product. These will be used in the product listing and detail pages.">
