@@ -1,5 +1,10 @@
 export type WebsiteType = 'corporate' | 'landing' | 'ecommerce' | 'portfolio' | 'saas' | 'blog' | 'educational';
 
+export interface ProductVariant {
+  name: string;
+  values: string[];
+}
+
 export interface ProductItem {
   name: string;
   description: string;
@@ -8,7 +13,7 @@ export interface ProductItem {
   images: string[];
   sku: string;
   category: string;
-  variants: string;
+  variants: ProductVariant[];
 }
 
 export interface FeatureItem {
