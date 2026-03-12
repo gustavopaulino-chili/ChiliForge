@@ -302,18 +302,24 @@ const Index = () => {
             </Button>
             <div className="ml-auto flex gap-3">
               <Button variant="outline" size="lg" onClick={handleCopy} className="gap-2">
-                <Copy className="h-4 w-4" /> {copied ? 'Copied!' : 'Copy Prompt'}
+                <Copy className="h-4 w-4" /> {copied ? 'Copiado!' : 'Copiar Prompt'}
+              </Button>
+              <Button variant="outline" size="lg" onClick={() => {
+                navigator.clipboard.writeText(lovableUrl);
+                setCopiedLink(true);
+                setTimeout(() => setCopiedLink(false), 2000);
+                toast.success('Link copiado!');
+              }} className="gap-2">
+                {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+                {copiedLink ? 'Copiado!' : 'Copiar Link'}
               </Button>
               <Button
                 variant="gradient"
                 size="lg"
-                onClick={() => {
-                  const url = `https://lovable.dev/?autosubmit=true#prompt=${encodeURIComponent(prompt)}`;
-                  window.open(url, '_blank');
-                }}
+                onClick={() => window.open(lovableUrl, '_blank')}
                 className="gap-2"
               >
-                <ExternalLink className="h-4 w-4" /> Open in Lovable
+                <ExternalLink className="h-4 w-4" /> Abrir no Lovable
               </Button>
             </div>
           </div>
