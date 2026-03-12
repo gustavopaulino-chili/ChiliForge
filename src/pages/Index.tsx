@@ -191,6 +191,52 @@ const Index = () => {
     toast.success('Prompt copied! Paste it into a new Lovable project.');
   };
 
+  // Generating screen
+  if (isGenerating) {
+    return (
+      <div className="min-h-screen bg-background relative flex flex-col">
+        <div className="reactive-bg" />
+        <Header />
+        <main className="flex-1 flex items-center justify-center relative z-10 px-6">
+          <div className="max-w-md w-full text-center space-y-8">
+            <div className="relative inline-flex h-20 w-20 items-center justify-center mx-auto">
+              <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
+              <div className="relative h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center">
+                <Wand2 className="h-9 w-9 text-primary animate-pulse" />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">
+                Gerando seu prompt...
+              </h2>
+              <p className="text-muted-foreground text-sm min-h-[1.25rem]">
+                {generationStatus}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Progress value={generationProgress} className="h-2" />
+              <p className="text-xs text-muted-foreground">{generationProgress}%</p>
+            </div>
+
+            {formData.generateAiImages && (
+              <div className="rounded-lg border border-border bg-card/50 p-4 text-left space-y-2">
+                <p className="text-xs font-medium text-foreground flex items-center gap-2">
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  Geração de imagens AI ativa
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Criando imagens exclusivas baseadas no seu negócio. Isso pode levar alguns segundos...
+                </p>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   // Results view
   if (showResults) {
     return (
