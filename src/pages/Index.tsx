@@ -213,7 +213,7 @@ const Index = () => {
           </p>
         </div>
 
-        <StepIndicator steps={steps} currentStep={currentStep} />
+        <StepIndicator steps={steps} currentStep={currentStep} onStepClick={setCurrentStep} />
 
         <div className="mt-8 glass-card rounded-xl p-6 sm:p-8 animate-in-up" key={currentStepId}>
           {currentStepId === 'csv' && <StepCsvImport data={formData} onChange={updateForm} />}
