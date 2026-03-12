@@ -79,7 +79,7 @@ const Index = () => {
   }, []);
   // Persist progress to localStorage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentStep, formData }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentStep, formData, maxVisitedStep }));
   }, [currentStep, formData]);
 
   const steps = useMemo(() => getSteps(formData.websiteType), [formData.websiteType]);
