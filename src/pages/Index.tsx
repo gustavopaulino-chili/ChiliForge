@@ -277,12 +277,12 @@ function Header() {
   return (
     <header className="border-b border-border/50 px-6 py-4 relative z-10">
       <div className="mx-auto max-w-6xl flex items-center gap-3">
-        <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
-          <Sparkles className="h-4 w-4 text-primary-foreground" />
+        <div className="flex flex-col items-center">
+          <img src="/images/logo.png" alt="Logo" className="h-10 w-auto" />
+          <span style={{ fontFamily: "'Dancing Script', cursive" }} className="text-sm font-semibold gradient-text -mt-1">
+            Forge
+          </span>
         </div>
-        <h1 className="font-display text-xl font-bold tracking-tight text-foreground">
-          Site<span className="gradient-text">Forge</span>
-        </h1>
       </div>
     </header>
   );
