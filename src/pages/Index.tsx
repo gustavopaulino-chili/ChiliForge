@@ -283,17 +283,17 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
     .join(', ');
   const categoryHint = getCategoryLayout(data.websiteType, data.businessCategory);
 
-  // Images section
+  // Images section — keep compact to stay within prompt char limits
   const imgLines: string[] = [];
-  if (data.images.logoUrl) imgLines.push(`- Logo: ${data.images.logoUrl}`);
-  if (data.images.heroImage1) imgLines.push(`- Hero Image 1: ${data.images.heroImage1}`);
-  if (data.images.heroImage2) imgLines.push(`- Hero Image 2: ${data.images.heroImage2}`);
-  if (data.images.brandImage) imgLines.push(`- Brand Image: ${data.images.brandImage}`);
-  if (data.images.sectionImage1) imgLines.push(`- Section Image 1: ${data.images.sectionImage1}`);
-  if (data.images.sectionImage2) imgLines.push(`- Section Image 2: ${data.images.sectionImage2}`);
-  if (data.images.sectionImage3) imgLines.push(`- Section Image 3: ${data.images.sectionImage3}`);
-  data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`- Product Image ${i + 1}: ${img}`));
-  aiImages.forEach((img, i) => imgLines.push(`- AI Generated Image ${i + 1}: ${img}`));
+  if (data.images.logoUrl) imgLines.push(`Logo: ${data.images.logoUrl}`);
+  if (data.images.heroImage1) imgLines.push(`Hero1: ${data.images.heroImage1}`);
+  if (data.images.heroImage2) imgLines.push(`Hero2: ${data.images.heroImage2}`);
+  if (data.images.brandImage) imgLines.push(`Brand: ${data.images.brandImage}`);
+  if (data.images.sectionImage1) imgLines.push(`Sec1: ${data.images.sectionImage1}`);
+  if (data.images.sectionImage2) imgLines.push(`Sec2: ${data.images.sectionImage2}`);
+  if (data.images.sectionImage3) imgLines.push(`Sec3: ${data.images.sectionImage3}`);
+  data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Prod${i + 1}: ${img}`));
+  aiImages.forEach((img, i) => imgLines.push(`AI${i + 1}: ${img}`));
 
   let typeSpecific = '';
 
