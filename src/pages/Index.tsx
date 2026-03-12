@@ -345,7 +345,8 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
         if (p.price) parts.push(p.price);
         if (p.discountPrice) parts.push(`sale:${p.discountPrice}`);
         if (p.category) parts.push(`cat:${p.category}`);
-        if (p.variants) parts.push(`var:${p.variants}`);
+        const variantParts = (p.variants || []).filter(v => v.name).map(v => `${v.name}: ${v.values.filter(Boolean).join(', ')}`);
+        if (variantParts.length > 0) parts.push(`var:${variantParts.join(' / ')}`);
         if (p.sku) parts.push(`sku:${p.sku}`);
         const prodImages = p.images.filter(Boolean);
         if (prodImages.length > 0) parts.push(`images:${prodImages.join(', ')}`);

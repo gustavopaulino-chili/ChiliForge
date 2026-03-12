@@ -263,7 +263,9 @@ function ProductCsvImport({ products, onChange }: { products: ProductItem[]; onC
         images: [],
         sku: p.sku || '',
         category: p.category || '',
-        variants: p.variants || '',
+        variants: typeof p.variants === 'string' && p.variants
+          ? [{ name: 'Variants', values: p.variants.split(',').map((v: string) => v.trim()) }]
+          : [],
       }));
 
       // Remove empty placeholder products, then append imported ones
