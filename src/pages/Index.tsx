@@ -302,15 +302,16 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
     if (prods.length > 0) {
       typeSpecific += `\n\n## Products\n`;
       prods.forEach(p => {
-        typeSpecific += `### ${p.name}\n`;
-        if (p.description) typeSpecific += `${p.description}\n`;
-        if (p.price) typeSpecific += `- Price: ${p.price}\n`;
-        if (p.discountPrice) typeSpecific += `- Discount: ${p.discountPrice}\n`;
-        if (p.sku) typeSpecific += `- SKU: ${p.sku}\n`;
-        if (p.category) typeSpecific += `- Category: ${p.category}\n`;
-        if (p.variants) typeSpecific += `- Variants: ${p.variants}\n`;
+        const parts = [p.name];
+        if (p.description) parts.push(p.description);
+        if (p.price) parts.push(p.price);
+        if (p.discountPrice) parts.push(`sale:${p.discountPrice}`);
+        if (p.category) parts.push(`cat:${p.category}`);
+        if (p.variants) parts.push(`var:${p.variants}`);
+        if (p.sku) parts.push(`sku:${p.sku}`);
+        typeSpecific += `- ${parts.join(' | ')}\n`;
       });
-      typeSpecific += `\nInclude: Product Page, Product Listing, Cart, Checkout pages.`;
+      typeSpecific += `Include: Product Page, Listing, Cart, Checkout.`;
     }
   }
 
