@@ -283,17 +283,17 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
     .join(', ');
   const categoryHint = getCategoryLayout(data.websiteType, data.businessCategory);
 
-  // Images section
+  // Images section — keep compact to stay within prompt char limits
   const imgLines: string[] = [];
-  if (data.images.logoUrl) imgLines.push(`- Logo: ${data.images.logoUrl}`);
-  if (data.images.heroImage1) imgLines.push(`- Hero Image 1: ${data.images.heroImage1}`);
-  if (data.images.heroImage2) imgLines.push(`- Hero Image 2: ${data.images.heroImage2}`);
-  if (data.images.brandImage) imgLines.push(`- Brand Image: ${data.images.brandImage}`);
-  if (data.images.sectionImage1) imgLines.push(`- Section Image 1: ${data.images.sectionImage1}`);
-  if (data.images.sectionImage2) imgLines.push(`- Section Image 2: ${data.images.sectionImage2}`);
-  if (data.images.sectionImage3) imgLines.push(`- Section Image 3: ${data.images.sectionImage3}`);
-  data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`- Product Image ${i + 1}: ${img}`));
-  aiImages.forEach((img, i) => imgLines.push(`- AI Generated Image ${i + 1}: ${img}`));
+  if (data.images.logoUrl) imgLines.push(`Logo: ${data.images.logoUrl}`);
+  if (data.images.heroImage1) imgLines.push(`Hero1: ${data.images.heroImage1}`);
+  if (data.images.heroImage2) imgLines.push(`Hero2: ${data.images.heroImage2}`);
+  if (data.images.brandImage) imgLines.push(`Brand: ${data.images.brandImage}`);
+  if (data.images.sectionImage1) imgLines.push(`Sec1: ${data.images.sectionImage1}`);
+  if (data.images.sectionImage2) imgLines.push(`Sec2: ${data.images.sectionImage2}`);
+  if (data.images.sectionImage3) imgLines.push(`Sec3: ${data.images.sectionImage3}`);
+  data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Prod${i + 1}: ${img}`));
+  aiImages.forEach((img, i) => imgLines.push(`AI${i + 1}: ${img}`));
 
   let typeSpecific = '';
 
@@ -302,15 +302,16 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
     if (prods.length > 0) {
       typeSpecific += `\n\n## Products\n`;
       prods.forEach(p => {
-        typeSpecific += `### ${p.name}\n`;
-        if (p.description) typeSpecific += `${p.description}\n`;
-        if (p.price) typeSpecific += `- Price: ${p.price}\n`;
-        if (p.discountPrice) typeSpecific += `- Discount: ${p.discountPrice}\n`;
-        if (p.sku) typeSpecific += `- SKU: ${p.sku}\n`;
-        if (p.category) typeSpecific += `- Category: ${p.category}\n`;
-        if (p.variants) typeSpecific += `- Variants: ${p.variants}\n`;
+        const parts = [p.name];
+        if (p.description) parts.push(p.description);
+        if (p.price) parts.push(p.price);
+        if (p.discountPrice) parts.push(`sale:${p.discountPrice}`);
+        if (p.category) parts.push(`cat:${p.category}`);
+        if (p.variants) parts.push(`var:${p.variants}`);
+        if (p.sku) parts.push(`sku:${p.sku}`);
+        typeSpecific += `- ${parts.join(' | ')}\n`;
       });
-      typeSpecific += `\nInclude: Product Page, Product Listing, Cart, Checkout pages.`;
+      typeSpecific += `Include: Product Page, Listing, Cart, Checkout.`;
     }
   }
 
@@ -351,51 +352,34 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
     data.websiteType === 'educational' ? 'educational/course platform' :
     `${data.websiteType} website`;
 
-  return `Create a professional, conversion-focused ${data.preferredStyle} ${websiteTypeLabel} for "${data.businessName}".
+  return `Create a ${data.preferredStyle} ${websiteTypeLabel} for "${data.businessName}".
 
-## Business Overview
+## Business
 ${data.businessDescription}
-- Industry: ${data.businessCategory}
-- Target Audience: ${data.targetAudience}
-- Location: ${data.city}, ${data.country}
+Industry: ${data.businessCategory} | Audience: ${data.targetAudience} | Location: ${data.city}, ${data.country}
 
-## Services/Products
+## Services
 ${servicesText}
+${data.valueProposition ? `Value: ${data.valueProposition}` : ''}
+${diffsText ? `Differentiators: ${diffsText}` : ''}
 
-## Value Proposition
-${data.valueProposition}
-
-## Key Differentiators
-${diffsText}
-
-## Brand & Design
-- Style: ${data.preferredStyle}
-- Primary Color: ${data.primaryColor}
-- Secondary Color: ${data.secondaryColor}
+## Design
+Style: ${data.preferredStyle} | Colors: ${data.primaryColor}, ${data.secondaryColor}
 ${imgLines.length > 0 ? '\n## Images\n' + imgLines.join('\n') : ''}
 
-## Contact Information
-- Email: ${data.email}
-${data.phone ? `- Phone: ${data.phone}` : ''}
-${data.whatsapp ? `- WhatsApp: ${data.whatsapp}` : ''}
-${socialText ? `- Social: ${socialText}` : ''}
+## Contact
+${data.email}${data.phone ? ` | Phone: ${data.phone}` : ''}${data.whatsapp ? ` | WhatsApp: ${data.whatsapp}` : ''}
+${socialText ? `Social: ${socialText}` : ''}
 ${typeSpecific}
 
-## Website Structure
+## Structure
 ${categoryHint}
 
 ## Requirements
-- Fully responsive design
-- Strong visual hierarchy with clear CTAs
-- Professional, conversion-focused copy
-- SEO-optimized with proper heading hierarchy (H1, H2, H3)
-- Semantic HTML structure
-- Smooth scroll animations
-- Mobile-first approach
-- Fast loading, clean code
-${data.generateAiImages ? '- Use the provided AI-generated images for hero sections, banners, and marketing visuals' : ''}
+Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations, fast loading, strong CTAs.
+${data.generateAiImages ? 'Use AI-generated images for hero/banners.' : ''}
 
-Generate a polished, production-ready website that feels custom-designed.`;
+Generate a polished, production-ready website.`;
 }
 
 function getCategoryLayout(websiteType: WebsiteType, category: string): string {
