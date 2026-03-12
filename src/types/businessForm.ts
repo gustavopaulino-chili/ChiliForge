@@ -20,6 +20,7 @@ export interface ProductItem {
   sku: string;
   category: string;
   variants: ProductVariant[];
+  inputs: ProductInput[];
 }
 
 export interface FeatureItem {
