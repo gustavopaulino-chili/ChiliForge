@@ -426,7 +426,7 @@ function ProductCsvImport({ products, onChange }: { products: ProductItem[]; onC
         sku: p.sku || '',
         category: p.category || '',
         variants: typeof p.variants === 'string' && p.variants
-          ? [{ name: 'Variants', values: p.variants.split(',').map((v: string) => v.trim()) }]
+          ? [{ name: 'Variants', type: 'select' as VariantType, values: p.variants.split(',').map((v: string) => v.trim()) }]
           : [],
         inputs: [],
       }));
