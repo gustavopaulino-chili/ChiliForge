@@ -1,16 +1,13 @@
 import { useState } from 'react';
 import { BusinessFormData, defaultFormData } from '@/types/businessForm';
-import { GeneratedContent } from '@/types/generatedContent';
 import { StepIndicator } from '@/components/generator/StepIndicator';
 import { StepBasics } from '@/components/generator/StepBasics';
 import { StepServices } from '@/components/generator/StepServices';
 import { StepBrand } from '@/components/generator/StepBrand';
 import { StepContact } from '@/components/generator/StepContact';
 import { StepReview } from '@/components/generator/StepReview';
-import { WebsitePreview } from '@/components/generator/WebsitePreview';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Sparkles, Loader2, Copy, Check, ExternalLink } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 
 const STEPS = [
@@ -24,8 +21,6 @@ const STEPS = [
 const Index = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<BusinessFormData>(defaultFormData);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [showResults, setShowResults] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -36,27 +31,7 @@ const Index = () => {
   const next = () => setCurrentStep(s => Math.min(s + 1, STEPS.length - 1));
   const prev = () => setCurrentStep(s => Math.max(s - 1, 0));
 
-  const handleGenerate = async () => {
-    setIsGenerating(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('generate-content', {
-        body: { formData },
-      });
-
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-
-      setGeneratedContent(data.content);
-      setShowResults(true);
-    } catch (err) {
-      console.error('Generation error:', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to generate content. Please try again.');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const prompt = generatePrompt(formData, generatedContent);
+  const prompt = generatePrompt(formData);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(prompt);
@@ -65,34 +40,30 @@ const Index = () => {
     toast.success('Prompt copied! Paste it into a new Lovable project.');
   };
 
+  const handleGenerate = () => {
+    setShowResults(true);
+  };
+
   // Results view
-  if (showResults && generatedContent) {
+  if (showResults) {
     return (
       <div className="min-h-screen bg-background">
         <Header />
-        <main className="mx-auto max-w-6xl px-6 py-8">
+        <main className="mx-auto max-w-4xl px-6 py-8">
           <div className="text-center mb-8">
             <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-success/10 mb-4">
               <Sparkles className="h-8 w-8 text-success" />
             </div>
             <h2 className="font-display text-3xl font-bold tracking-tight text-foreground">
-              Your Website is Ready!
+              Your Prompt is Ready!
             </h2>
             <p className="mt-3 text-muted-foreground max-w-xl mx-auto">
-              Preview your AI-generated website below, then copy the prompt to create a full Lovable project.
+              Copy the generated prompt below and paste it into a new Lovable project to create your website.
             </p>
           </div>
 
-          {/* Tab navigation */}
-          <div className="flex gap-4 mb-6">
-            <TabButton active={true} label="Live Preview" />
-          </div>
-
-          {/* Preview */}
-          <WebsitePreview content={generatedContent} formData={formData} />
-
           {/* Prompt section */}
-          <div className="glass-card rounded-xl p-6 mt-8">
+          <div className="glass-card rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="form-section-title">Generated Lovable Prompt</h3>
               <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
@@ -100,7 +71,7 @@ const Index = () => {
                 {copied ? 'Copied!' : 'Copy Prompt'}
               </Button>
             </div>
-            <pre className="bg-muted rounded-lg p-4 text-sm text-foreground/80 whitespace-pre-wrap overflow-auto max-h-64 font-body leading-relaxed">
+            <pre className="bg-muted rounded-lg p-4 text-sm text-foreground/80 whitespace-pre-wrap overflow-auto max-h-96 font-body leading-relaxed">
               {prompt}
             </pre>
           </div>
@@ -153,8 +124,8 @@ const Index = () => {
             Generate Your Website
           </h2>
           <p className="mt-3 text-muted-foreground max-w-xl mx-auto">
-            Fill in your business details and our AI will generate a professional,
-            conversion-focused website with real content.
+            Fill in your business details and we'll generate a professional,
+            conversion-focused website prompt for Lovable.
           </p>
         </div>
 
@@ -182,18 +153,9 @@ const Index = () => {
               variant="gradient"
               size="lg"
               onClick={handleGenerate}
-              disabled={isGenerating}
               className="gap-2"
             >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Generating...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4" /> Generate Website
-                </>
-              )}
+              <Sparkles className="h-4 w-4" /> Generate Prompt
             </Button>
           )}
         </div>
@@ -217,20 +179,7 @@ function Header() {
   );
 }
 
-function TabButton({ active, label }: { active: boolean; label: string }) {
-  return (
-    <div
-      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-        active ? 'bg-primary/10 text-primary border border-primary/20' : 'text-muted-foreground'
-      }`}
-    >
-      {label}
-    </div>
-  );
-}
-
-// Enhanced prompt generation with AI content
-function generatePrompt(data: BusinessFormData, content: GeneratedContent | null): string {
+function generatePrompt(data: BusinessFormData): string {
   const servicesText = data.services.filter(Boolean).join(', ');
   const diffsText = data.differentiators.filter(Boolean).join(', ');
   const socialText = Object.entries(data.socialLinks)
@@ -238,28 +187,6 @@ function generatePrompt(data: BusinessFormData, content: GeneratedContent | null
     .map(([k, v]) => `${k}: ${v}`)
     .join(', ');
   const categoryHint = getCategoryLayout(data.businessCategory);
-
-  let contentSection = '';
-  if (content) {
-    contentSection = `
-
-## Pre-Generated Content (Use these exact texts)
-- Hero Headline: "${content.heroHeadline}"
-- Hero Subheadline: "${content.heroSubheadline}"
-- About Title: "${content.aboutTitle}"
-- About Content: "${content.aboutContent}"
-- Services Intro: "${content.servicesIntro}"
-- Services: ${content.services.map(s => `\n  - ${s.name}: ${s.description}`).join('')}
-- Benefits: ${content.benefits.map(b => `\n  - ${b.title}: ${b.description}`).join('')}
-- CTA Headline: "${content.ctaHeadline}"
-- CTA Subtext: "${content.ctaSubtext}"
-- CTA Button: "${content.ctaButtonText}"
-- Testimonials: ${content.testimonials.map(t => `\n  - "${t.quote}" — ${t.author}, ${t.role}`).join('')}
-
-## SEO
-- Page Title: "${content.metaTitle}"
-- Meta Description: "${content.metaDescription}"`;
-  }
 
   return `Create a professional, conversion-focused ${data.preferredStyle} website for "${data.businessName}".
 
@@ -289,7 +216,6 @@ ${data.logoUrl ? `- Logo: ${data.logoUrl}` : ''}
 ${data.phone ? `- Phone: ${data.phone}` : ''}
 ${data.whatsapp ? `- WhatsApp: ${data.whatsapp}` : ''}
 ${socialText ? `- Social: ${socialText}` : ''}
-${contentSection}
 
 ## Website Structure
 ${categoryHint}
