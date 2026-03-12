@@ -1,6 +1,6 @@
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { BusinessFormData } from '@/types/businessForm';
+import { FieldLabel } from './FieldLabel';
 
 interface Props {
   data: BusinessFormData;
@@ -22,7 +22,9 @@ export function StepContact({ data, onChange }: Props) {
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="city">City</Label>
+            <FieldLabel htmlFor="city" hint="The city where your business is located. Shown in the footer and used for local SEO.">
+              City
+            </FieldLabel>
             <Input
               id="city"
               value={data.city}
@@ -32,7 +34,9 @@ export function StepContact({ data, onChange }: Props) {
             />
           </div>
           <div>
-            <Label htmlFor="country">Country</Label>
+            <FieldLabel htmlFor="country" hint="The country where your business operates. Used for local SEO and contact section.">
+              Country
+            </FieldLabel>
             <Input
               id="country"
               value={data.country}
@@ -44,7 +48,9 @@ export function StepContact({ data, onChange }: Props) {
         </div>
 
         <div>
-          <Label htmlFor="email">Email *</Label>
+          <FieldLabel htmlFor="email" required hint="The main contact email displayed on your website. Visitors will use this to reach you.">
+            Email
+          </FieldLabel>
           <Input
             id="email"
             type="email"
@@ -57,7 +63,9 @@ export function StepContact({ data, onChange }: Props) {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="phone">Phone</Label>
+            <FieldLabel htmlFor="phone" hint="Business phone number with country code. Will be shown in the contact section and footer.">
+              Phone
+            </FieldLabel>
             <Input
               id="phone"
               value={data.phone}
@@ -67,7 +75,9 @@ export function StepContact({ data, onChange }: Props) {
             />
           </div>
           <div>
-            <Label htmlFor="whatsapp">WhatsApp</Label>
+            <FieldLabel htmlFor="whatsapp" hint="WhatsApp number with country code. A click-to-chat button will be added to the website.">
+              WhatsApp
+            </FieldLabel>
             <Input
               id="whatsapp"
               value={data.whatsapp}
@@ -78,13 +88,16 @@ export function StepContact({ data, onChange }: Props) {
           </div>
         </div>
 
-        {/* Social Links */}
         <div>
-          <Label className="text-foreground">Social Media Links</Label>
+          <FieldLabel className="text-foreground" hint="Add your social media profile URLs. These will be shown as icons in the footer.">
+            Social Media Links
+          </FieldLabel>
           <div className="space-y-3 mt-2">
             {(['facebook', 'instagram', 'twitter', 'linkedin', 'youtube'] as const).map(platform => (
               <div key={platform}>
-                <Label htmlFor={platform} className="text-xs text-muted-foreground capitalize">{platform}</Label>
+                <FieldLabel htmlFor={platform} className="text-xs text-muted-foreground capitalize">
+                  {platform}
+                </FieldLabel>
                 <Input
                   id={platform}
                   value={data.socialLinks[platform] || ''}

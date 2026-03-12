@@ -1,9 +1,9 @@
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { BusinessFormData, ImageUrls } from '@/types/businessForm';
 import { Image, Sparkles, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FieldLabel } from './FieldLabel';
 
 interface Props {
   data: BusinessFormData;
@@ -41,11 +41,15 @@ export function StepImages({ data, onChange }: Props) {
         <div>
           <div className="flex items-center gap-2 mb-3">
             <Image className="h-4 w-4 text-primary" />
-            <Label className="text-foreground font-medium">Hero Images</Label>
+            <FieldLabel className="text-foreground font-medium" hint="Large banner images displayed at the top of the homepage. Use high-resolution landscape images (1920x1080 recommended).">
+              Hero Images
+            </FieldLabel>
           </div>
           <div className="space-y-3 pl-6">
             <div>
-              <Label htmlFor="heroImage1" className="text-xs text-muted-foreground">Hero Image 1 URL</Label>
+              <FieldLabel htmlFor="heroImage1" className="text-xs text-muted-foreground" hint="Main hero banner image. Should be eye-catching and represent your brand.">
+                Hero Image 1 URL
+              </FieldLabel>
               <Input
                 id="heroImage1"
                 value={data.images.heroImage1}
@@ -55,7 +59,9 @@ export function StepImages({ data, onChange }: Props) {
               />
             </div>
             <div>
-              <Label htmlFor="heroImage2" className="text-xs text-muted-foreground">Hero Image 2 URL</Label>
+              <FieldLabel htmlFor="heroImage2" className="text-xs text-muted-foreground" hint="Secondary hero image for slideshow or alternate sections.">
+                Hero Image 2 URL
+              </FieldLabel>
               <Input
                 id="heroImage2"
                 value={data.images.heroImage2}
@@ -71,11 +77,15 @@ export function StepImages({ data, onChange }: Props) {
         <div>
           <div className="flex items-center gap-2 mb-3">
             <Image className="h-4 w-4 text-primary" />
-            <Label className="text-foreground font-medium">Brand / Identity</Label>
+            <FieldLabel className="text-foreground font-medium" hint="Your brand visual assets — logo and brand imagery used across the website.">
+              Brand / Identity
+            </FieldLabel>
           </div>
           <div className="space-y-3 pl-6">
             <div>
-              <Label htmlFor="logoUrl" className="text-xs text-muted-foreground">Logo URL</Label>
+              <FieldLabel htmlFor="logoUrl" className="text-xs text-muted-foreground" hint="Your company logo. PNG with transparent background works best. Used in header and footer.">
+                Logo URL
+              </FieldLabel>
               <Input
                 id="logoUrl"
                 value={data.images.logoUrl}
@@ -85,7 +95,9 @@ export function StepImages({ data, onChange }: Props) {
               />
             </div>
             <div>
-              <Label htmlFor="brandImage" className="text-xs text-muted-foreground">Brand Image URL</Label>
+              <FieldLabel htmlFor="brandImage" className="text-xs text-muted-foreground" hint="An image that represents your brand identity — team photo, office, or lifestyle image.">
+                Brand Image URL
+              </FieldLabel>
               <Input
                 id="brandImage"
                 value={data.images.brandImage}
@@ -101,12 +113,16 @@ export function StepImages({ data, onChange }: Props) {
         <div>
           <div className="flex items-center gap-2 mb-3">
             <Image className="h-4 w-4 text-primary" />
-            <Label className="text-foreground font-medium">Content Images</Label>
+            <FieldLabel className="text-foreground font-medium" hint="Images used throughout the website content — about section, services, features, etc.">
+              Content Images
+            </FieldLabel>
           </div>
           <div className="space-y-3 pl-6">
             {(['sectionImage1', 'sectionImage2', 'sectionImage3'] as const).map((key, i) => (
               <div key={key}>
-                <Label htmlFor={key} className="text-xs text-muted-foreground">Section Image {i + 1}</Label>
+                <FieldLabel htmlFor={key} className="text-xs text-muted-foreground" hint={`Image for content section ${i + 1}. Used alongside text in about, services, or feature sections.`}>
+                  Section Image {i + 1}
+                </FieldLabel>
                 <Input
                   id={key}
                   value={data.images[key]}
@@ -124,7 +140,9 @@ export function StepImages({ data, onChange }: Props) {
           <div>
             <div className="flex items-center gap-2 mb-3">
               <Image className="h-4 w-4 text-primary" />
-              <Label className="text-foreground font-medium">Product Images</Label>
+              <FieldLabel className="text-foreground font-medium" hint="Product photos for your e-commerce store. Use square or consistent aspect ratio images.">
+                Product Images
+              </FieldLabel>
             </div>
             <div className="space-y-2 pl-6">
               {data.images.productImages.map((img, i) => (
@@ -152,7 +170,9 @@ export function StepImages({ data, onChange }: Props) {
             <div className="flex items-center gap-3">
               <Sparkles className="h-5 w-5 text-primary" />
               <div>
-                <Label className="text-foreground font-medium">Generate AI Images</Label>
+                <FieldLabel className="text-foreground font-medium" hint="When enabled, AI will use your provided images as reference to generate new professional visuals matching your brand style.">
+                  Generate AI Images
+                </FieldLabel>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Use provided images as reference to generate new visuals with AI
                 </p>

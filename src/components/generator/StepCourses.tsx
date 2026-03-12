@@ -1,9 +1,9 @@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { BusinessFormData, CourseItem } from '@/types/businessForm';
 import { Plus, X, GraduationCap } from 'lucide-react';
+import { FieldLabel } from './FieldLabel';
 
 interface Props {
   data: BusinessFormData;
@@ -43,23 +43,33 @@ export function StepCourses({ data, onChange }: Props) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <Label className="text-xs text-muted-foreground">Course Title *</Label>
+              <FieldLabel className="text-xs text-muted-foreground" required hint="The title of the course as students will see it (e.g. 'Complete Web Development Bootcamp').">
+                Course Title
+              </FieldLabel>
               <Input value={c.title} onChange={e => update(i, 'title', e.target.value)} placeholder="Course title" className="mt-1" />
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground">Instructor</Label>
+              <FieldLabel className="text-xs text-muted-foreground" hint="The name of the instructor or teacher for this course.">
+                Instructor
+              </FieldLabel>
               <Input value={c.instructor} onChange={e => update(i, 'instructor', e.target.value)} placeholder="Instructor name" className="mt-1" />
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground">Price</Label>
+              <FieldLabel className="text-xs text-muted-foreground" hint="The enrollment price for this course. Leave empty if it's free.">
+                Price
+              </FieldLabel>
               <Input value={c.price} onChange={e => update(i, 'price', e.target.value)} placeholder="$199" className="mt-1" />
             </div>
             <div className="col-span-2">
-              <Label className="text-xs text-muted-foreground">Description</Label>
+              <FieldLabel className="text-xs text-muted-foreground" hint="A compelling description of what students will learn and why they should enroll.">
+                Description
+              </FieldLabel>
               <Textarea value={c.description} onChange={e => update(i, 'description', e.target.value)} placeholder="Course description" rows={2} className="mt-1" />
             </div>
             <div className="col-span-2">
-              <Label className="text-xs text-muted-foreground">Modules (one per line)</Label>
+              <FieldLabel className="text-xs text-muted-foreground" hint="List the course modules or chapters, one per line. These will be shown as the course curriculum.">
+                Modules (one per line)
+              </FieldLabel>
               <Textarea value={c.modules} onChange={e => update(i, 'modules', e.target.value)} placeholder="Module 1: Introduction&#10;Module 2: Basics" rows={3} className="mt-1" />
             </div>
           </div>

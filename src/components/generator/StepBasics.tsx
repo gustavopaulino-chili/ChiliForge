@@ -1,8 +1,8 @@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BusinessFormData, BUSINESS_CATEGORIES } from '@/types/businessForm';
+import { FieldLabel } from './FieldLabel';
 
 interface Props {
   data: BusinessFormData;
@@ -19,7 +19,9 @@ export function StepBasics({ data, onChange }: Props) {
 
       <div className="space-y-4">
         <div>
-          <Label htmlFor="businessName">Business Name *</Label>
+          <FieldLabel htmlFor="businessName" required hint="The official name of your company or brand as it should appear on the website.">
+            Business Name
+          </FieldLabel>
           <Input
             id="businessName"
             value={data.businessName}
@@ -30,7 +32,9 @@ export function StepBasics({ data, onChange }: Props) {
         </div>
 
         <div>
-          <Label htmlFor="businessDescription">Business Description *</Label>
+          <FieldLabel htmlFor="businessDescription" required hint="A brief summary of what your business does, who you serve, and what makes you unique. This will be used to generate all website copy.">
+            Business Description
+          </FieldLabel>
           <Textarea
             id="businessDescription"
             value={data.businessDescription}
@@ -42,7 +46,9 @@ export function StepBasics({ data, onChange }: Props) {
         </div>
 
         <div>
-          <Label htmlFor="businessCategory">Industry / Category *</Label>
+          <FieldLabel htmlFor="businessCategory" required hint="Select the industry that best describes your business. This helps tailor the website layout and content structure.">
+            Industry / Category
+          </FieldLabel>
           <Select
             value={data.businessCategory}
             onValueChange={v => onChange({ businessCategory: v })}
@@ -59,7 +65,9 @@ export function StepBasics({ data, onChange }: Props) {
         </div>
 
         <div>
-          <Label htmlFor="targetAudience">Target Audience</Label>
+          <FieldLabel htmlFor="targetAudience" hint="Describe your ideal customer — age range, profession, interests, or demographics. Helps create more targeted messaging.">
+            Target Audience
+          </FieldLabel>
           <Input
             id="targetAudience"
             value={data.targetAudience}

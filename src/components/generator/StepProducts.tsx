@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { BusinessFormData, ProductItem } from '@/types/businessForm';
 import { Plus, X, ShoppingCart, DollarSign } from 'lucide-react';
+import { FieldLabel } from './FieldLabel';
 
 interface Props {
   data: BusinessFormData;
@@ -40,7 +40,9 @@ export function StepProducts({ data, onChange }: Props) {
       <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 p-3">
         <div className="flex items-center gap-2">
           <DollarSign className="h-4 w-4 text-muted-foreground" />
-          <Label className="text-sm text-foreground">Show pricing fields</Label>
+          <FieldLabel hint="Toggle to show price and discount fields for each product. Leave off if prices are not public.">
+            Show pricing fields
+          </FieldLabel>
         </div>
         <Switch checked={showPricing} onCheckedChange={setShowPricing} />
       </div>
@@ -62,35 +64,49 @@ export function StepProducts({ data, onChange }: Props) {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
-                <Label className="text-xs text-muted-foreground">Product Name *</Label>
+                <FieldLabel className="text-xs text-muted-foreground" required hint="The name of the product as it will appear on the website and product listing.">
+                  Product Name
+                </FieldLabel>
                 <Input value={p.name} onChange={e => update(i, 'name', e.target.value)} placeholder="Product name" className="mt-1" />
               </div>
               <div className="col-span-2">
-                <Label className="text-xs text-muted-foreground">Description</Label>
+                <FieldLabel className="text-xs text-muted-foreground" hint="A short description of the product highlighting key features and benefits.">
+                  Description
+                </FieldLabel>
                 <Textarea value={p.description} onChange={e => update(i, 'description', e.target.value)} placeholder="Product description" rows={2} className="mt-1" />
               </div>
               {showPricing && (
                 <>
                   <div>
-                    <Label className="text-xs text-muted-foreground">Price</Label>
+                    <FieldLabel className="text-xs text-muted-foreground" hint="The regular selling price of the product. Include currency symbol.">
+                      Price
+                    </FieldLabel>
                     <Input value={p.price} onChange={e => update(i, 'price', e.target.value)} placeholder="$99.99" className="mt-1" />
                   </div>
                   <div>
-                    <Label className="text-xs text-muted-foreground">Discount Price</Label>
+                    <FieldLabel className="text-xs text-muted-foreground" hint="The discounted/sale price. Will be shown alongside the original price with a strikethrough.">
+                      Discount Price
+                    </FieldLabel>
                     <Input value={p.discountPrice} onChange={e => update(i, 'discountPrice', e.target.value)} placeholder="$79.99" className="mt-1" />
                   </div>
                 </>
               )}
               <div>
-                <Label className="text-xs text-muted-foreground">SKU</Label>
+                <FieldLabel className="text-xs text-muted-foreground" hint="Stock Keeping Unit — a unique code to identify this product in your inventory system.">
+                  SKU
+                </FieldLabel>
                 <Input value={p.sku} onChange={e => update(i, 'sku', e.target.value)} placeholder="SKU-001" className="mt-1" />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Category</Label>
+                <FieldLabel className="text-xs text-muted-foreground" hint="The product category for organizing products in the store (e.g. Electronics, Clothing).">
+                  Category
+                </FieldLabel>
                 <Input value={p.category} onChange={e => update(i, 'category', e.target.value)} placeholder="Category" className="mt-1" />
               </div>
               <div className="col-span-2">
-                <Label className="text-xs text-muted-foreground">Variants (size, color, etc.)</Label>
+                <FieldLabel className="text-xs text-muted-foreground" hint="Available options like sizes, colors, or materials. Separate with commas (e.g. S, M, L, XL / Red, Blue).">
+                  Variants (size, color, etc.)
+                </FieldLabel>
                 <Input value={p.variants} onChange={e => update(i, 'variants', e.target.value)} placeholder="S, M, L, XL / Red, Blue" className="mt-1" />
               </div>
             </div>
