@@ -347,6 +347,8 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
         if (p.category) parts.push(`cat:${p.category}`);
         if (p.variants) parts.push(`var:${p.variants}`);
         if (p.sku) parts.push(`sku:${p.sku}`);
+        const prodImages = p.images.filter(Boolean);
+        if (prodImages.length > 0) parts.push(`images:${prodImages.join(', ')}`);
         typeSpecific += `- ${parts.join(' | ')}\n`;
       });
       typeSpecific += `Include: Product Page, Listing, Cart, Checkout.`;
