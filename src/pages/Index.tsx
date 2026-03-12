@@ -104,39 +104,50 @@ const Index = () => {
 
   const currentStepId = steps[currentStep]?.id;
 
+  const invokeWithRetry = async (purpose: string, referenceUrl: string | undefined, retries = 3): Promise<string | null> => {
+    for (let attempt = 0; attempt < retries; attempt++) {
+      const { data, error } = await supabase.functions.invoke('generate-images', {
+        body: {
+          referenceImageUrl: referenceUrl,
+          style: formData.preferredStyle,
+          businessName: formData.businessName,
+          businessDescription: formData.businessDescription,
+          businessCategory: formData.businessCategory,
+          websiteType: formData.websiteType,
+          purpose,
+        },
+      });
+      if (data?.imageUrl) return data.imageUrl;
+      // If rate limited, wait and retry
+      if (error?.message?.includes('429') || data?.error?.includes('Rate limit')) {
+        const delay = 3000 * (attempt + 1);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      break; // non-retryable error
+    }
+    return null;
+  };
+
   const handleGenerate = async () => {
-    // If AI images enabled, generate them first
     if (formData.generateAiImages) {
       setIsGeneratingImages(true);
       try {
         const purposes = ['hero banner', 'about section background', 'services section'];
         const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
-        
-        const results = await Promise.allSettled(
-          purposes.map(purpose =>
-            supabase.functions.invoke('generate-images', {
-              body: {
-                referenceImageUrl: referenceUrl,
-                style: formData.preferredStyle,
-                businessName: formData.businessName,
-                businessDescription: formData.businessDescription,
-                businessCategory: formData.businessCategory,
-                websiteType: formData.websiteType,
-                purpose,
-              },
-            })
-          )
-        );
 
+        // Call sequentially to avoid rate limits
         const images: string[] = [];
-        for (const result of results) {
-          if (result.status === 'fulfilled' && result.value.data?.imageUrl) {
-            images.push(result.value.data.imageUrl);
-          }
+        for (const purpose of purposes) {
+          const url = await invokeWithRetry(purpose, referenceUrl);
+          if (url) images.push(url);
         }
+
         setGeneratedImages(images);
         if (images.length > 0) {
           toast.success(`Generated ${images.length} AI images`);
+        } else {
+          toast.error('Could not generate AI images. Try again in a moment.');
         }
       } catch (err) {
         console.error('Image generation error:', err);
