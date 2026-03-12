@@ -138,7 +138,8 @@ const Index = () => {
   // Results view
   if (showResults) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background relative">
+        <div className="reactive-bg" />
         <Header />
         <main className="mx-auto max-w-4xl px-6 py-8">
           <div className="text-center mb-8">
