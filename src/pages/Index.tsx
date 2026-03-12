@@ -276,13 +276,11 @@ const Index = () => {
 function Header() {
   return (
     <header className="border-b border-border/50 px-6 py-4 relative z-10">
-      <div className="mx-auto max-w-6xl flex items-center gap-3">
-        <div className="flex flex-col items-center">
-          <img src="/images/logo.png" alt="Logo" className="h-10 w-auto" />
-          <span style={{ fontFamily: "'Dancing Script', cursive" }} className="text-sm font-semibold gradient-text -mt-1">
-            Forge
-          </span>
-        </div>
+      <div className="mx-auto max-w-6xl flex items-center gap-2">
+        <img src="/images/logo.png" alt="Logo" className="h-14 w-auto" />
+        <span style={{ fontFamily: "'Dancing Script', cursive" }} className="text-2xl font-bold gradient-text">
+          Forge
+        </span>
       </div>
     </header>
   );
