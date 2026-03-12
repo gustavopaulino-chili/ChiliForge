@@ -77,6 +77,16 @@
     font-family: var(--font-body);
   }
 
+  .reactive-bg {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: var(--gradient-hero-bg);
+    opacity: 0.5;
+    transition: opacity 0.3s ease;
+  }
+
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
   }
