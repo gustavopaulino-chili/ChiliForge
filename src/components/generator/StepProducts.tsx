@@ -48,7 +48,9 @@ function deleteSavedVariant(name: string) {
 export function StepProducts({ data, onChange }: Props) {
   const products = data.products.length > 0 ? data.products : [{ ...emptyProduct }];
   const [showPricing, setShowPricing] = useState(() => products.some(p => p.price || p.discountPrice));
+  const [savedVariants, setSavedVariants] = useState<ProductVariant[]>(getSavedVariants);
 
+  const refreshSaved = () => setSavedVariants(getSavedVariants());
   const update = (i: number, field: keyof ProductItem, value: any) => {
     const updated = [...products];
     updated[i] = { ...updated[i], [field]: value };
