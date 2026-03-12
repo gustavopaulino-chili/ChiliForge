@@ -13,7 +13,8 @@ import { StepFeatures } from '@/components/generator/StepFeatures';
 import { StepCourses } from '@/components/generator/StepCourses';
 import { StepReview } from '@/components/generator/StepReview';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2 } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -67,6 +68,9 @@ const Index = () => {
   const [copied, setCopied] = useState(false);
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+  const [generationStatus, setGenerationStatus] = useState('');
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // Reactive gradient mouse tracker
   useEffect(() => {
@@ -130,33 +134,51 @@ const Index = () => {
   };
 
   const handleGenerate = async () => {
+    setIsGenerating(true);
+    setGenerationProgress(0);
+
     if (formData.generateAiImages) {
       setIsGeneratingImages(true);
-      try {
-        const purposes = ['hero banner', 'about section background', 'services section'];
-        const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
+      const purposes = ['hero banner', 'about section background', 'services section'];
+      const purposeLabels = ['Banner principal', 'Imagem da seção Sobre', 'Imagem da seção Serviços'];
+      const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
 
-        // Call sequentially to avoid rate limits
+      try {
         const images: string[] = [];
-        for (const purpose of purposes) {
-          const url = await invokeWithRetry(purpose, referenceUrl);
+        for (let idx = 0; idx < purposes.length; idx++) {
+          setGenerationStatus(`Gerando imagem ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
+          setGenerationProgress(Math.round(((idx) / (purposes.length + 1)) * 100));
+          const url = await invokeWithRetry(purposes[idx], referenceUrl);
           if (url) images.push(url);
         }
 
         setGeneratedImages(images);
+        setGenerationStatus('Montando o prompt final...');
+        setGenerationProgress(90);
+
         if (images.length > 0) {
-          toast.success(`Generated ${images.length} AI images`);
+          toast.success(`${images.length} imagens AI geradas com sucesso`);
         } else {
-          toast.error('Could not generate AI images. Try again in a moment.');
+          toast.error('Não foi possível gerar imagens. Tente novamente.');
         }
       } catch (err) {
         console.error('Image generation error:', err);
-        toast.error('Some AI images could not be generated');
+        toast.error('Erro ao gerar imagens AI');
       } finally {
         setIsGeneratingImages(false);
       }
+    } else {
+      setGenerationStatus('Montando o prompt...');
+      setGenerationProgress(50);
     }
 
+    // Small delay for UX
+    await new Promise(r => setTimeout(r, 600));
+    setGenerationProgress(100);
+    setGenerationStatus('Pronto!');
+    await new Promise(r => setTimeout(r, 400));
+
+    setIsGenerating(false);
     setShowResults(true);
   };
 
@@ -168,6 +190,52 @@ const Index = () => {
     setTimeout(() => setCopied(false), 2000);
     toast.success('Prompt copied! Paste it into a new Lovable project.');
   };
+
+  // Generating screen
+  if (isGenerating) {
+    return (
+      <div className="min-h-screen bg-background relative flex flex-col">
+        <div className="reactive-bg" />
+        <Header />
+        <main className="flex-1 flex items-center justify-center relative z-10 px-6">
+          <div className="max-w-md w-full text-center space-y-8">
+            <div className="relative inline-flex h-20 w-20 items-center justify-center mx-auto">
+              <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
+              <div className="relative h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center">
+                <Wand2 className="h-9 w-9 text-primary animate-pulse" />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">
+                Gerando seu prompt...
+              </h2>
+              <p className="text-muted-foreground text-sm min-h-[1.25rem]">
+                {generationStatus}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Progress value={generationProgress} className="h-2" />
+              <p className="text-xs text-muted-foreground">{generationProgress}%</p>
+            </div>
+
+            {formData.generateAiImages && (
+              <div className="rounded-lg border border-border bg-card/50 p-4 text-left space-y-2">
+                <p className="text-xs font-medium text-foreground flex items-center gap-2">
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  Geração de imagens AI ativa
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Criando imagens exclusivas baseadas no seu negócio. Isso pode levar alguns segundos...
+                </p>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   // Results view
   if (showResults) {
