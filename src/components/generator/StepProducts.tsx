@@ -112,6 +112,38 @@ export function StepProducts({ data, onChange }: Props) {
                 </FieldLabel>
                 <Input value={p.variants} onChange={e => update(i, 'variants', e.target.value)} placeholder="S, M, L, XL / Red, Blue" className="mt-1" />
               </div>
+              <div className="col-span-2 space-y-2">
+                <FieldLabel className="text-xs text-muted-foreground" hint="Add image URLs for this product. These will be used in the product listing and detail pages.">
+                  Product Images
+                </FieldLabel>
+                {(p.images.length > 0 ? p.images : ['']).map((img, imgIdx) => (
+                  <div key={imgIdx} className="flex gap-2 items-center">
+                    <Input
+                      value={img}
+                      onChange={e => {
+                        const newImages = [...(p.images.length > 0 ? p.images : [''])];
+                        newImages[imgIdx] = e.target.value;
+                        update(i, 'images', newImages.filter((v, idx) => v || idx === newImages.length - 1));
+                      }}
+                      placeholder="https://example.com/image.jpg"
+                      className="flex-1"
+                    />
+                    {p.images.length > 1 && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => {
+                        const newImages = p.images.filter((_, idx) => idx !== imgIdx);
+                        update(i, 'images', newImages);
+                      }}>
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                {p.images.length > 0 && p.images[p.images.length - 1] !== '' && (
+                  <Button variant="ghost" size="sm" className="gap-1 text-xs" onClick={() => update(i, 'images', [...p.images, ''])}>
+                    <Plus className="h-3 w-3" /> Add another image
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         ))}
