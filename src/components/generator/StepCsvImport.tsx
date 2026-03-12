@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { BusinessFormData } from '@/types/businessForm';
-import { Upload, FileSpreadsheet, Check, AlertCircle, Table } from 'lucide-react';
+import { Upload, FileSpreadsheet, Check, AlertCircle, Table, X } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 
