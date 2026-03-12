@@ -9,21 +9,67 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { referenceImageUrl, style, businessName, purpose } = await req.json();
+    const { referenceImageUrl, style, businessName, businessDescription, businessCategory, purpose, websiteType } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const prompt = `Generate a professional ${style} style image for a business called "${businessName}". 
-Purpose: ${purpose}. 
-The image should be modern, high-quality, suitable for a professional website. 
-Clean composition, professional lighting, brand-appropriate colors.`;
+    // Build a context-aware prompt based on business info
+    const categoryHints: Record<string, string> = {
+      'Technology / SaaS': 'abstract tech patterns, clean workspaces, modern devices, data visualizations, digital interfaces',
+      'Agency / Consulting': 'professional meeting rooms, collaborative teams, modern offices, strategic planning imagery',
+      'E-commerce / Retail': 'lifestyle product photography, shopping environments, packaging, stylish product displays',
+      'Restaurant / Food': 'appetizing food photography, restaurant ambiance, kitchen scenes, table settings, ingredients',
+      'Healthcare / Medical': 'clean medical environments, caring professionals, wellness imagery, health and vitality',
+      'Real Estate': 'architectural photography, property interiors, cityscapes, luxury living spaces',
+      'Education / Training': 'learning environments, students collaborating, books, classrooms, knowledge sharing',
+      'Fitness / Wellness': 'active lifestyle, gym equipment, yoga, healthy living, energy and movement',
+      'Legal / Financial': 'professional settings, trust and authority, corporate environments, handshakes',
+      'Construction / Home Services': 'construction sites, tools, building processes, renovated spaces, blueprints',
+      'Beauty / Salon': 'beauty treatments, salon interiors, cosmetics, elegance, self-care',
+      'Photography / Creative': 'artistic compositions, creative workspaces, camera equipment, portfolios',
+      'Non-Profit': 'community, helping hands, social impact, volunteers, positive change',
+    };
+
+    const categoryKey = Object.keys(categoryHints).find(k => businessCategory?.includes(k.split(' /')[0])) || '';
+    const visualHints = categoryHints[categoryKey] || 'professional business environment, modern aesthetic';
+
+    const purposeMap: Record<string, string> = {
+      'hero banner': 'a wide cinematic background image for the main hero section of a website. The image should work as a full-width background behind text overlays.',
+      'about section background': 'a background or lifestyle photo for an about/company section. Should convey the brand essence and company culture.',
+      'services section': 'a visual that represents the services or products offered. Should feel authentic and relevant to the business.',
+      'marketing visual': 'a versatile marketing image that can be used across different sections as a background or decorative photo.',
+      'testimonials background': 'a subtle, professional background image for a testimonials or social proof section.',
+    };
+
+    const purposeDesc = purposeMap[purpose] || `a professional image for: ${purpose}`;
+
+    const prompt = `Generate ${purposeDesc}
+
+Business context:
+- Name: "${businessName}"
+- Industry: ${businessCategory || 'General business'}
+- Description: ${businessDescription || 'A professional business'}
+- Website type: ${websiteType || 'corporate'}
+- Design style: ${style || 'modern'}
+
+Visual direction: ${visualHints}
+
+CRITICAL RULES:
+- DO NOT include any text, letters, words, logos, watermarks, or typography in the image
+- DO NOT include UI elements, buttons, or mockups
+- The image must be purely photographic or illustrative — NO text overlays
+- Create a clean, high-resolution image suitable as a website background or section photo
+- Use professional lighting and composition
+- The image should feel authentic and relevant to "${businessCategory || 'the business'}"
+- Maintain a ${style || 'modern'} aesthetic with cohesive color tones
+- The image should work well with text overlaid on top of it (good contrast areas)`;
 
     const messages: any[] = [
       {
         role: "user",
         content: referenceImageUrl
           ? [
-              { type: "text", text: `Based on this reference image, ${prompt}` },
+              { type: "text", text: prompt },
               { type: "image_url", image_url: { url: referenceImageUrl } },
             ]
           : prompt,
