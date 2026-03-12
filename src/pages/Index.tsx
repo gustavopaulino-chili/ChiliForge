@@ -302,11 +302,8 @@ const Index = () => {
 function Header() {
   return (
     <header className="border-b border-border/50 px-6 py-2 relative z-10">
-      <div className="mx-auto max-w-6xl flex items-center gap-2">
-        <img src="/images/logo.png" alt="Logo" className="h-20 w-auto" />
-        <span className="text-3xl font-bold gradient-text tracking-tight font-display">
-          Forge
-        </span>
+      <div className="mx-auto max-w-6xl flex items-center">
+        <img src="/images/logo.png" alt="Forge" className="h-16 w-auto" />
       </div>
     </header>
   );
