@@ -19,6 +19,7 @@ const emptyProduct: ProductItem = {
 
 export function StepProducts({ data, onChange }: Props) {
   const products = data.products.length > 0 ? data.products : [{ ...emptyProduct }];
+  const [showPricing, setShowPricing] = useState(() => products.some(p => p.price || p.discountPrice));
 
   const update = (i: number, field: keyof ProductItem, value: any) => {
     const updated = [...products];
