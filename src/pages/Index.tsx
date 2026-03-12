@@ -74,7 +74,8 @@ const Index = () => {
   const [copiedLink, setCopiedLink] = useState(false);
 
   const getLovableUrl = useCallback(() => {
-    return `https://lovable.dev/?autosubmit=true#prompt=${encodeURIComponent(generatePrompt(formData, generatedImages))}`;
+    const promptText = generatePrompt(formData, generatedImages);
+    return `https://lovable.dev/projects/create#prompt=${encodeURIComponent(promptText)}`;
   }, [formData, generatedImages]);
 
   // Reactive gradient mouse tracker
