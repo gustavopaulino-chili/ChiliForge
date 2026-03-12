@@ -303,7 +303,10 @@ function Header() {
   return (
     <header className="border-b border-border/50 px-6 py-[13px] relative z-10">
       <div className="mx-auto max-w-6xl flex items-center">
-        <img src="/images/logo.png" alt="Forge" className="h-16 w-auto" />
+        <div className="flex items-center gap-3">
+          <img src="/images/logo-small.png" alt="Logo" className="h-12 w-auto" />
+          <img src="/images/logo.png" alt="Forge" className="h-12 w-auto" />
+        </div>
       </div>
     </header>
   );
