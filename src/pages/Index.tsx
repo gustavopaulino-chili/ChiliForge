@@ -56,6 +56,15 @@ const Index = () => {
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
 
+  // Reactive gradient mouse tracker
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
+      document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
   const steps = useMemo(() => getSteps(formData.websiteType), [formData.websiteType]);
 
   const updateForm = (updates: Partial<BusinessFormData>) => {
