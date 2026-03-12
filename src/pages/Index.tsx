@@ -213,8 +213,8 @@ const Index = () => {
 
   // Form view
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
+    <div className="min-h-screen bg-background relative">
+      <div className="reactive-bg" />
       <main className="mx-auto max-w-4xl px-6 py-8">
         <div className="mb-10 text-center">
           <h2 className="font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
