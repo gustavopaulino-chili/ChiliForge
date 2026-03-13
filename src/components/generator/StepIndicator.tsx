@@ -9,7 +9,7 @@ export function StepIndicator({ steps, currentStep, maxVisitedStep, onStepClick 
   const maxReachable = maxVisitedStep ?? currentStep;
 
   return (
-    <div className="flex items-center justify-center gap-2">
+    <div className="flex items-center justify-center gap-2 flex-wrap">
       {steps.map((step, i) => {
         const canClick = onStepClick && i <= maxReachable;
         return (
