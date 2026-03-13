@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Lock, Plus, Trash2, ChevronDown, ChevronRight, FileText, Wand2, PenTool, GripVertical } from 'lucide-react';
+import { Lock, Plus, Trash2, ChevronDown, ChevronRight, FileText, Wand2, PenTool, GripVertical, ShoppingCart } from 'lucide-react';
 
 interface Props {
   data: BusinessFormData;
