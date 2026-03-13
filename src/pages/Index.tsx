@@ -155,7 +155,7 @@ const Index = () => {
     setShowResults(true);
   };
 
-  const prompt = generatePrompt(formData, generatedImages);
+  const prompt = generatePrompt(formData);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(prompt);
