@@ -509,7 +509,7 @@ ${socialText ? `Social: ${socialText}` : ''}
 ${typeSpecific}
 
 ## Structure
-${categoryHint}
+${generatePagesSection(data)}
 
 ## Requirements
 Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations, fast loading, strong CTAs.
