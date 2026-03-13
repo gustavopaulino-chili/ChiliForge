@@ -41,6 +41,7 @@ function getSteps(websiteType: WebsiteType): StepDef[] {
   }
 
   base.push(
+    { id: 'pages', label: 'Pages' },
     { id: 'brand', label: 'Brand' },
     { id: 'images', label: 'Images' },
     { id: 'contact', label: 'Contact' },
