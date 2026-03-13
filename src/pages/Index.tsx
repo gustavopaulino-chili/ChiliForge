@@ -17,7 +17,7 @@ import { StepPages } from '@/components/generator/StepPages';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 type StepDef = { id: string; label: string };
@@ -68,15 +68,17 @@ const Index = () => {
   const [formData, setFormData] = useState<BusinessFormData>(saved?.formData ?? defaultFormData);
   const [showResults, setShowResults] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isGeneratingImages, setIsGeneratingImages] = useState(false);
+  const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [generationStatus, setGenerationStatus] = useState('');
   const [generationProgress, setGenerationProgress] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
   const getLovableUrl = useCallback(() => {
-    const promptText = generatePrompt(formData);
+    const promptText = generatePrompt(formData, generatedImages);
     return `https://lovable.dev/projects/create#prompt=${encodeURIComponent(promptText)}`;
-  }, [formData]);
+  }, [formData, generatedImages]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -113,13 +115,68 @@ const Index = () => {
 
   const currentStepId = steps[currentStep]?.id;
 
+  const invokeWithRetry = async (purpose: string, referenceUrl: string | undefined, retries = 3): Promise<string | null> => {
+    for (let attempt = 0; attempt < retries; attempt++) {
+      const { data, error } = await supabase.functions.invoke('generate-images', {
+        body: {
+          referenceImageUrl: referenceUrl,
+          style: formData.preferredStyle,
+          businessName: formData.businessName,
+          businessDescription: formData.businessDescription,
+          businessCategory: formData.businessCategory,
+          websiteType: formData.websiteType,
+          purpose,
+        },
+      });
+      if (data?.imageUrl) return data.imageUrl;
+      if (error?.message?.includes('429') || data?.error?.includes('Rate limit')) {
+        const delay = 3000 * (attempt + 1);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      break;
+    }
+    return null;
+  };
 
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationProgress(0);
 
-    setGenerationStatus('Building prompt...');
-    setGenerationProgress(50);
+    if (formData.generateAiImages) {
+      setIsGeneratingImages(true);
+      const purposes = ['hero banner', 'about section background', 'services section'];
+      const purposeLabels = ['Hero Banner', 'About Section', 'Services Section'];
+      const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
+
+      try {
+        const images: string[] = [];
+        for (let idx = 0; idx < purposes.length; idx++) {
+          setGenerationStatus(`Generating image ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
+          setGenerationProgress(Math.round(((idx) / (purposes.length + 1)) * 100));
+          const url = await invokeWithRetry(purposes[idx], referenceUrl);
+          if (url) images.push(url);
+        }
+
+        setGeneratedImages(images);
+        setGenerationStatus('Building final prompt...');
+        setGenerationProgress(90);
+
+        if (images.length > 0) {
+          toast.success(`${images.length} AI images generated successfully`);
+        } else {
+          toast.error('Could not generate images. Try again.');
+        }
+      } catch (err) {
+        console.error('Image generation error:', err);
+        toast.error('Error generating AI images');
+      } finally {
+        setIsGeneratingImages(false);
+      }
+    } else {
+      setGenerationStatus('Building prompt...');
+      setGenerationProgress(50);
+    }
 
     await new Promise(r => setTimeout(r, 600));
     setGenerationProgress(100);
@@ -130,7 +187,7 @@ const Index = () => {
     setShowResults(true);
   };
 
-  const prompt = generatePrompt(formData);
+  const prompt = generatePrompt(formData, generatedImages);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(prompt);
@@ -168,6 +225,17 @@ const Index = () => {
               <p className="text-xs text-muted-foreground">{generationProgress}%</p>
             </div>
 
+            {formData.generateAiImages && (
+              <div className="rounded-lg border border-border bg-card/50 p-4 text-left space-y-2">
+                <p className="text-xs font-medium text-foreground flex items-center gap-2">
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  AI image generation active
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Creating exclusive images based on your business. This may take a few seconds...
+                </p>
+              </div>
+            )}
           </div>
         </main>
       </div>
@@ -193,6 +261,16 @@ const Index = () => {
             </p>
           </div>
 
+          {generatedImages.length > 0 && (
+            <div className="glass-card rounded-xl p-6 mb-6">
+              <h3 className="form-section-title mb-3">AI Generated Images</h3>
+              <div className="grid grid-cols-3 gap-3">
+                {generatedImages.map((img, i) => (
+                  <img key={i} src={img} alt={`AI generated ${i + 1}`} className="rounded-lg w-full h-32 object-cover" />
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="glass-card rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
@@ -300,7 +378,7 @@ const Index = () => {
                   setCurrentStep(0);
                   setMaxVisitedStep(0);
                   setShowResults(false);
-                  
+                  setGeneratedImages([]);
                   localStorage.removeItem(STORAGE_KEY);
                   toast.success('Form cleared');
                 }
@@ -320,11 +398,11 @@ const Index = () => {
               variant="gradient"
               size="lg"
               onClick={handleGenerate}
-              disabled={isGenerating}
+              disabled={isGeneratingImages}
               className="gap-2"
             >
-              {isGenerating ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Generating...</>
+              {isGeneratingImages ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Generating Images...</>
               ) : (
                 <><Sparkles className="h-4 w-4" /> Generate Prompt</>
               )}
@@ -349,7 +427,7 @@ function Header() {
   );
 }
 
-function generatePrompt(data: BusinessFormData): string {
+function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
   const servicesText = data.services.filter(Boolean).join(', ');
   const diffsText = data.differentiators.filter(Boolean).join(', ');
   const socialText = Object.entries(data.socialLinks)
@@ -366,7 +444,7 @@ function generatePrompt(data: BusinessFormData): string {
   if (data.images.sectionImage2) imgLines.push(`Section Image 2: ${data.images.sectionImage2}`);
   if (data.images.sectionImage3) imgLines.push(`Section Image 3: ${data.images.sectionImage3}`);
   data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Product Image ${i + 1}: ${img}`));
-  
+  aiImages.forEach((img, i) => imgLines.push(`AI Generated ${i + 1}: ${img}`));
 
   let typeSpecific = '';
 
@@ -476,7 +554,7 @@ ${data.phone ? `Phone: ${data.phone}` : ''}
 ${data.whatsapp ? `WhatsApp: ${data.whatsapp}` : ''}
 ${socialText ? `Social Media: ${socialText}` : ''}
 ${imgLines.length > 0 ? `\nIMAGE LIBRARY:\n${imgLines.join('\n')}\n\nDownload these images and use them based on context. Study them and use as base for the rest of the design.\nIF THE IMAGES DON'T LOAD, GENERATE IMAGES BASED ON THE CONTEXT.` : ''}
-${data.generateAiImages ? '\nIMPORTANT: Generate AI images for hero banners, section backgrounds, and marketing visuals matching the brand style. Use them as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets.' : ''}
+${data.generateAiImages ? '\nIMPORTANT: Use AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets.' : ''}
 ${typeSpecific}
 SITE STRUCTURE:
 ${generatePagesSection(data)}
