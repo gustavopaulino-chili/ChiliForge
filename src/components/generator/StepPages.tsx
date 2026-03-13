@@ -18,6 +18,7 @@ function buildDefaultPages(data: BusinessFormData): PageItem[] {
   const required = REQUIRED_PAGES[data.websiteType] || ['Home'];
   return required.map(name => ({
     name,
+    description: '',
     required: true,
     enabled: true,
     sections: [],
