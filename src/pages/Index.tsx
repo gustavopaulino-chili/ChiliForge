@@ -532,6 +532,9 @@ function generatePagesSection(data: BusinessFormData): string {
       let result = `The site should have ${enabledPages.length} page(s):\n`;
       enabledPages.forEach((page, i) => {
         result += `\n### Page ${i + 1}: ${page.name}${page.required ? ' (required)' : ''}`;
+        if (page.description) {
+          result += `\nDescription: ${page.description}`;
+        }
         if (page.sections.length > 0) {
           page.sections.forEach(s => {
             result += `\n- **${s.title || 'Section'}**: ${s.description || '(content to be defined)'}`;
