@@ -530,100 +530,35 @@ function generatePrompt(data: BusinessFormData, aiImages: { url: string; purpose
     ? `Blog: Featured post hero, article grid with categories, newsletter signup, clean reading experience.`
     : `Corporate: Authority and trust emphasis, services sections, team/about, testimonials and trust indicators.`;
 
-  return `You are a senior UX strategist, UI designer and front-end architect building a real production-ready website inside Lovable.
+  const loc = [data.city, data.country].filter(Boolean).join(', ');
+  const contact = [data.email && `Email:${data.email}`, data.phone && `Tel:${data.phone}`, data.whatsapp && `WA:${data.whatsapp}`, socialText].filter(Boolean).join(' | ');
 
-You must strictly use the structured data provided below.
-Do NOT ignore the provided data.
-Do NOT generate generic layouts.
-Everything must be strategically aligned with the data below.
+  const imgBlock = imgLines.length > 0 ? `\nIMAGES:\n${imgLines.join('\n')}\nDownload & use contextually. If they fail, generate replacements.` : '';
+  const aiImgBlock = aiImages.length > 0 ? `\nAI IMAGES (must use in designated sections, as backgrounds with HTML text overlays):\n${aiImages.map(img => `- ${img.purpose}: ${img.url}`).join('\n')}\nIf URL fails, generate replacement matching purpose/style.` : '';
 
-================================================
-STRUCTURED BUSINESS DATA
-================================================
+  return `Build a production-ready ${websiteTypeLabel} in Lovable using ONLY the data below. No generic layouts.
 
-WEBSITE TYPE: ${websiteTypeLabel}
-STYLE: ${data.preferredStyle}
-
-COMPANY DESCRIPTION:
-Name: ${data.businessName}
+---DATA---
+Name: ${data.businessName} | Industry: ${data.businessCategory} | Style: ${data.preferredStyle}
 ${data.businessDescription}
-Industry: ${data.businessCategory}
-Target Audience: ${data.targetAudience}
-${data.valueProposition ? `Value Proposition: ${data.valueProposition}` : ''}
-Location: ${[data.city, data.country].filter(Boolean).join(', ')}
+Audience: ${data.targetAudience}${data.valueProposition ? ` | Value Prop: ${data.valueProposition}` : ''}${loc ? ` | Location: ${loc}` : ''}
+Services: ${servicesText || 'N/A'}${diffsText ? ` | Differentiators: ${diffsText}` : ''}
+Colors: primary ${data.primaryColor}, secondary ${data.secondaryColor}
+Contact: ${contact || 'N/A'}${imgBlock}${aiImgBlock}${typeSpecific}
 
-SERVICES & DIFFERENTIATORS:
-${servicesText || 'Not specified'}
-${diffsText ? `Key Differentiators: ${diffsText}` : ''}
-
-DESIGN FOUNDATION:
-Style: ${data.preferredStyle}
-Primary Color: ${data.primaryColor}
-Secondary Color: ${data.secondaryColor}
-
-CONTACT INFORMATION:
-${data.email ? `Email: ${data.email}` : ''}
-${data.phone ? `Phone: ${data.phone}` : ''}
-${data.whatsapp ? `WhatsApp: ${data.whatsapp}` : ''}
-${socialText ? `Social Media: ${socialText}` : ''}
-${imgLines.length > 0 ? `\nIMAGE LIBRARY:\n${imgLines.join('\n')}\n\nDownload these images and use them based on context. Study them and use as base for the rest of the design.\nIF THE IMAGES DON'T LOAD, GENERATE IMAGES BASED ON THE CONTEXT.` : ''}
-${aiImages.length > 0 ? `\nAI-GENERATED IMAGES INSTRUCTIONS:
-The following images were specifically generated for this website. You MUST download and use each one in its designated section:
-${aiImages.map(img => `- Use "${img.purpose}" image (${img.url}) as the background/visual for the ${img.purpose.toLowerCase()} section`).join('\n')}
-These are photographic/illustrative assets ONLY — never overlay text directly baked into them. Place text as HTML overlays on top of these images.
-If any image URL fails to load, generate a replacement image matching the same purpose and style.` : ''}
-${typeSpecific}
-SITE STRUCTURE:
+---PAGES---
 ${generatePagesSection(data)}
 
-================================================
-EXECUTION RULES:
-1. Analyze the business data first.
-2. Detect automatically:
-   - Website type and adapt layout
-   - UX weaknesses to avoid
-   - Competitive gaps to exploit
-3. Adapt the structure accordingly.
-
-================================================
-MANDATORY STRUCTURE REQUIREMENTS:
-
-This must be a complete visual website, not a conceptual blueprint.
-Include:
-• Real header with logo placement, navigation menu, CTA button, sticky behavior
-• Proper responsive mobile menu
-• Hero section aligned with value proposition, background images, CTA with text
-• Alternating section backgrounds
-• Clear spacing system and professional layout grid
-• Real footer with navigation columns, contact info, legal links, social icons
-• Defined CTA placements
-• Proper visual hierarchy
-• Typography structure (H1, H2, H3)
-
-================================================
-ADAPTATION LOGIC:
-
+---RULES---
 ${adaptationLogic}
 
-================================================
-DESIGN SYSTEM:
+Structure: sticky header w/ logo+nav+CTA, responsive mobile menu, hero w/ value prop+bg image+CTA, alternating section bgs, spacing grid, footer w/ nav columns+contact+legal+social icons, clear CTA placements, H1/H2/H3 hierarchy.
 
-Use exact brand colors (${data.primaryColor}, ${data.secondaryColor}).
-Visual consistency across all pages.
-Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
-Modern premium aesthetic: "${data.preferredStyle}" style.
+Design: exact brand colors, visual consistency, strategic whitespace, mobile-first, WCAG accessible, "${data.preferredStyle}" aesthetic.
 
-================================================
-SEO REQUIREMENTS (MANDATORY):
+SEO: H1-H3, meta title+desc, keywords, internal links, SEO URLs, alt text, semantic HTML, optimized perf.
 
-Every page: H1-H3 hierarchy, meta title & description, keyword strategy, internal linking, SEO-friendly URLs, image alt-text, semantic HTML, performance optimized.
-
-================================================
-FINAL REQUIREMENTS:
-
-Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations (framer-motion), fast loading, strong CTAs, accessibility compliant.
-This must feel like a premium agency project. It must not look like a generic AI layout.
-Generate a polished, production-ready website.`;
+Tech: responsive, mobile-first, framer-motion animations, fast loading, strong CTAs. Premium agency quality, not generic AI.`;
 }
 
 function generatePagesSection(data: BusinessFormData): string {
