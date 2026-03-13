@@ -17,7 +17,7 @@ import { StepPages } from '@/components/generator/StepPages';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-import { supabase } from '@/integrations/supabase/client';
+
 import { toast } from 'sonner';
 
 type StepDef = { id: string; label: string };
