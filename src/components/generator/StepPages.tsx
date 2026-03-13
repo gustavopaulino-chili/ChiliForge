@@ -233,6 +233,17 @@ export function StepPages({ data, onChange }: Props) {
                         </div>
                       )}
 
+                      {/* Page Description */}
+                      <div>
+                        <Label className="text-xs">Descrição da página (opcional)</Label>
+                        <Textarea
+                          value={page.description || ''}
+                          onChange={e => updatePage(pageIndex, { description: e.target.value })}
+                          placeholder="Descreva o que você quer nesta página. Ex: 'Quero um banner com foto de fundo, seção de depoimentos com carrossel, e um formulário de contato no final...'"
+                          className="mt-1 min-h-[70px] text-sm"
+                        />
+                      </div>
+
                       {/* Page Name (editable for non-required) */}
                       {!page.required && (
                         <div>
