@@ -149,12 +149,12 @@ const Index = () => {
       const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
 
       try {
-        const images: string[] = [];
+        const images: { url: string; purpose: string }[] = [];
         for (let idx = 0; idx < purposes.length; idx++) {
           setGenerationStatus(`Generating image ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
           setGenerationProgress(Math.round(((idx) / (purposes.length + 1)) * 100));
           const url = await invokeWithRetry(purposes[idx], referenceUrl);
-          if (url) images.push(url);
+          if (url) images.push({ url, purpose: purposeLabels[idx] });
         }
 
         setGeneratedImages(images);
