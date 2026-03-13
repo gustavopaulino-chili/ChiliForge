@@ -354,11 +354,11 @@ const Index = () => {
               variant="gradient"
               size="lg"
               onClick={handleGenerate}
-              disabled={isGeneratingImages}
+              disabled={isGenerating}
               className="gap-2"
             >
-              {isGeneratingImages ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Generating Images...</>
+              {isGenerating ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Generating...</>
               ) : (
                 <><Sparkles className="h-4 w-4" /> Generate Prompt</>
               )}
