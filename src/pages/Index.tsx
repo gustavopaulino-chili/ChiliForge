@@ -168,17 +168,6 @@ const Index = () => {
               <p className="text-xs text-muted-foreground">{generationProgress}%</p>
             </div>
 
-            {formData.generateAiImages && (
-              <div className="rounded-lg border border-border bg-card/50 p-4 text-left space-y-2">
-                <p className="text-xs font-medium text-foreground flex items-center gap-2">
-                  <Sparkles className="h-3.5 w-3.5 text-primary" />
-                  AI image generation active
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Creating exclusive images based on your business. This may take a few seconds...
-                </p>
-              </div>
-            )}
           </div>
         </main>
       </div>
