@@ -358,6 +358,7 @@ const Index = () => {
           {currentStepId === 'features' && <StepFeatures data={formData} onChange={updateForm} />}
           {currentStepId === 'courses' && <StepCourses data={formData} onChange={updateForm} />}
           {currentStepId === 'brand' && <StepBrand data={formData} onChange={updateForm} />}
+          {currentStepId === 'pages' && <StepPages data={formData} onChange={updateForm} />}
           {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} />}
           {currentStepId === 'contact' && <StepContact data={formData} onChange={updateForm} />}
           {currentStepId === 'review' && <StepReview data={formData} />}
