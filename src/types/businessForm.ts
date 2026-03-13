@@ -184,6 +184,11 @@ export const defaultFormData: BusinessFormData = {
   whatsapp: '',
   email: '',
   socialLinks: {},
+  pagesConfig: {
+    mode: 'manual',
+    aiSummary: '',
+    pages: [],
+  },
   products: [],
   features: [],
   pricingPlans: [],
