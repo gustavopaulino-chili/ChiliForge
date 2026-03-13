@@ -12,6 +12,7 @@ import { StepProducts } from '@/components/generator/StepProducts';
 import { StepFeatures } from '@/components/generator/StepFeatures';
 import { StepCourses } from '@/components/generator/StepCourses';
 import { StepReview } from '@/components/generator/StepReview';
+import { StepPages } from '@/components/generator/StepPages';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
@@ -40,6 +41,7 @@ function getSteps(websiteType: WebsiteType): StepDef[] {
   }
 
   base.push(
+    { id: 'pages', label: 'Pages' },
     { id: 'brand', label: 'Brand' },
     { id: 'images', label: 'Images' },
     { id: 'contact', label: 'Contact' },
@@ -356,6 +358,7 @@ const Index = () => {
           {currentStepId === 'features' && <StepFeatures data={formData} onChange={updateForm} />}
           {currentStepId === 'courses' && <StepCourses data={formData} onChange={updateForm} />}
           {currentStepId === 'brand' && <StepBrand data={formData} onChange={updateForm} />}
+          {currentStepId === 'pages' && <StepPages data={formData} onChange={updateForm} />}
           {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} />}
           {currentStepId === 'contact' && <StepContact data={formData} onChange={updateForm} />}
           {currentStepId === 'review' && <StepReview data={formData} />}
@@ -411,8 +414,7 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}: ${v}`)
     .join(', ');
-  const categoryHint = getCategoryLayout(data.websiteType, data.businessCategory);
-
+  const categoryHint = generatePagesSection(data);
   // Images section — keep compact to stay within prompt char limits
   const imgLines: string[] = [];
   if (data.images.logoUrl) imgLines.push(`Logo: ${data.images.logoUrl}`);
@@ -506,13 +508,42 @@ ${socialText ? `Social: ${socialText}` : ''}
 ${typeSpecific}
 
 ## Structure
-${categoryHint}
+${generatePagesSection(data)}
 
 ## Requirements
 Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations, fast loading, strong CTAs.
 ${data.generateAiImages ? 'Use the AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets to be used behind text overlays or as standalone photos.' : ''}
 
 Generate a polished, production-ready website.`;
+}
+
+function generatePagesSection(data: BusinessFormData): string {
+  const config = data.pagesConfig;
+
+  // AI mode: use the summary
+  if (config.mode === 'ai' && config.aiSummary.trim()) {
+    return `The user described the site content as follows (AI should interpret and create pages/sections accordingly):\n"${config.aiSummary.trim()}"`;
+  }
+
+  // Manual mode with pages defined
+  if (config.pages.length > 0) {
+    const enabledPages = config.pages.filter(p => p.enabled);
+    if (enabledPages.length > 0) {
+      let result = `The site should have ${enabledPages.length} page(s):\n`;
+      enabledPages.forEach((page, i) => {
+        result += `\n### Page ${i + 1}: ${page.name}${page.required ? ' (required)' : ''}`;
+        if (page.sections.length > 0) {
+          page.sections.forEach(s => {
+            result += `\n- **${s.title || 'Section'}**: ${s.description || '(content to be defined)'}`;
+          });
+        }
+      });
+      return result;
+    }
+  }
+
+  // Fallback to category-based layout
+  return getCategoryLayout(data.websiteType, data.businessCategory);
 }
 
 function getCategoryLayout(websiteType: WebsiteType, category: string): string {
