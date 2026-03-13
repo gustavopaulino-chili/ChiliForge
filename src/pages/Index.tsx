@@ -530,7 +530,11 @@ ${data.phone ? `Phone: ${data.phone}` : ''}
 ${data.whatsapp ? `WhatsApp: ${data.whatsapp}` : ''}
 ${socialText ? `Social Media: ${socialText}` : ''}
 ${imgLines.length > 0 ? `\nIMAGE LIBRARY:\n${imgLines.join('\n')}\n\nDownload these images and use them based on context. Study them and use as base for the rest of the design.\nIF THE IMAGES DON'T LOAD, GENERATE IMAGES BASED ON THE CONTEXT.` : ''}
-${data.generateAiImages ? '\nIMPORTANT: Use AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets.' : ''}
+${aiImages.length > 0 ? `\nAI-GENERATED IMAGES INSTRUCTIONS:
+The following images were specifically generated for this website. You MUST download and use each one in its designated section:
+${aiImages.map(img => `- Use "${img.purpose}" image (${img.url}) as the background/visual for the ${img.purpose.toLowerCase()} section`).join('\n')}
+These are photographic/illustrative assets ONLY — never overlay text directly baked into them. Place text as HTML overlays on top of these images.
+If any image URL fails to load, generate a replacement image matching the same purpose and style.` : ''}
 ${typeSpecific}
 SITE STRUCTURE:
 ${generatePagesSection(data)}
