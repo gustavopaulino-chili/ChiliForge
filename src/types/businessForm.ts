@@ -61,6 +61,7 @@ export interface PageSection {
 
 export interface PageItem {
   name: string;
+  description: string;
   required: boolean;
   enabled: boolean;
   sections: PageSection[];
