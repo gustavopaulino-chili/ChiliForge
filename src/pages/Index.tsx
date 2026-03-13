@@ -68,19 +68,16 @@ const Index = () => {
   const [showResults, setShowResults] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
-  const [generatedImages, setGeneratedImages] = useState<{ url: string; purpose: string }[]>([]);
+  const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [generationStatus, setGenerationStatus] = useState('');
   const [generationProgress, setGenerationProgress] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [promptId, setPromptId] = useState<string | null>(null);
 
-  const getShortUrl = useCallback(() => {
-    if (promptId) {
-      return `${window.location.origin}/go/${promptId}`;
-    }
-    return null;
-  }, [promptId]);
+  const getLovableUrl = useCallback(() => {
+    const promptText = generatePrompt(formData, generatedImages);
+    return `https://lovable.dev/projects/create#prompt=${encodeURIComponent(promptText)}`;
+  }, [formData, generatedImages]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -152,12 +149,12 @@ const Index = () => {
       const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
 
       try {
-        const images: { url: string; purpose: string }[] = [];
+        const images: string[] = [];
         for (let idx = 0; idx < purposes.length; idx++) {
           setGenerationStatus(`Generating image ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
           setGenerationProgress(Math.round(((idx) / (purposes.length + 1)) * 100));
           const url = await invokeWithRetry(purposes[idx], referenceUrl);
-          if (url) images.push({ url, purpose: purposeLabels[idx] });
+          if (url) images.push(url);
         }
 
         setGeneratedImages(images);
@@ -181,24 +178,6 @@ const Index = () => {
     }
 
     await new Promise(r => setTimeout(r, 600));
-    setGenerationProgress(95);
-    setGenerationStatus('Saving prompt...');
-
-    // Save prompt to DB for short URL sharing
-    const finalPrompt = generatePrompt(formData, generatedImages.length > 0 ? generatedImages : []);
-    try {
-      const { data: inserted, error } = await (supabase as any)
-        .from('generated_prompts')
-        .insert({ prompt_text: finalPrompt, business_name: formData.businessName || null })
-        .select('id')
-        .single();
-      if (!error && inserted) {
-        setPromptId(inserted.id);
-      }
-    } catch (e) {
-      console.error('Failed to save prompt:', e);
-    }
-
     setGenerationProgress(100);
     setGenerationStatus('Done!');
     await new Promise(r => setTimeout(r, 400));
@@ -286,7 +265,7 @@ const Index = () => {
               <h3 className="form-section-title mb-3">AI Generated Images</h3>
               <div className="grid grid-cols-3 gap-3">
                 {generatedImages.map((img, i) => (
-                  <img key={i} src={img.url} alt={img.purpose} className="rounded-lg w-full h-32 object-cover" />
+                  <img key={i} src={img} alt={`AI generated ${i + 1}`} className="rounded-lg w-full h-32 object-cover" />
                 ))}
               </div>
             </div>
@@ -324,39 +303,23 @@ const Index = () => {
                 <Copy className="h-4 w-4" /> {copied ? 'Copied!' : 'Copy Prompt'}
               </Button>
               <Button variant="outline" size="lg" onClick={() => {
-                const lovableUrl = `https://lovable.dev/projects/create#prompt=${encodeURIComponent(prompt)}`;
-                navigator.clipboard.writeText(lovableUrl);
+                navigator.clipboard.writeText(getLovableUrl());
                 setCopiedLink(true);
                 setTimeout(() => setCopiedLink(false), 2000);
-                toast.success('Lovable link copied!');
+                toast.success('Link copied!');
               }} className="gap-2">
                 {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
                 {copiedLink ? 'Copied!' : 'Copy Link'}
               </Button>
-              <Button variant="gradient" size="lg" className="gap-2" onClick={() => {
-                const shortUrl = getShortUrl();
-                if (shortUrl) {
-                  const w = window.open('', '_blank');
-                  if (w) {
-                    w.location.href = shortUrl;
-                  } else {
-                    navigator.clipboard.writeText(shortUrl);
-                    toast.error('Popup blocked. Link copied to clipboard instead.');
-                  }
-                } else {
-                  // Fallback to direct URL
-                  const directUrl = `https://lovable.dev/projects/create#prompt=${encodeURIComponent(prompt)}`;
-                  const w = window.open('', '_blank');
-                  if (w) {
-                    w.location.href = directUrl;
-                  } else {
-                    navigator.clipboard.writeText(directUrl);
-                    toast.error('Popup blocked. Link copied to clipboard instead.');
-                  }
-                }
-              }}>
-                <ExternalLink className="h-4 w-4" /> Open in Lovable
-              </Button>
+              <a
+                href={getLovableUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="gradient" size="lg" className="gap-2">
+                  <ExternalLink className="h-4 w-4" /> Open in Lovable
+                </Button>
+              </a>
             </div>
           </div>
         </main>
@@ -440,7 +403,7 @@ function Header() {
   );
 }
 
-function generatePrompt(data: BusinessFormData, aiImages: { url: string; purpose: string }[]): string {
+function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
   const servicesText = data.services.filter(Boolean).join(', ');
   const diffsText = data.differentiators.filter(Boolean).join(', ');
   const socialText = Object.entries(data.socialLinks)
@@ -457,7 +420,7 @@ function generatePrompt(data: BusinessFormData, aiImages: { url: string; purpose
   if (data.images.sectionImage2) imgLines.push(`Section Image 2: ${data.images.sectionImage2}`);
   if (data.images.sectionImage3) imgLines.push(`Section Image 3: ${data.images.sectionImage3}`);
   data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Product Image ${i + 1}: ${img}`));
-  aiImages.forEach(img => imgLines.push(`${img.purpose} (AI Generated): ${img.url}`));
+  aiImages.forEach((img, i) => imgLines.push(`AI Generated ${i + 1}: ${img}`));
 
   let typeSpecific = '';
 
@@ -530,35 +493,96 @@ function generatePrompt(data: BusinessFormData, aiImages: { url: string; purpose
     ? `Blog: Featured post hero, article grid with categories, newsletter signup, clean reading experience.`
     : `Corporate: Authority and trust emphasis, services sections, team/about, testimonials and trust indicators.`;
 
-  const loc = [data.city, data.country].filter(Boolean).join(', ');
-  const contact = [data.email && `Email:${data.email}`, data.phone && `Tel:${data.phone}`, data.whatsapp && `WA:${data.whatsapp}`, socialText].filter(Boolean).join(' | ');
+  return `You are a senior UX strategist, UI designer and front-end architect building a real production-ready website inside Lovable.
 
-  const imgBlock = imgLines.length > 0 ? `\nIMAGES:\n${imgLines.join('\n')}\nDownload & use contextually. If they fail, generate replacements.` : '';
-  const aiImgBlock = aiImages.length > 0 ? `\nAI IMAGES (must use in designated sections, as backgrounds with HTML text overlays):\n${aiImages.map(img => `- ${img.purpose}: ${img.url}`).join('\n')}\nIf URL fails, generate replacement matching purpose/style.` : '';
+You must strictly use the structured data provided below.
+Do NOT ignore the provided data.
+Do NOT generate generic layouts.
+Everything must be strategically aligned with the data below.
 
-  return `Build a production-ready ${websiteTypeLabel} in Lovable using ONLY the data below. No generic layouts.
+================================================
+STRUCTURED BUSINESS DATA
+================================================
 
----DATA---
-Name: ${data.businessName} | Industry: ${data.businessCategory} | Style: ${data.preferredStyle}
+WEBSITE TYPE: ${websiteTypeLabel}
+STYLE: ${data.preferredStyle}
+
+COMPANY DESCRIPTION:
+Name: ${data.businessName}
 ${data.businessDescription}
-Audience: ${data.targetAudience}${data.valueProposition ? ` | Value Prop: ${data.valueProposition}` : ''}${loc ? ` | Location: ${loc}` : ''}
-Services: ${servicesText || 'N/A'}${diffsText ? ` | Differentiators: ${diffsText}` : ''}
-Colors: primary ${data.primaryColor}, secondary ${data.secondaryColor}
-Contact: ${contact || 'N/A'}${imgBlock}${aiImgBlock}${typeSpecific}
+Industry: ${data.businessCategory}
+Target Audience: ${data.targetAudience}
+${data.valueProposition ? `Value Proposition: ${data.valueProposition}` : ''}
+Location: ${[data.city, data.country].filter(Boolean).join(', ')}
 
----PAGES---
+SERVICES & DIFFERENTIATORS:
+${servicesText || 'Not specified'}
+${diffsText ? `Key Differentiators: ${diffsText}` : ''}
+
+DESIGN FOUNDATION:
+Style: ${data.preferredStyle}
+Primary Color: ${data.primaryColor}
+Secondary Color: ${data.secondaryColor}
+
+CONTACT INFORMATION:
+${data.email ? `Email: ${data.email}` : ''}
+${data.phone ? `Phone: ${data.phone}` : ''}
+${data.whatsapp ? `WhatsApp: ${data.whatsapp}` : ''}
+${socialText ? `Social Media: ${socialText}` : ''}
+${imgLines.length > 0 ? `\nIMAGE LIBRARY:\n${imgLines.join('\n')}\n\nDownload these images and use them based on context. Study them and use as base for the rest of the design.\nIF THE IMAGES DON'T LOAD, GENERATE IMAGES BASED ON THE CONTEXT.` : ''}
+${data.generateAiImages ? '\nIMPORTANT: Use AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets.' : ''}
+${typeSpecific}
+SITE STRUCTURE:
 ${generatePagesSection(data)}
 
----RULES---
+================================================
+EXECUTION RULES:
+1. Analyze the business data first.
+2. Detect automatically:
+   - Website type and adapt layout
+   - UX weaknesses to avoid
+   - Competitive gaps to exploit
+3. Adapt the structure accordingly.
+
+================================================
+MANDATORY STRUCTURE REQUIREMENTS:
+
+This must be a complete visual website, not a conceptual blueprint.
+Include:
+• Real header with logo placement, navigation menu, CTA button, sticky behavior
+• Proper responsive mobile menu
+• Hero section aligned with value proposition, background images, CTA with text
+• Alternating section backgrounds
+• Clear spacing system and professional layout grid
+• Real footer with navigation columns, contact info, legal links, social icons
+• Defined CTA placements
+• Proper visual hierarchy
+• Typography structure (H1, H2, H3)
+
+================================================
+ADAPTATION LOGIC:
+
 ${adaptationLogic}
 
-Structure: sticky header w/ logo+nav+CTA, responsive mobile menu, hero w/ value prop+bg image+CTA, alternating section bgs, spacing grid, footer w/ nav columns+contact+legal+social icons, clear CTA placements, H1/H2/H3 hierarchy.
+================================================
+DESIGN SYSTEM:
 
-Design: exact brand colors, visual consistency, strategic whitespace, mobile-first, WCAG accessible, "${data.preferredStyle}" aesthetic.
+Use exact brand colors (${data.primaryColor}, ${data.secondaryColor}).
+Visual consistency across all pages.
+Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
+Modern premium aesthetic: "${data.preferredStyle}" style.
 
-SEO: H1-H3, meta title+desc, keywords, internal links, SEO URLs, alt text, semantic HTML, optimized perf.
+================================================
+SEO REQUIREMENTS (MANDATORY):
 
-Tech: responsive, mobile-first, framer-motion animations, fast loading, strong CTAs. Premium agency quality, not generic AI.`;
+Every page: H1-H3 hierarchy, meta title & description, keyword strategy, internal linking, SEO-friendly URLs, image alt-text, semantic HTML, performance optimized.
+
+================================================
+FINAL REQUIREMENTS:
+
+Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations (framer-motion), fast loading, strong CTAs, accessibility compliant.
+This must feel like a premium agency project. It must not look like a generic AI layout.
+Generate a polished, production-ready website.`;
 }
 
 function generatePagesSection(data: BusinessFormData): string {
