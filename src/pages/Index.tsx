@@ -400,7 +400,7 @@ function generatePrompt(data: BusinessFormData): string {
   if (data.images.sectionImage2) imgLines.push(`Section Image 2: ${data.images.sectionImage2}`);
   if (data.images.sectionImage3) imgLines.push(`Section Image 3: ${data.images.sectionImage3}`);
   data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Product Image ${i + 1}: ${img}`));
-  aiImages.forEach((img, i) => imgLines.push(`AI Generated ${i + 1}: ${img}`));
+  
 
   let typeSpecific = '';
 
