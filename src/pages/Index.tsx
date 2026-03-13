@@ -73,11 +73,14 @@ const Index = () => {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [promptId, setPromptId] = useState<string | null>(null);
 
-  const getLovableUrl = useCallback(() => {
-    const promptText = generatePrompt(formData, generatedImages);
-    return `https://lovable.dev/projects/create#prompt=${encodeURIComponent(promptText)}`;
-  }, [formData, generatedImages]);
+  const getShortUrl = useCallback(() => {
+    if (promptId) {
+      return `${window.location.origin}/go/${promptId}`;
+    }
+    return null;
+  }, [promptId]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
