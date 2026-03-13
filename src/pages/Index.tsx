@@ -311,15 +311,19 @@ const Index = () => {
                 {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
                 {copiedLink ? 'Copied!' : 'Copy Link'}
               </Button>
-              <a
-                href={getLovableUrl()}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Button
+                variant="gradient"
+                size="lg"
+                className="gap-2"
+                onClick={() => {
+                  navigator.clipboard.writeText(prompt).then(() => {
+                    toast.success('Prompt copied! Paste it in the new Lovable project and press Enter.');
+                    window.open('https://lovable.dev/projects/create', '_blank');
+                  });
+                }}
               >
-                <Button variant="gradient" size="lg" className="gap-2">
-                  <ExternalLink className="h-4 w-4" /> Open in Lovable
-                </Button>
-              </a>
+                <ExternalLink className="h-4 w-4" /> Open in Lovable
+              </Button>
             </div>
           </div>
         </main>
