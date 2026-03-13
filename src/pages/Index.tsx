@@ -187,7 +187,7 @@ const Index = () => {
     // Save prompt to DB for short URL sharing
     const finalPrompt = generatePrompt(formData, generatedImages.length > 0 ? generatedImages : []);
     try {
-      const { data: inserted, error } = await supabase
+      const { data: inserted, error } = await (supabase as any)
         .from('generated_prompts')
         .insert({ prompt_text: finalPrompt, business_name: formData.businessName || null })
         .select('id')
