@@ -202,6 +202,37 @@ export function StepPages({ data, onChange }: Props) {
 
                   <CollapsibleContent>
                     <div className="px-4 pb-4 space-y-4 border-t border-border pt-4">
+                      {/* Show products summary on Produtos page */}
+                      {page.name === 'Produtos' && data.products && data.products.length > 0 && (
+                        <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-2">
+                          <p className="text-xs font-medium text-foreground flex items-center gap-2">
+                            <ShoppingCart className="h-3.5 w-3.5 text-primary" />
+                            {data.products.length} {data.products.length === 1 ? 'produto adicionado' : 'produtos adicionados'}
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {data.products.filter(p => p.name).map((p, i) => (
+                              <Badge key={i} variant="secondary" className="text-xs gap-1">
+                                {p.name}
+                                {p.price && <span className="text-muted-foreground">R$ {p.price}</span>}
+                              </Badge>
+                            ))}
+                          </div>
+                          {data.products.filter(p => p.name).length === 0 && (
+                            <p className="text-xs text-muted-foreground italic">
+                              Nenhum produto com nome definido. Volte à aba Produtos para adicionar.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {page.name === 'Produtos' && (!data.products || data.products.length === 0) && (
+                        <div className="rounded-md border border-dashed border-border bg-muted/10 p-3">
+                          <p className="text-xs text-muted-foreground italic">
+                            Nenhum produto adicionado ainda. Volte à aba "Products" para cadastrar seus produtos.
+                          </p>
+                        </div>
+                      )}
+
                       {/* Page Name (editable for non-required) */}
                       {!page.required && (
                         <div>
