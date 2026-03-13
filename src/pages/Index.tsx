@@ -73,11 +73,14 @@ const Index = () => {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [promptId, setPromptId] = useState<string | null>(null);
 
-  const getLovableUrl = useCallback(() => {
-    const promptText = generatePrompt(formData, generatedImages);
-    return `https://lovable.dev/projects/create#prompt=${encodeURIComponent(promptText)}`;
-  }, [formData, generatedImages]);
+  const getShortUrl = useCallback(() => {
+    if (promptId) {
+      return `${window.location.origin}/go/${promptId}`;
+    }
+    return null;
+  }, [promptId]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -178,6 +181,24 @@ const Index = () => {
     }
 
     await new Promise(r => setTimeout(r, 600));
+    setGenerationProgress(95);
+    setGenerationStatus('Saving prompt...');
+
+    // Save prompt to DB for short URL sharing
+    const finalPrompt = generatePrompt(formData, generatedImages.length > 0 ? generatedImages : []);
+    try {
+      const { data: inserted, error } = await supabase
+        .from('generated_prompts')
+        .insert({ prompt_text: finalPrompt, business_name: formData.businessName || null })
+        .select('id')
+        .single();
+      if (!error && inserted) {
+        setPromptId(inserted.id);
+      }
+    } catch (e) {
+      console.error('Failed to save prompt:', e);
+    }
+
     setGenerationProgress(100);
     setGenerationStatus('Done!');
     await new Promise(r => setTimeout(r, 400));
@@ -302,23 +323,38 @@ const Index = () => {
               <Button variant="outline" size="lg" onClick={handleCopy} className="gap-2">
                 <Copy className="h-4 w-4" /> {copied ? 'Copied!' : 'Copy Prompt'}
               </Button>
-              <Button variant="outline" size="lg" onClick={() => {
-                navigator.clipboard.writeText(getLovableUrl());
-                setCopiedLink(true);
-                setTimeout(() => setCopiedLink(false), 2000);
-                toast.success('Link copied!');
-              }} className="gap-2">
-                {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
-                {copiedLink ? 'Copied!' : 'Copy Link'}
-              </Button>
-              <Button variant="gradient" size="lg" className="gap-2" onClick={() => {
-                const url = getLovableUrl();
-                const w = window.open('', '_blank');
-                if (w) {
-                  w.location.href = url;
-                } else {
+              {getShortUrl() && (
+                <Button variant="outline" size="lg" onClick={() => {
+                  const url = getShortUrl()!;
                   navigator.clipboard.writeText(url);
-                  toast.error('Popup blocked. Link copied to clipboard instead.');
+                  setCopiedLink(true);
+                  setTimeout(() => setCopiedLink(false), 2000);
+                  toast.success('Short link copied!');
+                }} className="gap-2">
+                  {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+                  {copiedLink ? 'Copied!' : 'Copy Link'}
+                </Button>
+              )}
+              <Button variant="gradient" size="lg" className="gap-2" onClick={() => {
+                const shortUrl = getShortUrl();
+                if (shortUrl) {
+                  const w = window.open('', '_blank');
+                  if (w) {
+                    w.location.href = shortUrl;
+                  } else {
+                    navigator.clipboard.writeText(shortUrl);
+                    toast.error('Popup blocked. Link copied to clipboard instead.');
+                  }
+                } else {
+                  // Fallback to direct URL
+                  const directUrl = `https://lovable.dev/projects/create#prompt=${encodeURIComponent(prompt)}`;
+                  const w = window.open('', '_blank');
+                  if (w) {
+                    w.location.href = directUrl;
+                  } else {
+                    navigator.clipboard.writeText(directUrl);
+                    toast.error('Popup blocked. Link copied to clipboard instead.');
+                  }
                 }
               }}>
                 <ExternalLink className="h-4 w-4" /> Open in Lovable
