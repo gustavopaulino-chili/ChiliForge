@@ -14,7 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      generated_prompts: {
+        Row: {
+          business_name: string | null
+          created_at: string
+          id: string
+          prompt_text: string
+        }
+        Insert: {
+          business_name?: string | null
+          created_at?: string
+          id?: string
+          prompt_text: string
+        }
+        Update: {
+          business_name?: string | null
+          created_at?: string
+          id?: string
+          prompt_text?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
