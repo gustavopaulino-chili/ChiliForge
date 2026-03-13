@@ -517,6 +517,35 @@ ${data.generateAiImages ? 'Use the AI-generated images as background photos and 
 Generate a polished, production-ready website.`;
 }
 
+function generatePagesSection(data: BusinessFormData): string {
+  const config = data.pagesConfig;
+
+  // AI mode: use the summary
+  if (config.mode === 'ai' && config.aiSummary.trim()) {
+    return `The user described the site content as follows (AI should interpret and create pages/sections accordingly):\n"${config.aiSummary.trim()}"`;
+  }
+
+  // Manual mode with pages defined
+  if (config.pages.length > 0) {
+    const enabledPages = config.pages.filter(p => p.enabled);
+    if (enabledPages.length > 0) {
+      let result = `The site should have ${enabledPages.length} page(s):\n`;
+      enabledPages.forEach((page, i) => {
+        result += `\n### Page ${i + 1}: ${page.name}${page.required ? ' (required)' : ''}`;
+        if (page.sections.length > 0) {
+          page.sections.forEach(s => {
+            result += `\n- **${s.title || 'Section'}**: ${s.description || '(content to be defined)'}`;
+          });
+        }
+      });
+      return result;
+    }
+  }
+
+  // Fallback to category-based layout
+  return getCategoryLayout(data.websiteType, data.businessCategory);
+}
+
 function getCategoryLayout(websiteType: WebsiteType, category: string): string {
   if (websiteType === 'ecommerce') {
     return `1. Hero with strong CTA
