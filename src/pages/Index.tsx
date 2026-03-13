@@ -361,9 +361,28 @@ const Index = () => {
         </div>
 
         <div className="mt-6 flex justify-between">
-          <Button variant="ghost" onClick={prev} disabled={currentStep === 0} className="gap-2">
-            <ArrowLeft className="h-4 w-4" /> Back
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={prev} disabled={currentStep === 0} className="gap-2">
+              <ArrowLeft className="h-4 w-4" /> Back
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                if (window.confirm('Clear all form data and start over?')) {
+                  setFormData(defaultFormData);
+                  setCurrentStep(0);
+                  setMaxVisitedStep(0);
+                  setShowResults(false);
+                  setGeneratedImages([]);
+                  localStorage.removeItem(STORAGE_KEY);
+                  toast.success('Form cleared');
+                }
+              }}
+              className="gap-2 text-destructive hover:text-destructive"
+            >
+              <RotateCcw className="h-4 w-4" /> Clear
+            </Button>
+          </div>
 
           {currentStep < steps.length - 1 ? (
             <Button onClick={next} className="gap-2">
