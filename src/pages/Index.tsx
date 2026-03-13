@@ -29,6 +29,7 @@ function getSteps(websiteType: WebsiteType): StepDef[] {
     { id: 'services', label: 'Services' },
   ];
 
+  // Type-specific steps
   if (websiteType === 'ecommerce') {
     base.push({ id: 'products', label: 'Products' });
   }
@@ -56,7 +57,7 @@ const loadSavedProgress = () => {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) return JSON.parse(saved);
-  } catch { }
+  } catch {}
   return null;
 };
 
@@ -79,6 +80,7 @@ const Index = () => {
     return `https://lovable.dev/projects/create#prompt=${encodeURIComponent(promptText)}`;
   }, [formData, generatedImages]);
 
+  // Reactive gradient mouse tracker
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
@@ -87,7 +89,7 @@ const Index = () => {
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
-
+  // Persist progress to localStorage
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentStep, formData, maxVisitedStep }));
   }, [currentStep, formData]);
@@ -128,12 +130,13 @@ const Index = () => {
         },
       });
       if (data?.imageUrl) return data.imageUrl;
+      // If rate limited, wait and retry
       if (error?.message?.includes('429') || data?.error?.includes('Rate limit')) {
         const delay = 3000 * (attempt + 1);
         await new Promise(r => setTimeout(r, delay));
         continue;
       }
-      break;
+      break; // non-retryable error
     }
     return null;
   };
@@ -145,41 +148,42 @@ const Index = () => {
     if (formData.generateAiImages) {
       setIsGeneratingImages(true);
       const purposes = ['hero banner', 'about section background', 'services section'];
-      const purposeLabels = ['Hero Banner', 'About Section', 'Services Section'];
+      const purposeLabels = ['Banner principal', 'Imagem da seção Sobre', 'Imagem da seção Serviços'];
       const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
 
       try {
         const images: string[] = [];
         for (let idx = 0; idx < purposes.length; idx++) {
-          setGenerationStatus(`Generating image ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
+          setGenerationStatus(`Gerando imagem ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
           setGenerationProgress(Math.round(((idx) / (purposes.length + 1)) * 100));
           const url = await invokeWithRetry(purposes[idx], referenceUrl);
           if (url) images.push(url);
         }
 
         setGeneratedImages(images);
-        setGenerationStatus('Building final prompt...');
+        setGenerationStatus('Montando o prompt final...');
         setGenerationProgress(90);
 
         if (images.length > 0) {
-          toast.success(`${images.length} AI images generated successfully`);
+          toast.success(`${images.length} imagens AI geradas com sucesso`);
         } else {
-          toast.error('Could not generate images. Try again.');
+          toast.error('Não foi possível gerar imagens. Tente novamente.');
         }
       } catch (err) {
         console.error('Image generation error:', err);
-        toast.error('Error generating AI images');
+        toast.error('Erro ao gerar imagens AI');
       } finally {
         setIsGeneratingImages(false);
       }
     } else {
-      setGenerationStatus('Building prompt...');
+      setGenerationStatus('Montando o prompt...');
       setGenerationProgress(50);
     }
 
+    // Small delay for UX
     await new Promise(r => setTimeout(r, 600));
     setGenerationProgress(100);
-    setGenerationStatus('Done!');
+    setGenerationStatus('Pronto!');
     await new Promise(r => setTimeout(r, 400));
 
     setIsGenerating(false);
@@ -212,7 +216,7 @@ const Index = () => {
 
             <div className="space-y-2">
               <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">
-                Generating your prompt...
+                Gerando seu prompt...
               </h2>
               <p className="text-muted-foreground text-sm min-h-[1.25rem]">
                 {generationStatus}
@@ -228,10 +232,10 @@ const Index = () => {
               <div className="rounded-lg border border-border bg-card/50 p-4 text-left space-y-2">
                 <p className="text-xs font-medium text-foreground flex items-center gap-2">
                   <Sparkles className="h-3.5 w-3.5 text-primary" />
-                  AI image generation active
+                  Geração de imagens AI ativa
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Creating exclusive images based on your business. This may take a few seconds...
+                  Criando imagens exclusivas baseadas no seu negócio. Isso pode levar alguns segundos...
                 </p>
               </div>
             )}
@@ -300,16 +304,16 @@ const Index = () => {
             </Button>
             <div className="ml-auto flex gap-3">
               <Button variant="outline" size="lg" onClick={handleCopy} className="gap-2">
-                <Copy className="h-4 w-4" /> {copied ? 'Copied!' : 'Copy Prompt'}
+                <Copy className="h-4 w-4" /> {copied ? 'Copiado!' : 'Copiar Prompt'}
               </Button>
               <Button variant="outline" size="lg" onClick={() => {
                 navigator.clipboard.writeText(getLovableUrl());
                 setCopiedLink(true);
                 setTimeout(() => setCopiedLink(false), 2000);
-                toast.success('Link copied!');
+                toast.success('Link copiado!');
               }} className="gap-2">
                 {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
-                {copiedLink ? 'Copied!' : 'Copy Link'}
+                {copiedLink ? 'Copiado!' : 'Copiar Link'}
               </Button>
               <a
                 href={getLovableUrl()}
@@ -317,7 +321,7 @@ const Index = () => {
                 rel="noopener noreferrer"
               >
                 <Button variant="gradient" size="lg" className="gap-2">
-                  <ExternalLink className="h-4 w-4" /> Open in Lovable
+                  <ExternalLink className="h-4 w-4" /> Abrir no Lovable
                 </Button>
               </a>
             </div>
@@ -410,24 +414,25 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}: ${v}`)
     .join(', ');
-
+  const categoryHint = generatePagesSection(data);
+  // Images section — keep compact to stay within prompt char limits
   const imgLines: string[] = [];
   if (data.images.logoUrl) imgLines.push(`Logo: ${data.images.logoUrl}`);
-  if (data.images.heroImage1) imgLines.push(`Hero Banner 1: ${data.images.heroImage1}`);
-  if (data.images.heroImage2) imgLines.push(`Hero Banner 2: ${data.images.heroImage2}`);
-  if (data.images.brandImage) imgLines.push(`Brand Image: ${data.images.brandImage}`);
-  if (data.images.sectionImage1) imgLines.push(`Section Image 1: ${data.images.sectionImage1}`);
-  if (data.images.sectionImage2) imgLines.push(`Section Image 2: ${data.images.sectionImage2}`);
-  if (data.images.sectionImage3) imgLines.push(`Section Image 3: ${data.images.sectionImage3}`);
-  data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Product Image ${i + 1}: ${img}`));
-  aiImages.forEach((img, i) => imgLines.push(`AI Generated ${i + 1}: ${img}`));
+  if (data.images.heroImage1) imgLines.push(`Hero1: ${data.images.heroImage1}`);
+  if (data.images.heroImage2) imgLines.push(`Hero2: ${data.images.heroImage2}`);
+  if (data.images.brandImage) imgLines.push(`Brand: ${data.images.brandImage}`);
+  if (data.images.sectionImage1) imgLines.push(`Sec1: ${data.images.sectionImage1}`);
+  if (data.images.sectionImage2) imgLines.push(`Sec2: ${data.images.sectionImage2}`);
+  if (data.images.sectionImage3) imgLines.push(`Sec3: ${data.images.sectionImage3}`);
+  data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Prod${i + 1}: ${img}`));
+  aiImages.forEach((img, i) => imgLines.push(`AI${i + 1}: ${img}`));
 
   let typeSpecific = '';
 
   if (data.websiteType === 'ecommerce' && data.products.length > 0) {
     const prods = data.products.filter(p => p.name);
     if (prods.length > 0) {
-      typeSpecific += `\nPRODUCT CATALOG:\n`;
+      typeSpecific += `\n\n## Products\n`;
       prods.forEach(p => {
         const parts = [p.name];
         if (p.description) parts.push(p.description);
@@ -441,22 +446,24 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
         if (prodImages.length > 0) parts.push(`images:${prodImages.join(', ')}`);
         typeSpecific += `- ${parts.join(' | ')}\n`;
       });
+      typeSpecific += `Include: Product Page, Listing, Cart, Checkout.`;
     }
   }
 
   if (data.websiteType === 'saas') {
     const feats = data.features.filter(f => f.name);
     if (feats.length > 0) {
-      typeSpecific += `\nFEATURES:\n`;
+      typeSpecific += `\n\n## Features\n`;
       feats.forEach(f => {
-        typeSpecific += `- ${f.icon ? f.icon + ' ' : ''}${f.name}: ${f.description}\n`;
+        typeSpecific += `- ${f.icon ? f.icon + ' ' : ''}**${f.name}**: ${f.description}\n`;
       });
     }
     const plans = data.pricingPlans.filter(p => p.name);
     if (plans.length > 0) {
-      typeSpecific += `\nPRICING PLANS:\n`;
+      typeSpecific += `\n\n## Pricing Plans\n`;
       plans.forEach(p => {
-        typeSpecific += `${p.name} — ${p.price}: ${p.features.filter(Boolean).join(', ')}\n`;
+        typeSpecific += `### ${p.name} — ${p.price}\n`;
+        p.features.filter(Boolean).forEach(f => { typeSpecific += `- ${f}\n`; });
       });
     }
   }
@@ -464,134 +471,61 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
   if (data.websiteType === 'educational') {
     const courses = data.courses.filter(c => c.title);
     if (courses.length > 0) {
-      typeSpecific += `\nCOURSE CATALOG:\n`;
+      typeSpecific += `\n\n## Courses\n`;
       courses.forEach(c => {
-        typeSpecific += `- ${c.title}${c.instructor ? ` by ${c.instructor}` : ''}${c.price ? ` | ${c.price}` : ''}${c.description ? ` — ${c.description}` : ''}\n`;
+        typeSpecific += `### ${c.title}\n`;
+        if (c.instructor) typeSpecific += `- Instructor: ${c.instructor}\n`;
+        if (c.price) typeSpecific += `- Price: ${c.price}\n`;
+        if (c.description) typeSpecific += `${c.description}\n`;
+        if (c.modules) typeSpecific += `- Modules:\n${c.modules.split('\n').map(m => `  - ${m}`).join('\n')}\n`;
       });
     }
   }
 
-  const websiteTypeLabel = data.websiteType === 'landing' ? 'Landing Page' :
-    data.websiteType === 'ecommerce' ? 'E-commerce Website' :
-    data.websiteType === 'educational' ? 'Educational / Course Platform' :
-    data.websiteType === 'saas' ? 'SaaS Website' :
-    data.websiteType === 'portfolio' ? 'Portfolio Website' :
-    data.websiteType === 'blog' ? 'Blog Website' :
-    'Corporate Website';
+  const websiteTypeLabel = data.websiteType === 'landing' ? 'landing page' :
+    data.websiteType === 'ecommerce' ? 'e-commerce website' :
+    data.websiteType === 'educational' ? 'educational/course platform' :
+    `${data.websiteType} website`;
 
-  const adaptationLogic = data.websiteType === 'ecommerce'
-    ? `Ecommerce: Homepage prioritizes product visibility. Include featured products, product grid, category navigation, product page template, cart behavior, checkout flow.`
-    : data.websiteType === 'saas'
-    ? `SaaS: Hero with clear value prop & CTA. Features overview with deep dives. Pricing with plan comparison. Social proof. FAQ.`
-    : data.websiteType === 'educational'
-    ? `Educational: Featured courses, course catalog with filtering, course detail template, instructor profiles, enrollment CTA.`
-    : data.websiteType === 'landing'
-    ? `Landing Page: Single-page conversion-focused. Problem → Solution → Benefits → Social Proof → CTA flow. Strong above-the-fold hook.`
-    : data.websiteType === 'portfolio'
-    ? `Portfolio: Visual-first project showcase, case study layout, skills/expertise section, clean minimal aesthetic.`
-    : data.websiteType === 'blog'
-    ? `Blog: Featured post hero, article grid with categories, newsletter signup, clean reading experience.`
-    : `Corporate: Authority and trust emphasis, services sections, team/about, testimonials and trust indicators.`;
+  return `Create a ${data.preferredStyle} ${websiteTypeLabel} for "${data.businessName}".
 
-  return `You are a senior UX strategist, UI designer and front-end architect building a real production-ready website inside Lovable.
-
-You must strictly use the structured data provided below.
-Do NOT ignore the provided data.
-Do NOT generate generic layouts.
-Everything must be strategically aligned with the data below.
-
-================================================
-STRUCTURED BUSINESS DATA
-================================================
-
-WEBSITE TYPE: ${websiteTypeLabel}
-STYLE: ${data.preferredStyle}
-
-COMPANY DESCRIPTION:
-Name: ${data.businessName}
+## Business
 ${data.businessDescription}
-Industry: ${data.businessCategory}
-Target Audience: ${data.targetAudience}
-${data.valueProposition ? `Value Proposition: ${data.valueProposition}` : ''}
-Location: ${[data.city, data.country].filter(Boolean).join(', ')}
+Industry: ${data.businessCategory} | Audience: ${data.targetAudience} | Location: ${data.city}, ${data.country}
 
-SERVICES & DIFFERENTIATORS:
-${servicesText || 'Not specified'}
-${diffsText ? `Key Differentiators: ${diffsText}` : ''}
+## Services
+${servicesText}
+${data.valueProposition ? `Value: ${data.valueProposition}` : ''}
+${diffsText ? `Differentiators: ${diffsText}` : ''}
 
-DESIGN FOUNDATION:
-Style: ${data.preferredStyle}
-Primary Color: ${data.primaryColor}
-Secondary Color: ${data.secondaryColor}
+## Design
+Style: ${data.preferredStyle} | Colors: ${data.primaryColor}, ${data.secondaryColor}
+${imgLines.length > 0 ? '\n## Images\n' + imgLines.join('\n') : ''}
 
-CONTACT INFORMATION:
-${data.email ? `Email: ${data.email}` : ''}
-${data.phone ? `Phone: ${data.phone}` : ''}
-${data.whatsapp ? `WhatsApp: ${data.whatsapp}` : ''}
-${socialText ? `Social Media: ${socialText}` : ''}
-${imgLines.length > 0 ? `\nIMAGE LIBRARY:\n${imgLines.join('\n')}\n\nDownload these images and use them based on context. Study them and use as base for the rest of the design.\nIF THE IMAGES DON'T LOAD, GENERATE IMAGES BASED ON THE CONTEXT.` : ''}
-${data.generateAiImages ? '\nIMPORTANT: Use AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets.' : ''}
+## Contact
+${data.email}${data.phone ? ` | Phone: ${data.phone}` : ''}${data.whatsapp ? ` | WhatsApp: ${data.whatsapp}` : ''}
+${socialText ? `Social: ${socialText}` : ''}
 ${typeSpecific}
-SITE STRUCTURE:
+
+## Structure
 ${generatePagesSection(data)}
 
-================================================
-EXECUTION RULES:
-1. Analyze the business data first.
-2. Detect automatically:
-   - Website type and adapt layout
-   - UX weaknesses to avoid
-   - Competitive gaps to exploit
-3. Adapt the structure accordingly.
+## Requirements
+Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations, fast loading, strong CTAs.
+${data.generateAiImages ? 'Use the AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets to be used behind text overlays or as standalone photos.' : ''}
 
-================================================
-MANDATORY STRUCTURE REQUIREMENTS:
-
-This must be a complete visual website, not a conceptual blueprint.
-Include:
-• Real header with logo placement, navigation menu, CTA button, sticky behavior
-• Proper responsive mobile menu
-• Hero section aligned with value proposition, background images, CTA with text
-• Alternating section backgrounds
-• Clear spacing system and professional layout grid
-• Real footer with navigation columns, contact info, legal links, social icons
-• Defined CTA placements
-• Proper visual hierarchy
-• Typography structure (H1, H2, H3)
-
-================================================
-ADAPTATION LOGIC:
-
-${adaptationLogic}
-
-================================================
-DESIGN SYSTEM:
-
-Use exact brand colors (${data.primaryColor}, ${data.secondaryColor}).
-Visual consistency across all pages.
-Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
-Modern premium aesthetic: "${data.preferredStyle}" style.
-
-================================================
-SEO REQUIREMENTS (MANDATORY):
-
-Every page: H1-H3 hierarchy, meta title & description, keyword strategy, internal linking, SEO-friendly URLs, image alt-text, semantic HTML, performance optimized.
-
-================================================
-FINAL REQUIREMENTS:
-
-Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations (framer-motion), fast loading, strong CTAs, accessibility compliant.
-This must feel like a premium agency project. It must not look like a generic AI layout.
 Generate a polished, production-ready website.`;
 }
 
 function generatePagesSection(data: BusinessFormData): string {
   const config = data.pagesConfig || { mode: 'manual', aiSummary: '', pages: [] };
 
+  // AI mode: use the summary
   if (config.mode === 'ai' && config.aiSummary.trim()) {
-    return `The user described the site content as follows (AI should interpret and create pages/sections accordingly):\n\"${config.aiSummary.trim()}\"`;
+    return `The user described the site content as follows (AI should interpret and create pages/sections accordingly):\n"${config.aiSummary.trim()}"`;
   }
 
+  // Manual mode with pages defined
   if (config.pages.length > 0) {
     const enabledPages = config.pages.filter(p => p.enabled);
     if (enabledPages.length > 0) {
@@ -611,6 +545,7 @@ function generatePagesSection(data: BusinessFormData): string {
     }
   }
 
+  // Fallback to category-based layout
   return getCategoryLayout(data.websiteType, data.businessCategory);
 }
 
