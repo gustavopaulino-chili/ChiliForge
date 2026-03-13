@@ -206,7 +206,7 @@ const Index = () => {
             <div className="relative inline-flex h-20 w-20 items-center justify-center mx-auto">
               <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
               <div className="relative h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center">
-                <Wand2 className="h-9 w-9 text-primary animate-pulse" />
+                <img src="/images/logo-small.png" alt="ChiliForge" className="h-10 w-10 animate-pulse" />
               </div>
             </div>
 
