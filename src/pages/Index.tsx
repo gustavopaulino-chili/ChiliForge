@@ -414,8 +414,7 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}: ${v}`)
     .join(', ');
-  const categoryHint = getCategoryLayout(data.websiteType, data.businessCategory);
-
+  const categoryHint = generatePagesSection(data);
   // Images section — keep compact to stay within prompt char limits
   const imgLines: string[] = [];
   if (data.images.logoUrl) imgLines.push(`Logo: ${data.images.logoUrl}`);
