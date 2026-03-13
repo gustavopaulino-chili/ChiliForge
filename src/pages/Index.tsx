@@ -250,7 +250,7 @@ const Index = () => {
         <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
           <div className="text-center mb-8">
             <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-success/10 mb-4">
-              <Sparkles className="h-8 w-8 text-success" />
+              <img src="/images/logo-small.png" alt="ChiliForge" className="h-10 w-10" />
             </div>
             <h2 className="font-display text-3xl font-bold tracking-tight text-foreground">
               Your Prompt is Ready!
