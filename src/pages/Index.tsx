@@ -68,7 +68,7 @@ const Index = () => {
   const [showResults, setShowResults] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
-  const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+  const [generatedImages, setGeneratedImages] = useState<{ url: string; purpose: string }[]>([]);
   const [generationStatus, setGenerationStatus] = useState('');
   const [generationProgress, setGenerationProgress] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -149,12 +149,12 @@ const Index = () => {
       const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
 
       try {
-        const images: string[] = [];
+        const images: { url: string; purpose: string }[] = [];
         for (let idx = 0; idx < purposes.length; idx++) {
           setGenerationStatus(`Generating image ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
           setGenerationProgress(Math.round(((idx) / (purposes.length + 1)) * 100));
           const url = await invokeWithRetry(purposes[idx], referenceUrl);
-          if (url) images.push(url);
+          if (url) images.push({ url, purpose: purposeLabels[idx] });
         }
 
         setGeneratedImages(images);
@@ -265,7 +265,7 @@ const Index = () => {
               <h3 className="form-section-title mb-3">AI Generated Images</h3>
               <div className="grid grid-cols-3 gap-3">
                 {generatedImages.map((img, i) => (
-                  <img key={i} src={img} alt={`AI generated ${i + 1}`} className="rounded-lg w-full h-32 object-cover" />
+                  <img key={i} src={img.url} alt={img.purpose} className="rounded-lg w-full h-32 object-cover" />
                 ))}
               </div>
             </div>
@@ -403,7 +403,7 @@ function Header() {
   );
 }
 
-function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
+function generatePrompt(data: BusinessFormData, aiImages: { url: string; purpose: string }[]): string {
   const servicesText = data.services.filter(Boolean).join(', ');
   const diffsText = data.differentiators.filter(Boolean).join(', ');
   const socialText = Object.entries(data.socialLinks)
@@ -420,7 +420,7 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
   if (data.images.sectionImage2) imgLines.push(`Section Image 2: ${data.images.sectionImage2}`);
   if (data.images.sectionImage3) imgLines.push(`Section Image 3: ${data.images.sectionImage3}`);
   data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Product Image ${i + 1}: ${img}`));
-  aiImages.forEach((img, i) => imgLines.push(`AI Generated ${i + 1}: ${img}`));
+  aiImages.forEach(img => imgLines.push(`${img.purpose} (AI Generated): ${img.url}`));
 
   let typeSpecific = '';
 
@@ -530,7 +530,11 @@ ${data.phone ? `Phone: ${data.phone}` : ''}
 ${data.whatsapp ? `WhatsApp: ${data.whatsapp}` : ''}
 ${socialText ? `Social Media: ${socialText}` : ''}
 ${imgLines.length > 0 ? `\nIMAGE LIBRARY:\n${imgLines.join('\n')}\n\nDownload these images and use them based on context. Study them and use as base for the rest of the design.\nIF THE IMAGES DON'T LOAD, GENERATE IMAGES BASED ON THE CONTEXT.` : ''}
-${data.generateAiImages ? '\nIMPORTANT: Use AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets.' : ''}
+${aiImages.length > 0 ? `\nAI-GENERATED IMAGES INSTRUCTIONS:
+The following images were specifically generated for this website. You MUST download and use each one in its designated section:
+${aiImages.map(img => `- Use "${img.purpose}" image (${img.url}) as the background/visual for the ${img.purpose.toLowerCase()} section`).join('\n')}
+These are photographic/illustrative assets ONLY — never overlay text directly baked into them. Place text as HTML overlays on top of these images.
+If any image URL fails to load, generate a replacement image matching the same purpose and style.` : ''}
 ${typeSpecific}
 SITE STRUCTURE:
 ${generatePagesSection(data)}
