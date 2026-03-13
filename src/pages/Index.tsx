@@ -510,7 +510,7 @@ ${data.phone ? `Phone: ${data.phone}` : ''}
 ${data.whatsapp ? `WhatsApp: ${data.whatsapp}` : ''}
 ${socialText ? `Social Media: ${socialText}` : ''}
 ${imgLines.length > 0 ? `\nIMAGE LIBRARY:\n${imgLines.join('\n')}\n\nDownload these images and use them based on context. Study them and use as base for the rest of the design.\nIF THE IMAGES DON'T LOAD, GENERATE IMAGES BASED ON THE CONTEXT.` : ''}
-${data.generateAiImages ? '\nIMPORTANT: Use AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets.' : ''}
+${data.generateAiImages ? '\nIMPORTANT: Generate AI images for hero banners, section backgrounds, and marketing visuals matching the brand style. Use them as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets.' : ''}
 ${typeSpecific}
 SITE STRUCTURE:
 ${generatePagesSection(data)}
