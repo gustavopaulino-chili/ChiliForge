@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,7 +14,6 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    // Build a context-aware prompt based on business info
     const categoryHints: Record<string, string> = {
       'Technology / SaaS': 'abstract tech patterns, clean workspaces, modern devices, data visualizations, digital interfaces',
       'Agency / Consulting': 'professional meeting rooms, collaborative teams, modern offices, strategic planning imagery',
@@ -106,9 +106,38 @@ CRITICAL RULES:
     }
 
     const data = await response.json();
-    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+    const base64Url = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
 
-    if (!imageUrl) throw new Error("No image generated");
+    if (!base64Url) throw new Error("No image generated");
+
+    // Upload base64 image to Supabase Storage for a short URL
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Extract base64 data
+    const matches = base64Url.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!matches) throw new Error("Invalid base64 image format");
+
+    const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+    const base64Data = matches[2];
+    const bytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+
+    const fileName = `${crypto.randomUUID()}.${ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from('generated-images')
+      .upload(fileName, bytes, { contentType: `image/${matches[1]}`, upsert: false });
+
+    if (uploadError) {
+      console.error("Storage upload error:", uploadError);
+      throw new Error("Failed to upload image to storage");
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('generated-images')
+      .getPublicUrl(fileName);
+
+    const imageUrl = publicUrlData.publicUrl;
 
     return new Response(JSON.stringify({ imageUrl }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
