@@ -26,7 +26,7 @@ function buildDefaultPages(data: BusinessFormData): PageItem[] {
 
 export function StepPages({ data, onChange }: Props) {
   const [openPages, setOpenPages] = useState<Set<number>>(new Set());
-  const config = data.pagesConfig;
+  const config = data.pagesConfig || { mode: 'manual', aiSummary: '', pages: [] };
   const requiredNames = REQUIRED_PAGES[data.websiteType] || ['Home'];
   const suggestions = OPTIONAL_PAGES_SUGGESTIONS[data.websiteType] || [];
 
