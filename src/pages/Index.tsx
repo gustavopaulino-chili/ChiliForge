@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import logoResult from '@/assets/logo-result.png';
 import { BusinessFormData, defaultFormData, WebsiteType } from '@/types/businessForm';
 import { StepIndicator } from '@/components/generator/StepIndicator';
 import { StepCsvImport } from '@/components/generator/StepCsvImport';
