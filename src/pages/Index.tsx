@@ -181,6 +181,24 @@ const Index = () => {
     }
 
     await new Promise(r => setTimeout(r, 600));
+    setGenerationProgress(95);
+    setGenerationStatus('Saving prompt...');
+
+    // Save prompt to DB for short URL sharing
+    const finalPrompt = generatePrompt(formData, generatedImages.length > 0 ? generatedImages : []);
+    try {
+      const { data: inserted, error } = await supabase
+        .from('generated_prompts')
+        .insert({ prompt_text: finalPrompt, business_name: formData.businessName || null })
+        .select('id')
+        .single();
+      if (!error && inserted) {
+        setPromptId(inserted.id);
+      }
+    } catch (e) {
+      console.error('Failed to save prompt:', e);
+    }
+
     setGenerationProgress(100);
     setGenerationStatus('Done!');
     await new Promise(r => setTimeout(r, 400));
