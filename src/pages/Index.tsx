@@ -277,7 +277,12 @@ const Index = () => {
 
           <div className="glass-card rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="form-section-title">Generated Lovable Prompt</h3>
+              <div className="flex items-center gap-3">
+                <h3 className="form-section-title">Generated Lovable Prompt</h3>
+                <span className={`text-xs font-mono px-2 py-0.5 rounded ${prompt.length > 5000 ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'}`}>
+                  {prompt.length} / 5000
+                </span>
+              </div>
               <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copied ? 'Copied!' : 'Copy Prompt'}
