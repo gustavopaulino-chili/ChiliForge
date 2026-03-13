@@ -409,115 +409,110 @@ function Header() {
 }
 
 function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
-  const servicesText = data.services.filter(Boolean).join(', ');
-  const diffsText = data.differentiators.filter(Boolean).join(', ');
-  const socialText = Object.entries(data.socialLinks)
-    .filter(([, v]) => v)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join(', ');
-  const categoryHint = generatePagesSection(data);
-  // Images section — keep compact to stay within prompt char limits
-  const imgLines: string[] = [];
-  if (data.images.logoUrl) imgLines.push(`Logo: ${data.images.logoUrl}`);
-  if (data.images.heroImage1) imgLines.push(`Hero1: ${data.images.heroImage1}`);
-  if (data.images.heroImage2) imgLines.push(`Hero2: ${data.images.heroImage2}`);
-  if (data.images.brandImage) imgLines.push(`Brand: ${data.images.brandImage}`);
-  if (data.images.sectionImage1) imgLines.push(`Sec1: ${data.images.sectionImage1}`);
-  if (data.images.sectionImage2) imgLines.push(`Sec2: ${data.images.sectionImage2}`);
-  if (data.images.sectionImage3) imgLines.push(`Sec3: ${data.images.sectionImage3}`);
-  data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Prod${i + 1}: ${img}`));
-  aiImages.forEach((img, i) => imgLines.push(`AI${i + 1}: ${img}`));
+  const MAX_CHARS = 5000;
+  const svc = data.services.filter(Boolean).join(', ');
+  const diffs = data.differentiators.filter(Boolean).join(', ');
+  const social = Object.entries(data.socialLinks).filter(([, v]) => v).map(([k, v]) => `${k}:${v}`).join(' | ');
 
-  let typeSpecific = '';
+  // Images — ultra compact
+  const imgs: string[] = [];
+  const im = data.images;
+  if (im.logoUrl) imgs.push(`logo:${im.logoUrl}`);
+  if (im.heroImage1) imgs.push(`hero1:${im.heroImage1}`);
+  if (im.heroImage2) imgs.push(`hero2:${im.heroImage2}`);
+  if (im.brandImage) imgs.push(`brand:${im.brandImage}`);
+  if (im.sectionImage1) imgs.push(`sec1:${im.sectionImage1}`);
+  if (im.sectionImage2) imgs.push(`sec2:${im.sectionImage2}`);
+  if (im.sectionImage3) imgs.push(`sec3:${im.sectionImage3}`);
+  im.productImages.filter(Boolean).forEach((img, i) => imgs.push(`prod${i + 1}:${img}`));
+  aiImages.forEach((img, i) => imgs.push(`ai${i + 1}:${img}`));
+
+  // Type-specific data — compressed
+  let specific = '';
 
   if (data.websiteType === 'ecommerce' && data.products.length > 0) {
     const prods = data.products.filter(p => p.name);
     if (prods.length > 0) {
-      typeSpecific += `\n\n## Products\n`;
+      specific += '\n## Products\n';
       prods.forEach(p => {
-        const parts = [p.name];
-        if (p.description) parts.push(p.description);
-        if (p.price) parts.push(p.price);
-        if (p.discountPrice) parts.push(`sale:${p.discountPrice}`);
-        if (p.category) parts.push(`cat:${p.category}`);
-        const variantParts = (p.variants || []).filter(v => v.name).map(v => `${v.name}(${v.type}): ${v.values.filter(Boolean).join(', ')}`);
-        if (variantParts.length > 0) parts.push(`var:${variantParts.join(' / ')}`);
-        const inputParts = (p.inputs || []).filter(inp => inp.label).map(inp => `${inp.label}${inp.required ? '*' : ''}${inp.placeholder ? ` [${inp.placeholder}]` : ''}`);
-        if (inputParts.length > 0) parts.push(`inputs:${inputParts.join(', ')}`);
-        if (p.sku) parts.push(`sku:${p.sku}`);
-        const prodImages = p.images.filter(Boolean);
-        if (prodImages.length > 0) parts.push(`images:${prodImages.join(', ')}`);
-        typeSpecific += `- ${parts.join(' | ')}\n`;
+        const pts = [p.name];
+        if (p.description) pts.push(p.description);
+        if (p.price) pts.push(p.price);
+        if (p.discountPrice) pts.push(`sale:${p.discountPrice}`);
+        if (p.category) pts.push(`cat:${p.category}`);
+        const vars = (p.variants || []).filter(v => v.name).map(v => `${v.name}(${v.type}):${v.values.filter(Boolean).join(',')}`);
+        if (vars.length) pts.push(`var:${vars.join('/')}`);
+        const inps = (p.inputs || []).filter(i => i.label).map(i => `${i.label}${i.required ? '*' : ''}`);
+        if (inps.length) pts.push(`in:${inps.join(',')}`);
+        if (p.sku) pts.push(`sku:${p.sku}`);
+        const pImgs = p.images.filter(Boolean);
+        if (pImgs.length) pts.push(`img:${pImgs.join(',')}`);
+        specific += `- ${pts.join('|')}\n`;
       });
-      typeSpecific += `Include: Product Page, Listing, Cart, Checkout.`;
+      specific += 'Include: Product Page, Listing, Cart, Checkout.\n';
     }
   }
 
   if (data.websiteType === 'saas') {
     const feats = data.features.filter(f => f.name);
-    if (feats.length > 0) {
-      typeSpecific += `\n\n## Features\n`;
-      feats.forEach(f => {
-        typeSpecific += `- ${f.icon ? f.icon + ' ' : ''}**${f.name}**: ${f.description}\n`;
-      });
+    if (feats.length) {
+      specific += '\n## Features\n';
+      feats.forEach(f => { specific += `- ${f.icon || ''}${f.name}: ${f.description}\n`; });
     }
     const plans = data.pricingPlans.filter(p => p.name);
-    if (plans.length > 0) {
-      typeSpecific += `\n\n## Pricing Plans\n`;
+    if (plans.length) {
+      specific += '\n## Pricing\n';
       plans.forEach(p => {
-        typeSpecific += `### ${p.name} — ${p.price}\n`;
-        p.features.filter(Boolean).forEach(f => { typeSpecific += `- ${f}\n`; });
+        specific += `${p.name}—${p.price}: ${p.features.filter(Boolean).join(', ')}\n`;
       });
     }
   }
 
   if (data.websiteType === 'educational') {
     const courses = data.courses.filter(c => c.title);
-    if (courses.length > 0) {
-      typeSpecific += `\n\n## Courses\n`;
+    if (courses.length) {
+      specific += '\n## Courses\n';
       courses.forEach(c => {
-        typeSpecific += `### ${c.title}\n`;
-        if (c.instructor) typeSpecific += `- Instructor: ${c.instructor}\n`;
-        if (c.price) typeSpecific += `- Price: ${c.price}\n`;
-        if (c.description) typeSpecific += `${c.description}\n`;
-        if (c.modules) typeSpecific += `- Modules:\n${c.modules.split('\n').map(m => `  - ${m}`).join('\n')}\n`;
+        const pts = [c.title];
+        if (c.instructor) pts.push(`by ${c.instructor}`);
+        if (c.price) pts.push(c.price);
+        if (c.description) pts.push(c.description);
+        specific += `- ${pts.join('|')}\n`;
+        if (c.modules) specific += `  modules: ${c.modules.split('\n').filter(Boolean).join(', ')}\n`;
       });
     }
   }
 
-  const websiteTypeLabel = data.websiteType === 'landing' ? 'landing page' :
-    data.websiteType === 'ecommerce' ? 'e-commerce website' :
-    data.websiteType === 'educational' ? 'educational/course platform' :
+  const typeLabel = data.websiteType === 'landing' ? 'landing page' :
+    data.websiteType === 'ecommerce' ? 'e-commerce site' :
+    data.websiteType === 'educational' ? 'course platform' :
     `${data.websiteType} website`;
 
-  return `Create a ${data.preferredStyle} ${websiteTypeLabel} for "${data.businessName}".
+  const loc = [data.city, data.country].filter(Boolean).join(', ');
+  const contact = [data.email, data.phone && `ph:${data.phone}`, data.whatsapp && `wa:${data.whatsapp}`].filter(Boolean).join(' | ');
 
+  let prompt = `Create a ${data.preferredStyle} ${typeLabel} for "${data.businessName}".
 ## Business
 ${data.businessDescription}
-Industry: ${data.businessCategory} | Audience: ${data.targetAudience} | Location: ${data.city}, ${data.country}
-
+${data.businessCategory}${data.targetAudience ? ` | Audience: ${data.targetAudience}` : ''}${loc ? ` | ${loc}` : ''}
 ## Services
-${servicesText}
-${data.valueProposition ? `Value: ${data.valueProposition}` : ''}
-${diffsText ? `Differentiators: ${diffsText}` : ''}
-
+${svc}${data.valueProposition ? `\nValue: ${data.valueProposition}` : ''}${diffs ? `\nDiff: ${diffs}` : ''}
 ## Design
-Style: ${data.preferredStyle} | Colors: ${data.primaryColor}, ${data.secondaryColor}
-${imgLines.length > 0 ? '\n## Images\n' + imgLines.join('\n') : ''}
-
+${data.preferredStyle} | ${data.primaryColor}, ${data.secondaryColor}${imgs.length ? `\n## Images\n${imgs.join('\n')}` : ''}
 ## Contact
-${data.email}${data.phone ? ` | Phone: ${data.phone}` : ''}${data.whatsapp ? ` | WhatsApp: ${data.whatsapp}` : ''}
-${socialText ? `Social: ${socialText}` : ''}
-${typeSpecific}
-
+${contact}${social ? `\n${social}` : ''}${specific}
 ## Structure
 ${generatePagesSection(data)}
+## Req
+Responsive, mobile-first, SEO, semantic HTML, animations, fast, strong CTAs.${data.generateAiImages ? '\nUse AI images as bg photos/section images only—no text baked into images.' : ''}
+Build production-ready.`;
 
-## Requirements
-Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations, fast loading, strong CTAs.
-${data.generateAiImages ? 'Use the AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets to be used behind text overlays or as standalone photos.' : ''}
+  // Truncate if over limit
+  if (prompt.length > MAX_CHARS) {
+    prompt = prompt.slice(0, MAX_CHARS - 3) + '...';
+  }
 
-Generate a polished, production-ready website.`;
+  return prompt;
 }
 
 function generatePagesSection(data: BusinessFormData): string {
