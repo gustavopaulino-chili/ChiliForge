@@ -74,9 +74,9 @@ const Index = () => {
   const [copiedLink, setCopiedLink] = useState(false);
 
   const getLovableUrl = useCallback(() => {
-    const promptText = generatePrompt(formData, generatedImages);
+    const promptText = generatePrompt(formData);
     return `https://lovable.dev/projects/create#prompt=${encodeURIComponent(promptText)}`;
-  }, [formData, generatedImages]);
+  }, [formData]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
