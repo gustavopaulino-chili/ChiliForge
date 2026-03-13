@@ -143,40 +143,8 @@ const Index = () => {
     setIsGenerating(true);
     setGenerationProgress(0);
 
-    if (formData.generateAiImages) {
-      setIsGeneratingImages(true);
-      const purposes = ['hero banner', 'about section background', 'services section'];
-      const purposeLabels = ['Hero Banner', 'About Section', 'Services Section'];
-      const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
-
-      try {
-        const images: string[] = [];
-        for (let idx = 0; idx < purposes.length; idx++) {
-          setGenerationStatus(`Generating image ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
-          setGenerationProgress(Math.round(((idx) / (purposes.length + 1)) * 100));
-          const url = await invokeWithRetry(purposes[idx], referenceUrl);
-          if (url) images.push(url);
-        }
-
-        setGeneratedImages(images);
-        setGenerationStatus('Building final prompt...');
-        setGenerationProgress(90);
-
-        if (images.length > 0) {
-          toast.success(`${images.length} AI images generated successfully`);
-        } else {
-          toast.error('Could not generate images. Try again.');
-        }
-      } catch (err) {
-        console.error('Image generation error:', err);
-        toast.error('Error generating AI images');
-      } finally {
-        setIsGeneratingImages(false);
-      }
-    } else {
-      setGenerationStatus('Building prompt...');
-      setGenerationProgress(50);
-    }
+    setGenerationStatus('Building prompt...');
+    setGenerationProgress(50);
 
     await new Promise(r => setTimeout(r, 600));
     setGenerationProgress(100);
