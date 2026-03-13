@@ -113,29 +113,6 @@ const Index = () => {
 
   const currentStepId = steps[currentStep]?.id;
 
-  const invokeWithRetry = async (purpose: string, referenceUrl: string | undefined, retries = 3): Promise<string | null> => {
-    for (let attempt = 0; attempt < retries; attempt++) {
-      const { data, error } = await supabase.functions.invoke('generate-images', {
-        body: {
-          referenceImageUrl: referenceUrl,
-          style: formData.preferredStyle,
-          businessName: formData.businessName,
-          businessDescription: formData.businessDescription,
-          businessCategory: formData.businessCategory,
-          websiteType: formData.websiteType,
-          purpose,
-        },
-      });
-      if (data?.imageUrl) return data.imageUrl;
-      if (error?.message?.includes('429') || data?.error?.includes('Rate limit')) {
-        const delay = 3000 * (attempt + 1);
-        await new Promise(r => setTimeout(r, delay));
-        continue;
-      }
-      break;
-    }
-    return null;
-  };
 
   const handleGenerate = async () => {
     setIsGenerating(true);
