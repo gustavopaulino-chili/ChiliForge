@@ -54,6 +54,46 @@ export interface CourseItem {
   price: string;
 }
 
+export interface PageSection {
+  title: string;
+  description: string;
+}
+
+export interface PageItem {
+  name: string;
+  required: boolean;
+  enabled: boolean;
+  sections: PageSection[];
+}
+
+export type ContentMode = 'ai' | 'manual';
+
+export interface PagesConfig {
+  mode: ContentMode;
+  aiSummary: string;
+  pages: PageItem[];
+}
+
+export const REQUIRED_PAGES: Record<WebsiteType, string[]> = {
+  corporate: ['Home', 'Sobre', 'Contato'],
+  landing: ['Home'],
+  ecommerce: ['Home', 'Produtos', 'Carrinho', 'Checkout'],
+  portfolio: ['Home', 'Projetos'],
+  saas: ['Home', 'Funcionalidades', 'Preços'],
+  blog: ['Home', 'Artigos'],
+  educational: ['Home', 'Cursos', 'Detalhe do Curso'],
+};
+
+export const OPTIONAL_PAGES_SUGGESTIONS: Record<WebsiteType, string[]> = {
+  corporate: ['Blog', 'Portfólio', 'FAQ', 'Equipe', 'Depoimentos'],
+  landing: ['FAQ', 'Depoimentos'],
+  ecommerce: ['Blog', 'FAQ', 'Sobre', 'Contato', 'Wishlist'],
+  portfolio: ['Sobre', 'Blog', 'Contato', 'Depoimentos'],
+  saas: ['Blog', 'FAQ', 'Sobre', 'Contato', 'Documentação', 'Changelog'],
+  blog: ['Sobre', 'Contato', 'Categorias', 'Newsletter'],
+  educational: ['Blog', 'FAQ', 'Sobre', 'Contato', 'Instrutores'],
+};
+
 export interface ImageUrls {
   heroImage1: string;
   heroImage2: string;
