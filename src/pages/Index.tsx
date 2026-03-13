@@ -29,7 +29,6 @@ function getSteps(websiteType: WebsiteType): StepDef[] {
     { id: 'services', label: 'Services' },
   ];
 
-  // Type-specific steps
   if (websiteType === 'ecommerce') {
     base.push({ id: 'products', label: 'Products' });
   }
@@ -57,7 +56,7 @@ const loadSavedProgress = () => {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) return JSON.parse(saved);
-  } catch {}
+  } catch { }
   return null;
 };
 
@@ -77,10 +76,9 @@ const Index = () => {
 
   const getLovableUrl = useCallback(() => {
     const promptText = generatePrompt(formData, generatedImages);
-    return `https://lovable.dev/projects/create#prompt=${encodeURIComponent(promptText)}&autosubmit=true`;
+    return `https://lovable.dev/projects/create#prompt=${encodeURIComponent(promptText)}`;
   }, [formData, generatedImages]);
 
-  // Reactive gradient mouse tracker
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
@@ -89,7 +87,7 @@ const Index = () => {
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
-  // Persist progress to localStorage
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentStep, formData, maxVisitedStep }));
   }, [currentStep, formData]);
@@ -130,13 +128,12 @@ const Index = () => {
         },
       });
       if (data?.imageUrl) return data.imageUrl;
-      // If rate limited, wait and retry
       if (error?.message?.includes('429') || data?.error?.includes('Rate limit')) {
         const delay = 3000 * (attempt + 1);
         await new Promise(r => setTimeout(r, delay));
         continue;
       }
-      break; // non-retryable error
+      break;
     }
     return null;
   };
@@ -148,42 +145,41 @@ const Index = () => {
     if (formData.generateAiImages) {
       setIsGeneratingImages(true);
       const purposes = ['hero banner', 'about section background', 'services section'];
-      const purposeLabels = ['Banner principal', 'Imagem da seção Sobre', 'Imagem da seção Serviços'];
+      const purposeLabels = ['Hero Banner', 'About Section', 'Services Section'];
       const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
 
       try {
         const images: string[] = [];
         for (let idx = 0; idx < purposes.length; idx++) {
-          setGenerationStatus(`Gerando imagem ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
+          setGenerationStatus(`Generating image ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
           setGenerationProgress(Math.round(((idx) / (purposes.length + 1)) * 100));
           const url = await invokeWithRetry(purposes[idx], referenceUrl);
           if (url) images.push(url);
         }
 
         setGeneratedImages(images);
-        setGenerationStatus('Montando o prompt final...');
+        setGenerationStatus('Building final prompt...');
         setGenerationProgress(90);
 
         if (images.length > 0) {
-          toast.success(`${images.length} imagens AI geradas com sucesso`);
+          toast.success(`${images.length} AI images generated successfully`);
         } else {
-          toast.error('Não foi possível gerar imagens. Tente novamente.');
+          toast.error('Could not generate images. Try again.');
         }
       } catch (err) {
         console.error('Image generation error:', err);
-        toast.error('Erro ao gerar imagens AI');
+        toast.error('Error generating AI images');
       } finally {
         setIsGeneratingImages(false);
       }
     } else {
-      setGenerationStatus('Montando o prompt...');
+      setGenerationStatus('Building prompt...');
       setGenerationProgress(50);
     }
 
-    // Small delay for UX
     await new Promise(r => setTimeout(r, 600));
     setGenerationProgress(100);
-    setGenerationStatus('Pronto!');
+    setGenerationStatus('Done!');
     await new Promise(r => setTimeout(r, 400));
 
     setIsGenerating(false);
@@ -216,7 +212,7 @@ const Index = () => {
 
             <div className="space-y-2">
               <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">
-                Gerando seu prompt...
+                Generating your prompt...
               </h2>
               <p className="text-muted-foreground text-sm min-h-[1.25rem]">
                 {generationStatus}
@@ -232,10 +228,10 @@ const Index = () => {
               <div className="rounded-lg border border-border bg-card/50 p-4 text-left space-y-2">
                 <p className="text-xs font-medium text-foreground flex items-center gap-2">
                   <Sparkles className="h-3.5 w-3.5 text-primary" />
-                  Geração de imagens AI ativa
+                  AI image generation active
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Criando imagens exclusivas baseadas no seu negócio. Isso pode levar alguns segundos...
+                  Creating exclusive images based on your business. This may take a few seconds...
                 </p>
               </div>
             )}
@@ -277,12 +273,7 @@ const Index = () => {
 
           <div className="glass-card rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <h3 className="form-section-title">Generated Lovable Prompt</h3>
-                <span className={`text-xs font-mono px-2 py-0.5 rounded ${prompt.length > 5000 ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'}`}>
-                  {prompt.length} / 5000
-                </span>
-              </div>
+              <h3 className="form-section-title">Generated Lovable Prompt</h3>
               <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copied ? 'Copied!' : 'Copy Prompt'}
@@ -309,27 +300,26 @@ const Index = () => {
             </Button>
             <div className="ml-auto flex gap-3">
               <Button variant="outline" size="lg" onClick={handleCopy} className="gap-2">
-                <Copy className="h-4 w-4" /> {copied ? 'Copiado!' : 'Copiar Prompt'}
+                <Copy className="h-4 w-4" /> {copied ? 'Copied!' : 'Copy Prompt'}
               </Button>
               <Button variant="outline" size="lg" onClick={() => {
                 navigator.clipboard.writeText(getLovableUrl());
                 setCopiedLink(true);
                 setTimeout(() => setCopiedLink(false), 2000);
-                toast.success('Link copiado!');
+                toast.success('Link copied!');
               }} className="gap-2">
                 {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
-                {copiedLink ? 'Copiado!' : 'Copiar Link'}
+                {copiedLink ? 'Copied!' : 'Copy Link'}
               </Button>
-              <Button variant="gradient" size="lg" className="gap-2" onClick={() => {
-                const url = getLovableUrl();
-                const win = window.open(url, '_blank');
-                if (!win || win.closed) {
-                  navigator.clipboard.writeText(url);
-                  toast.error('Popup blocked! The link has been copied to your clipboard — paste it in a new tab.');
-                }
-              }}>
-                <ExternalLink className="h-4 w-4" /> Abrir no Lovable
-              </Button>
+              <a
+                href={getLovableUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="gradient" size="lg" className="gap-2">
+                  <ExternalLink className="h-4 w-4" /> Open in Lovable
+                </Button>
+              </a>
             </div>
           </div>
         </main>
@@ -414,121 +404,194 @@ function Header() {
 }
 
 function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
-  const MAX_CHARS = 5000;
-  const svc = data.services.filter(Boolean).join(', ');
-  const diffs = data.differentiators.filter(Boolean).join(', ');
-  const social = Object.entries(data.socialLinks).filter(([, v]) => v).map(([k, v]) => `${k}:${v}`).join(' | ');
+  const servicesText = data.services.filter(Boolean).join(', ');
+  const diffsText = data.differentiators.filter(Boolean).join(', ');
+  const socialText = Object.entries(data.socialLinks)
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(', ');
 
-  // Images — ultra compact
-  const imgs: string[] = [];
-  const im = data.images;
-  if (im.logoUrl) imgs.push(`logo:${im.logoUrl}`);
-  if (im.heroImage1) imgs.push(`hero1:${im.heroImage1}`);
-  if (im.heroImage2) imgs.push(`hero2:${im.heroImage2}`);
-  if (im.brandImage) imgs.push(`brand:${im.brandImage}`);
-  if (im.sectionImage1) imgs.push(`sec1:${im.sectionImage1}`);
-  if (im.sectionImage2) imgs.push(`sec2:${im.sectionImage2}`);
-  if (im.sectionImage3) imgs.push(`sec3:${im.sectionImage3}`);
-  im.productImages.filter(Boolean).forEach((img, i) => imgs.push(`prod${i + 1}:${img}`));
-  aiImages.forEach((img, i) => imgs.push(`ai${i + 1}:${img}`));
+  const imgLines: string[] = [];
+  if (data.images.logoUrl) imgLines.push(`Logo: ${data.images.logoUrl}`);
+  if (data.images.heroImage1) imgLines.push(`Hero Banner 1: ${data.images.heroImage1}`);
+  if (data.images.heroImage2) imgLines.push(`Hero Banner 2: ${data.images.heroImage2}`);
+  if (data.images.brandImage) imgLines.push(`Brand Image: ${data.images.brandImage}`);
+  if (data.images.sectionImage1) imgLines.push(`Section Image 1: ${data.images.sectionImage1}`);
+  if (data.images.sectionImage2) imgLines.push(`Section Image 2: ${data.images.sectionImage2}`);
+  if (data.images.sectionImage3) imgLines.push(`Section Image 3: ${data.images.sectionImage3}`);
+  data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Product Image ${i + 1}: ${img}`));
+  aiImages.forEach((img, i) => imgLines.push(`AI Generated ${i + 1}: ${img}`));
 
-  // Type-specific data — compressed
-  let specific = '';
+  let typeSpecific = '';
 
   if (data.websiteType === 'ecommerce' && data.products.length > 0) {
     const prods = data.products.filter(p => p.name);
     if (prods.length > 0) {
-      specific += '\n## Products\n';
+      typeSpecific += `\nPRODUCT CATALOG:\n`;
       prods.forEach(p => {
-        const pts = [p.name];
-        if (p.description) pts.push(p.description);
-        if (p.price) pts.push(p.price);
-        if (p.discountPrice) pts.push(`sale:${p.discountPrice}`);
-        if (p.category) pts.push(`cat:${p.category}`);
-        const vars = (p.variants || []).filter(v => v.name).map(v => `${v.name}(${v.type}):${v.values.filter(Boolean).join(',')}`);
-        if (vars.length) pts.push(`var:${vars.join('/')}`);
-        const inps = (p.inputs || []).filter(i => i.label).map(i => `${i.label}${i.required ? '*' : ''}`);
-        if (inps.length) pts.push(`in:${inps.join(',')}`);
-        if (p.sku) pts.push(`sku:${p.sku}`);
-        const pImgs = p.images.filter(Boolean);
-        if (pImgs.length) pts.push(`img:${pImgs.join(',')}`);
-        specific += `- ${pts.join('|')}\n`;
+        const parts = [p.name];
+        if (p.description) parts.push(p.description);
+        if (p.price) parts.push(p.price);
+        if (p.discountPrice) parts.push(`sale:${p.discountPrice}`);
+        if (p.category) parts.push(`cat:${p.category}`);
+        const variantParts = (p.variants || []).filter(v => v.name).map(v => `${v.name}: ${v.values.filter(Boolean).join(', ')}`);
+        if (variantParts.length > 0) parts.push(`var:${variantParts.join(' / ')}`);
+        if (p.sku) parts.push(`sku:${p.sku}`);
+        const prodImages = p.images.filter(Boolean);
+        if (prodImages.length > 0) parts.push(`images:${prodImages.join(', ')}`);
+        typeSpecific += `- ${parts.join(' | ')}\n`;
       });
-      specific += 'Include: Product Page, Listing, Cart, Checkout.\n';
     }
   }
 
   if (data.websiteType === 'saas') {
     const feats = data.features.filter(f => f.name);
-    if (feats.length) {
-      specific += '\n## Features\n';
-      feats.forEach(f => { specific += `- ${f.icon || ''}${f.name}: ${f.description}\n`; });
+    if (feats.length > 0) {
+      typeSpecific += `\nFEATURES:\n`;
+      feats.forEach(f => {
+        typeSpecific += `- ${f.icon ? f.icon + ' ' : ''}${f.name}: ${f.description}\n`;
+      });
     }
     const plans = data.pricingPlans.filter(p => p.name);
-    if (plans.length) {
-      specific += '\n## Pricing\n';
+    if (plans.length > 0) {
+      typeSpecific += `\nPRICING PLANS:\n`;
       plans.forEach(p => {
-        specific += `${p.name}—${p.price}: ${p.features.filter(Boolean).join(', ')}\n`;
+        typeSpecific += `${p.name} — ${p.price}: ${p.features.filter(Boolean).join(', ')}\n`;
       });
     }
   }
 
   if (data.websiteType === 'educational') {
     const courses = data.courses.filter(c => c.title);
-    if (courses.length) {
-      specific += '\n## Courses\n';
+    if (courses.length > 0) {
+      typeSpecific += `\nCOURSE CATALOG:\n`;
       courses.forEach(c => {
-        const pts = [c.title];
-        if (c.instructor) pts.push(`by ${c.instructor}`);
-        if (c.price) pts.push(c.price);
-        if (c.description) pts.push(c.description);
-        specific += `- ${pts.join('|')}\n`;
-        if (c.modules) specific += `  modules: ${c.modules.split('\n').filter(Boolean).join(', ')}\n`;
+        typeSpecific += `- ${c.title}${c.instructor ? ` by ${c.instructor}` : ''}${c.price ? ` | ${c.price}` : ''}${c.description ? ` — ${c.description}` : ''}\n`;
       });
     }
   }
 
-  const typeLabel = data.websiteType === 'landing' ? 'landing page' :
-    data.websiteType === 'ecommerce' ? 'e-commerce site' :
-    data.websiteType === 'educational' ? 'course platform' :
-    `${data.websiteType} website`;
+  const websiteTypeLabel = data.websiteType === 'landing' ? 'Landing Page' :
+    data.websiteType === 'ecommerce' ? 'E-commerce Website' :
+    data.websiteType === 'educational' ? 'Educational / Course Platform' :
+    data.websiteType === 'saas' ? 'SaaS Website' :
+    data.websiteType === 'portfolio' ? 'Portfolio Website' :
+    data.websiteType === 'blog' ? 'Blog Website' :
+    'Corporate Website';
 
-  const loc = [data.city, data.country].filter(Boolean).join(', ');
-  const contact = [data.email, data.phone && `ph:${data.phone}`, data.whatsapp && `wa:${data.whatsapp}`].filter(Boolean).join(' | ');
+  const adaptationLogic = data.websiteType === 'ecommerce'
+    ? `Ecommerce: Homepage prioritizes product visibility. Include featured products, product grid, category navigation, product page template, cart behavior, checkout flow.`
+    : data.websiteType === 'saas'
+    ? `SaaS: Hero with clear value prop & CTA. Features overview with deep dives. Pricing with plan comparison. Social proof. FAQ.`
+    : data.websiteType === 'educational'
+    ? `Educational: Featured courses, course catalog with filtering, course detail template, instructor profiles, enrollment CTA.`
+    : data.websiteType === 'landing'
+    ? `Landing Page: Single-page conversion-focused. Problem → Solution → Benefits → Social Proof → CTA flow. Strong above-the-fold hook.`
+    : data.websiteType === 'portfolio'
+    ? `Portfolio: Visual-first project showcase, case study layout, skills/expertise section, clean minimal aesthetic.`
+    : data.websiteType === 'blog'
+    ? `Blog: Featured post hero, article grid with categories, newsletter signup, clean reading experience.`
+    : `Corporate: Authority and trust emphasis, services sections, team/about, testimonials and trust indicators.`;
 
-  let prompt = `Create a ${data.preferredStyle} ${typeLabel} for "${data.businessName}".
-## Business
+  return `You are a senior UX strategist, UI designer and front-end architect building a real production-ready website inside Lovable.
+
+You must strictly use the structured data provided below.
+Do NOT ignore the provided data.
+Do NOT generate generic layouts.
+Everything must be strategically aligned with the data below.
+
+================================================
+STRUCTURED BUSINESS DATA
+================================================
+
+WEBSITE TYPE: ${websiteTypeLabel}
+STYLE: ${data.preferredStyle}
+
+COMPANY DESCRIPTION:
+Name: ${data.businessName}
 ${data.businessDescription}
-${data.businessCategory}${data.targetAudience ? ` | Audience: ${data.targetAudience}` : ''}${loc ? ` | ${loc}` : ''}
-## Services
-${svc}${data.valueProposition ? `\nValue: ${data.valueProposition}` : ''}${diffs ? `\nDiff: ${diffs}` : ''}
-## Design
-${data.preferredStyle} | ${data.primaryColor}, ${data.secondaryColor}${imgs.length ? `\n## Images\n${imgs.join('\n')}` : ''}
-## Contact
-${contact}${social ? `\n${social}` : ''}${specific}
-## Structure
+Industry: ${data.businessCategory}
+Target Audience: ${data.targetAudience}
+${data.valueProposition ? `Value Proposition: ${data.valueProposition}` : ''}
+Location: ${[data.city, data.country].filter(Boolean).join(', ')}
+
+SERVICES & DIFFERENTIATORS:
+${servicesText || 'Not specified'}
+${diffsText ? `Key Differentiators: ${diffsText}` : ''}
+
+DESIGN FOUNDATION:
+Style: ${data.preferredStyle}
+Primary Color: ${data.primaryColor}
+Secondary Color: ${data.secondaryColor}
+
+CONTACT INFORMATION:
+${data.email ? `Email: ${data.email}` : ''}
+${data.phone ? `Phone: ${data.phone}` : ''}
+${data.whatsapp ? `WhatsApp: ${data.whatsapp}` : ''}
+${socialText ? `Social Media: ${socialText}` : ''}
+${imgLines.length > 0 ? `\nIMAGE LIBRARY:\n${imgLines.join('\n')}\n\nDownload these images and use them based on context. Study them and use as base for the rest of the design.\nIF THE IMAGES DON'T LOAD, GENERATE IMAGES BASED ON THE CONTEXT.` : ''}
+${data.generateAiImages ? '\nIMPORTANT: Use AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets.' : ''}
+${typeSpecific}
+SITE STRUCTURE:
 ${generatePagesSection(data)}
-## Req
-Responsive, mobile-first, SEO, semantic HTML, animations, fast, strong CTAs.${data.generateAiImages ? '\nUse AI images as bg photos/section images only—no text baked into images.' : ''}
-Build production-ready.`;
 
-  // Truncate if over limit
-  if (prompt.length > MAX_CHARS) {
-    prompt = prompt.slice(0, MAX_CHARS - 3) + '...';
-  }
+================================================
+EXECUTION RULES:
+1. Analyze the business data first.
+2. Detect automatically:
+   - Website type and adapt layout
+   - UX weaknesses to avoid
+   - Competitive gaps to exploit
+3. Adapt the structure accordingly.
 
-  return prompt;
+================================================
+MANDATORY STRUCTURE REQUIREMENTS:
+
+This must be a complete visual website, not a conceptual blueprint.
+Include:
+• Real header with logo placement, navigation menu, CTA button, sticky behavior
+• Proper responsive mobile menu
+• Hero section aligned with value proposition, background images, CTA with text
+• Alternating section backgrounds
+• Clear spacing system and professional layout grid
+• Real footer with navigation columns, contact info, legal links, social icons
+• Defined CTA placements
+• Proper visual hierarchy
+• Typography structure (H1, H2, H3)
+
+================================================
+ADAPTATION LOGIC:
+
+${adaptationLogic}
+
+================================================
+DESIGN SYSTEM:
+
+Use exact brand colors (${data.primaryColor}, ${data.secondaryColor}).
+Visual consistency across all pages.
+Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
+Modern premium aesthetic: "${data.preferredStyle}" style.
+
+================================================
+SEO REQUIREMENTS (MANDATORY):
+
+Every page: H1-H3 hierarchy, meta title & description, keyword strategy, internal linking, SEO-friendly URLs, image alt-text, semantic HTML, performance optimized.
+
+================================================
+FINAL REQUIREMENTS:
+
+Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations (framer-motion), fast loading, strong CTAs, accessibility compliant.
+This must feel like a premium agency project. It must not look like a generic AI layout.
+Generate a polished, production-ready website.`;
 }
 
 function generatePagesSection(data: BusinessFormData): string {
   const config = data.pagesConfig || { mode: 'manual', aiSummary: '', pages: [] };
 
-  // AI mode: use the summary
   if (config.mode === 'ai' && config.aiSummary.trim()) {
-    return `The user described the site content as follows (AI should interpret and create pages/sections accordingly):\n"${config.aiSummary.trim()}"`;
+    return `The user described the site content as follows (AI should interpret and create pages/sections accordingly):\n\"${config.aiSummary.trim()}\"`;
   }
 
-  // Manual mode with pages defined
   if (config.pages.length > 0) {
     const enabledPages = config.pages.filter(p => p.enabled);
     if (enabledPages.length > 0) {
@@ -548,7 +611,6 @@ function generatePagesSection(data: BusinessFormData): string {
     }
   }
 
-  // Fallback to category-based layout
   return getCategoryLayout(data.websiteType, data.businessCategory);
 }
 
