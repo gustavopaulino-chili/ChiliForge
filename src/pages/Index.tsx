@@ -315,15 +315,16 @@ const Index = () => {
                 {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
                 {copiedLink ? 'Copiado!' : 'Copiar Link'}
               </Button>
-              <a
-                href={getLovableUrl()}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Button variant="gradient" size="lg" className="gap-2">
-                  <ExternalLink className="h-4 w-4" /> Abrir no Lovable
-                </Button>
-              </a>
+              <Button variant="gradient" size="lg" className="gap-2" onClick={() => {
+                const url = getLovableUrl();
+                const win = window.open(url, '_blank');
+                if (!win || win.closed) {
+                  navigator.clipboard.writeText(url);
+                  toast.error('Popup blocked! The link has been copied to your clipboard — paste it in a new tab.');
+                }
+              }}>
+                <ExternalLink className="h-4 w-4" /> Abrir no Lovable
+              </Button>
             </div>
           </div>
         </main>
