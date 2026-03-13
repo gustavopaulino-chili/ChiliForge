@@ -518,7 +518,7 @@ Generate a polished, production-ready website.`;
 }
 
 function generatePagesSection(data: BusinessFormData): string {
-  const config = data.pagesConfig;
+  const config = data.pagesConfig || { mode: 'manual', aiSummary: '', pages: [] };
 
   // AI mode: use the summary
   if (config.mode === 'ai' && config.aiSummary.trim()) {
