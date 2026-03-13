@@ -145,6 +145,9 @@ export interface BusinessFormData {
     youtube?: string;
   };
 
+  // Pages & Content
+  pagesConfig: PagesConfig;
+
   // Type-specific
   products: ProductItem[];
   features: FeatureItem[];
