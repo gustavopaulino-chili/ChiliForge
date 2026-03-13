@@ -76,23 +76,23 @@ export interface PagesConfig {
 }
 
 export const REQUIRED_PAGES: Record<WebsiteType, string[]> = {
-  corporate: ['Home', 'Sobre', 'Contato'],
+  corporate: ['Home', 'About', 'Contact'],
   landing: ['Home'],
-  ecommerce: ['Home', 'Produtos', 'Carrinho', 'Checkout'],
-  portfolio: ['Home', 'Projetos'],
-  saas: ['Home', 'Funcionalidades', 'Preços'],
-  blog: ['Home', 'Artigos'],
-  educational: ['Home', 'Cursos', 'Detalhe do Curso'],
+  ecommerce: ['Home', 'Products', 'Cart', 'Checkout'],
+  portfolio: ['Home', 'Projects'],
+  saas: ['Home', 'Features', 'Pricing'],
+  blog: ['Home', 'Articles'],
+  educational: ['Home', 'Courses', 'Course Detail'],
 };
 
 export const OPTIONAL_PAGES_SUGGESTIONS: Record<WebsiteType, string[]> = {
-  corporate: ['Blog', 'Portfólio', 'FAQ', 'Equipe', 'Depoimentos'],
-  landing: ['FAQ', 'Depoimentos'],
-  ecommerce: ['Blog', 'FAQ', 'Sobre', 'Contato', 'Wishlist'],
-  portfolio: ['Sobre', 'Blog', 'Contato', 'Depoimentos'],
-  saas: ['Blog', 'FAQ', 'Sobre', 'Contato', 'Documentação', 'Changelog'],
-  blog: ['Sobre', 'Contato', 'Categorias', 'Newsletter'],
-  educational: ['Blog', 'FAQ', 'Sobre', 'Contato', 'Instrutores'],
+  corporate: ['Blog', 'Portfolio', 'FAQ', 'Team', 'Testimonials'],
+  landing: ['FAQ', 'Testimonials'],
+  ecommerce: ['Blog', 'FAQ', 'About', 'Contact', 'Wishlist'],
+  portfolio: ['About', 'Blog', 'Contact', 'Testimonials'],
+  saas: ['Blog', 'FAQ', 'About', 'Contact', 'Documentation', 'Changelog'],
+  blog: ['About', 'Contact', 'Categories', 'Newsletter'],
+  educational: ['Blog', 'FAQ', 'About', 'Contact', 'Instructors'],
 };
 
 export interface ImageUrls {

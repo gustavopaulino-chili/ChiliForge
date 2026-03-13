@@ -100,9 +100,9 @@ export function StepPages({ data, onChange }: Props) {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="form-section-title">Conteúdo & Páginas</h3>
+        <h3 className="form-section-title">Content & Pages</h3>
         <p className="form-section-desc">
-          Defina quais páginas e seções seu site terá. Páginas obrigatórias são pré-selecionadas de acordo com o tipo de site.
+          Define which pages and sections your site will have. Required pages are pre-selected based on website type.
         </p>
       </div>
 
@@ -115,7 +115,7 @@ export function StepPages({ data, onChange }: Props) {
           onClick={() => updateConfig({ mode: 'ai' })}
           className="gap-2"
         >
-          <Wand2 className="h-4 w-4" /> Resumo com IA
+          <Wand2 className="h-4 w-4" /> AI Summary
         </Button>
         <Button
           type="button"
@@ -130,22 +130,22 @@ export function StepPages({ data, onChange }: Props) {
 
       {config.mode === 'ai' ? (
         <div className="space-y-3">
-          <Label>Descreva o conteúdo do seu site</Label>
+          <Label>Describe your website content</Label>
           <Textarea
-            placeholder="Descreva livremente o que você quer no seu site. Exemplo: 'Quero uma página inicial com banner chamativo, uma seção de serviços com 3 cards, uma página de portfólio com galeria, página sobre nós com a história da empresa, e um formulário de contato com mapa integrado...'"
+            placeholder="Freely describe what you want on your site. Example: 'I want a homepage with a bold banner, a services section with 3 cards, a portfolio page with gallery, an about us page with company history, and a contact form with integrated map...'"
             value={config.aiSummary}
             onChange={e => updateConfig({ aiSummary: e.target.value })}
             className="min-h-[150px]"
           />
           <p className="text-xs text-muted-foreground">
-            A IA interpretará seu texto e organizará automaticamente as páginas e seções do site.
+            AI will interpret your text and automatically organize the pages and sections.
           </p>
 
           {/* Still show required pages as info */}
           <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
             <p className="text-xs font-medium text-foreground flex items-center gap-2">
               <Lock className="h-3.5 w-3.5 text-primary" />
-              Páginas obrigatórias (incluídas automaticamente)
+              Required pages (included automatically)
             </p>
             <div className="flex flex-wrap gap-2">
               {requiredNames.map(name => (
@@ -176,16 +176,16 @@ export function StepPages({ data, onChange }: Props) {
                       }
                       <FileText className="h-4 w-4 text-primary shrink-0" />
                       <span className="font-medium text-sm text-foreground flex-1">
-                        {page.name || 'Nova Página'}
+                        {page.name || 'New Page'}
                       </span>
                       {page.required && (
                         <Badge variant="outline" className="gap-1 text-xs shrink-0">
-                          <Lock className="h-3 w-3" /> Obrigatória
+                          <Lock className="h-3 w-3" /> Required
                         </Badge>
                       )}
                       {page.sections.length > 0 && (
                         <span className="text-xs text-muted-foreground shrink-0">
-                          {page.sections.length} {page.sections.length === 1 ? 'seção' : 'seções'}
+                          {page.sections.length} {page.sections.length === 1 ? 'section' : 'sections'}
                         </span>
                       )}
                       {!page.required && (
@@ -204,44 +204,44 @@ export function StepPages({ data, onChange }: Props) {
 
                   <CollapsibleContent>
                     <div className="px-4 pb-4 space-y-4 border-t border-border pt-4">
-                      {/* Show products summary on Produtos page */}
-                      {page.name === 'Produtos' && data.products && data.products.length > 0 && (
+                      {/* Show products summary on Products page */}
+                      {page.name === 'Products' && data.products && data.products.length > 0 && (
                         <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-2">
                           <p className="text-xs font-medium text-foreground flex items-center gap-2">
                             <ShoppingCart className="h-3.5 w-3.5 text-primary" />
-                            {data.products.length} {data.products.length === 1 ? 'produto adicionado' : 'produtos adicionados'}
+                            {data.products.length} {data.products.length === 1 ? 'product added' : 'products added'}
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {data.products.filter(p => p.name).map((p, i) => (
                               <Badge key={i} variant="secondary" className="text-xs gap-1">
                                 {p.name}
-                                {p.price && <span className="text-muted-foreground">R$ {p.price}</span>}
+                                {p.price && <span className="text-muted-foreground">${p.price}</span>}
                               </Badge>
                             ))}
                           </div>
                           {data.products.filter(p => p.name).length === 0 && (
                             <p className="text-xs text-muted-foreground italic">
-                              Nenhum produto com nome definido. Volte à aba Produtos para adicionar.
+                              No products with a name defined. Go back to the Products tab to add them.
                             </p>
                           )}
                         </div>
                       )}
 
-                      {page.name === 'Produtos' && (!data.products || data.products.length === 0) && (
+                      {page.name === 'Products' && (!data.products || data.products.length === 0) && (
                         <div className="rounded-md border border-dashed border-border bg-muted/10 p-3">
                           <p className="text-xs text-muted-foreground italic">
-                            Nenhum produto adicionado ainda. Volte à aba "Products" para cadastrar seus produtos.
+                            No products added yet. Go back to the "Products" tab to add your products.
                           </p>
                         </div>
                       )}
 
                       {/* Page Description */}
                       <div>
-                        <Label className="text-xs">Descrição da página (opcional)</Label>
+                        <Label className="text-xs">Page Description (optional)</Label>
                         <Textarea
                           value={page.description || ''}
                           onChange={e => updatePage(pageIndex, { description: e.target.value })}
-                          placeholder="Descreva o que você quer nesta página. Ex: 'Quero um banner com foto de fundo, seção de depoimentos com carrossel, e um formulário de contato no final...'"
+                          placeholder="Describe what you want on this page. E.g. 'A hero banner with background image, a testimonials section with carousel, and a contact form at the bottom...'"
                           className="mt-1 min-h-[70px] text-sm"
                         />
                       </div>
@@ -249,11 +249,11 @@ export function StepPages({ data, onChange }: Props) {
                       {/* Page Name (editable for non-required) */}
                       {!page.required && (
                         <div>
-                          <Label className="text-xs">Nome da Página</Label>
+                          <Label className="text-xs">Page Name</Label>
                           <Input
                             value={page.name}
                             onChange={e => updatePage(pageIndex, { name: e.target.value })}
-                            placeholder="Nome da página..."
+                            placeholder="Page name..."
                             className="mt-1"
                           />
                         </div>
@@ -262,7 +262,7 @@ export function StepPages({ data, onChange }: Props) {
                       {/* Sections */}
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <Label className="text-xs">Seções desta página</Label>
+                          <Label className="text-xs">Page Sections</Label>
                           <Button
                             type="button"
                             variant="ghost"
@@ -270,13 +270,13 @@ export function StepPages({ data, onChange }: Props) {
                             onClick={() => addSection(pageIndex)}
                             className="gap-1 h-7 text-xs"
                           >
-                            <Plus className="h-3 w-3" /> Adicionar Seção
+                            <Plus className="h-3 w-3" /> Add Section
                           </Button>
                         </div>
 
                         {page.sections.length === 0 && (
                           <p className="text-xs text-muted-foreground italic py-2">
-                            Nenhuma seção adicionada. A IA decidirá as seções automaticamente, ou adicione manualmente.
+                            No sections added. AI will decide sections automatically, or add them manually.
                           </p>
                         )}
 
@@ -286,7 +286,7 @@ export function StepPages({ data, onChange }: Props) {
                               <Input
                                 value={section.title}
                                 onChange={e => updateSection(pageIndex, sectionIndex, { title: e.target.value })}
-                                placeholder="Título da seção (ex: Hero, Sobre, Depoimentos...)"
+                                placeholder="Section title (e.g. Hero, About, Testimonials...)"
                                 className="text-sm h-8"
                               />
                               <Button
@@ -302,7 +302,7 @@ export function StepPages({ data, onChange }: Props) {
                             <Textarea
                               value={section.description}
                               onChange={e => updateSection(pageIndex, sectionIndex, { description: e.target.value })}
-                              placeholder="Descreva o que essa seção deve conter..."
+                              placeholder="Describe what this section should contain..."
                               className="min-h-[60px] text-sm"
                             />
                           </div>
@@ -323,13 +323,13 @@ export function StepPages({ data, onChange }: Props) {
               onClick={() => addPage()}
               className="w-full gap-2"
             >
-              <Plus className="h-4 w-4" /> Adicionar Página
+              <Plus className="h-4 w-4" /> Add Page
             </Button>
 
             {/* Suggestions */}
             {availableSuggestions.length > 0 && (
               <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">Sugestões de páginas:</p>
+                <p className="text-xs text-muted-foreground">Page suggestions:</p>
                 <div className="flex flex-wrap gap-2">
                   {availableSuggestions.map(name => (
                     <Button
