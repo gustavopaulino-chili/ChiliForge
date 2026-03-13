@@ -383,7 +383,7 @@ function Header() {
   );
 }
 
-function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
+function generatePrompt(data: BusinessFormData): string {
   const servicesText = data.services.filter(Boolean).join(', ');
   const diffsText = data.differentiators.filter(Boolean).join(', ');
   const socialText = Object.entries(data.socialLinks)
