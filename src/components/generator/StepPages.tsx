@@ -54,6 +54,7 @@ export function StepPages({ data, onChange }: Props) {
   const addPage = (name?: string) => {
     const newPage: PageItem = {
       name: name || '',
+      description: '',
       required: false,
       enabled: true,
       sections: [],
