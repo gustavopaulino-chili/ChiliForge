@@ -135,6 +135,14 @@ export interface BusinessFormData {
   // Website scraping
   sourceWebsite: string;
   designNotes: string;
+
+  // Image context from URL analysis
+  heroImage1Context: string;
+  heroImage2Context: string;
+  brandImageContext: string;
+  sectionImage1Context: string;
+  sectionImage2Context: string;
+  sectionImage3Context: string;
 }
 
 export const defaultFormData: BusinessFormData = {
