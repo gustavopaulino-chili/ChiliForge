@@ -104,7 +104,7 @@ const Index = () => {
           businessName: formData.businessName,
           businessDescription: formData.businessDescription,
           businessCategory: formData.businessCategory,
-          websiteType: formData.websiteType,
+          websiteType: 'landing',
           purpose,
         },
       });
