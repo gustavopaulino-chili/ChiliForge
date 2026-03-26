@@ -70,6 +70,8 @@ For image URLs:
 - Convert relative URLs to absolute URLs using the base domain
 - Prioritize logo, hero/banner images, and section background images
 - Only include valid image URLs (ending in .jpg, .jpeg, .png, .svg, .webp or from image CDNs)
+- CRITICAL: Analyze each image URL path carefully. URLs often contain descriptive names like "/images/product-name.jpg" or "/assets/hero-banner.webp". Use these URL segments to understand WHAT the image represents (product name, section purpose, etc.)
+- For each image field, add a brief description of what the image likely shows based on URL analysis and its position in the HTML
 
 For colors - CRITICAL, DO NOT just pick the first colors you see:
 - PRIMARY COLOR = The main brand color used on primary buttons, CTAs, links, and key interactive elements. This is the color that represents the brand identity.
