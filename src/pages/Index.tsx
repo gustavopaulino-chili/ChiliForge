@@ -73,7 +73,7 @@ const Index = () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentStep, formData, maxVisitedStep }));
   }, [currentStep, formData]);
 
-  const steps = useMemo(() => getSteps(formData.websiteType), [formData.websiteType]);
+  const steps = STEPS;
 
   const updateForm = (updates: Partial<BusinessFormData>) => {
     setFormData(prev => ({
