@@ -71,9 +71,14 @@ For image URLs:
 - Prioritize logo, hero/banner images, and section background images
 - Only include valid image URLs (ending in .jpg, .jpeg, .png, .svg, .webp or from image CDNs)
 
-For colors:
-- Look at CSS variables, inline styles, class names, and stylesheets
-- Identify the primary brand color, secondary color, and any accent colors
+For colors - CRITICAL, DO NOT just pick the first colors you see:
+- PRIMARY COLOR = The main brand color used on primary buttons, CTAs, links, and key interactive elements. This is the color that represents the brand identity.
+- SECONDARY COLOR = The supporting color used for secondary buttons, backgrounds, cards, or accent sections. It complements the primary color.
+- Do NOT use background colors (white, black, gray) as primary/secondary unless they truly are the brand colors
+- Look at: primary CTA buttons, navigation highlights, active states, hover states, brand accents, icons
+- Check CSS variables like --primary, --brand, --accent, --main-color
+- Check Tailwind/Bootstrap classes for brand colors (bg-primary, btn-primary, text-brand)
+- If the logo has a distinctive color, that is likely the primary color
 - Return as hex codes
 
 For style:
