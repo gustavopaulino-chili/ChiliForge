@@ -148,6 +148,9 @@ export const defaultFormData: BusinessFormData = {
   differentiators: [''],
   primaryColor: '#3B82F6',
   secondaryColor: '#8B5CF6',
+  accentColor: '#F59E0B',
+  textColor: '#1F2937',
+  backgroundColor: '#FFFFFF',
   preferredStyle: 'modern',
   images: {
     heroImage1: '',

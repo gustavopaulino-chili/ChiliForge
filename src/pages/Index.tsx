@@ -509,7 +509,7 @@ Include:
 ================================================
 DESIGN SYSTEM:
 
-Use exact brand colors (${data.primaryColor}, ${data.secondaryColor}).
+Use exact brand colors: Primary (${data.primaryColor}), Secondary (${data.secondaryColor}), Accent (${data.accentColor}), Text (${data.textColor}), Background (${data.backgroundColor}).
 Visual consistency across all sections.
 Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
 Modern premium aesthetic: "${data.preferredStyle}" style.
