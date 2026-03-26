@@ -184,6 +184,12 @@ export const defaultFormData: BusinessFormData = {
   },
   sourceWebsite: '',
   designNotes: '',
+  heroImage1Context: '',
+  heroImage2Context: '',
+  brandImageContext: '',
+  sectionImage1Context: '',
+  sectionImage2Context: '',
+  sectionImage3Context: '',
 };
 
 export const LANDING_PRESETS: { value: LandingPreset; label: string; desc: string; emoji: string }[] = [
