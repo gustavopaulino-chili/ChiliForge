@@ -198,6 +198,8 @@ export const defaultFormData: BusinessFormData = {
   features: [],
   pricingPlans: [],
   courses: [],
+  sourceWebsite: '',
+  designNotes: '',
 };
 
 export const WEBSITE_TYPES: { value: WebsiteType; label: string; desc: string }[] = [
