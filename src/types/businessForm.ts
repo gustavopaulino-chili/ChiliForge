@@ -104,6 +104,9 @@ export interface BusinessFormData {
   // Brand Identity
   primaryColor: string;
   secondaryColor: string;
+  accentColor: string;
+  textColor: string;
+  backgroundColor: string;
   preferredStyle: 'modern' | 'corporate' | 'minimal' | 'bold' | 'premium';
 
   // Images
