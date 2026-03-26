@@ -283,15 +283,6 @@ const Index = () => {
               <Button variant="outline" size="lg" onClick={handleCopy} className="gap-2">
                 <Copy className="h-4 w-4" /> {copied ? 'Copied!' : 'Copy Prompt'}
               </Button>
-              <Button variant="outline" size="lg" onClick={() => {
-                navigator.clipboard.writeText(getLovableUrl());
-                setCopiedLink(true);
-                setTimeout(() => setCopiedLink(false), 2000);
-                toast.success('Link copied!');
-              }} className="gap-2">
-                {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
-                {copiedLink ? 'Copied!' : 'Copy Link'}
-              </Button>
               <Button
                 variant="gradient"
                 size="lg"
@@ -303,7 +294,7 @@ const Index = () => {
                   });
                 }}
               >
-                <ExternalLink className="h-4 w-4" /> Open in Lovable
+                <ExternalLink className="h-4 w-4" /> Copy & Open Lovable
               </Button>
             </div>
           </div>
