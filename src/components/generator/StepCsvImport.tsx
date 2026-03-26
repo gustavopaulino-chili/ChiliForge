@@ -31,6 +31,9 @@ function aiDataToFormUpdates(extracted: Record<string, any>): Partial<BusinessFo
   if (extracted.preferredStyle) updates.preferredStyle = extracted.preferredStyle;
   if (extracted.primaryColor) updates.primaryColor = extracted.primaryColor;
   if (extracted.secondaryColor) updates.secondaryColor = extracted.secondaryColor;
+  if (extracted.accentColor) updates.accentColor = extracted.accentColor;
+  if (extracted.textColor) updates.textColor = extracted.textColor;
+  if (extracted.backgroundColor) updates.backgroundColor = extracted.backgroundColor;
   if (extracted.city) updates.city = extracted.city;
   if (extracted.country) updates.country = extracted.country;
   if (extracted.phone) updates.phone = extracted.phone;
