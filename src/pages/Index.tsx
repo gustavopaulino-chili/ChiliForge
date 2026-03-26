@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import logoResult from '@/assets/logo-result.png';
-import { BusinessFormData, defaultFormData, WebsiteType } from '@/types/businessForm';
+import { BusinessFormData, defaultFormData, LANDING_PRESETS, LandingPreset } from '@/types/businessForm';
 import { StepIndicator } from '@/components/generator/StepIndicator';
 import { StepCsvImport } from '@/components/generator/StepCsvImport';
 import { StepWebsiteType } from '@/components/generator/StepWebsiteType';
@@ -9,9 +9,6 @@ import { StepServices } from '@/components/generator/StepServices';
 import { StepBrand } from '@/components/generator/StepBrand';
 import { StepImages } from '@/components/generator/StepImages';
 import { StepContact } from '@/components/generator/StepContact';
-import { StepProducts } from '@/components/generator/StepProducts';
-import { StepFeatures } from '@/components/generator/StepFeatures';
-import { StepCourses } from '@/components/generator/StepCourses';
 import { StepReview } from '@/components/generator/StepReview';
 import { StepPages } from '@/components/generator/StepPages';
 import { Button } from '@/components/ui/button';
@@ -22,34 +19,17 @@ import { toast } from 'sonner';
 
 type StepDef = { id: string; label: string };
 
-function getSteps(websiteType: WebsiteType): StepDef[] {
-  const base: StepDef[] = [
-    { id: 'csv', label: 'Import' },
-    { id: 'type', label: 'Type' },
-    { id: 'basics', label: 'Basics' },
-    { id: 'services', label: 'Services' },
-  ];
-
-  if (websiteType === 'ecommerce') {
-    base.push({ id: 'products', label: 'Products' });
-  }
-  if (websiteType === 'saas') {
-    base.push({ id: 'features', label: 'Features & Pricing' });
-  }
-  if (websiteType === 'educational') {
-    base.push({ id: 'courses', label: 'Courses' });
-  }
-
-  base.push(
-    { id: 'pages', label: 'Pages' },
-    { id: 'brand', label: 'Brand' },
-    { id: 'images', label: 'Images' },
-    { id: 'contact', label: 'Contact' },
-    { id: 'review', label: 'Review' },
-  );
-
-  return base;
-}
+const STEPS: StepDef[] = [
+  { id: 'csv', label: 'Import' },
+  { id: 'type', label: 'Preset' },
+  { id: 'basics', label: 'Basics' },
+  { id: 'services', label: 'Services' },
+  { id: 'pages', label: 'Sections' },
+  { id: 'brand', label: 'Brand' },
+  { id: 'images', label: 'Images' },
+  { id: 'contact', label: 'Contact' },
+  { id: 'review', label: 'Review' },
+];
 
 const STORAGE_KEY = 'siteforge_progress';
 
