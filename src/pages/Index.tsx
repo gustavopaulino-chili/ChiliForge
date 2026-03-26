@@ -472,29 +472,20 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
     }
   }
 
-  const websiteTypeLabel = data.websiteType === 'landing' ? 'Landing Page' :
-    data.websiteType === 'ecommerce' ? 'E-commerce Website' :
-    data.websiteType === 'educational' ? 'Educational / Course Platform' :
-    data.websiteType === 'saas' ? 'SaaS Website' :
-    data.websiteType === 'portfolio' ? 'Portfolio Website' :
-    data.websiteType === 'blog' ? 'Blog Website' :
-    'Corporate Website';
+  const presetLabel = LANDING_PRESETS.find(p => p.value === data.landingPreset)?.label || 'Landing Page';
 
-  const adaptationLogic = data.websiteType === 'ecommerce'
-    ? `Ecommerce: Homepage prioritizes product visibility. Include featured products, product grid, category navigation, product page template, cart behavior, checkout flow.`
-    : data.websiteType === 'saas'
-    ? `SaaS: Hero with clear value prop & CTA. Features overview with deep dives. Pricing with plan comparison. Social proof. FAQ.`
-    : data.websiteType === 'educational'
-    ? `Educational: Featured courses, course catalog with filtering, course detail template, instructor profiles, enrollment CTA.`
-    : data.websiteType === 'landing'
-    ? `Landing Page: Single-page conversion-focused. Problem → Solution → Benefits → Social Proof → CTA flow. Strong above-the-fold hook.`
-    : data.websiteType === 'portfolio'
-    ? `Portfolio: Visual-first project showcase, case study layout, skills/expertise section, clean minimal aesthetic.`
-    : data.websiteType === 'blog'
-    ? `Blog: Featured post hero, article grid with categories, newsletter signup, clean reading experience.`
-    : `Corporate: Authority and trust emphasis, services sections, team/about, testimonials and trust indicators.`;
+  const presetContext: Record<LandingPreset, string> = {
+    'general': 'Institutional landing page presenting the company, services, and lead capture.',
+    'campaign': 'Marketing campaign page with strong CTA, urgency elements, and conversion focus. Include campaign-specific messaging and promotional content.',
+    'black-friday': 'Black Friday / promotional page with countdown timer, discount badges, urgency messaging, limited-time offers, and bold promotional design. Use high-contrast colors and excitement-driven layout.',
+    'launch': 'Product launch page with impactful hero, product showcase, features highlight, pre-order/waitlist CTA, and excitement-building sections.',
+    'webinar': 'Event/webinar registration page with event details, speaker profiles, agenda, countdown to event, and prominent registration form.',
+    'lead-capture': 'Lead generation page with compelling offer (ebook, free trial, consultation), benefit bullets, trust indicators, and optimized form placement above the fold.',
+    'app-download': 'App download promotion page with device mockups, feature highlights, app store badges, screenshots/preview, and download CTAs.',
+    'seasonal': 'Seasonal/holiday themed landing page with festive design elements, special offers, themed imagery, and celebration-driven messaging.',
+  };
 
-  return `You are a senior UX strategist, UI designer and front-end architect building a real production-ready website inside Lovable.
+  return `You are a senior UX strategist, UI designer and front-end architect building a real production-ready LANDING PAGE inside Lovable.
 
 You must strictly use the structured data provided below.
 Do NOT ignore the provided data.
@@ -505,7 +496,8 @@ Everything must be strategically aligned with the data below.
 STRUCTURED BUSINESS DATA
 ================================================
 
-WEBSITE TYPE: ${websiteTypeLabel}
+LANDING PAGE TYPE: ${presetLabel}
+PRESET CONTEXT: ${presetContext[data.landingPreset] || presetContext['general']}
 STYLE: ${data.preferredStyle}
 
 COMPANY DESCRIPTION:
@@ -532,75 +524,68 @@ ${data.whatsapp ? `WhatsApp: ${data.whatsapp}` : ''}
 ${socialText ? `Social Media: ${socialText}` : ''}
 ${imgLines.length > 0 ? `\nIMAGE LIBRARY:\n${imgLines.join('\n')}\n\nDownload these images and use them based on context. Study them and use as base for the rest of the design.\nIF THE IMAGES DON'T LOAD, GENERATE IMAGES BASED ON THE CONTEXT.` : ''}
 ${data.generateAiImages ? '\nIMPORTANT: Use AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets.' : ''}
-${data.sourceWebsite ? `\nSOURCE WEBSITE REFERENCE:\nThis website is based on: ${data.sourceWebsite}\nThe generated website MUST follow a similar visual design, layout structure, and aesthetic to the source website.` : ''}
-${data.designNotes ? `\nDESIGN ANALYSIS FROM SOURCE WEBSITE:\n${data.designNotes}\n\nCRITICAL: You MUST replicate the design patterns, layout structure, typography choices, spacing, color usage, and visual style described above. The generated website should look like a redesigned/improved version of the source website, maintaining the same design language and feel.` : ''}
-${typeSpecific}
+${data.sourceWebsite ? `\nSOURCE WEBSITE REFERENCE:\nThis website is based on: ${data.sourceWebsite}\nThe generated landing page MUST follow a similar visual design, layout structure, and aesthetic to the source website.` : ''}
+${data.designNotes ? `\nDESIGN ANALYSIS FROM SOURCE WEBSITE:\n${data.designNotes}\n\nCRITICAL: You MUST replicate the design patterns, layout structure, typography choices, spacing, color usage, and visual style described above.` : ''}
+
 SITE STRUCTURE:
 ${generatePagesSection(data)}
 
 ================================================
 EXECUTION RULES:
-1. Analyze the business data first.
-2. Detect automatically:
-   - Website type and adapt layout
-   - UX weaknesses to avoid
-   - Competitive gaps to exploit
-3. Adapt the structure accordingly.
+1. This is a SINGLE-PAGE LANDING PAGE — conversion-focused.
+2. Adapt layout to the preset type: ${presetLabel}.
+3. Follow the Problem → Solution → Benefits → Social Proof → CTA flow.
+4. Strong above-the-fold hook with compelling headline and CTA.
 
 ================================================
 MANDATORY STRUCTURE REQUIREMENTS:
 
-This must be a complete visual website, not a conceptual blueprint.
+This must be a complete visual landing page, not a conceptual blueprint.
 Include:
-• Real header with logo placement, navigation menu, CTA button, sticky behavior
+• Real header with logo placement, navigation anchors, CTA button, sticky behavior
 • Proper responsive mobile menu
 • Hero section aligned with value proposition, background images, CTA with text
 • Alternating section backgrounds
 • Clear spacing system and professional layout grid
-• Real footer with navigation columns, contact info, legal links, social icons
-• Defined CTA placements
+• Real footer with contact info, legal links, social icons
+• Defined CTA placements throughout the page
 • Proper visual hierarchy
 • Typography structure (H1, H2, H3)
-
-================================================
-ADAPTATION LOGIC:
-
-${adaptationLogic}
 
 ================================================
 DESIGN SYSTEM:
 
 Use exact brand colors (${data.primaryColor}, ${data.secondaryColor}).
-Visual consistency across all pages.
+Visual consistency across all sections.
 Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
 Modern premium aesthetic: "${data.preferredStyle}" style.
 
 ================================================
 SEO REQUIREMENTS (MANDATORY):
 
-Every page: H1-H3 hierarchy, meta title & description, keyword strategy, internal linking, SEO-friendly URLs, image alt-text, semantic HTML, performance optimized.
+H1-H3 hierarchy, meta title & description, keyword strategy, image alt-text, semantic HTML, performance optimized.
 
 ================================================
 FINAL REQUIREMENTS:
 
 Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations (framer-motion), fast loading, strong CTAs, accessibility compliant.
 This must feel like a premium agency project. It must not look like a generic AI layout.
-Generate a polished, production-ready website.`;
+Generate a polished, production-ready landing page.`;
 }
 
 function generatePagesSection(data: BusinessFormData): string {
   const config = data.pagesConfig || { mode: 'manual', aiSummary: '', pages: [] };
 
   if (config.mode === 'ai' && config.aiSummary.trim()) {
-    return `The user described the site content as follows (AI should interpret and create pages/sections accordingly):\n\"${config.aiSummary.trim()}\"`;
+    return `The user described the landing page content as follows (AI should interpret and create sections accordingly):\n\"${config.aiSummary.trim()}\"`;
   }
 
   if (config.pages.length > 0) {
     const enabledPages = config.pages.filter(p => p.enabled);
     if (enabledPages.length > 0) {
-      let result = `The site should have ${enabledPages.length} page(s):\n`;
+      let result = `The landing page should have ${enabledPages.length} section(s):\n`;
       enabledPages.forEach((page, i) => {
-        result += `\n### Page ${i + 1}: ${page.name}${page.required ? ' (required)' : ''}`;
+        result += `\n### Section ${i + 1}: ${page.name}${page.required ? ' (required)' : ''}`;
         if (page.description) {
           result += `\nDescription: ${page.description}`;
         }
@@ -614,10 +599,14 @@ function generatePagesSection(data: BusinessFormData): string {
     }
   }
 
-  return getCategoryLayout(data.websiteType, data.businessCategory);
+  return `1. Hero Section with compelling headline & CTA
+2. Problem / Pain Points
+3. Solution / How It Works
+4. Benefits / Why Choose Us
+5. Social Proof / Testimonials
+6. Final CTA
+7. Footer`;
 }
-
-function getCategoryLayout(websiteType: WebsiteType, category: string): string {
   if (websiteType === 'ecommerce') {
     return `1. Hero with strong CTA
 2. Featured Products / Highlights
