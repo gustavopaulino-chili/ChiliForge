@@ -51,9 +51,20 @@ CRITICAL INSTRUCTIONS:
 4. Find ALL image URLs (logo, hero images, section images) - return FULL absolute URLs
 5. Extract contact information: phone, email, social media links, address
 6. Identify the business category and target audience
-7. Determine the website type (corporate, landing, ecommerce, portfolio, saas, blog, educational)
-8. Extract any product/service listings with descriptions
-9. Identify the language/locale of the website content
+7. Extract any product/service listings with descriptions
+8. Identify the language/locale of the website content
+
+CONTACT INFORMATION EXTRACTION - VERY IMPORTANT:
+- Look deeply into CTAs (Call-to-Action buttons and links) throughout the entire page
+- Search for "Contact", "Contato", "Fale Conosco", "Contact Us" sections
+- Look in the FOOTER - most websites put all contact info and social links there
+- Search for href="mailto:", href="tel:", href="https://wa.me/", href="https://api.whatsapp.com/"
+- Extract social media links from icon links (Facebook, Instagram, Twitter/X, LinkedIn, YouTube, TikTok)
+- Look for patterns like: data-social, class="social", aria-label with social network names
+- Search for WhatsApp links in floating buttons, CTAs, and footer
+- Phone numbers may appear in tel: links, WhatsApp links, or plain text
+- Email addresses may appear in mailto: links or plain text
+- Look for address/location info near maps or in structured data (JSON-LD, microdata)
 
 For image URLs:
 - Convert relative URLs to absolute URLs using the base domain
