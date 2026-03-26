@@ -38,8 +38,9 @@ export function StepReview({ data }: Props) {
           <ReviewItem label="Style" value={data.preferredStyle} />
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Colors:</span>
-            <div className="h-6 w-6 rounded-full border border-border" style={{ background: data.primaryColor }} />
-            <div className="h-6 w-6 rounded-full border border-border" style={{ background: data.secondaryColor }} />
+            {[data.primaryColor, data.secondaryColor, data.accentColor, data.textColor, data.backgroundColor].map((c, i) => (
+              <div key={i} className="h-6 w-6 rounded-full border border-border" style={{ background: c }} title={['Primary', 'Secondary', 'Accent', 'Text', 'Background'][i]} />
+            ))}
           </div>
         </ReviewSection>
 
