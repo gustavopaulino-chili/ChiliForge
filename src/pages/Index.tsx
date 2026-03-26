@@ -320,11 +320,11 @@ const Index = () => {
       <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
         <div className="mb-10 text-center">
           <h2 className="font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-            Generate Your Website
+            Generate Your Landing Page
           </h2>
           <p className="mt-3 text-muted-foreground max-w-xl mx-auto">
             Fill in your business details and we'll generate a professional,
-            conversion-focused website prompt for Lovable.
+            conversion-focused landing page prompt for Lovable.
           </p>
         </div>
 
