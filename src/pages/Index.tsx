@@ -335,9 +335,6 @@ const Index = () => {
           {currentStepId === 'type' && <StepWebsiteType data={formData} onChange={updateForm} />}
           {currentStepId === 'basics' && <StepBasics data={formData} onChange={updateForm} />}
           {currentStepId === 'services' && <StepServices data={formData} onChange={updateForm} />}
-          {currentStepId === 'products' && <StepProducts data={formData} onChange={updateForm} />}
-          {currentStepId === 'features' && <StepFeatures data={formData} onChange={updateForm} />}
-          {currentStepId === 'courses' && <StepCourses data={formData} onChange={updateForm} />}
           {currentStepId === 'brand' && <StepBrand data={formData} onChange={updateForm} />}
           {currentStepId === 'pages' && <StepPages data={formData} onChange={updateForm} />}
           {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} />}
