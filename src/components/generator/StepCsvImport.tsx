@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { BusinessFormData } from '@/types/businessForm';
-import { Upload, FileSpreadsheet, Check, AlertCircle, Table, X, Loader2, Sparkles } from 'lucide-react';
+import { Upload, FileSpreadsheet, Check, AlertCircle, Table, X, Loader2, Sparkles, Globe, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
@@ -13,7 +14,6 @@ interface Props {
 }
 
 function sheetToText(sheet: XLSX.WorkSheet): string {
-  // Convert sheet to CSV text for AI to read
   return XLSX.utils.sheet_to_csv(sheet, { FS: ' | ', RS: '\n' });
 }
 
@@ -22,7 +22,6 @@ function aiDataToFormUpdates(extracted: Record<string, any>): Partial<BusinessFo
   const images: Partial<BusinessFormData['images']> = {};
   const socialLinks: Partial<BusinessFormData['socialLinks']> = {};
 
-  // Direct mappings
   if (extracted.websiteType) updates.websiteType = extracted.websiteType;
   if (extracted.businessName) updates.businessName = extracted.businessName;
   if (extracted.businessDescription) updates.businessDescription = extracted.businessDescription;
@@ -38,11 +37,9 @@ function aiDataToFormUpdates(extracted: Record<string, any>): Partial<BusinessFo
   if (extracted.whatsapp) updates.whatsapp = extracted.whatsapp;
   if (extracted.email) updates.email = extracted.email;
 
-  // Arrays
   if (extracted.services?.length) updates.services = extracted.services;
   if (extracted.differentiators?.length) updates.differentiators = extracted.differentiators;
 
-  // Images
   if (extracted.heroImage1) images.heroImage1 = extracted.heroImage1;
   if (extracted.heroImage2) images.heroImage2 = extracted.heroImage2;
   if (extracted.logoUrl) images.logoUrl = extracted.logoUrl;
@@ -52,7 +49,6 @@ function aiDataToFormUpdates(extracted: Record<string, any>): Partial<BusinessFo
   if (extracted.sectionImage3) images.sectionImage3 = extracted.sectionImage3;
   if (Object.keys(images).length > 0) updates.images = images as any;
 
-  // Social
   if (extracted.facebook) socialLinks.facebook = extracted.facebook;
   if (extracted.instagram) socialLinks.instagram = extracted.instagram;
   if (extracted.twitter) socialLinks.twitter = extracted.twitter;
@@ -72,6 +68,12 @@ export function StepCsvImport({ data, onChange }: Props) {
   const [fileName, setFileName] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Website URL scraping state
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [isScraping, setIsScraping] = useState(false);
+  const [scrapeResult, setScrapeResult] = useState<{ fields: string[]; designNotes: string } | null>(null);
+  const [designNotes, setDesignNotes] = useState('');
 
   const processSheetWithAI = async (wb: XLSX.WorkBook, sheetName: string) => {
     const sheet = wb.Sheets[sheetName];
@@ -114,6 +116,55 @@ export function StepCsvImport({ data, onChange }: Props) {
       toast.error(err instanceof Error ? err.message : 'Failed to parse spreadsheet with AI');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleScrapeWebsite = async () => {
+    if (!websiteUrl.trim()) {
+      toast.error('Please enter a website URL');
+      return;
+    }
+
+    setIsScraping(true);
+    setScrapeResult(null);
+
+    try {
+      const { data: result, error } = await supabase.functions.invoke('scrape-website', {
+        body: { url: websiteUrl.trim() },
+      });
+
+      if (error) throw error;
+      if (result?.error) throw new Error(result.error);
+
+      const extracted = result.extracted;
+      if (!extracted) throw new Error('No data extracted from website');
+
+      const updates = aiDataToFormUpdates(extracted);
+      const matched = Object.keys(updates).filter(k => {
+        const val = (updates as any)[k];
+        if (Array.isArray(val)) return val.length > 0;
+        if (typeof val === 'object') return Object.keys(val).length > 0;
+        return !!val;
+      });
+
+      // Store design notes for the prompt generation
+      if (extracted.designNotes) {
+        setDesignNotes(extracted.designNotes);
+        // Add designNotes to form data so it can be used in prompt generation
+        onChange({ ...updates, designNotes: extracted.designNotes, sourceWebsite: websiteUrl.trim() } as any);
+      } else {
+        onChange(updates);
+      }
+
+      setScrapeResult({ fields: matched, designNotes: extracted.designNotes || '' });
+      setImported(true);
+      setFieldsFound(matched);
+      toast.success(`AI analyzed the website and extracted ${matched.length} fields!`);
+    } catch (err) {
+      console.error('Website scraping error:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to analyze website');
+    } finally {
+      setIsScraping(false);
     }
   };
 
@@ -165,70 +216,176 @@ export function StepCsvImport({ data, onChange }: Props) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h3 className="form-section-title">Import from Spreadsheet</h3>
+        <h3 className="form-section-title">Import Data</h3>
         <p className="form-section-desc">
-          Upload a CSV or Excel file — AI will read and map the data to the form fields automatically
+          Import business data from a website URL or spreadsheet — AI will extract and fill the form automatically
         </p>
       </div>
 
+      {/* Website URL Scraping */}
       <div className="space-y-4">
-        <div>
-          <Label>Spreadsheet File (optional)</Label>
-          <div className="mt-2">
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              className="hidden"
-              onChange={e => {
-                const file = e.target.files?.[0];
-                if (file) handleFile(file);
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => fileRef.current?.click()}
-              disabled={isProcessing}
-              className="gap-2 w-full h-24 border-dashed"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                  <div className="text-left">
-                    <div className="text-sm font-medium">Processing with AI...</div>
-                    <div className="text-xs text-muted-foreground">Extracting business data from spreadsheet</div>
-                  </div>
-                </>
-              ) : fileName ? (
-                <>
-                  <FileSpreadsheet className="h-5 w-5 text-primary" />
-                  <div className="text-left">
-                    <div className="text-sm font-medium">{fileName}</div>
-                    <div className="text-xs text-muted-foreground">Click to upload a different file</div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <Upload className="h-5 w-5" />
-                  <span>Click to upload CSV or Excel file</span>
-                </>
-              )}
-            </Button>
-            {fileName && !isProcessing && (
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={clearFile}
-                className="gap-1.5 mt-2"
-              >
-                <X className="h-4 w-4" /> Remove File
-              </Button>
+        <div className="flex items-center gap-2 mb-1">
+          <Globe className="h-4 w-4 text-primary" />
+          <Label className="text-sm font-semibold text-foreground">Import from Website URL</Label>
+        </div>
+        <p className="text-xs text-muted-foreground -mt-2">
+          Paste a website link and AI will analyze the entire site: content, images, colors, style, and more. The generated website will follow a similar design.
+        </p>
+
+        <div className="flex gap-2">
+          <Input
+            type="url"
+            placeholder="https://example.com"
+            value={websiteUrl}
+            onChange={(e) => setWebsiteUrl(e.target.value)}
+            disabled={isScraping}
+            className="flex-1"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleScrapeWebsite();
+              }
+            }}
+          />
+          <Button
+            type="button"
+            onClick={handleScrapeWebsite}
+            disabled={isScraping || !websiteUrl.trim()}
+            className="gap-2 shrink-0"
+          >
+            {isScraping ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Analyzing...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                Analyze Site
+              </>
+            )}
+          </Button>
+        </div>
+
+        {/* Scraping progress */}
+        {isScraping && (
+          <div className="rounded-lg bg-primary/5 border border-primary/20 p-6 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-3" />
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <Globe className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium text-foreground">AI is analyzing the website...</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Reading content, extracting images, identifying colors and design patterns
+            </p>
+          </div>
+        )}
+
+        {/* Scrape success */}
+        {scrapeResult && !isScraping && (
+          <div className="rounded-lg bg-success/10 border border-success/20 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Check className="h-4 w-4 text-success" />
+              <span className="text-sm font-medium text-success">
+                Website analyzed successfully!
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {scrapeResult.fields.map(f => (
+                <span key={f} className="text-xs bg-success/10 text-success rounded px-2 py-0.5">{f}</span>
+              ))}
+            </div>
+            {scrapeResult.designNotes && (
+              <div className="mt-2 rounded bg-primary/5 border border-primary/10 p-3">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-xs font-medium text-primary">Design Analysis</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {scrapeResult.designNotes.length > 200 
+                    ? scrapeResult.designNotes.substring(0, 200) + '...' 
+                    : scrapeResult.designNotes}
+                </p>
+              </div>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Divider */}
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-border" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-card px-3 text-muted-foreground">or</span>
+        </div>
+      </div>
+
+      {/* Spreadsheet Import */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <FileSpreadsheet className="h-4 w-4 text-primary" />
+          <Label className="text-sm font-semibold text-foreground">Import from Spreadsheet</Label>
+        </div>
+        <p className="text-xs text-muted-foreground -mt-2">
+          Upload a CSV or Excel file — AI will read and map the data to the form fields automatically
+        </p>
+
+        <div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            className="hidden"
+            onChange={e => {
+              const file = e.target.files?.[0];
+              if (file) handleFile(file);
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => fileRef.current?.click()}
+            disabled={isProcessing}
+            className="gap-2 w-full h-20 border-dashed"
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <div className="text-left">
+                  <div className="text-sm font-medium">Processing with AI...</div>
+                  <div className="text-xs text-muted-foreground">Extracting business data from spreadsheet</div>
+                </div>
+              </>
+            ) : fileName ? (
+              <>
+                <FileSpreadsheet className="h-5 w-5 text-primary" />
+                <div className="text-left">
+                  <div className="text-sm font-medium">{fileName}</div>
+                  <div className="text-xs text-muted-foreground">Click to upload a different file</div>
+                </div>
+              </>
+            ) : (
+              <>
+                <Upload className="h-5 w-5" />
+                <span>Click to upload CSV or Excel file</span>
+              </>
+            )}
+          </Button>
+          {fileName && !isProcessing && (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={clearFile}
+              className="gap-1.5 mt-2"
+            >
+              <X className="h-4 w-4" /> Remove File
+            </Button>
+          )}
         </div>
 
         {/* Sheet tabs */}
@@ -270,8 +427,8 @@ export function StepCsvImport({ data, onChange }: Props) {
           </div>
         )}
 
-        {/* Success */}
-        {imported && fieldsFound.length > 0 && !isProcessing && (
+        {/* Success (spreadsheet) */}
+        {imported && fieldsFound.length > 0 && !isProcessing && !scrapeResult && (
           <div className="rounded-lg bg-success/10 border border-success/20 p-4">
             <div className="flex items-center gap-2 mb-2">
               <Sparkles className="h-4 w-4 text-success" />
@@ -286,14 +443,15 @@ export function StepCsvImport({ data, onChange }: Props) {
             </div>
           </div>
         )}
+      </div>
 
-        <div className="rounded-lg bg-muted/50 p-4">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-muted-foreground mt-0.5" />
-            <div className="text-xs text-muted-foreground space-y-1">
-              <p><strong>Supported formats:</strong> CSV, XLSX, XLS — any structure. AI will intelligently extract business data.</p>
-              <p>All imported fields can be edited in the following steps.</p>
-            </div>
+      <div className="rounded-lg bg-muted/50 p-4">
+        <div className="flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 text-muted-foreground mt-0.5" />
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p><strong>Website URL:</strong> AI will read the site content, extract images, colors, and design style to replicate.</p>
+            <p><strong>Spreadsheet:</strong> CSV, XLSX, XLS — any structure. AI will intelligently extract business data.</p>
+            <p>All imported fields can be edited in the following steps.</p>
           </div>
         </div>
       </div>
