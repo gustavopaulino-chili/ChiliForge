@@ -1,4 +1,4 @@
-export type WebsiteType = 'corporate' | 'landing' | 'ecommerce' | 'portfolio' | 'saas' | 'blog' | 'educational';
+export type LandingPreset = 'general' | 'campaign' | 'black-friday' | 'launch' | 'webinar' | 'lead-capture' | 'app-download' | 'seasonal';
 
 export type VariantType = 'select' | 'counter' | 'text' | 'color' | 'boolean';
 
@@ -75,26 +75,6 @@ export interface PagesConfig {
   pages: PageItem[];
 }
 
-export const REQUIRED_PAGES: Record<WebsiteType, string[]> = {
-  corporate: ['Home', 'About', 'Contact'],
-  landing: ['Home'],
-  ecommerce: ['Home', 'Products', 'Cart', 'Checkout'],
-  portfolio: ['Home', 'Projects'],
-  saas: ['Home', 'Features', 'Pricing'],
-  blog: ['Home', 'Articles'],
-  educational: ['Home', 'Courses', 'Course Detail'],
-};
-
-export const OPTIONAL_PAGES_SUGGESTIONS: Record<WebsiteType, string[]> = {
-  corporate: ['Blog', 'Portfolio', 'FAQ', 'Team', 'Testimonials'],
-  landing: ['FAQ', 'Testimonials'],
-  ecommerce: ['Blog', 'FAQ', 'About', 'Contact', 'Wishlist'],
-  portfolio: ['About', 'Blog', 'Contact', 'Testimonials'],
-  saas: ['Blog', 'FAQ', 'About', 'Contact', 'Documentation', 'Changelog'],
-  blog: ['About', 'Contact', 'Categories', 'Newsletter'],
-  educational: ['Blog', 'FAQ', 'About', 'Contact', 'Instructors'],
-};
-
 export interface ImageUrls {
   heroImage1: string;
   heroImage2: string;
@@ -107,8 +87,8 @@ export interface ImageUrls {
 }
 
 export interface BusinessFormData {
-  // Website Type
-  websiteType: WebsiteType;
+  // Landing Page Preset
+  landingPreset: LandingPreset;
 
   // Business Basics
   businessName: string;
@@ -149,19 +129,13 @@ export interface BusinessFormData {
   // Pages & Content
   pagesConfig: PagesConfig;
 
-  // Type-specific
-  products: ProductItem[];
-  features: FeatureItem[];
-  pricingPlans: PricingPlan[];
-  courses: CourseItem[];
-
   // Website scraping
   sourceWebsite: string;
   designNotes: string;
 }
 
 export const defaultFormData: BusinessFormData = {
-  websiteType: 'corporate',
+  landingPreset: 'general',
   businessName: '',
   businessDescription: '',
   businessCategory: '',
@@ -194,22 +168,19 @@ export const defaultFormData: BusinessFormData = {
     aiSummary: '',
     pages: [],
   },
-  products: [],
-  features: [],
-  pricingPlans: [],
-  courses: [],
   sourceWebsite: '',
   designNotes: '',
 };
 
-export const WEBSITE_TYPES: { value: WebsiteType; label: string; desc: string }[] = [
-  { value: 'corporate', label: 'Corporate Website', desc: 'Professional business website with multiple pages' },
-  { value: 'landing', label: 'Landing Page', desc: 'Single-page conversion-focused site' },
-  { value: 'ecommerce', label: 'Ecommerce', desc: 'Online store with products, cart & checkout' },
-  { value: 'portfolio', label: 'Portfolio', desc: 'Showcase work, projects or case studies' },
-  { value: 'saas', label: 'SaaS', desc: 'Software product with features & pricing' },
-  { value: 'blog', label: 'Blog', desc: 'Content-driven site with articles' },
-  { value: 'educational', label: 'Educational / Course Platform', desc: 'Online courses and learning platform' },
+export const LANDING_PRESETS: { value: LandingPreset; label: string; desc: string; emoji: string }[] = [
+  { value: 'general', label: 'Institucional', desc: 'Landing page padrão para apresentar empresa, serviços e captar leads', emoji: '🏢' },
+  { value: 'campaign', label: 'Campanha', desc: 'Página focada em uma campanha de marketing específica com CTA forte', emoji: '📣' },
+  { value: 'black-friday', label: 'Black Friday / Promoção', desc: 'Layout urgente com contagem regressiva, descontos e ofertas limitadas', emoji: '🔥' },
+  { value: 'launch', label: 'Lançamento de Produto', desc: 'Apresentação impactante de novo produto ou serviço com pré-venda', emoji: '🚀' },
+  { value: 'webinar', label: 'Webinar / Evento', desc: 'Página de inscrição para evento online ou presencial', emoji: '🎤' },
+  { value: 'lead-capture', label: 'Captura de Leads', desc: 'Formulário otimizado para geração de leads com oferta de valor', emoji: '🎯' },
+  { value: 'app-download', label: 'Download de App', desc: 'Página para promover download de aplicativo mobile', emoji: '📱' },
+  { value: 'seasonal', label: 'Sazonal / Data Comemorativa', desc: 'Landing page temática para datas especiais (Natal, Dia das Mães, etc.)', emoji: '🎄' },
 ];
 
 export const BUSINESS_CATEGORIES = [

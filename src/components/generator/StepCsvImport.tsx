@@ -22,7 +22,7 @@ function aiDataToFormUpdates(extracted: Record<string, any>): Partial<BusinessFo
   const images: Partial<BusinessFormData['images']> = {};
   const socialLinks: Partial<BusinessFormData['socialLinks']> = {};
 
-  if (extracted.websiteType) updates.websiteType = extracted.websiteType;
+  if (extracted.landingPreset) (updates as any).landingPreset = extracted.landingPreset;
   if (extracted.businessName) updates.businessName = extracted.businessName;
   if (extracted.businessDescription) updates.businessDescription = extracted.businessDescription;
   if (extracted.businessCategory) updates.businessCategory = extracted.businessCategory;

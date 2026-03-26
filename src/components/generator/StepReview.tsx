@@ -1,4 +1,4 @@
-import { BusinessFormData, WEBSITE_TYPES } from '@/types/businessForm';
+import { BusinessFormData, LANDING_PRESETS } from '@/types/businessForm';
 
 interface Props {
   data: BusinessFormData;
@@ -7,7 +7,7 @@ interface Props {
 export function StepReview({ data }: Props) {
   const services = data.services.filter(Boolean);
   const diffs = data.differentiators.filter(Boolean);
-  const typeLabel = WEBSITE_TYPES.find(t => t.value === data.websiteType)?.label || data.websiteType;
+  const presetLabel = LANDING_PRESETS.find(t => t.value === data.landingPreset)?.label || data.landingPreset;
 
   return (
     <div className="space-y-6">
@@ -17,8 +17,8 @@ export function StepReview({ data }: Props) {
       </div>
 
       <div className="space-y-4">
-        <ReviewSection title="Website Type">
-          <ReviewItem label="Type" value={typeLabel} />
+        <ReviewSection title="Landing Page">
+          <ReviewItem label="Preset" value={presetLabel} />
         </ReviewSection>
 
         <ReviewSection title="Business">
@@ -48,33 +48,18 @@ export function StepReview({ data }: Props) {
           <ReviewItem label="Hero Image 1" value={data.images.heroImage1} />
           <ReviewItem label="Hero Image 2" value={data.images.heroImage2} />
           <ReviewItem label="AI Generation" value={data.generateAiImages ? 'Enabled' : 'Disabled'} />
-          {data.images.productImages.filter(Boolean).length > 0 && (
-            <ReviewItem label="Product Images" value={`${data.images.productImages.filter(Boolean).length} images`} />
-          )}
         </ReviewSection>
 
         <ReviewSection title="Contact">
-          <ReviewItem label="Location" value={`${data.city}, ${data.country}`} />
+          <ReviewItem label="Location" value={[data.city, data.country].filter(Boolean).join(', ')} />
           <ReviewItem label="Email" value={data.email} />
           {data.phone && <ReviewItem label="Phone" value={data.phone} />}
         </ReviewSection>
 
-        {data.websiteType === 'ecommerce' && data.products.length > 0 && (
-          <ReviewSection title="Products">
-            <ReviewItem label="Products" value={data.products.filter(p => p.name).map(p => p.name).join(', ')} />
-          </ReviewSection>
-        )}
-
-        {data.websiteType === 'saas' && (
-          <ReviewSection title="SaaS">
-            {data.features.length > 0 && <ReviewItem label="Features" value={data.features.filter(f => f.name).map(f => f.name).join(', ')} />}
-            {data.pricingPlans.length > 0 && <ReviewItem label="Plans" value={data.pricingPlans.filter(p => p.name).map(p => `${p.name} (${p.price})`).join(', ')} />}
-          </ReviewSection>
-        )}
-
-        {data.websiteType === 'educational' && data.courses.length > 0 && (
-          <ReviewSection title="Courses">
-            <ReviewItem label="Courses" value={data.courses.filter(c => c.title).map(c => c.title).join(', ')} />
+        {data.sourceWebsite && (
+          <ReviewSection title="Source Website">
+            <ReviewItem label="URL" value={data.sourceWebsite} />
+            {data.designNotes && <ReviewItem label="Design Notes" value={data.designNotes.substring(0, 100) + '...'} />}
           </ReviewSection>
         )}
       </div>
