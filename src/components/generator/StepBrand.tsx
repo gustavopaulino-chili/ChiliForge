@@ -39,45 +39,32 @@ export function StepBrand({ data, onChange }: Props) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <FieldLabel htmlFor="primaryColor" hint="The main brand color used for buttons, links, and key UI elements. Pick a color that represents your brand identity.">
-              Primary Color
-            </FieldLabel>
-            <div className="flex gap-2 mt-1.5">
-              <input
-                type="color"
-                id="primaryColor"
-                value={data.primaryColor}
-                onChange={e => onChange({ primaryColor: e.target.value })}
-                className="h-10 w-12 rounded-md border border-input cursor-pointer"
-              />
-              <Input
-                value={data.primaryColor}
-                onChange={e => onChange({ primaryColor: e.target.value })}
-                className="font-mono"
-              />
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          {[
+            { key: 'primaryColor' as const, label: 'Primary', hint: 'Main brand color for buttons, links, and CTAs.' },
+            { key: 'secondaryColor' as const, label: 'Secondary', hint: 'Complementary color for accents and gradients.' },
+            { key: 'accentColor' as const, label: 'Accent', hint: 'Highlight color for badges, icons, and special elements.' },
+            { key: 'textColor' as const, label: 'Text', hint: 'Main text color used for headings and body copy.' },
+            { key: 'backgroundColor' as const, label: 'Background', hint: 'Page background color.' },
+          ].map(c => (
+            <div key={c.key}>
+              <FieldLabel htmlFor={c.key} hint={c.hint}>{c.label}</FieldLabel>
+              <div className="flex gap-2 mt-1.5">
+                <input
+                  type="color"
+                  id={c.key}
+                  value={data[c.key]}
+                  onChange={e => onChange({ [c.key]: e.target.value })}
+                  className="h-10 w-12 rounded-md border border-input cursor-pointer"
+                />
+                <Input
+                  value={data[c.key]}
+                  onChange={e => onChange({ [c.key]: e.target.value })}
+                  className="font-mono text-sm"
+                />
+              </div>
             </div>
-          </div>
-          <div>
-            <FieldLabel htmlFor="secondaryColor" hint="A complementary color used for accents, gradients, and secondary elements. Should pair well with the primary color.">
-              Secondary Color
-            </FieldLabel>
-            <div className="flex gap-2 mt-1.5">
-              <input
-                type="color"
-                id="secondaryColor"
-                value={data.secondaryColor}
-                onChange={e => onChange({ secondaryColor: e.target.value })}
-                className="h-10 w-12 rounded-md border border-input cursor-pointer"
-              />
-              <Input
-                value={data.secondaryColor}
-                onChange={e => onChange({ secondaryColor: e.target.value })}
-                className="font-mono"
-              />
-            </div>
-          </div>
+          ))}
         </div>
       </div>
     </div>

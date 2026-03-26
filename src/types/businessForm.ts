@@ -104,6 +104,9 @@ export interface BusinessFormData {
   // Brand Identity
   primaryColor: string;
   secondaryColor: string;
+  accentColor: string;
+  textColor: string;
+  backgroundColor: string;
   preferredStyle: 'modern' | 'corporate' | 'minimal' | 'bold' | 'premium';
 
   // Images
@@ -132,6 +135,14 @@ export interface BusinessFormData {
   // Website scraping
   sourceWebsite: string;
   designNotes: string;
+
+  // Image context from URL analysis
+  heroImage1Context: string;
+  heroImage2Context: string;
+  brandImageContext: string;
+  sectionImage1Context: string;
+  sectionImage2Context: string;
+  sectionImage3Context: string;
 }
 
 export const defaultFormData: BusinessFormData = {
@@ -145,6 +156,9 @@ export const defaultFormData: BusinessFormData = {
   differentiators: [''],
   primaryColor: '#3B82F6',
   secondaryColor: '#8B5CF6',
+  accentColor: '#F59E0B',
+  textColor: '#1F2937',
+  backgroundColor: '#FFFFFF',
   preferredStyle: 'modern',
   images: {
     heroImage1: '',
@@ -170,6 +184,12 @@ export const defaultFormData: BusinessFormData = {
   },
   sourceWebsite: '',
   designNotes: '',
+  heroImage1Context: '',
+  heroImage2Context: '',
+  brandImageContext: '',
+  sectionImage1Context: '',
+  sectionImage2Context: '',
+  sectionImage3Context: '',
 };
 
 export const LANDING_PRESETS: { value: LandingPreset; label: string; desc: string; emoji: string }[] = [

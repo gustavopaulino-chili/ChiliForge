@@ -70,6 +70,8 @@ For image URLs:
 - Convert relative URLs to absolute URLs using the base domain
 - Prioritize logo, hero/banner images, and section background images
 - Only include valid image URLs (ending in .jpg, .jpeg, .png, .svg, .webp or from image CDNs)
+- CRITICAL: Analyze each image URL path carefully. URLs often contain descriptive names like "/images/product-name.jpg" or "/assets/hero-banner.webp". Use these URL segments to understand WHAT the image represents (product name, section purpose, etc.)
+- For each image field, add a brief description of what the image likely shows based on URL analysis and its position in the HTML
 
 For colors - CRITICAL, DO NOT just pick the first colors you see:
 - PRIMARY COLOR = The main brand color used on primary buttons, CTAs, links, and key interactive elements. This is the color that represents the brand identity.
@@ -123,14 +125,23 @@ Base URL for resolving relative URLs: ${formattedUrl}`;
                   differentiators: { type: "array", items: { type: "string" }, description: "What makes this business unique" },
                   primaryColor: { type: "string", description: "Primary brand color as hex code" },
                   secondaryColor: { type: "string", description: "Secondary brand color as hex code" },
+                  accentColor: { type: "string", description: "Accent/highlight color used for badges, icons, special elements as hex code" },
+                  textColor: { type: "string", description: "Main text color used for headings and body as hex code" },
+                  backgroundColor: { type: "string", description: "Page background color as hex code" },
                   preferredStyle: { type: "string", enum: ["modern", "corporate", "minimal", "bold", "premium"] },
                   logoUrl: { type: "string", description: "Absolute URL to the logo image" },
                   heroImage1: { type: "string", description: "Absolute URL to the main hero/banner image" },
+                  heroImage1Context: { type: "string", description: "What this hero image represents based on URL path analysis and HTML context (e.g. 'Main product showcase', 'Team photo')" },
                   heroImage2: { type: "string", description: "Absolute URL to a secondary hero image" },
+                  heroImage2Context: { type: "string", description: "What this secondary hero image represents" },
                   brandImage: { type: "string", description: "Absolute URL to an about/brand image" },
+                  brandImageContext: { type: "string", description: "What this brand image represents" },
                   sectionImage1: { type: "string", description: "Absolute URL to a section image" },
+                  sectionImage1Context: { type: "string", description: "What this section image represents based on URL and HTML context" },
                   sectionImage2: { type: "string", description: "Absolute URL to another section image" },
+                  sectionImage2Context: { type: "string", description: "What this section image represents" },
                   sectionImage3: { type: "string", description: "Absolute URL to another section image" },
+                  sectionImage3Context: { type: "string", description: "What this section image represents" },
                   city: { type: "string" },
                   country: { type: "string" },
                   phone: { type: "string" },

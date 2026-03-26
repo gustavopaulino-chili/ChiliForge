@@ -414,12 +414,12 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
 
   const imgLines: string[] = [];
   if (data.images.logoUrl) imgLines.push(`Logo: ${data.images.logoUrl}`);
-  if (data.images.heroImage1) imgLines.push(`Hero Banner 1: ${data.images.heroImage1}`);
-  if (data.images.heroImage2) imgLines.push(`Hero Banner 2: ${data.images.heroImage2}`);
-  if (data.images.brandImage) imgLines.push(`Brand Image: ${data.images.brandImage}`);
-  if (data.images.sectionImage1) imgLines.push(`Section Image 1: ${data.images.sectionImage1}`);
-  if (data.images.sectionImage2) imgLines.push(`Section Image 2: ${data.images.sectionImage2}`);
-  if (data.images.sectionImage3) imgLines.push(`Section Image 3: ${data.images.sectionImage3}`);
+  if (data.images.heroImage1) imgLines.push(`Hero Banner 1: ${data.images.heroImage1}${data.heroImage1Context ? ` (Context: ${data.heroImage1Context})` : ''}`);
+  if (data.images.heroImage2) imgLines.push(`Hero Banner 2: ${data.images.heroImage2}${data.heroImage2Context ? ` (Context: ${data.heroImage2Context})` : ''}`);
+  if (data.images.brandImage) imgLines.push(`Brand Image: ${data.images.brandImage}${data.brandImageContext ? ` (Context: ${data.brandImageContext})` : ''}`);
+  if (data.images.sectionImage1) imgLines.push(`Section Image 1: ${data.images.sectionImage1}${data.sectionImage1Context ? ` (Context: ${data.sectionImage1Context})` : ''}`);
+  if (data.images.sectionImage2) imgLines.push(`Section Image 2: ${data.images.sectionImage2}${data.sectionImage2Context ? ` (Context: ${data.sectionImage2Context})` : ''}`);
+  if (data.images.sectionImage3) imgLines.push(`Section Image 3: ${data.images.sectionImage3}${data.sectionImage3Context ? ` (Context: ${data.sectionImage3Context})` : ''}`);
   data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Product Image ${i + 1}: ${img}`));
   aiImages.forEach((img, i) => imgLines.push(`AI Generated ${i + 1}: ${img}`));
 
@@ -467,6 +467,9 @@ DESIGN FOUNDATION:
 Style: ${data.preferredStyle}
 Primary Color: ${data.primaryColor}
 Secondary Color: ${data.secondaryColor}
+Accent Color: ${data.accentColor}
+Text Color: ${data.textColor}
+Background Color: ${data.backgroundColor}
 
 CONTACT INFORMATION:
 ${data.email ? `Email: ${data.email}` : ''}
@@ -506,7 +509,7 @@ Include:
 ================================================
 DESIGN SYSTEM:
 
-Use exact brand colors (${data.primaryColor}, ${data.secondaryColor}).
+Use exact brand colors: Primary (${data.primaryColor}), Secondary (${data.secondaryColor}), Accent (${data.accentColor}), Text (${data.textColor}), Background (${data.backgroundColor}).
 Visual consistency across all sections.
 Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
 Modern premium aesthetic: "${data.preferredStyle}" style.
