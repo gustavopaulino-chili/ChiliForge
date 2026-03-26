@@ -52,6 +52,14 @@ function aiDataToFormUpdates(extracted: Record<string, any>): Partial<BusinessFo
   if (extracted.sectionImage3) images.sectionImage3 = extracted.sectionImage3;
   if (Object.keys(images).length > 0) updates.images = images as any;
 
+  // Image context from URL analysis
+  if (extracted.heroImage1Context) updates.heroImage1Context = extracted.heroImage1Context;
+  if (extracted.heroImage2Context) updates.heroImage2Context = extracted.heroImage2Context;
+  if (extracted.brandImageContext) updates.brandImageContext = extracted.brandImageContext;
+  if (extracted.sectionImage1Context) updates.sectionImage1Context = extracted.sectionImage1Context;
+  if (extracted.sectionImage2Context) updates.sectionImage2Context = extracted.sectionImage2Context;
+  if (extracted.sectionImage3Context) updates.sectionImage3Context = extracted.sectionImage3Context;
+
   if (extracted.facebook) socialLinks.facebook = extracted.facebook;
   if (extracted.instagram) socialLinks.instagram = extracted.instagram;
   if (extracted.twitter) socialLinks.twitter = extracted.twitter;
