@@ -423,55 +423,6 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
   data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Product Image ${i + 1}: ${img}`));
   aiImages.forEach((img, i) => imgLines.push(`AI Generated ${i + 1}: ${img}`));
 
-  let typeSpecific = '';
-
-  if (data.websiteType === 'ecommerce' && data.products.length > 0) {
-    const prods = data.products.filter(p => p.name);
-    if (prods.length > 0) {
-      typeSpecific += `\nPRODUCT CATALOG:\n`;
-      prods.forEach(p => {
-        const parts = [p.name];
-        if (p.description) parts.push(p.description);
-        if (p.price) parts.push(p.price);
-        if (p.discountPrice) parts.push(`sale:${p.discountPrice}`);
-        if (p.category) parts.push(`cat:${p.category}`);
-        const variantParts = (p.variants || []).filter(v => v.name).map(v => `${v.name}: ${v.values.filter(Boolean).join(', ')}`);
-        if (variantParts.length > 0) parts.push(`var:${variantParts.join(' / ')}`);
-        if (p.sku) parts.push(`sku:${p.sku}`);
-        const prodImages = p.images.filter(Boolean);
-        if (prodImages.length > 0) parts.push(`images:${prodImages.join(', ')}`);
-        typeSpecific += `- ${parts.join(' | ')}\n`;
-      });
-    }
-  }
-
-  if (data.websiteType === 'saas') {
-    const feats = data.features.filter(f => f.name);
-    if (feats.length > 0) {
-      typeSpecific += `\nFEATURES:\n`;
-      feats.forEach(f => {
-        typeSpecific += `- ${f.icon ? f.icon + ' ' : ''}${f.name}: ${f.description}\n`;
-      });
-    }
-    const plans = data.pricingPlans.filter(p => p.name);
-    if (plans.length > 0) {
-      typeSpecific += `\nPRICING PLANS:\n`;
-      plans.forEach(p => {
-        typeSpecific += `${p.name} — ${p.price}: ${p.features.filter(Boolean).join(', ')}\n`;
-      });
-    }
-  }
-
-  if (data.websiteType === 'educational') {
-    const courses = data.courses.filter(c => c.title);
-    if (courses.length > 0) {
-      typeSpecific += `\nCOURSE CATALOG:\n`;
-      courses.forEach(c => {
-        typeSpecific += `- ${c.title}${c.instructor ? ` by ${c.instructor}` : ''}${c.price ? ` | ${c.price}` : ''}${c.description ? ` — ${c.description}` : ''}\n`;
-      });
-    }
-  }
-
   const presetLabel = LANDING_PRESETS.find(p => p.value === data.landingPreset)?.label || 'Landing Page';
 
   const presetContext: Record<LandingPreset, string> = {
