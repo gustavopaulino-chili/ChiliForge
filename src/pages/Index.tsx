@@ -557,5 +557,6 @@ function generatePagesSection(data: BusinessFormData): string {
 5. Social Proof / Testimonials
 6. Final CTA
 7. Footer`;
+}
 
 export default Index;
