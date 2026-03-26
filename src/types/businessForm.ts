@@ -154,6 +154,10 @@ export interface BusinessFormData {
   features: FeatureItem[];
   pricingPlans: PricingPlan[];
   courses: CourseItem[];
+
+  // Website scraping
+  sourceWebsite: string;
+  designNotes: string;
 }
 
 export const defaultFormData: BusinessFormData = {
