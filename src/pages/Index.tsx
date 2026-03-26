@@ -467,6 +467,9 @@ DESIGN FOUNDATION:
 Style: ${data.preferredStyle}
 Primary Color: ${data.primaryColor}
 Secondary Color: ${data.secondaryColor}
+Accent Color: ${data.accentColor}
+Text Color: ${data.textColor}
+Background Color: ${data.backgroundColor}
 
 CONTACT INFORMATION:
 ${data.email ? `Email: ${data.email}` : ''}
