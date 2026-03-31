@@ -66,6 +66,14 @@ const Index = () => {
     return `https://lovable.dev/projects/create#prompt=${encodeURIComponent(promptText)}`;
   }, [formData, generatedImages]);
 
+  const handleStartGenerator = () => {
+    setIsTransitioning(true);
+    setTimeout(() => {
+      setShowLanding(false);
+      setIsTransitioning(false);
+    }, 500);
+  };
+
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
