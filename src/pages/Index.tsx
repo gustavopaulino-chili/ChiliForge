@@ -98,8 +98,13 @@ const Index = () => {
 
   const currentStepId = steps[currentStep]?.id;
 
-  const invokeWithRetry = async (purpose: string, referenceUrl: string | undefined, retries = 3): Promise<string | null> => {
+  const invokeWithRetry = async (purpose: string, referenceUrl: string | undefined, retries = 4): Promise<string | null> => {
     for (let attempt = 0; attempt < retries; attempt++) {
+      if (attempt > 0) {
+        const waitSec = 3 * (attempt + 1);
+        setGenerationStatus(`Rate limited — retrying in ${waitSec}s (attempt ${attempt + 1}/${retries})...`);
+        await new Promise(r => setTimeout(r, waitSec * 1000));
+      }
       const { data, error } = await supabase.functions.invoke('generate-images', {
         body: {
           referenceImageUrl: referenceUrl,
@@ -113,8 +118,6 @@ const Index = () => {
       });
       if (data?.imageUrl) return data.imageUrl;
       if (error?.message?.includes('429') || data?.error?.includes('Rate limit')) {
-        const delay = 3000 * (attempt + 1);
-        await new Promise(r => setTimeout(r, delay));
         continue;
       }
       break;
