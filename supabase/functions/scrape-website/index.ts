@@ -15,7 +15,6 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    // Fetch the website HTML
     let formattedUrl = url.trim();
     if (!formattedUrl.startsWith("http://") && !formattedUrl.startsWith("https://")) {
       formattedUrl = `https://${formattedUrl}`;
@@ -27,7 +26,7 @@ serve(async (req) => {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
       },
     });
 
@@ -36,63 +35,71 @@ serve(async (req) => {
     }
 
     const html = await siteResponse.text();
-    
-    // Truncate HTML to avoid token limits (keep first ~80k chars)
     const truncatedHtml = html.length > 80000 ? html.substring(0, 80000) : html;
 
     console.log(`Fetched ${html.length} chars, sending ${truncatedHtml.length} to AI`);
 
-    const systemPrompt = `You are a website analyzer expert. You receive the full HTML source code of a website. Your job is to deeply analyze the website and extract ALL relevant information for recreating a similar website.
+    const systemPrompt = `You are a website analyzer expert. Analyze the HTML and extract ALL relevant business information.
 
-CRITICAL INSTRUCTIONS:
-1. Extract the EXACT color palette used (primary, secondary, accent colors as hex codes)
-2. Identify the visual style (modern, corporate, minimal, bold, premium)
-3. Extract ALL text content: business name, description, services, value proposition, differentiators
-4. Find ALL image URLs (logo, hero images, section images) - return FULL absolute URLs
-5. Extract contact information: phone, email, social media links, address
-6. Identify the business category and target audience
-7. Extract any product/service listings with descriptions
-8. Identify the language/locale of the website content
+Return a JSON object with these fields (use empty string "" for missing data, never omit fields):
 
-CONTACT INFORMATION EXTRACTION - VERY IMPORTANT:
-- Look deeply into CTAs (Call-to-Action buttons and links) throughout the entire page
-- Search for "Contact", "Contato", "Fale Conosco", "Contact Us" sections
-- Look in the FOOTER - most websites put all contact info and social links there
-- Search for href="mailto:", href="tel:", href="https://wa.me/", href="https://api.whatsapp.com/"
-- Extract social media links from icon links (Facebook, Instagram, Twitter/X, LinkedIn, YouTube, TikTok)
-- Look for patterns like: data-social, class="social", aria-label with social network names
-- Search for WhatsApp links in floating buttons, CTAs, and footer
-- Phone numbers may appear in tel: links, WhatsApp links, or plain text
-- Email addresses may appear in mailto: links or plain text
-- Look for address/location info near maps or in structured data (JSON-LD, microdata)
+{
+  "websiteType": "corporate|landing|ecommerce|portfolio|saas|blog|educational",
+  "businessName": "string",
+  "businessDescription": "detailed description",
+  "businessCategory": "string",
+  "targetAudience": "string",
+  "services": ["service1", "service2"],
+  "valueProposition": "string",
+  "differentiators": ["diff1", "diff2"],
+  "primaryColor": "#hex - main brand color from buttons/CTAs/links, NOT background",
+  "secondaryColor": "#hex - supporting color",
+  "accentColor": "#hex - highlight color",
+  "textColor": "#hex - main text color",
+  "backgroundColor": "#hex - page background",
+  "preferredStyle": "modern|corporate|minimal|bold|premium",
+  "logoUrl": "absolute URL",
+  "heroImage1": "absolute URL to main hero image",
+  "heroImage1Context": "what this image represents based on URL path",
+  "heroImage2": "absolute URL",
+  "heroImage2Context": "context",
+  "brandImage": "absolute URL",
+  "brandImageContext": "context",
+  "sectionImage1": "absolute URL",
+  "sectionImage1Context": "context",
+  "sectionImage2": "absolute URL",
+  "sectionImage2Context": "context",
+  "sectionImage3": "absolute URL",
+  "sectionImage3Context": "context",
+  "city": "string",
+  "country": "string",
+  "phone": "string",
+  "whatsapp": "string",
+  "email": "string",
+  "facebook": "URL",
+  "instagram": "URL",
+  "twitter": "URL",
+  "linkedin": "URL",
+  "youtube": "URL",
+  "designNotes": "detailed design analysis"
+}
 
-For image URLs:
-- Convert relative URLs to absolute URLs using the base domain
-- Prioritize logo, hero/banner images, and section background images
-- Only include valid image URLs (ending in .jpg, .jpeg, .png, .svg, .webp or from image CDNs)
-- CRITICAL: Analyze each image URL path carefully. URLs often contain descriptive names like "/images/product-name.jpg" or "/assets/hero-banner.webp". Use these URL segments to understand WHAT the image represents (product name, section purpose, etc.)
-- For each image field, add a brief description of what the image likely shows based on URL analysis and its position in the HTML
+COLOR EXTRACTION RULES:
+- PRIMARY = main brand color on primary buttons, CTAs, links, active states
+- Do NOT use white/black/gray as primary unless truly the brand color
+- Check CSS variables, Tailwind classes, logo colors
 
-For colors - CRITICAL, DO NOT just pick the first colors you see:
-- PRIMARY COLOR = The main brand color used on primary buttons, CTAs, links, and key interactive elements. This is the color that represents the brand identity.
-- SECONDARY COLOR = The supporting color used for secondary buttons, backgrounds, cards, or accent sections. It complements the primary color.
-- Do NOT use background colors (white, black, gray) as primary/secondary unless they truly are the brand colors
-- Look at: primary CTA buttons, navigation highlights, active states, hover states, brand accents, icons
-- Check CSS variables like --primary, --brand, --accent, --main-color
-- Check Tailwind/Bootstrap classes for brand colors (bg-primary, btn-primary, text-brand)
-- If the logo has a distinctive color, that is likely the primary color
-- Return as hex codes
+IMAGE RULES:
+- Convert relative URLs to absolute using base: ${formattedUrl}
+- Analyze URL paths for context (e.g. "/images/product-name.jpg")
+- Only include valid image URLs (.jpg, .jpeg, .png, .svg, .webp or CDN URLs)
 
-For style:
-- modern = Clean lines, gradients, bold typography, contemporary feel
-- corporate = Professional, structured, trustworthy, traditional
-- minimal = Lots of white space, simple, elegant, understated
-- bold = High contrast, dramatic colors, impactful visuals
-- premium = Luxury feel, refined, sophisticated, dark themes
+CONTACT RULES:
+- Search footer, "Contact" sections, CTAs, floating buttons
+- Look for mailto:, tel:, wa.me/, api.whatsapp.com/
+- Extract ALL social media links
 
-Base URL for resolving relative URLs: ${formattedUrl}`;
-
-    const userPrompt = `Analyze this website HTML and extract all business information:\n\n${truncatedHtml}`;
+Return ONLY valid JSON, no markdown fences.`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -104,63 +111,9 @@ Base URL for resolving relative URLs: ${formattedUrl}`;
         model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
+          { role: "user", content: `Analyze this website HTML and extract all business information:\n\n${truncatedHtml}` },
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "extract_website_data",
-              description: "Extract structured data from website analysis",
-              parameters: {
-                type: "object",
-                properties: {
-                  websiteType: { type: "string", enum: ["corporate", "landing", "ecommerce", "portfolio", "saas", "blog", "educational"] },
-                  businessName: { type: "string" },
-                  businessDescription: { type: "string", description: "Detailed description of the business, its mission and what it does" },
-                  businessCategory: { type: "string" },
-                  targetAudience: { type: "string" },
-                  services: { type: "array", items: { type: "string" }, description: "List of services or products offered" },
-                  valueProposition: { type: "string", description: "The main value proposition or tagline" },
-                  differentiators: { type: "array", items: { type: "string" }, description: "What makes this business unique" },
-                  primaryColor: { type: "string", description: "Primary brand color as hex code" },
-                  secondaryColor: { type: "string", description: "Secondary brand color as hex code" },
-                  accentColor: { type: "string", description: "Accent/highlight color used for badges, icons, special elements as hex code" },
-                  textColor: { type: "string", description: "Main text color used for headings and body as hex code" },
-                  backgroundColor: { type: "string", description: "Page background color as hex code" },
-                  preferredStyle: { type: "string", enum: ["modern", "corporate", "minimal", "bold", "premium"] },
-                  logoUrl: { type: "string", description: "Absolute URL to the logo image" },
-                  heroImage1: { type: "string", description: "Absolute URL to the main hero/banner image" },
-                  heroImage1Context: { type: "string", description: "What this hero image represents based on URL path analysis and HTML context (e.g. 'Main product showcase', 'Team photo')" },
-                  heroImage2: { type: "string", description: "Absolute URL to a secondary hero image" },
-                  heroImage2Context: { type: "string", description: "What this secondary hero image represents" },
-                  brandImage: { type: "string", description: "Absolute URL to an about/brand image" },
-                  brandImageContext: { type: "string", description: "What this brand image represents" },
-                  sectionImage1: { type: "string", description: "Absolute URL to a section image" },
-                  sectionImage1Context: { type: "string", description: "What this section image represents based on URL and HTML context" },
-                  sectionImage2: { type: "string", description: "Absolute URL to another section image" },
-                  sectionImage2Context: { type: "string", description: "What this section image represents" },
-                  sectionImage3: { type: "string", description: "Absolute URL to another section image" },
-                  sectionImage3Context: { type: "string", description: "What this section image represents" },
-                  city: { type: "string" },
-                  country: { type: "string" },
-                  phone: { type: "string" },
-                  whatsapp: { type: "string" },
-                  email: { type: "string" },
-                  facebook: { type: "string" },
-                  instagram: { type: "string" },
-                  twitter: { type: "string" },
-                  linkedin: { type: "string" },
-                  youtube: { type: "string" },
-                  designNotes: { type: "string", description: "Detailed notes about the website's visual design, layout patterns, typography, spacing, animations, and any distinctive design elements that should be replicated" },
-                },
-                required: ["businessName"],
-                additionalProperties: false,
-              },
-            },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "extract_website_data" } },
+        response_format: { type: "json_object" },
       }),
     });
 
@@ -181,10 +134,10 @@ Base URL for resolving relative URLs: ${formattedUrl}`;
     }
 
     const data = await response.json();
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) throw new Error("No tool call in AI response");
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error("No content in AI response");
 
-    const extracted = JSON.parse(toolCall.function.arguments);
+    const extracted = JSON.parse(content);
 
     return new Response(JSON.stringify({ extracted }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
