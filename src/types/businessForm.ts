@@ -188,6 +188,8 @@ export const defaultFormData: BusinessFormData = {
   },
   sourceWebsite: '',
   designNotes: '',
+  headingFont: '',
+  bodyFont: '',
   heroImage1Context: '',
   heroImage2Context: '',
   brandImageContext: '',
