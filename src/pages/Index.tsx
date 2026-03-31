@@ -346,6 +346,11 @@ const Index = () => {
           {currentStepId === 'review' && <StepReview data={formData} />}
         </div>
 
+        {/* Live Prompt Preview */}
+        <div className="mt-4">
+          <PromptPreview prompt={prompt} />
+        </div>
+
         <div className="mt-6 flex justify-between">
           <div className="flex gap-2">
             <Button variant="ghost" onClick={prev} disabled={currentStep === 0} className="gap-2">
