@@ -81,7 +81,9 @@ Return a JSON object with these fields (use empty string "" for missing data, ne
   "twitter": "URL",
   "linkedin": "URL",
   "youtube": "URL",
-  "designNotes": "detailed design analysis"
+  "designNotes": "detailed design analysis",
+  "headingFont": "font family used for headings/titles (e.g. 'Inter', 'Montserrat', 'Playfair Display')",
+  "bodyFont": "font family used for body text/paragraphs (e.g. 'Open Sans', 'Roboto', 'Lato')"
 }
 
 COLOR EXTRACTION RULES:
