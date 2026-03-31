@@ -28,24 +28,24 @@ function buildDefaultSections(preset: string): PageItem[] {
   ];
 
   if (preset === 'black-friday') {
-    sections.splice(1, 0, { name: 'Countdown Timer', description: 'Contagem regressiva para o fim da promoção', required: true, enabled: true, sections: [] });
-    sections.splice(2, 0, { name: 'Offers', description: 'Lista de ofertas com desconto', required: true, enabled: true, sections: [] });
+    sections.splice(1, 0, { name: 'Countdown Timer', description: 'Countdown to the end of the promotion', required: true, enabled: true, sections: [] });
+    sections.splice(2, 0, { name: 'Offers', description: 'List of discounted offers', required: true, enabled: true, sections: [] });
   }
   if (preset === 'webinar') {
-    sections.splice(1, 0, { name: 'Event Details', description: 'Data, hora e informações do evento', required: true, enabled: true, sections: [] });
-    sections.splice(2, 0, { name: 'Speakers', description: 'Perfis dos palestrantes', required: false, enabled: true, sections: [] });
-    sections.splice(3, 0, { name: 'Registration Form', description: 'Formulário de inscrição', required: true, enabled: true, sections: [] });
+    sections.splice(1, 0, { name: 'Event Details', description: 'Date, time, and event information', required: true, enabled: true, sections: [] });
+    sections.splice(2, 0, { name: 'Speakers', description: 'Speaker profiles', required: false, enabled: true, sections: [] });
+    sections.splice(3, 0, { name: 'Registration Form', description: 'Event registration form', required: true, enabled: true, sections: [] });
   }
   if (preset === 'lead-capture') {
-    sections.splice(1, 0, { name: 'Lead Form', description: 'Formulário otimizado para captura de leads', required: true, enabled: true, sections: [] });
+    sections.splice(1, 0, { name: 'Lead Form', description: 'Optimized lead capture form', required: true, enabled: true, sections: [] });
   }
   if (preset === 'launch') {
-    sections.splice(1, 0, { name: 'Product Showcase', description: 'Apresentação visual do produto', required: true, enabled: true, sections: [] });
-    sections.splice(2, 0, { name: 'Features', description: 'Funcionalidades e diferenciais do produto', required: false, enabled: true, sections: [] });
+    sections.splice(1, 0, { name: 'Product Showcase', description: 'Visual product presentation', required: true, enabled: true, sections: [] });
+    sections.splice(2, 0, { name: 'Features', description: 'Product features and differentiators', required: false, enabled: true, sections: [] });
   }
   if (preset === 'app-download') {
-    sections.splice(1, 0, { name: 'App Screenshots', description: 'Mockups e capturas de tela do app', required: true, enabled: true, sections: [] });
-    sections.splice(2, 0, { name: 'Download Buttons', description: 'Botões App Store e Google Play', required: true, enabled: true, sections: [] });
+    sections.splice(1, 0, { name: 'App Screenshots', description: 'App mockups and screenshots', required: true, enabled: true, sections: [] });
+    sections.splice(2, 0, { name: 'Download Buttons', description: 'App Store and Google Play buttons', required: true, enabled: true, sections: [] });
   }
 
   return sections;
