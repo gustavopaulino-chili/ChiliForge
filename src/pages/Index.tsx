@@ -442,7 +442,7 @@ const Index = () => {
 
 function Header({ onLogoClick }: { onLogoClick?: () => void }) {
   return (
-    <header className="border-b border-border/50 px-6 py-[13px] relative z-10">
+    <header className="sticky top-0 border-b border-border/50 px-6 py-[13px] z-50 bg-background/60 backdrop-blur-md">
       <div className="mx-auto max-w-6xl flex items-center justify-between">
         <button onClick={onLogoClick} className="flex items-center gap-2 cursor-pointer">
           <img src="/images/logo-small.png" alt="Logo" className="h-8 w-auto" />
