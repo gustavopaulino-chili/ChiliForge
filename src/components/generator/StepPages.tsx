@@ -40,7 +40,7 @@ function buildDefaultSections(preset: string): PageItem[] {
     sections.splice(1, 0, { name: 'Lead Form', description: 'Optimized lead capture form', required: true, enabled: true, sections: [] });
   }
   if (preset === 'launch') {
-    sections.splice(1, 0, { name: 'Product Showcase', description: 'Apresentação visual do produto', required: true, enabled: true, sections: [] });
+    sections.splice(1, 0, { name: 'Product Showcase', description: 'Visual product presentation', required: true, enabled: true, sections: [] });
     sections.splice(2, 0, { name: 'Features', description: 'Funcionalidades e diferenciais do produto', required: false, enabled: true, sections: [] });
   }
   if (preset === 'app-download') {
