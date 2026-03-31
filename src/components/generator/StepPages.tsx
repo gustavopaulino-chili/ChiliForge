@@ -33,7 +33,7 @@ function buildDefaultSections(preset: string): PageItem[] {
   }
   if (preset === 'webinar') {
     sections.splice(1, 0, { name: 'Event Details', description: 'Date, time, and event information', required: true, enabled: true, sections: [] });
-    sections.splice(2, 0, { name: 'Speakers', description: 'Perfis dos palestrantes', required: false, enabled: true, sections: [] });
+    sections.splice(2, 0, { name: 'Speakers', description: 'Speaker profiles', required: false, enabled: true, sections: [] });
     sections.splice(3, 0, { name: 'Registration Form', description: 'Formulário de inscrição', required: true, enabled: true, sections: [] });
   }
   if (preset === 'lead-capture') {
