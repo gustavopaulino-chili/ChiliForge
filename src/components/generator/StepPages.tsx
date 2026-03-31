@@ -37,7 +37,7 @@ function buildDefaultSections(preset: string): PageItem[] {
     sections.splice(3, 0, { name: 'Registration Form', description: 'Event registration form', required: true, enabled: true, sections: [] });
   }
   if (preset === 'lead-capture') {
-    sections.splice(1, 0, { name: 'Lead Form', description: 'Formulário otimizado para captura de leads', required: true, enabled: true, sections: [] });
+    sections.splice(1, 0, { name: 'Lead Form', description: 'Optimized lead capture form', required: true, enabled: true, sections: [] });
   }
   if (preset === 'launch') {
     sections.splice(1, 0, { name: 'Product Showcase', description: 'Apresentação visual do produto', required: true, enabled: true, sections: [] });
