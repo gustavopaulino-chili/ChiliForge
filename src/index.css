@@ -43,7 +43,7 @@
     --gradient-surface: linear-gradient(180deg, hsl(225 20% 10%), hsl(225 25% 8%));
     --gradient-glow: radial-gradient(1200px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), hsl(359 100% 60% / 0.08), transparent 50%);
     --gradient-hero-bg: radial-gradient(
-      1400px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+      1400px circle at 30% 40%,
       #762534 0%,
       #440031 35%,
       #101820 70%,
@@ -82,17 +82,34 @@
     inset: 0;
     pointer-events: none;
     z-index: 0;
-    background: var(--gradient-hero-bg);
     opacity: 0.5;
-    transition: opacity 0.3s ease;
+    overflow: hidden;
+  }
+
+  .reactive-bg::before {
+    content: '';
+    position: absolute;
+    width: 160%;
+    height: 160%;
+    top: -30%;
+    left: -30%;
+    background: var(--gradient-hero-bg);
+    animation: float-bg 20s ease-in-out infinite;
   }
 
   .reactive-bg::after {
     content: '';
     position: absolute;
-    inset: 0;
-    background: url('/images/bg-pattern.png') center / cover no-repeat;
-    opacity: 0.6;
+    width: 140%;
+    height: 140%;
+    top: -20%;
+    right: -20%;
+    background: radial-gradient(
+      1000px circle at 70% 60%,
+      hsl(265 85% 40% / 0.3) 0%,
+      transparent 60%
+    );
+    animation: float-bg-alt 25s ease-in-out infinite;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -186,4 +203,31 @@
 
 .animate-pulse-glow {
   animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes float-bg {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  25% {
+    transform: translate(5%, -8%) scale(1.05);
+  }
+  50% {
+    transform: translate(-3%, 6%) scale(0.98);
+  }
+  75% {
+    transform: translate(8%, 3%) scale(1.03);
+  }
+}
+
+@keyframes float-bg-alt {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(-6%, 5%) scale(1.04);
+  }
+  66% {
+    transform: translate(4%, -7%) scale(0.97);
+  }
 }
