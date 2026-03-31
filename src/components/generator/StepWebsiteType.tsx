@@ -10,7 +10,7 @@ export function StepWebsiteType({ data, onChange }: Props) {
     <div className="space-y-6">
       <div>
         <h3 className="form-section-title">Landing Page Preset</h3>
-        <p className="form-section-desc">Escolha o tipo de landing page que você precisa</p>
+        <p className="form-section-desc">Choose the type of landing page you need</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {LANDING_PRESETS.map(opt => (

@@ -28,7 +28,7 @@ function buildDefaultSections(preset: string): PageItem[] {
   ];
 
   if (preset === 'black-friday') {
-    sections.splice(1, 0, { name: 'Countdown Timer', description: 'Contagem regressiva para o fim da promoção', required: true, enabled: true, sections: [] });
+    sections.splice(1, 0, { name: 'Countdown Timer', description: 'Countdown to the end of the promotion', required: true, enabled: true, sections: [] });
     sections.splice(2, 0, { name: 'Offers', description: 'Lista de ofertas com desconto', required: true, enabled: true, sections: [] });
   }
   if (preset === 'webinar') {
