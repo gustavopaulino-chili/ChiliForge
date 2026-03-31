@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -45,24 +46,40 @@ export function StepBasics({ data, onChange }: Props) {
           />
         </div>
 
-        <div>
-          <FieldLabel htmlFor="businessCategory" required hint="Select the industry that best describes your business. This helps tailor the website layout and content structure.">
-            Industry / Category
-          </FieldLabel>
-          <Select
-            value={data.businessCategory}
-            onValueChange={v => onChange({ businessCategory: v })}
-          >
-            <SelectTrigger className="mt-1.5">
-              <SelectValue placeholder="Select your industry" />
-            </SelectTrigger>
-            <SelectContent>
-              {BUSINESS_CATEGORIES.map(cat => (
-                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {(() => {
+          const predefined = BUSINESS_CATEGORIES.filter(c => c !== 'Other');
+          const isPredefined = predefined.includes(data.businessCategory);
+          const showCustomInput = !isPredefined && data.businessCategory !== '';
+          
+          return (
+            <div>
+              <FieldLabel htmlFor="businessCategory" required hint="Select the industry that best describes your business. This helps tailor the website layout and content structure.">
+                Industry / Category
+              </FieldLabel>
+              <Select
+                value={isPredefined ? data.businessCategory : 'Other'}
+                onValueChange={v => onChange({ businessCategory: v === 'Other' ? '' : v })}
+              >
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Select your industry" />
+                </SelectTrigger>
+                <SelectContent>
+                  {BUSINESS_CATEGORIES.map(cat => (
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!isPredefined && (
+                <Input
+                  value={data.businessCategory}
+                  onChange={e => onChange({ businessCategory: e.target.value })}
+                  placeholder="Type your industry..."
+                  className="mt-2"
+                />
+              )}
+            </div>
+          );
+        })()}
 
         <div>
           <FieldLabel htmlFor="targetAudience" hint="Describe your ideal customer — age range, profession, interests, or demographics. Helps create more targeted messaging.">
