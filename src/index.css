@@ -43,7 +43,7 @@
     --gradient-surface: linear-gradient(180deg, hsl(225 20% 10%), hsl(225 25% 8%));
     --gradient-glow: radial-gradient(1200px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), hsl(359 100% 60% / 0.08), transparent 50%);
     --gradient-hero-bg: radial-gradient(
-      1400px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+      1400px circle at 30% 40%,
       #762534 0%,
       #440031 35%,
       #101820 70%,
