@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import logoResult from '@/assets/logo-result.png';
 import { BusinessFormData, defaultFormData, LANDING_PRESETS, LandingPreset } from '@/types/businessForm';
 import { StepIndicator } from '@/components/generator/StepIndicator';
@@ -11,8 +12,10 @@ import { StepImages } from '@/components/generator/StepImages';
 import { StepContact } from '@/components/generator/StepContact';
 import { StepReview } from '@/components/generator/StepReview';
 import { StepPages } from '@/components/generator/StepPages';
+import { NicheTemplateSelector } from '@/components/generator/NicheTemplateSelector';
+import { PromptPreview } from '@/components/generator/PromptPreview';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -95,8 +98,13 @@ const Index = () => {
 
   const currentStepId = steps[currentStep]?.id;
 
-  const invokeWithRetry = async (purpose: string, referenceUrl: string | undefined, retries = 3): Promise<string | null> => {
+  const invokeWithRetry = async (purpose: string, referenceUrl: string | undefined, retries = 4): Promise<string | null> => {
     for (let attempt = 0; attempt < retries; attempt++) {
+      if (attempt > 0) {
+        const waitSec = 3 * (attempt + 1);
+        setGenerationStatus(`Rate limited — retrying in ${waitSec}s (attempt ${attempt + 1}/${retries})...`);
+        await new Promise(r => setTimeout(r, waitSec * 1000));
+      }
       const { data, error } = await supabase.functions.invoke('generate-images', {
         body: {
           referenceImageUrl: referenceUrl,
@@ -110,8 +118,6 @@ const Index = () => {
       });
       if (data?.imageUrl) return data.imageUrl;
       if (error?.message?.includes('429') || data?.error?.includes('Rate limit')) {
-        const delay = 3000 * (attempt + 1);
-        await new Promise(r => setTimeout(r, delay));
         continue;
       }
       break;
@@ -143,9 +149,13 @@ const Index = () => {
         setGenerationProgress(90);
 
         if (images.length > 0) {
-          toast.success(`${images.length} AI images generated successfully`);
-        } else {
-          toast.error('Could not generate images. Try again.');
+          toast.success(`${images.length}/${purposes.length} AI images generated`);
+        }
+        if (images.length < purposes.length && images.length > 0) {
+          toast.info(`${purposes.length - images.length} image(s) skipped due to rate limits — prompt still includes the successful ones`);
+        }
+        if (images.length === 0) {
+          toast.warning('Could not generate images due to rate limits. The prompt will work without them.');
         }
       } catch (err) {
         console.error('Image generation error:', err);
@@ -322,7 +332,17 @@ const Index = () => {
         <StepIndicator steps={steps} currentStep={currentStep} maxVisitedStep={maxVisitedStep} onStepClick={setCurrentStep} />
 
         <div className="mt-8 glass-card rounded-xl p-6 sm:p-8 animate-in-up" key={currentStepId}>
-          {currentStepId === 'csv' && <StepCsvImport data={formData} onChange={updateForm} />}
+          {currentStepId === 'csv' && (
+            <>
+              <StepCsvImport data={formData} onChange={updateForm} />
+              <div className="mt-6">
+                <NicheTemplateSelector onApply={(updates) => {
+                  updateForm(updates);
+                  toast.success('Template applied! Review and customize the data.');
+                }} />
+              </div>
+            </>
+          )}
           {currentStepId === 'type' && <StepWebsiteType data={formData} onChange={updateForm} />}
           {currentStepId === 'basics' && <StepBasics data={formData} onChange={updateForm} />}
           {currentStepId === 'services' && <StepServices data={formData} onChange={updateForm} />}
@@ -331,6 +351,11 @@ const Index = () => {
           {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} />}
           {currentStepId === 'contact' && <StepContact data={formData} onChange={updateForm} />}
           {currentStepId === 'review' && <StepReview data={formData} />}
+        </div>
+
+        {/* Live Prompt Preview */}
+        <div className="mt-4">
+          <PromptPreview prompt={prompt} />
         </div>
 
         <div className="mt-6 flex justify-between">
@@ -385,11 +410,16 @@ const Index = () => {
 function Header() {
   return (
     <header className="border-b border-border/50 px-6 py-[13px] relative z-10">
-      <div className="mx-auto max-w-6xl flex items-center">
+      <div className="mx-auto max-w-6xl flex items-center justify-between">
         <div className="flex items-center gap-2">
           <img src="/images/logo-small.png" alt="Logo" className="h-8 w-auto" />
           <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
         </div>
+        <Link to="/history">
+          <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
+            <Clock className="h-4 w-4" /> History
+          </Button>
+        </Link>
       </div>
     </header>
   );

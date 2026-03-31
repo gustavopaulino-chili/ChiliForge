@@ -1,0 +1,156 @@
+import { BusinessFormData, defaultFormData } from '@/types/businessForm';
+
+export interface NicheTemplate {
+  id: string;
+  label: string;
+  emoji: string;
+  desc: string;
+  data: Partial<BusinessFormData>;
+}
+
+export const NICHE_TEMPLATES: NicheTemplate[] = [
+  {
+    id: 'restaurant',
+    label: 'Restaurante',
+    emoji: '🍽️',
+    desc: 'Restaurante, bar, cafeteria ou delivery de comida',
+    data: {
+      businessCategory: 'Restaurant / Food',
+      businessDescription: 'Restaurante com ambiente acolhedor, culinária artesanal e ingredientes frescos selecionados. Oferecemos experiências gastronômicas memoráveis para toda a família.',
+      services: ['Almoço executivo', 'Jantar à la carte', 'Delivery', 'Eventos privativos', 'Buffet para festas'],
+      valueProposition: 'Sabor autêntico com ingredientes frescos e atendimento excepcional',
+      differentiators: ['Chef premiado', 'Ingredientes orgânicos locais', 'Ambiente Instagram-friendly'],
+      preferredStyle: 'premium',
+      landingPreset: 'general',
+      targetAudience: 'Casais e famílias que buscam experiências gastronômicas de qualidade, 25-55 anos',
+    },
+  },
+  {
+    id: 'saas',
+    label: 'SaaS / Tech',
+    emoji: '💻',
+    desc: 'Software, aplicativo ou plataforma digital',
+    data: {
+      businessCategory: 'Technology / SaaS',
+      businessDescription: 'Plataforma SaaS inovadora que automatiza processos e aumenta a produtividade das equipes com inteligência artificial e dashboards intuitivos.',
+      services: ['Automação de processos', 'Dashboard analytics', 'Integrações API', 'Suporte 24/7', 'Onboarding personalizado'],
+      valueProposition: 'Automatize seu negócio e ganhe 10x mais produtividade',
+      differentiators: ['IA integrada', 'Setup em 5 minutos', 'Sem código necessário'],
+      preferredStyle: 'modern',
+      landingPreset: 'launch',
+      targetAudience: 'Gestores e equipes de empresas de médio porte buscando automação, 28-45 anos',
+    },
+  },
+  {
+    id: 'ecommerce',
+    label: 'E-commerce',
+    emoji: '🛒',
+    desc: 'Loja online, marketplace ou varejo digital',
+    data: {
+      businessCategory: 'E-commerce / Retail',
+      businessDescription: 'Loja online com produtos exclusivos, curadoria especializada e entrega rápida para todo o Brasil. Qualidade garantida com política de devolução sem complicações.',
+      services: ['Frete grátis acima de R$199', 'Troca e devolução grátis', 'Programa de fidelidade', 'Atendimento via WhatsApp'],
+      valueProposition: 'Produtos exclusivos com entrega rápida e garantia de satisfação',
+      differentiators: ['Curadoria exclusiva', 'Entrega em 24h', 'Cashback em todas as compras'],
+      preferredStyle: 'bold',
+      landingPreset: 'campaign',
+      targetAudience: 'Consumidores digitais de 18-40 anos que valorizam conveniência e exclusividade',
+    },
+  },
+  {
+    id: 'agency',
+    label: 'Agência / Consultoria',
+    emoji: '📊',
+    desc: 'Agência de marketing, design ou consultoria empresarial',
+    data: {
+      businessCategory: 'Agency / Consulting',
+      businessDescription: 'Agência full-service especializada em estratégia digital, branding e performance marketing. Transformamos marcas em líderes de mercado com dados e criatividade.',
+      services: ['Branding & identidade visual', 'Marketing de performance', 'Social media', 'SEO & conteúdo', 'Consultoria estratégica'],
+      valueProposition: 'Estratégia + criatividade + dados = resultados extraordinários',
+      differentiators: ['+200 projetos entregues', 'ROI médio de 300%', 'Equipe multidisciplinar'],
+      preferredStyle: 'corporate',
+      landingPreset: 'lead-capture',
+      targetAudience: 'CEOs, diretores de marketing e empreendedores buscando crescimento digital, 30-50 anos',
+    },
+  },
+  {
+    id: 'health',
+    label: 'Saúde / Clínica',
+    emoji: '🏥',
+    desc: 'Clínica médica, consultório ou serviço de saúde',
+    data: {
+      businessCategory: 'Healthcare / Medical',
+      businessDescription: 'Clínica moderna com equipe multidisciplinar focada em cuidado humanizado e tecnologia de ponta. Atendimento personalizado para sua saúde e bem-estar.',
+      services: ['Consultas especializadas', 'Exames diagnósticos', 'Telemedicina', 'Check-up executivo', 'Programas preventivos'],
+      valueProposition: 'Cuidado humanizado com tecnologia de ponta para sua saúde',
+      differentiators: ['Agendamento online em 2 min', 'Equipe premiada', 'Resultados em 24h'],
+      preferredStyle: 'minimal',
+      landingPreset: 'general',
+      targetAudience: 'Profissionais e famílias que priorizam saúde preventiva, 25-60 anos',
+    },
+  },
+  {
+    id: 'fitness',
+    label: 'Fitness / Academia',
+    emoji: '💪',
+    desc: 'Academia, personal trainer ou programa fitness',
+    data: {
+      businessCategory: 'Fitness / Wellness',
+      businessDescription: 'Academia completa com equipamentos de última geração, personal trainers certificados e programas personalizados para todos os níveis.',
+      services: ['Musculação', 'CrossFit', 'Yoga & Pilates', 'Personal trainer', 'Avaliação física'],
+      valueProposition: 'Transforme seu corpo e mente com treinos personalizados',
+      differentiators: ['Primeira aula grátis', 'App com treinos', 'Comunidade ativa'],
+      preferredStyle: 'bold',
+      landingPreset: 'lead-capture',
+      targetAudience: 'Jovens e adultos buscando saúde e estética, 18-45 anos',
+    },
+  },
+  {
+    id: 'realestate',
+    label: 'Imobiliária',
+    emoji: '🏠',
+    desc: 'Imobiliária, construtora ou corretor de imóveis',
+    data: {
+      businessCategory: 'Real Estate',
+      businessDescription: 'Imobiliária especializada em imóveis de alto padrão com atendimento consultivo personalizado. Encontramos o imóvel perfeito para sua família ou investimento.',
+      services: ['Venda de imóveis', 'Aluguel', 'Assessoria para investimento', 'Avaliação de imóveis', 'Financiamento facilitado'],
+      valueProposition: 'Encontre o imóvel dos seus sonhos com consultoria especializada',
+      differentiators: ['Visita virtual 360°', 'Financiamento aprovado em 48h', 'Portfólio exclusivo'],
+      preferredStyle: 'premium',
+      landingPreset: 'general',
+      targetAudience: 'Famílias e investidores buscando imóveis de qualidade, 28-55 anos',
+    },
+  },
+  {
+    id: 'education',
+    label: 'Educação / Cursos',
+    emoji: '📚',
+    desc: 'Escola, curso online ou plataforma educacional',
+    data: {
+      businessCategory: 'Education / Training',
+      businessDescription: 'Plataforma de cursos online com metodologia prática e professores especialistas. Aprenda no seu ritmo com certificação reconhecida pelo mercado.',
+      services: ['Cursos online', 'Mentorias individuais', 'Certificação', 'Comunidade de alunos', 'Material complementar'],
+      valueProposition: 'Aprenda com os melhores e acelere sua carreira',
+      differentiators: ['Professores do mercado', 'Projetos práticos reais', 'Garantia de 30 dias'],
+      preferredStyle: 'modern',
+      landingPreset: 'webinar',
+      targetAudience: 'Profissionais buscando upskilling e transição de carreira, 22-40 anos',
+    },
+  },
+  {
+    id: 'beauty',
+    label: 'Beleza / Estética',
+    emoji: '💅',
+    desc: 'Salão de beleza, clínica estética ou spa',
+    data: {
+      businessCategory: 'Beauty / Salon',
+      businessDescription: 'Salão de beleza premium com profissionais renomados e técnicas inovadoras. Cuidamos da sua beleza com produtos de alta qualidade e atendimento personalizado.',
+      services: ['Corte & coloração', 'Tratamentos capilares', 'Manicure & pedicure', 'Estética facial', 'Day spa'],
+      valueProposition: 'Beleza e cuidado pessoal com técnicas exclusivas e produtos premium',
+      differentiators: ['Produtos importados exclusivos', 'Ambiente instagramável', 'Agendamento online'],
+      preferredStyle: 'premium',
+      landingPreset: 'general',
+      targetAudience: 'Mulheres e homens que investem em autocuidado e estética, 20-50 anos',
+    },
+  },
+];
