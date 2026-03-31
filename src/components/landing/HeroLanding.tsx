@@ -120,45 +120,6 @@ export function HeroLanding({ onStartGenerator }: HeroLandingProps) {
           </div>
         </section>
 
-        {/* Features Grid */}
-        <section className="px-6 py-20">
-          <div className="mx-auto max-w-3xl">
-            <div className="glass-card rounded-2xl p-10">
-              <h2 className="font-display text-2xl font-bold text-foreground text-center mb-8">
-                Packed with smart features
-              </h2>
-              <div className="grid sm:grid-cols-2 gap-4">
-                {FEATURES.map((feature) => (
-                  <div key={feature} className="flex items-center gap-3">
-                    <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
-                    <span className="text-sm text-foreground/80">{feature}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Final CTA */}
-        <section className="px-6 py-20 pb-32">
-          <div className="mx-auto max-w-2xl text-center">
-            <h2 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-foreground">
-              Ready to <span className="gradient-text">ignite</span> your next project?
-            </h2>
-            <p className="mt-4 text-muted-foreground">
-              Stop spending hours on landing page copy. Let Chili Forge do the heavy lifting.
-            </p>
-            <Button
-              variant="gradient"
-              size="xl"
-              className="mt-8 gap-3 animate-pulse-glow"
-              onClick={onStartGenerator}
-            >
-              <Sparkles className="h-5 w-5" />
-              Launch the Generator
-            </Button>
-          </div>
-        </section>
       </div>
     </div>
   );
