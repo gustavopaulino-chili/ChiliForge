@@ -94,7 +94,7 @@
     top: -30%;
     left: -30%;
     background: var(--gradient-hero-bg);
-    animation: float-bg 20s ease-in-out infinite;
+    animation: float-bg 12s ease-in-out infinite;
   }
 
   .reactive-bg::after {
@@ -109,7 +109,7 @@
       hsl(265 85% 40% / 0.3) 0%,
       transparent 60%
     );
-    animation: float-bg-alt 25s ease-in-out infinite;
+    animation: float-bg-alt 16s ease-in-out infinite;
   }
 
   .reactive-bg-mouse {
