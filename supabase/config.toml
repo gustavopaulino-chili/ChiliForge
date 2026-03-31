@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.parse-products-spreadsheet]
 verify_jwt = false
+
+[functions.generate-preset]
+verify_jwt = false
