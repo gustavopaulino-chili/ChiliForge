@@ -14,6 +14,7 @@ import { StepReview } from '@/components/generator/StepReview';
 import { StepPages } from '@/components/generator/StepPages';
 import { NicheTemplateSelector } from '@/components/generator/NicheTemplateSelector';
 import { PromptPreview } from '@/components/generator/PromptPreview';
+import { HeroLanding } from '@/components/landing/HeroLanding';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
@@ -46,6 +47,8 @@ const loadSavedProgress = () => {
 
 const Index = () => {
   const saved = useMemo(() => loadSavedProgress(), []);
+  const [showLanding, setShowLanding] = useState(!saved);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const [currentStep, setCurrentStep] = useState(saved?.currentStep ?? 0);
   const [maxVisitedStep, setMaxVisitedStep] = useState(saved?.maxVisitedStep ?? 0);
   const [formData, setFormData] = useState<BusinessFormData>(saved?.formData ?? defaultFormData);
@@ -62,6 +65,14 @@ const Index = () => {
     const promptText = generatePrompt(formData, generatedImages);
     return `https://lovable.dev/projects/create#prompt=${encodeURIComponent(promptText)}`;
   }, [formData, generatedImages]);
+
+  const handleStartGenerator = () => {
+    setIsTransitioning(true);
+    setTimeout(() => {
+      setShowLanding(false);
+      setIsTransitioning(false);
+    }, 500);
+  };
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -185,6 +196,28 @@ const Index = () => {
     setTimeout(() => setCopied(false), 2000);
     toast.success('Prompt copied! Paste it into a new Lovable project.');
   };
+
+  // Landing page
+  if (showLanding) {
+    return (
+      <div className={`transition-all duration-500 ${isTransitioning ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
+        <header className="fixed top-0 left-0 right-0 border-b border-border/50 px-6 py-[13px] z-50 bg-background/80 backdrop-blur-md">
+          <div className="mx-auto max-w-6xl flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <img src="/images/logo-small.png" alt="Logo" className="h-8 w-auto" />
+              <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
+            </div>
+            <Link to="/history">
+              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
+                <Clock className="h-4 w-4" /> History
+              </Button>
+            </Link>
+          </div>
+        </header>
+        <HeroLanding onStartGenerator={handleStartGenerator} />
+      </div>
+    );
+  }
 
   // Generating screen
   if (isGenerating) {
