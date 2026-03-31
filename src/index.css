@@ -109,7 +109,7 @@
       hsl(265 85% 40% / 0.3) 0%,
       transparent 60%
     );
-    animation: float-bg-alt 25s ease-in-out infinite;
+    animation: float-bg-alt 16s ease-in-out infinite;
   }
 
   .reactive-bg-mouse {
