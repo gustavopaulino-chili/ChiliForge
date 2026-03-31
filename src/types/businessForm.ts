@@ -136,6 +136,10 @@ export interface BusinessFormData {
   sourceWebsite: string;
   designNotes: string;
 
+  // Fonts
+  headingFont: string;
+  bodyFont: string;
+
   // Image context from URL analysis
   heroImage1Context: string;
   heroImage2Context: string;
@@ -184,6 +188,8 @@ export const defaultFormData: BusinessFormData = {
   },
   sourceWebsite: '',
   designNotes: '',
+  headingFont: '',
+  bodyFont: '',
   heroImage1Context: '',
   heroImage2Context: '',
   brandImageContext: '',

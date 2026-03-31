@@ -66,6 +66,39 @@ export function StepBrand({ data, onChange }: Props) {
             </div>
           ))}
         </div>
+
+        {/* Typography */}
+        <div>
+          <FieldLabel hint="Specify the fonts to use on the landing page. These are typically Google Fonts names.">
+            Typography
+          </FieldLabel>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+            <div>
+              <FieldLabel htmlFor="headingFont" className="text-xs text-muted-foreground" hint="Font used for headings, titles, and hero text. e.g. Montserrat, Playfair Display, Poppins">
+                Heading Font
+              </FieldLabel>
+              <Input
+                id="headingFont"
+                value={data.headingFont}
+                onChange={e => onChange({ headingFont: e.target.value })}
+                placeholder="e.g. Montserrat"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <FieldLabel htmlFor="bodyFont" className="text-xs text-muted-foreground" hint="Font used for body text, paragraphs, and descriptions. e.g. Open Sans, Inter, Lato">
+                Body Font
+              </FieldLabel>
+              <Input
+                id="bodyFont"
+                value={data.bodyFont}
+                onChange={e => onChange({ bodyFont: e.target.value })}
+                placeholder="e.g. Open Sans"
+                className="mt-1"
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

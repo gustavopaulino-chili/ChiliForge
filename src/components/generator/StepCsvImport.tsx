@@ -39,6 +39,8 @@ function aiDataToFormUpdates(extracted: Record<string, any>): Partial<BusinessFo
   if (extracted.phone) updates.phone = extracted.phone;
   if (extracted.whatsapp) updates.whatsapp = extracted.whatsapp;
   if (extracted.email) updates.email = extracted.email;
+  if (extracted.headingFont) updates.headingFont = extracted.headingFont;
+  if (extracted.bodyFont) updates.bodyFont = extracted.bodyFont;
 
   if (extracted.services?.length) updates.services = extracted.services;
   if (extracted.differentiators?.length) updates.differentiators = extracted.differentiators;
