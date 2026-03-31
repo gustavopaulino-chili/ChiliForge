@@ -45,7 +45,7 @@ function buildDefaultSections(preset: string): PageItem[] {
   }
   if (preset === 'app-download') {
     sections.splice(1, 0, { name: 'App Screenshots', description: 'App mockups and screenshots', required: true, enabled: true, sections: [] });
-    sections.splice(2, 0, { name: 'Download Buttons', description: 'Botões App Store e Google Play', required: true, enabled: true, sections: [] });
+    sections.splice(2, 0, { name: 'Download Buttons', description: 'App Store and Google Play buttons', required: true, enabled: true, sections: [] });
   }
 
   return sections;
