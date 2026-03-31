@@ -14,6 +14,7 @@ import { StepReview } from '@/components/generator/StepReview';
 import { StepPages } from '@/components/generator/StepPages';
 import { NicheTemplateSelector } from '@/components/generator/NicheTemplateSelector';
 import { PromptPreview } from '@/components/generator/PromptPreview';
+import { HeroLanding } from '@/components/landing/HeroLanding';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
@@ -46,6 +47,8 @@ const loadSavedProgress = () => {
 
 const Index = () => {
   const saved = useMemo(() => loadSavedProgress(), []);
+  const [showLanding, setShowLanding] = useState(!saved);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const [currentStep, setCurrentStep] = useState(saved?.currentStep ?? 0);
   const [maxVisitedStep, setMaxVisitedStep] = useState(saved?.maxVisitedStep ?? 0);
   const [formData, setFormData] = useState<BusinessFormData>(saved?.formData ?? defaultFormData);
