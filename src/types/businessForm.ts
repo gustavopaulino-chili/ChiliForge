@@ -3,11 +3,11 @@ export type LandingPreset = 'general' | 'campaign' | 'black-friday' | 'launch' |
 export type VariantType = 'select' | 'counter' | 'text' | 'color' | 'boolean';
 
 export const VARIANT_TYPES: { value: VariantType; label: string; desc: string }[] = [
-  { value: 'select', label: 'Seleção', desc: 'Opções pré-definidas (ex: Tamanho, Cor)' },
-  { value: 'counter', label: 'Quantidade', desc: 'Campo numérico com contador +/-' },
-  { value: 'text', label: 'Texto livre', desc: 'Campo de digitação livre (ex: Gravação, Dedicatória)' },
-  { value: 'color', label: 'Cor', desc: 'Seletor de cores com amostras visuais' },
-  { value: 'boolean', label: 'Sim/Não', desc: 'Toggle liga/desliga (ex: Embrulho p/ presente)' },
+  { value: 'select', label: 'Selection', desc: 'Pre-defined options (e.g. Size, Color)' },
+  { value: 'counter', label: 'Quantity', desc: 'Numeric field with +/- counter' },
+  { value: 'text', label: 'Free text', desc: 'Free-form text input (e.g. Engraving, Dedication)' },
+  { value: 'color', label: 'Color', desc: 'Color picker with visual swatches' },
+  { value: 'boolean', label: 'Yes/No', desc: 'Toggle on/off (e.g. Gift wrap)' },
 ];
 
 export interface ProductVariant {
