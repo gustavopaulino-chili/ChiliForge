@@ -224,7 +224,7 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background relative flex flex-col">
         <div className="reactive-bg" />
-        <Header />
+        <Header onLogoClick={() => setShowLanding(true)} />
         <main className="flex-1 flex items-center justify-center relative z-10 px-6">
           <div className="max-w-md w-full text-center space-y-8">
             <div className="relative inline-flex h-20 w-20 items-center justify-center mx-auto">
@@ -270,7 +270,7 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background relative">
         <div className="reactive-bg" />
-        <Header />
+        <Header onLogoClick={() => setShowLanding(true)} />
         <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
           <div className="text-center mb-8">
             <div className="mb-6">
@@ -350,7 +350,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background relative">
       <div className="reactive-bg" />
-      <Header />
+      <Header onLogoClick={() => setShowLanding(true)} />
       <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
         <div className="mb-10 text-center">
           <h2 className="font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
