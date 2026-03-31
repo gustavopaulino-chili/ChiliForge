@@ -46,47 +46,40 @@ export function StepBasics({ data, onChange }: Props) {
           />
         </div>
 
-        <div>
-          <FieldLabel htmlFor="businessCategory" required hint="Select the industry that best describes your business. This helps tailor the website layout and content structure.">
-            Industry / Category
-          </FieldLabel>
-          {(() => {
-            const isCustom = data.businessCategory !== '' && !BUSINESS_CATEGORIES.includes(data.businessCategory);
-            const isOtherSelected = data.businessCategory === 'Other' || isCustom;
-            return (
-              <>
-                <Select
-                  value={isCustom ? 'Other' : data.businessCategory}
-                  onValueChange={v => {
-                    if (v === 'Other') {
-                      onChange({ businessCategory: '' });
-                    } else {
-                      onChange({ businessCategory: v });
-                    }
-                  }}
-                >
-                  <SelectTrigger className="mt-1.5">
-                    <SelectValue placeholder="Select your industry" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {BUSINESS_CATEGORIES.map(cat => (
-                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {(isOtherSelected || data.businessCategory === '') && data.businessCategory !== 'Other' ? null : null}
-                {isCustom || data.businessCategory === '' ? (
-                  <Input
-                    value={data.businessCategory === 'Other' ? '' : (isCustom ? data.businessCategory : '')}
-                    onChange={e => onChange({ businessCategory: e.target.value })}
-                    placeholder="Type your industry..."
-                    className="mt-2"
-                  />
-                ) : null}
-              </>
-            );
-          })()}
-        </div>
+        {(() => {
+          const predefined = BUSINESS_CATEGORIES.filter(c => c !== 'Other');
+          const isPredefined = predefined.includes(data.businessCategory);
+          const showCustomInput = !isPredefined && data.businessCategory !== '';
+          
+          return (
+            <div>
+              <FieldLabel htmlFor="businessCategory" required hint="Select the industry that best describes your business. This helps tailor the website layout and content structure.">
+                Industry / Category
+              </FieldLabel>
+              <Select
+                value={isPredefined ? data.businessCategory : 'Other'}
+                onValueChange={v => onChange({ businessCategory: v === 'Other' ? '' : v })}
+              >
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Select your industry" />
+                </SelectTrigger>
+                <SelectContent>
+                  {BUSINESS_CATEGORIES.map(cat => (
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!isPredefined && (
+                <Input
+                  value={data.businessCategory}
+                  onChange={e => onChange({ businessCategory: e.target.value })}
+                  placeholder="Type your industry..."
+                  className="mt-2"
+                />
+              )}
+            </div>
+          );
+        })()}
 
         <div>
           <FieldLabel htmlFor="targetAudience" hint="Describe your ideal customer — age range, profession, interests, or demographics. Helps create more targeted messaging.">
