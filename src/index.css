@@ -204,3 +204,30 @@
 .animate-pulse-glow {
   animation: pulse-glow 2s ease-in-out infinite;
 }
+
+@keyframes float-bg {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  25% {
+    transform: translate(5%, -8%) scale(1.05);
+  }
+  50% {
+    transform: translate(-3%, 6%) scale(0.98);
+  }
+  75% {
+    transform: translate(8%, 3%) scale(1.03);
+  }
+}
+
+@keyframes float-bg-alt {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(-6%, 5%) scale(1.04);
+  }
+  66% {
+    transform: translate(4%, -7%) scale(0.97);
+  }
+}
