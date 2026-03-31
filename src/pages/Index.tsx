@@ -73,7 +73,15 @@ const Index = () => {
       setIsTransitioning(false);
     }, 500);
   };
-
+  useEffect(() => {
+    if (showLanding) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
+      document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [showLanding]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentStep, formData, maxVisitedStep }));
@@ -215,7 +223,7 @@ const Index = () => {
   if (isGenerating) {
     return (
       <div className="min-h-screen bg-background relative flex flex-col">
-        <div className="reactive-bg" />
+        <div className="reactive-bg-mouse" />
         <Header onLogoClick={() => setShowLanding(true)} />
         <main className="flex-1 flex items-center justify-center relative z-10 px-6">
           <div className="max-w-md w-full text-center space-y-8">
@@ -261,7 +269,7 @@ const Index = () => {
   if (showResults) {
     return (
       <div className="min-h-screen bg-background relative">
-        <div className="reactive-bg" />
+        <div className="reactive-bg-mouse" />
         <Header onLogoClick={() => setShowLanding(true)} />
         <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
           <div className="text-center mb-8">
@@ -341,7 +349,7 @@ const Index = () => {
   // Form view
   return (
     <div className="min-h-screen bg-background relative">
-      <div className="reactive-bg" />
+      <div className="reactive-bg-mouse" />
       <Header onLogoClick={() => setShowLanding(true)} />
       <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
         <div className="mb-10 text-center">

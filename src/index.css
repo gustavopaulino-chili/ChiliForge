@@ -112,6 +112,30 @@
     animation: float-bg-alt 25s ease-in-out infinite;
   }
 
+  .reactive-bg-mouse {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(
+      1400px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+      #762534 0%,
+      #440031 35%,
+      #101820 70%,
+      transparent 100%
+    );
+    opacity: 0.5;
+    transition: opacity 0.3s ease;
+  }
+
+  .reactive-bg-mouse::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url('/images/bg-pattern.png') center / cover no-repeat;
+    opacity: 0.6;
+  }
+
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
   }
