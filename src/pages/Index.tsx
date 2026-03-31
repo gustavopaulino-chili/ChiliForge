@@ -73,7 +73,15 @@ const Index = () => {
       setIsTransitioning(false);
     }, 500);
   };
-
+  useEffect(() => {
+    if (showLanding) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
+      document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [showLanding]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentStep, formData, maxVisitedStep }));
