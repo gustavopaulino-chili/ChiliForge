@@ -50,44 +50,42 @@ export function StepBasics({ data, onChange }: Props) {
           <FieldLabel htmlFor="businessCategory" required hint="Select the industry that best describes your business. This helps tailor the website layout and content structure.">
             Industry / Category
           </FieldLabel>
-          <Select
-            value={BUSINESS_CATEGORIES.includes(data.businessCategory) ? data.businessCategory : (data.businessCategory ? 'Other' : '')}
-            onValueChange={v => {
-              if (v === 'Other') {
-                onChange({ businessCategory: '' });
-              } else {
-                onChange({ businessCategory: v });
-              }
-            }}
-          >
-            <SelectTrigger className="mt-1.5">
-              <SelectValue placeholder="Select your industry" />
-            </SelectTrigger>
-            <SelectContent>
-              {BUSINESS_CATEGORIES.map(cat => (
-                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {(!BUSINESS_CATEGORIES.includes(data.businessCategory) && (data.businessCategory !== '' || !BUSINESS_CATEGORIES.includes(data.businessCategory))) && data.businessCategory !== '' ? (
-            <Input
-              value={data.businessCategory}
-              onChange={e => onChange({ businessCategory: e.target.value })}
-              placeholder="Type your industry..."
-              className="mt-2"
-              autoFocus
-            />
-          ) : (
-            data.businessCategory === '' && (
-              <Input
-                value=""
-                onChange={e => onChange({ businessCategory: e.target.value })}
-                placeholder="Type your industry..."
-                className="mt-2"
-                autoFocus
-              />
-            )
-          )}
+          {(() => {
+            const isCustom = data.businessCategory !== '' && !BUSINESS_CATEGORIES.includes(data.businessCategory);
+            const isOtherSelected = data.businessCategory === 'Other' || isCustom;
+            return (
+              <>
+                <Select
+                  value={isCustom ? 'Other' : data.businessCategory}
+                  onValueChange={v => {
+                    if (v === 'Other') {
+                      onChange({ businessCategory: '' });
+                    } else {
+                      onChange({ businessCategory: v });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="mt-1.5">
+                    <SelectValue placeholder="Select your industry" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BUSINESS_CATEGORIES.map(cat => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(isOtherSelected || data.businessCategory === '') && data.businessCategory !== 'Other' ? null : null}
+                {isCustom || data.businessCategory === '' ? (
+                  <Input
+                    value={data.businessCategory === 'Other' ? '' : (isCustom ? data.businessCategory : '')}
+                    onChange={e => onChange({ businessCategory: e.target.value })}
+                    placeholder="Type your industry..."
+                    className="mt-2"
+                  />
+                ) : null}
+              </>
+            );
+          })()}
         </div>
 
         <div>
