@@ -149,9 +149,13 @@ const Index = () => {
         setGenerationProgress(90);
 
         if (images.length > 0) {
-          toast.success(`${images.length} AI images generated successfully`);
-        } else {
-          toast.error('Could not generate images. Try again.');
+          toast.success(`${images.length}/${purposes.length} AI images generated`);
+        }
+        if (images.length < purposes.length && images.length > 0) {
+          toast.info(`${purposes.length - images.length} image(s) skipped due to rate limits — prompt still includes the successful ones`);
+        }
+        if (images.length === 0) {
+          toast.warning('Could not generate images due to rate limits. The prompt will work without them.');
         }
       } catch (err) {
         console.error('Image generation error:', err);
