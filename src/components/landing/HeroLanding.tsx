@@ -41,8 +41,11 @@ export function HeroLanding({ onStartGenerator }: HeroLandingProps) {
       <div className="reactive-bg-mouse" />
 
       {/* Decorative elements */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-accent/5 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-[10%] left-[15%] w-[500px] h-[500px] bg-primary/8 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute top-[50%] right-[10%] w-[400px] h-[400px] bg-accent/8 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute top-[30%] left-[50%] w-[350px] h-[350px] bg-foreground/[0.03] rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute bottom-[15%] left-[20%] w-[450px] h-[450px] bg-foreground/[0.04] rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[40%] right-[30%] w-[300px] h-[300px] bg-primary/5 rounded-full blur-[80px] pointer-events-none" />
 
       <div className="relative z-10">
         {/* Hero Section */}
