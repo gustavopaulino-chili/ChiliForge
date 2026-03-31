@@ -325,7 +325,17 @@ const Index = () => {
         <StepIndicator steps={steps} currentStep={currentStep} maxVisitedStep={maxVisitedStep} onStepClick={setCurrentStep} />
 
         <div className="mt-8 glass-card rounded-xl p-6 sm:p-8 animate-in-up" key={currentStepId}>
-          {currentStepId === 'csv' && <StepCsvImport data={formData} onChange={updateForm} />}
+          {currentStepId === 'csv' && (
+            <>
+              <StepCsvImport data={formData} onChange={updateForm} />
+              <div className="mt-6">
+                <NicheTemplateSelector onApply={(updates) => {
+                  updateForm(updates);
+                  toast.success('Template applied! Review and customize the data.');
+                }} />
+              </div>
+            </>
+          )}
           {currentStepId === 'type' && <StepWebsiteType data={formData} onChange={updateForm} />}
           {currentStepId === 'basics' && <StepBasics data={formData} onChange={updateForm} />}
           {currentStepId === 'services' && <StepServices data={formData} onChange={updateForm} />}
