@@ -44,7 +44,7 @@ function buildDefaultSections(preset: string): PageItem[] {
     sections.splice(2, 0, { name: 'Features', description: 'Product features and differentiators', required: false, enabled: true, sections: [] });
   }
   if (preset === 'app-download') {
-    sections.splice(1, 0, { name: 'App Screenshots', description: 'Mockups e capturas de tela do app', required: true, enabled: true, sections: [] });
+    sections.splice(1, 0, { name: 'App Screenshots', description: 'App mockups and screenshots', required: true, enabled: true, sections: [] });
     sections.splice(2, 0, { name: 'Download Buttons', description: 'Botões App Store e Google Play', required: true, enabled: true, sections: [] });
   }
 
