@@ -101,6 +101,12 @@ CONTACT RULES:
 - Look for mailto:, tel:, wa.me/, api.whatsapp.com/
 - Extract ALL social media links
 
+FONT RULES:
+- Look for Google Fonts links (fonts.googleapis.com), @font-face declarations, CSS font-family properties
+- Identify the HEADING font (used on h1, h2, h3, hero titles) and BODY font (used on paragraphs, body text)
+- Return just the font family name (e.g. "Inter", "Montserrat"), not the full CSS value
+- If the same font is used everywhere, set both headingFont and bodyFont to that font
+
 Return ONLY valid JSON, no markdown fences.`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {

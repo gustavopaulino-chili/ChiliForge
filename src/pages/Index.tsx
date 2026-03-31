@@ -491,6 +491,9 @@ Secondary Color: ${data.secondaryColor}
 Accent Color: ${data.accentColor}
 Text Color: ${data.textColor}
 Background Color: ${data.backgroundColor}
+${data.headingFont ? `Heading Font: ${data.headingFont}` : ''}
+${data.bodyFont ? `Body Font: ${data.bodyFont}` : ''}
+${data.headingFont || data.bodyFont ? '\nIMPORTANT: Use the specified fonts via Google Fonts import. These are the exact fonts from the original website and MUST be used.' : ''}
 
 CONTACT INFORMATION:
 ${data.email ? `Email: ${data.email}` : ''}
