@@ -29,7 +29,7 @@ function buildDefaultSections(preset: string): PageItem[] {
 
   if (preset === 'black-friday') {
     sections.splice(1, 0, { name: 'Countdown Timer', description: 'Countdown to the end of the promotion', required: true, enabled: true, sections: [] });
-    sections.splice(2, 0, { name: 'Offers', description: 'Lista de ofertas com desconto', required: true, enabled: true, sections: [] });
+    sections.splice(2, 0, { name: 'Offers', description: 'List of discounted offers', required: true, enabled: true, sections: [] });
   }
   if (preset === 'webinar') {
     sections.splice(1, 0, { name: 'Event Details', description: 'Data, hora e informações do evento', required: true, enabled: true, sections: [] });
