@@ -50,8 +50,14 @@ export function StepBasics({ data, onChange }: Props) {
             Industry / Category
           </FieldLabel>
           <Select
-            value={data.businessCategory}
-            onValueChange={v => onChange({ businessCategory: v })}
+            value={BUSINESS_CATEGORIES.includes(data.businessCategory) ? data.businessCategory : (data.businessCategory ? 'Other' : '')}
+            onValueChange={v => {
+              if (v === 'Other') {
+                onChange({ businessCategory: '' });
+              } else {
+                onChange({ businessCategory: v });
+              }
+            }}
           >
             <SelectTrigger className="mt-1.5">
               <SelectValue placeholder="Select your industry" />
@@ -62,6 +68,25 @@ export function StepBasics({ data, onChange }: Props) {
               ))}
             </SelectContent>
           </Select>
+          {(!BUSINESS_CATEGORIES.includes(data.businessCategory) && (data.businessCategory !== '' || !BUSINESS_CATEGORIES.includes(data.businessCategory))) && data.businessCategory !== '' ? (
+            <Input
+              value={data.businessCategory}
+              onChange={e => onChange({ businessCategory: e.target.value })}
+              placeholder="Type your industry..."
+              className="mt-2"
+              autoFocus
+            />
+          ) : (
+            data.businessCategory === '' && (
+              <Input
+                value=""
+                onChange={e => onChange({ businessCategory: e.target.value })}
+                placeholder="Type your industry..."
+                className="mt-2"
+                autoFocus
+              />
+            )
+          )}
         </div>
 
         <div>
