@@ -94,7 +94,7 @@
     top: -30%;
     left: -30%;
     background: var(--gradient-hero-bg);
-    animation: float-bg 20s ease-in-out infinite;
+    animation: float-bg 12s ease-in-out infinite;
   }
 
   .reactive-bg::after {
