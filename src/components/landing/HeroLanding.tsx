@@ -37,7 +37,7 @@ export function HeroLanding({ onStartGenerator }: HeroLandingProps) {
   const [isHovered, setIsHovered] = useState(false);
 
   return (
-    <div className="min-h-screen bg-background relative overflow-hidden">
+    <div className="min-h-screen bg-background relative">
       <div className="reactive-bg" />
 
       {/* Decorative elements */}
