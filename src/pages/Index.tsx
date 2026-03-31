@@ -403,11 +403,16 @@ const Index = () => {
 function Header() {
   return (
     <header className="border-b border-border/50 px-6 py-[13px] relative z-10">
-      <div className="mx-auto max-w-6xl flex items-center">
+      <div className="mx-auto max-w-6xl flex items-center justify-between">
         <div className="flex items-center gap-2">
           <img src="/images/logo-small.png" alt="Logo" className="h-8 w-auto" />
           <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
         </div>
+        <Link to="/history">
+          <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
+            <Clock className="h-4 w-4" /> History
+          </Button>
+        </Link>
       </div>
     </header>
   );
