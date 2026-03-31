@@ -41,7 +41,7 @@ function buildDefaultSections(preset: string): PageItem[] {
   }
   if (preset === 'launch') {
     sections.splice(1, 0, { name: 'Product Showcase', description: 'Visual product presentation', required: true, enabled: true, sections: [] });
-    sections.splice(2, 0, { name: 'Features', description: 'Funcionalidades e diferenciais do produto', required: false, enabled: true, sections: [] });
+    sections.splice(2, 0, { name: 'Features', description: 'Product features and differentiators', required: false, enabled: true, sections: [] });
   }
   if (preset === 'app-download') {
     sections.splice(1, 0, { name: 'App Screenshots', description: 'Mockups e capturas de tela do app', required: true, enabled: true, sections: [] });
