@@ -170,7 +170,7 @@ const Index = () => {
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationProgress(0);
-    setGeneratedFiles([]);
+    setGeneratedHtml('');
 
     if (formData.generateAiImages) {
       setIsGeneratingImages(true);
@@ -204,7 +204,7 @@ const Index = () => {
       }
     }
 
-    setGenerationStatus('Generating your React project with AI...');
+    setGenerationStatus('Generating your landing page with AI...');
     setGenerationProgress(50);
 
     const currentPrompt = generatePrompt(formData, generatedImages.length > 0 ? generatedImages : []);
@@ -219,7 +219,7 @@ const Index = () => {
 
       if (error) {
         console.error('Generate landing error:', error);
-        toast.error('Failed to generate project. Please try again.');
+        toast.error('Failed to generate landing page. Please try again.');
         setIsGenerating(false);
         return;
       }
@@ -230,20 +230,20 @@ const Index = () => {
         return;
       }
 
-      if (data?.files && data.files.length > 0) {
-        setGeneratedFiles(data.files);
+      if (data?.html) {
+        setGeneratedHtml(data.html);
         setGenerationProgress(100);
-        setGenerationStatus('Project generated!');
-        toast.success(`Project generated with ${data.files.length} files!`);
+        setGenerationStatus('Landing page generated!');
+        toast.success('Landing page generated successfully!');
         await new Promise(r => setTimeout(r, 500));
         setIsGenerating(false);
         setShowResults(true);
       } else {
-        throw new Error('No files returned');
+        throw new Error('No HTML returned');
       }
     } catch (err) {
       console.error('Generate landing error:', err);
-      toast.error('Failed to generate project. Please try again.');
+      toast.error('Failed to generate landing page. Please try again.');
       setIsGenerating(false);
     }
   };
