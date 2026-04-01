@@ -389,6 +389,7 @@ const Index = () => {
               onClick={() => {
                 setShowResults(false);
                 setGeneratedLandingUrl('');
+                setGeneratedHtml('');
               }}
               className="gap-2"
             >
