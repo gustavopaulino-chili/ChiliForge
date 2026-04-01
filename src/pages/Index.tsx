@@ -324,7 +324,7 @@ const Index = () => {
 
           {generatedImages.length > 0 && (
             <div className="glass-card rounded-xl p-6 mb-6">
-              <h3 className="form-section-title mb-3">AI Generated Images</h3>
+              <h3 className="form-section-title mb-3">{formData.generateAiImages ? 'AI Generated Images' : 'Stock Photos (Pexels)'}</h3>
               <div className="grid grid-cols-3 gap-3">
                 {generatedImages.map((img, i) => (
                   <img key={i} src={img} alt={`AI generated ${i + 1}`} className="rounded-lg w-full h-32 object-cover" />
@@ -513,7 +513,11 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
   if (data.images.sectionImage2) imgLines.push(`Section Image 2: ${data.images.sectionImage2}${data.sectionImage2Context ? ` (Context: ${data.sectionImage2Context})` : ''}`);
   if (data.images.sectionImage3) imgLines.push(`Section Image 3: ${data.images.sectionImage3}${data.sectionImage3Context ? ` (Context: ${data.sectionImage3Context})` : ''}`);
   data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Product Image ${i + 1}: ${img}`));
-  aiImages.forEach((img, i) => imgLines.push(`${data.generateAiImages ? 'AI Generated' : 'Stock Photo'} ${i + 1}: ${img}`));
+  if (data.generateAiImages) {
+    aiImages.forEach((img, i) => imgLines.push(`AI Generated ${i + 1}: ${img}`));
+  } else if (aiImages.length > 0) {
+    aiImages.forEach((img, i) => imgLines.push(`Stock Photo (Pexels) ${i + 1}: ${img}`));
+  }
 
   const presetLabel = LANDING_PRESETS.find(p => p.value === data.landingPreset)?.label || 'Landing Page';
 
@@ -571,7 +575,7 @@ ${data.email ? `Email: ${data.email}` : ''}
 ${data.phone ? `Phone: ${data.phone}` : ''}
 ${data.whatsapp ? `WhatsApp: ${data.whatsapp}` : ''}
 ${socialText ? `Social Media: ${socialText}` : ''}
-${imgLines.length > 0 ? `\nIMAGE LIBRARY:\n${imgLines.join('\n')}\n\nDownload these images and use them based on context. Study them and use as base for the rest of the design.${data.generateAiImages ? '\nIF THE IMAGES DON\'T LOAD, GENERATE IMAGES BASED ON THE CONTEXT.' : '\nDO NOT generate any AI images. Only use the provided image URLs above. If an image fails to load, use a placeholder or leave blank.'}` : ''}
+${imgLines.length > 0 ? `\nIMAGE LIBRARY:\n${imgLines.join('\n')}\n\nDownload these images and use them based on context. Study them and use as base for the rest of the design.${data.generateAiImages ? '\nIF THE IMAGES DON\'T LOAD, GENERATE IMAGES BASED ON THE CONTEXT.' : '\nDO NOT generate any AI images. Only use the provided image URLs above. If an image fails to load, use a placeholder or leave blank.'}${!data.generateAiImages && aiImages.length > 0 ? '\nThe Stock Photos from Pexels are professional stock images — use them as hero backgrounds, section backgrounds, or decorative photos. They are free to use (Pexels license).' : ''}` : ''}
 ${data.generateAiImages ? '\nIMPORTANT: Use AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets.' : '\nIMPORTANT: DO NOT generate, create, or use any AI-generated images. Only use images explicitly provided in the IMAGE LIBRARY above. If no images were provided, use only solid colors, gradients, or CSS patterns for backgrounds.'}
 ${data.sourceWebsite ? `\nSOURCE WEBSITE REFERENCE:\nThis website is based on: ${data.sourceWebsite}\nThe generated landing page MUST follow a similar visual design, layout structure, and aesthetic to the source website.` : ''}
 ${data.designNotes ? `\nDESIGN ANALYSIS FROM SOURCE WEBSITE:\n${data.designNotes}\n\nCRITICAL: You MUST replicate the design patterns, layout structure, typography choices, spacing, color usage, and visual style described above.` : ''}
