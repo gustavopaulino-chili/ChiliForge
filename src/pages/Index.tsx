@@ -328,7 +328,7 @@ const Index = () => {
   }
 
   // Results view — iframe preview
-  if (showResults && generatedLandingUrl) {
+  if (showResults && (generatedHtml || generatedLandingUrl)) {
     return (
       <div className="min-h-screen bg-background relative flex flex-col">
         <div className="reactive-bg-mouse" />
