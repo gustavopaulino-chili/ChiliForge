@@ -135,6 +135,35 @@ const Index = () => {
     return null;
   };
 
+  const searchPexelsImages = async (): Promise<string[]> => {
+    const searchTerms = [
+      formData.businessCategory || formData.businessName || 'business',
+      formData.services.filter(Boolean)[0] || 'professional',
+      formData.preferredStyle || 'modern',
+    ];
+    const query = `${searchTerms.join(' ')} website`;
+    
+    try {
+      setGenerationStatus('Searching stock images on Pexels...');
+      const { data, error } = await supabase.functions.invoke('search-images', {
+        body: { query, count: 3 },
+      });
+      if (error || !data?.images?.length) {
+        console.warn('Pexels search returned no results:', error);
+        return [];
+      }
+      return data.images.map((img: any) => img.url).filter(Boolean);
+    } catch (err) {
+      console.error('Pexels search error:', err);
+      return [];
+    }
+  };
+
+  const hasUserImages = () => {
+    const imgs = formData.images;
+    return !!(imgs.heroImage1 || imgs.heroImage2 || imgs.brandImage || imgs.sectionImage1 || imgs.sectionImage2 || imgs.sectionImage3);
+  };
+
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationProgress(0);
@@ -173,6 +202,16 @@ const Index = () => {
       } finally {
         setIsGeneratingImages(false);
       }
+    } else if (!hasUserImages()) {
+      // No AI images and no user images — search Pexels for stock photos
+      setGenerationStatus('Searching for relevant stock images...');
+      setGenerationProgress(30);
+      const pexelsImages = await searchPexelsImages();
+      if (pexelsImages.length > 0) {
+        setGeneratedImages(pexelsImages);
+        toast.success(`Found ${pexelsImages.length} stock images from Pexels`);
+      }
+      setGenerationProgress(70);
     } else {
       setGenerationStatus('Building prompt...');
       setGenerationProgress(50);
@@ -474,7 +513,7 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
   if (data.images.sectionImage2) imgLines.push(`Section Image 2: ${data.images.sectionImage2}${data.sectionImage2Context ? ` (Context: ${data.sectionImage2Context})` : ''}`);
   if (data.images.sectionImage3) imgLines.push(`Section Image 3: ${data.images.sectionImage3}${data.sectionImage3Context ? ` (Context: ${data.sectionImage3Context})` : ''}`);
   data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Product Image ${i + 1}: ${img}`));
-  aiImages.forEach((img, i) => imgLines.push(`AI Generated ${i + 1}: ${img}`));
+  aiImages.forEach((img, i) => imgLines.push(`${data.generateAiImages ? 'AI Generated' : 'Stock Photo'} ${i + 1}: ${img}`));
 
   const presetLabel = LANDING_PRESETS.find(p => p.value === data.landingPreset)?.label || 'Landing Page';
 
