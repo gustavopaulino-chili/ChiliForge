@@ -412,11 +412,12 @@ const Index = () => {
           {/* iFrame preview */}
           <div className="flex-1 min-h-[500px] rounded-xl border border-border overflow-hidden bg-white shadow-lg">
             <iframe
-              src={generatedLandingUrl}
+              srcDoc={generatedHtml || undefined}
+              src={!generatedHtml ? generatedLandingUrl : undefined}
               className="w-full h-full min-h-[500px]"
               style={{ minHeight: '70vh' }}
               title="Landing Page Preview"
-              sandbox="allow-scripts allow-same-origin"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
             />
           </div>
         </main>
