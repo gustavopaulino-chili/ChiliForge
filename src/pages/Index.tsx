@@ -506,7 +506,7 @@ const Index = () => {
               {isGeneratingImages ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Generating Images...</>
               ) : (
-                <><Sparkles className="h-4 w-4" /> Generate Prompt</>
+                <><Sparkles className="h-4 w-4" /> Generate Landing Page</>
               )}
             </Button>
           )}
