@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import JSZip from 'jszip';
 import logoResult from '@/assets/logo-result.png';
 import { BusinessFormData, defaultFormData, LANDING_PRESETS, LandingPreset } from '@/types/businessForm';
 import { StepIndicator } from '@/components/generator/StepIndicator';
