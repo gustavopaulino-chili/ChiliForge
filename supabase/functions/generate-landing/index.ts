@@ -207,85 +207,55 @@ Return a JSON object with this exact structure:
   ]
 }
 
-═══════════════════════════════════════════════════════
-AVAILABLE PACKAGES (you can ONLY import from these):
-═══════════════════════════════════════════════════════
-- react (import React, { useState, useEffect, useRef, useCallback } from "react")
-- react-dom (import ReactDOM from "react-dom/client")
-- react-router-dom (import { BrowserRouter, Routes, Route } from "react-router-dom")
-- lucide-react (import { Menu, X, Phone, Mail, MapPin, Star, ChevronRight, ArrowRight, Check, Facebook, Instagram, Twitter, Linkedin, Youtube, Heart, Shield, Clock, Users, Zap, Award, Target, TrendingUp, Sparkles, Globe, MessageCircle, Calendar, DollarSign, BarChart3, Layers, Settings, Play, Download, ExternalLink, ChevronDown, ChevronUp, Search, Plus, Minus } from "lucide-react")
-- clsx (import { clsx } from "clsx")
-- tailwind-merge (import { twMerge } from "tailwind-merge")
+ALLOWED PACKAGES — you can ONLY import from these and from files YOU create:
+- react
+- react-dom / react-dom/client
+- react-router-dom
+- lucide-react — ONLY these icons exist: Menu, X, Phone, Mail, MapPin, Star, ChevronRight, ArrowRight, Check, Facebook, Instagram, Twitter, Linkedin, Youtube, Heart, Shield, Clock, Users, Zap, Award, Target, TrendingUp, Sparkles, Globe, MessageCircle, Calendar, DollarSign, BarChart3, Layers, Settings, Play, Download, ExternalLink, ChevronDown, ChevronUp, Search, Plus, Minus, Eye, EyeOff, Copy, Share2, ThumbsUp, Briefcase, Home, Info, AlertCircle, HelpCircle, Bell, Bookmark, Filter, RefreshCw, Send, Trash2, Edit, Lock, Unlock, Wifi, Monitor, Smartphone, Tablet, Code, Database, Server, Cloud, CreditCard, ShoppingCart, Gift, Percent, Tag, FileText, Image, Video, Music, Headphones, Mic, Volume2, Sun, Moon, Thermometer, Droplets, Wind, Umbrella, Coffee, Utensils, Car, Plane, Train, Ship, Building2, Store, GraduationCap, BookOpen, PenTool, Palette, Camera, Scissors, Wrench, Hammer, Key
+- clsx
+- tailwind-merge
+- Local files you generate (import with "./" or "@/")
 
-═══════════════════════════════════════════════════════
-FORBIDDEN IMPORTS — WILL CAUSE BUILD ERRORS:
-═══════════════════════════════════════════════════════
-- NEVER import from "@/components/ui/*" (no Button, Card, Badge, etc.)
-- NEVER import from "shadcn", "@shadcn/*", or any shadcn component
-- NEVER import from "framer-motion", "gsap", "aos", or animation libraries
-- NEVER import from "@heroicons/*", "react-icons", or icon libraries other than lucide-react
-- NEVER import from "axios", "swr", or data fetching libraries
-- NEVER import from ANY package not listed above
-- NEVER use require() — only ES module imports
+HARD BANS — these WILL crash the build:
+- NEVER import from "@/components/ui/..." — Button, Card, Badge etc. do NOT exist
+- NEVER import "Mobile" from lucide-react — it does not exist
+- NEVER import from shadcn, @shadcn, @radix-ui, framer-motion, gsap, aos, @heroicons, react-icons, axios, swr, or ANY unlisted package
+- NEVER use require()
+- NEVER use arbitrary font classes like font-[var(...)], font-[...], or font-(...) — use ONLY standard Tailwind: font-normal, font-medium, font-semibold, font-bold, font-extrabold
+- NEVER combine two font-weight classes on the same element
+- NEVER define custom CSS font variables — use Google Fonts via <link> in index.html and Tailwind's font-sans/font-serif/font-mono
 
-If you need a Button, Card, or any UI element: BUILD IT WITH RAW HTML + TAILWIND CLASSES.
-Example button: <button className="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Click me</button>
-Example card: <div className="rounded-xl border border-border bg-card p-6 shadow-sm">content</div>
+For buttons: <button className="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Text</button>
+For cards: <div className="rounded-xl border border-border bg-card p-6 shadow-sm">content</div>
 
-═══════════════════════════════════════════════════════
-FILES YOU MUST GENERATE:
-═══════════════════════════════════════════════════════
+FILES TO GENERATE:
+1. "index.html" — Vite entry with Google Fonts <link>, <div id="root"></div>, <script type="module" src="/src/main.tsx"></script>
+2. "src/main.tsx" — createRoot with StrictMode
+3. "src/App.tsx" — BrowserRouter + Routes + Route path="/" element={<LandingPage />}
+4. "src/index.css" — @tailwind base/components/utilities + :root with HSL vars (space-separated, NO hsl() wrapper) for ALL tokens + .dark block + body { @apply bg-background text-foreground; }
+5. "src/pages/LandingPage.tsx" — composes section components
+6. "src/components/*.tsx" — Header, Hero, sections, Footer
 
-1. "index.html" — standard Vite entry:
-   <!DOCTYPE html>, <html lang="pt-BR">, charset, viewport, title, Google Fonts links, <div id="root"></div>, <script type="module" src="/src/main.tsx"></script>
-
-2. "src/main.tsx" — exact content:
-   import React from 'react';
-   import ReactDOM from 'react-dom/client';
-   import App from './App';
-   import './index.css';
-   ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);
-
-3. "src/App.tsx" — with BrowserRouter, Routes, Route path="/" element={<LandingPage />}
-
-4. "src/index.css" — MUST start with @tailwind base/components/utilities, then :root with HSL CSS vars (space-separated, NO hsl() wrapper):
-   --background: 0 0% 100%;
-   --foreground: 222 84% 5%;
-   --primary: <hue> <sat>% <light>%;
-   --primary-foreground: 0 0% 100%;
-   (include ALL tokens: secondary, accent, muted, destructive, border, input, ring, radius, card, popover + foreground variants)
-   Add .dark block. Add: body { @apply bg-background text-foreground; }
-
-5. "src/pages/LandingPage.tsx" — composes all section components
-
-6. "src/components/" — one file per section (Header, Hero, sections, Footer)
-
-═══════════════════════════════════════════════════════
-STYLING RULES:
-═══════════════════════════════════════════════════════
-- Use ONLY Tailwind utility classes — no inline styles, no CSS modules
-- Use semantic tokens: bg-primary, text-foreground, bg-card, border-border, bg-muted, text-muted-foreground, etc.
-- NEVER use hardcoded colors: no bg-blue-500, text-white, text-black, bg-gray-100, text-gray-600, etc.
-  Instead: text-primary-foreground (not text-white), bg-background (not bg-white), text-foreground (not text-black), bg-muted (not bg-gray-100), text-muted-foreground (not text-gray-600)
-- EXCEPTION: bg-black/50 or bg-white/10 for overlays is OK
+STYLING:
+- ONLY Tailwind utility classes — no inline styles, no CSS modules, no custom CSS variables for fonts
+- Semantic tokens: bg-primary, text-foreground, bg-card, border-border, bg-muted, text-muted-foreground
+- NEVER hardcode colors: no bg-blue-500, text-white, text-black, bg-gray-100
+- EXCEPTION: bg-black/50, bg-white/10 for overlays OK
+- Font weights: ONLY font-normal, font-medium, font-semibold, font-bold, font-extrabold
 - Import cn from "@/lib/utils" for conditional classes
 
-═══════════════════════════════════════════════════════
-COMPONENT RULES:
-═══════════════════════════════════════════════════════
-- TypeScript functional components with proper types
-- Mobile-first responsive: base → sm: → md: → lg:
-- Header: sticky, mobile hamburger with useState toggle
-- All buttons: raw <button> or <a> with Tailwind classes
-- All cards: raw <div> with border/shadow/rounded Tailwind classes
-- Icons: ONLY from lucide-react, size via className="h-5 w-5" or size={20}
-- Images: use exact URLs from spec, always add alt text
-- Smooth hover: transition-all duration-300
+COMPONENTS:
+- TypeScript functional components
+- Mobile-first: base → sm: → md: → lg:
+- Header: sticky, hamburger with useState
+- Raw HTML elements styled with Tailwind — no component library
+- Icons from lucide-react only, sized with className="h-5 w-5"
+- Images: exact URLs from spec, always alt text
 - Semantic HTML: <header>, <main>, <section>, <footer>, <nav>
-- aria-labels on interactive elements
-- All paths: relative or "@/" alias
 
-Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+SELF-CHECK before returning: verify every import path resolves to a file in your output or an allowed package. Verify no className contains font-[...] or font-(...).
+
+Return ONLY valid JSON. No markdown, no code fences, no explanation.`;
 
     console.log("Calling AI gateway to generate React project...");
 
