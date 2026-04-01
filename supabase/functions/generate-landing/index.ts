@@ -427,7 +427,55 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation.`;
       }
     }
 
-    // 4. Ensure index.html exists
+    // 4. Cross-file import validation: verify all local imports resolve
+    const generatedPaths = new Set(parsed.files.map((f) => f.path));
+    for (const f of parsed.files) {
+      if (!f.path.endsWith(".tsx") && !f.path.endsWith(".ts")) continue;
+      // Find all local imports
+      const localImports = [...f.content.matchAll(/from\s+["'](@\/|\.\.?\/)(.*?)["']/g)];
+      for (const match of localImports) {
+        const prefix = match[1];
+        const importPath = match[2];
+        let resolvedPath: string;
+        if (prefix === "@/") {
+          resolvedPath = `src/${importPath}`;
+        } else {
+          // Resolve relative path
+          const dir = f.path.substring(0, f.path.lastIndexOf("/"));
+          resolvedPath = `${dir}/${importPath}`.replace(/\/\.\//g, "/");
+        }
+        // Try with common extensions
+        const candidates = [resolvedPath, `${resolvedPath}.tsx`, `${resolvedPath}.ts`, `${resolvedPath}/index.tsx`, `${resolvedPath}/index.ts`];
+        const found = candidates.some((c) => generatedPaths.has(c));
+        if (!found) {
+          console.warn(`Broken import in ${f.path}: "${prefix}${importPath}" — removing line`);
+          // Remove the entire import line
+          f.content = f.content.replace(
+            new RegExp(`^import\\s+.*from\\s+["']${prefix.replace("/", "\\/")}${importPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'];?\\s*$`, "gm"),
+            `// [removed: broken import "${prefix}${importPath}"]`
+          );
+        }
+      }
+    }
+
+    // 5. Ensure every .tsx file has a default export
+    for (const f of parsed.files) {
+      if (!f.path.endsWith(".tsx")) continue;
+      if (LOCKED_PATHS.has(f.path)) continue;
+      if (!f.content.includes("export default")) {
+        // Try to find the main function/const and add default export
+        const funcMatch = f.content.match(/(?:export\s+)?(?:function|const)\s+(\w+)/);
+        if (funcMatch) {
+          const name = funcMatch[0].includes("export") ? funcMatch[1] : funcMatch[1];
+          if (!f.content.includes(`export default ${name}`)) {
+            f.content += `\nexport default ${name};\n`;
+            console.warn(`Added missing default export for ${name} in ${f.path}`);
+          }
+        }
+      }
+    }
+
+    // 6. Ensure index.html exists
     const hasIndex = parsed.files.some((f) => f.path === "index.html");
     if (!hasIndex) {
       parsed.files.push({
@@ -450,23 +498,40 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation.`;
       });
     }
 
-    // 5. Ensure src/main.tsx exists
+    // 7. Ensure src/main.tsx exists with safe content
     const hasMain = parsed.files.some((f) => f.path === "src/main.tsx");
     if (!hasMain) {
       parsed.files.push({
         path: "src/main.tsx",
-        content: `import React from 'react';
-import ReactDOM from 'react-dom/client';
+        content: `import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+ReactDOM.createRoot(document.getElementById('root')!).render(<App />);
 `,
       });
+    } else {
+      // Fix existing main.tsx — ensure it imports from './App' not './App.tsx'
+      const mainFile = parsed.files.find((f) => f.path === "src/main.tsx");
+      if (mainFile) {
+        mainFile.content = mainFile.content.replace(/from\s+["']\.\/App\.tsx["']/g, "from './App'");
+        // Remove StrictMode if present (can cause double-render issues)
+        mainFile.content = mainFile.content.replace(/import\s+React\s+from\s+['"]react['"];?\s*/g, "");
+        mainFile.content = mainFile.content.replace(/<React\.StrictMode>\s*/g, "");
+        mainFile.content = mainFile.content.replace(/\s*<\/React\.StrictMode>/g, "");
+      }
+    }
+
+    // 8. Ensure src/App.tsx has default export
+    const appFile = parsed.files.find((f) => f.path === "src/App.tsx");
+    if (appFile && !appFile.content.includes("export default")) {
+      appFile.content = appFile.content.replace(
+        /export\s+function\s+App/,
+        "export default function App"
+      );
+      if (!appFile.content.includes("export default")) {
+        appFile.content += "\nexport default App;\n";
+      }
     }
 
     console.log(`Final project: ${parsed.files.length} files (${parsed.files.filter(f => LOCKED_PATHS.has(f.path)).length} locked)`);
