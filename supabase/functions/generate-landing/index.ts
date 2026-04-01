@@ -59,7 +59,8 @@ MANDATORY FILES TO GENERATE:
 
 3. "tsconfig.json" — standard TS config with paths alias
 
-4. "tsconfig.node.json" — for vite config
+4. "tsconfig.node.json" — MUST be valid JSON (no comments, no trailing commas). Use this exact content:
+   {"compilerOptions":{"composite":true,"skipLibCheck":true,"module":"ESNext","moduleResolution":"Bundler","allowSyntheticDefaultImports":true},"include":["vite.config.ts"]}
 
 5. "tailwind.config.ts" — with brand colors mapped to CSS variables (--primary, --secondary, --accent, --background, --foreground, etc.)
 
