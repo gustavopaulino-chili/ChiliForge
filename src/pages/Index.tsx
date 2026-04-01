@@ -325,81 +325,97 @@ const Index = () => {
     );
   }
 
-  // Results view
-  if (showResults) {
+  // Results view — iframe preview
+  if (showResults && generatedLandingUrl) {
     return (
-      <div className="min-h-screen bg-background relative">
+      <div className="min-h-screen bg-background relative flex flex-col">
         <div className="reactive-bg-mouse" />
         <Header onLogoClick={() => setShowLanding(true)} />
-        <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
-          <div className="text-center mb-8">
-            <div className="mb-6">
-              <img src={logoResult} alt="ChiliForge" className="h-16 w-auto mx-auto object-contain" />
+        <main className="flex-1 flex flex-col mx-auto max-w-6xl w-full px-6 py-6 relative z-10">
+          <div className="text-center mb-6">
+            <div className="mb-4">
+              <img src={logoResult} alt="ChiliForge" className="h-14 w-auto mx-auto object-contain" />
             </div>
-            <h2 className="font-display text-3xl font-bold tracking-tight text-foreground">
-              Your Prompt is Ready!
+            <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">
+              Your Landing Page is Ready! 🎉
             </h2>
-            <p className="mt-3 text-muted-foreground max-w-xl mx-auto">
-              Copy the generated prompt below and paste it into a new Lovable project to create your website.
+            <p className="mt-2 text-muted-foreground text-sm max-w-xl mx-auto">
+              Your AI-generated landing page is live. Preview it below or open in a new tab.
             </p>
           </div>
 
-          {generatedImages.length > 0 && (
-            <div className="glass-card rounded-xl p-6 mb-6">
-              <h3 className="form-section-title mb-3">{formData.generateAiImages ? 'AI Generated Images' : 'Stock Photos (Pexels)'}</h3>
-              <div className="grid grid-cols-3 gap-3">
-                {generatedImages.map((img, i) => (
-                  <img key={i} src={img} alt={`AI generated ${i + 1}`} className="rounded-lg w-full h-32 object-cover" />
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="glass-card rounded-xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="form-section-title">Generated Lovable Prompt</h3>
-              <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
-                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                {copied ? 'Copied!' : 'Copy Prompt'}
-              </Button>
-            </div>
-            <pre className="bg-muted rounded-lg p-4 text-sm text-foreground/80 whitespace-pre-wrap overflow-auto max-h-96 font-body leading-relaxed">
-              {prompt}
-            </pre>
-          </div>
-
-          <div className="glass-card rounded-xl p-6 mt-6">
-            <h3 className="form-section-title mb-3">Next Steps</h3>
-            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside">
-              <li>Copy the prompt above</li>
-              <li>Open <a href="https://lovable.dev" target="_blank" rel="noopener" className="text-primary hover:underline">lovable.dev</a> and create a new project</li>
-              <li>Paste the prompt — Lovable will generate your full website</li>
-              <li>Continue editing and customizing</li>
-            </ol>
-          </div>
-
-          <div className="mt-6 flex gap-3">
-            <Button variant="ghost" onClick={() => setShowResults(false)} className="gap-2">
-              <ArrowLeft className="h-4 w-4" /> Edit Details
+          {/* Action bar */}
+          <div className="flex flex-wrap items-center justify-center gap-3 mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                navigator.clipboard.writeText(generatedLandingUrl);
+                setCopiedLink(true);
+                setTimeout(() => setCopiedLink(false), 2000);
+                toast.success('URL copied!');
+              }}
+              className="gap-2"
+            >
+              {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+              {copiedLink ? 'Copied!' : 'Copy URL'}
             </Button>
-            <div className="ml-auto flex gap-3">
-              <Button variant="outline" size="lg" onClick={handleCopy} className="gap-2">
-                <Copy className="h-4 w-4" /> {copied ? 'Copied!' : 'Copy Prompt'}
-              </Button>
-              <Button
-                variant="gradient"
-                size="lg"
-                className="gap-2"
-                onClick={() => {
-                  navigator.clipboard.writeText(prompt).then(() => {
-                    toast.success('Prompt copied! Paste it in the new Lovable project and press Enter.');
-                    window.open('https://lovable.dev', '_blank');
-                  });
-                }}
-              >
-                <ExternalLink className="h-4 w-4" /> Copy & Open Lovable
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(generatedLandingUrl, '_blank')}
+              className="gap-2"
+            >
+              <ExternalLink className="h-4 w-4" /> Open in New Tab
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const a = document.createElement('a');
+                a.href = generatedLandingUrl;
+                a.download = `landing-page-${formData.businessName || 'site'}.html`;
+                a.click();
+              }}
+              className="gap-2"
+            >
+              <Copy className="h-4 w-4" /> Download HTML
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowResults(false);
+                setGeneratedLandingUrl('');
+              }}
+              className="gap-2"
+            >
+              <ArrowLeft className="h-4 w-4" /> Edit & Regenerate
+            </Button>
+          </div>
+
+          {/* URL display */}
+          <div className="rounded-lg border border-border bg-muted/50 px-4 py-2 mb-4 flex items-center gap-2 max-w-2xl mx-auto w-full">
+            <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
+            <a
+              href={generatedLandingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-primary truncate hover:underline flex-1"
+            >
+              {generatedLandingUrl}
+            </a>
+          </div>
+
+          {/* iFrame preview */}
+          <div className="flex-1 min-h-[500px] rounded-xl border border-border overflow-hidden bg-white shadow-lg">
+            <iframe
+              src={generatedLandingUrl}
+              className="w-full h-full min-h-[500px]"
+              style={{ minHeight: '70vh' }}
+              title="Landing Page Preview"
+              sandbox="allow-scripts allow-same-origin"
+            />
           </div>
         </main>
       </div>
