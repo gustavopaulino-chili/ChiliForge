@@ -60,6 +60,8 @@ const Index = () => {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [generatedLandingUrl, setGeneratedLandingUrl] = useState('');
+  const [isGeneratingLanding, setIsGeneratingLanding] = useState(false);
 
   const getLovableUrl = useCallback(() => {
     const promptText = generatePrompt(formData, generatedImages);
