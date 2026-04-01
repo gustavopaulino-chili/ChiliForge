@@ -207,70 +207,83 @@ Return a JSON object with this exact structure:
   ]
 }
 
+═══════════════════════════════════════════════════════
+AVAILABLE PACKAGES (you can ONLY import from these):
+═══════════════════════════════════════════════════════
+- react (import React, { useState, useEffect, useRef, useCallback } from "react")
+- react-dom (import ReactDOM from "react-dom/client")
+- react-router-dom (import { BrowserRouter, Routes, Route } from "react-router-dom")
+- lucide-react (import { Menu, X, Phone, Mail, MapPin, Star, ChevronRight, ArrowRight, Check, Facebook, Instagram, Twitter, Linkedin, Youtube, Heart, Shield, Clock, Users, Zap, Award, Target, TrendingUp, Sparkles, Globe, MessageCircle, Calendar, DollarSign, BarChart3, Layers, Settings, Play, Download, ExternalLink, ChevronDown, ChevronUp, Search, Plus, Minus } from "lucide-react")
+- clsx (import { clsx } from "clsx")
+- tailwind-merge (import { twMerge } from "tailwind-merge")
+
+═══════════════════════════════════════════════════════
+FORBIDDEN IMPORTS — WILL CAUSE BUILD ERRORS:
+═══════════════════════════════════════════════════════
+- NEVER import from "@/components/ui/*" (no Button, Card, Badge, etc.)
+- NEVER import from "shadcn", "@shadcn/*", or any shadcn component
+- NEVER import from "framer-motion", "gsap", "aos", or animation libraries
+- NEVER import from "@heroicons/*", "react-icons", or icon libraries other than lucide-react
+- NEVER import from "axios", "swr", or data fetching libraries
+- NEVER import from ANY package not listed above
+- NEVER use require() — only ES module imports
+
+If you need a Button, Card, or any UI element: BUILD IT WITH RAW HTML + TAILWIND CLASSES.
+Example button: <button className="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Click me</button>
+Example card: <div className="rounded-xl border border-border bg-card p-6 shadow-sm">content</div>
+
+═══════════════════════════════════════════════════════
 FILES YOU MUST GENERATE:
+═══════════════════════════════════════════════════════
 
-1. "index.html" — standard Vite entry point. Must include:
-   - <!DOCTYPE html>, <html lang>, <head> with charset, viewport meta, title
-   - Google Fonts <link> tags if the design uses custom fonts
-   - <div id="root"></div> and <script type="module" src="/src/main.tsx"></script>
+1. "index.html" — standard Vite entry:
+   <!DOCTYPE html>, <html lang="pt-BR">, charset, viewport, title, Google Fonts links, <div id="root"></div>, <script type="module" src="/src/main.tsx"></script>
 
-2. "src/main.tsx" — React 18 entry point with createRoot
+2. "src/main.tsx" — exact content:
+   import React from 'react';
+   import ReactDOM from 'react-dom/client';
+   import App from './App';
+   import './index.css';
+   ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);
 
-3. "src/App.tsx" — main app with BrowserRouter from react-router-dom, rendering LandingPage at "/"
+3. "src/App.tsx" — with BrowserRouter, Routes, Route path="/" element={<LandingPage />}
 
-4. "src/index.css" — MUST start with:
-   @tailwind base;
-   @tailwind components;
-   @tailwind utilities;
-   
-   Then define :root with CSS custom properties in HSL format (space-separated values, NO hsl() wrapper):
+4. "src/index.css" — MUST start with @tailwind base/components/utilities, then :root with HSL CSS vars (space-separated, NO hsl() wrapper):
    --background: 0 0% 100%;
    --foreground: 222 84% 5%;
-   --primary: <brand hue> <saturation>% <lightness>%;
+   --primary: <hue> <sat>% <light>%;
    --primary-foreground: 0 0% 100%;
-   --secondary: ...;
-   --secondary-foreground: ...;
-   --accent: ...;
-   --accent-foreground: ...;
-   --muted: ...;
-   --muted-foreground: ...;
-   --destructive: 0 84% 60%;
-   --destructive-foreground: 0 0% 98%;
-   --border: 220 13% 91%;
-   --input: 220 13% 91%;
-   --ring: <brand hue> <saturation>% <lightness>%;
-   --radius: 0.5rem;
-   --card: 0 0% 100%;
-   --card-foreground: 222 84% 5%;
-   --popover: 0 0% 100%;
-   --popover-foreground: 222 84% 5%;
-   
-   Also add a .dark block with inverted values.
-   Add global styles: body { @apply bg-background text-foreground; }
+   (include ALL tokens: secondary, accent, muted, destructive, border, input, ring, radius, card, popover + foreground variants)
+   Add .dark block. Add: body { @apply bg-background text-foreground; }
 
-5. "src/pages/LandingPage.tsx" — main page composing all section components
+5. "src/pages/LandingPage.tsx" — composes all section components
 
-6. "src/components/" — one file per section:
-   - Header.tsx (sticky, responsive, mobile hamburger menu with state)
-   - Hero.tsx (compelling headline, CTA buttons, hero image/background)
-   - One component per section from the specification
-   - Footer.tsx (contact info, social links, copyright)
+6. "src/components/" — one file per section (Header, Hero, sections, Footer)
 
-CRITICAL RULES:
-- Each component: proper React functional component with TypeScript
-- Use Tailwind CSS classes ONLY — no inline styles, no CSS modules
-- Use semantic color tokens: bg-primary, text-foreground, bg-card, etc.
-- NEVER hardcode colors like bg-blue-500 or text-white — use design tokens (text-primary-foreground, bg-background, etc.)
-- Import cn from "@/lib/utils" when combining conditional classes
-- Use lucide-react for ALL icons (import { IconName } from "lucide-react")
-- Mobile-first responsive: base styles for mobile, sm:, md:, lg: for larger
-- Use the EXACT image URLs from the specification
-- Smooth transitions: transition-all, duration-300, hover: states
-- Use IntersectionObserver or simple CSS animations for scroll effects
-- Proper semantic HTML: <header>, <main>, <section>, <footer>, <nav>
-- Alt text on all <img>, aria-labels on buttons/links
-- All imports must use relative paths or the "@/" alias
-- Do NOT import from packages not in the pre-built package.json
+═══════════════════════════════════════════════════════
+STYLING RULES:
+═══════════════════════════════════════════════════════
+- Use ONLY Tailwind utility classes — no inline styles, no CSS modules
+- Use semantic tokens: bg-primary, text-foreground, bg-card, border-border, bg-muted, text-muted-foreground, etc.
+- NEVER use hardcoded colors: no bg-blue-500, text-white, text-black, bg-gray-100, text-gray-600, etc.
+  Instead: text-primary-foreground (not text-white), bg-background (not bg-white), text-foreground (not text-black), bg-muted (not bg-gray-100), text-muted-foreground (not text-gray-600)
+- EXCEPTION: bg-black/50 or bg-white/10 for overlays is OK
+- Import cn from "@/lib/utils" for conditional classes
+
+═══════════════════════════════════════════════════════
+COMPONENT RULES:
+═══════════════════════════════════════════════════════
+- TypeScript functional components with proper types
+- Mobile-first responsive: base → sm: → md: → lg:
+- Header: sticky, mobile hamburger with useState toggle
+- All buttons: raw <button> or <a> with Tailwind classes
+- All cards: raw <div> with border/shadow/rounded Tailwind classes
+- Icons: ONLY from lucide-react, size via className="h-5 w-5" or size={20}
+- Images: use exact URLs from spec, always add alt text
+- Smooth hover: transition-all duration-300
+- Semantic HTML: <header>, <main>, <section>, <footer>, <nav>
+- aria-labels on interactive elements
+- All paths: relative or "@/" alias
 
 Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
@@ -340,7 +353,48 @@ Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
       throw new Error("AI response missing files array");
     }
 
-    // ── Post-processing: enforce locked files & validate JSON ──────────
+    // ── Post-processing: sanitize, enforce locked files & validate ──────
+    // 0. Sanitize all generated files — fix common AI mistakes
+    const ALLOWED_PACKAGES = new Set([
+      "react", "react-dom", "react-dom/client", "react-router-dom",
+      "lucide-react", "clsx", "tailwind-merge",
+    ]);
+
+    for (const f of parsed.files) {
+      if (!f.path.endsWith(".tsx") && !f.path.endsWith(".ts")) continue;
+      
+      // Remove forbidden imports (shadcn ui, framer-motion, etc.)
+      f.content = f.content.replace(
+        /^import\s+.*from\s+["'](@\/components\/ui\/[^"']+|shadcn[^"']*|framer-motion|gsap|aos|@heroicons\/[^"']+|react-icons[^"']*|axios|swr)["'];?\s*$/gm,
+        "// [removed invalid import]"
+      );
+
+      // Validate all remaining imports are from allowed packages or local paths
+      f.content = f.content.replace(
+        /^(import\s+.*from\s+["'])([^"'.@][^"']*)(["'];?)$/gm,
+        (match, pre, pkg, post) => {
+          const basePkg = pkg.startsWith("@") ? pkg.split("/").slice(0, 2).join("/") : pkg.split("/")[0];
+          if (ALLOWED_PACKAGES.has(pkg) || ALLOWED_PACKAGES.has(basePkg)) return match;
+          console.warn(`Removed forbidden import: ${pkg}`);
+          return `// [removed invalid import: ${basePkg}]`;
+        }
+      );
+
+      // Replace hardcoded color classes with semantic tokens
+      const colorReplacements: [RegExp, string][] = [
+        [/\btext-white\b/g, "text-primary-foreground"],
+        [/\btext-black\b/g, "text-foreground"],
+        [/\bbg-white\b(?!\/)/g, "bg-background"],
+        [/\bbg-black\b(?!\/)/g, "bg-foreground"],
+        [/\btext-gray-(\d00)\b/g, "text-muted-foreground"],
+        [/\bbg-gray-(\d0)0?\b/g, "bg-muted"],
+        [/\bborder-gray-\d+\b/g, "border-border"],
+      ];
+      for (const [re, replacement] of colorReplacements) {
+        f.content = f.content.replace(re, replacement);
+      }
+    }
+
     // 1. Remove any AI-generated config files (they're locked)
     parsed.files = parsed.files.filter((f) => !LOCKED_PATHS.has(f.path));
 
