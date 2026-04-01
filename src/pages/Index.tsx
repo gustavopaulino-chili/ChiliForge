@@ -606,24 +606,96 @@ Include:
 • Typography structure (H1, H2, H3)
 
 ================================================
-DESIGN SYSTEM:
+LOVABLE PLATFORM CONSTRAINTS (MANDATORY):
+
+This project runs on Lovable, which uses:
+- React 18 with TypeScript 5
+- Vite 5 as build tool
+- Tailwind CSS v3 with tailwindcss-animate
+- shadcn/ui component library (based on Radix UI primitives)
+- Lucide React for icons
+- React Router DOM for routing
+- Sonner for toast notifications
+- Framer Motion for animations (if needed)
+
+DO NOT use: Next.js, Angular, Vue, Svelte, or any other framework.
+DO NOT add backend code (Node.js servers, Express, Python, etc.).
+DO NOT use CSS modules or styled-components — use only Tailwind utility classes.
+
+DESIGN SYSTEM (CRITICAL):
+- ALL colors MUST be defined as HSL CSS custom properties in index.css
+- Use semantic design tokens: --background, --foreground, --primary, --primary-foreground, --secondary, --muted, --accent, --card, --border, --ring, --destructive, etc.
+- NEVER hardcode colors directly in components (no text-white, bg-black, bg-red-500, etc.)
+- All colors must go through Tailwind config mapping to CSS variables: bg-primary, text-foreground, border-border, etc.
+- Support both light and dark mode via .dark class on :root
+- Define color tokens in :root { } and .dark { } blocks in index.css
+
+COLOR IMPLEMENTATION PATTERN:
+\`\`\`css
+/* index.css */
+:root {
+  --primary: 210 40% 50%;        /* HSL values without hsl() wrapper */
+  --primary-foreground: 0 0% 100%;
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  /* ... all semantic tokens */
+}
+.dark {
+  --background: 222 47% 11%;
+  --foreground: 0 0% 100%;
+  /* ... dark mode overrides */
+}
+\`\`\`
+
+\`\`\`ts
+// tailwind.config.ts — map tokens to Tailwind classes
+colors: {
+  background: "hsl(var(--background))",
+  foreground: "hsl(var(--foreground))",
+  primary: { DEFAULT: "hsl(var(--primary))", foreground: "hsl(var(--primary-foreground))" },
+  // ... etc
+}
+\`\`\`
+
+COMPONENT ARCHITECTURE:
+- Use shadcn/ui components: Button, Card, Input, Dialog, Sheet, Tabs, Badge, etc.
+- Import from @/components/ui/*
+- Use class-variance-authority (cva) for component variants
+- Use clsx/cn utility for conditional classes: import { cn } from "@/lib/utils"
+- Keep components small and focused — one responsibility per file
+- Place components in src/components/ with logical subdirectories
+- Use @/ path alias for imports (maps to src/)
+
+RESPONSIVE & ACCESSIBILITY:
+- Mobile-first approach with Tailwind breakpoints (sm:, md:, lg:, xl:)
+- Semantic HTML5 elements (header, nav, main, section, footer, article)
+- WCAG 2.1 AA compliance: proper contrast, focus states, aria labels
+- Keyboard navigation support on interactive elements
+
+SEO (MANDATORY):
+- Single H1 per page with target keyword (< 60 chars)
+- Meta description < 160 chars
+- Semantic heading hierarchy (H1 → H2 → H3)
+- Alt text on all images
+- Lazy loading for images below the fold
+- JSON-LD structured data when applicable
+- Responsive viewport meta tag
+
+================================================
+VISUAL DESIGN SYSTEM:
 
 Use exact brand colors: Primary (${data.primaryColor}), Secondary (${data.secondaryColor}), Accent (${data.accentColor}), Text (${data.textColor}), Background (${data.backgroundColor}).
+Map these to HSL CSS custom properties as described above.
 Visual consistency across all sections.
 Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
 Modern premium aesthetic: "${data.preferredStyle}" style.
 
 ================================================
-SEO REQUIREMENTS (MANDATORY):
-
-H1-H3 hierarchy, meta title & description, keyword strategy, image alt-text, semantic HTML, performance optimized.
-
-================================================
 FINAL REQUIREMENTS:
 
-Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations (framer-motion), fast loading, strong CTAs, accessibility compliant.
+Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations, fast loading, strong CTAs, accessibility compliant.
 This must feel like a premium agency project. It must not look like a generic AI layout.
-Generate a polished, production-ready landing page.`;
+Generate a polished, production-ready landing page using ONLY Lovable-compatible technologies.`;
 }
 
 function generatePagesSection(data: BusinessFormData): string {
