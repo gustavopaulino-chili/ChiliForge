@@ -145,15 +145,23 @@ Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("No response from AI");
+    const rawContent = data.choices?.[0]?.message?.content;
+    if (!rawContent) throw new Error("No response from AI");
+
+    // Clean markdown fences and extract JSON
+    const cleaned = rawContent.replace(/```json\s*|```/gi, "").trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error("Could not extract JSON from AI response:", rawContent.substring(0, 500));
+      throw new Error("AI did not return valid JSON");
+    }
 
     let parsed: { files: { path: string; content: string }[] };
     try {
-      parsed = JSON.parse(content);
+      parsed = JSON.parse(jsonMatch[0]);
     } catch {
-      console.error("Failed to parse AI response as JSON:", content.substring(0, 500));
-      throw new Error("AI did not return valid JSON");
+      console.error("Failed to parse extracted JSON:", jsonMatch[0].substring(0, 500));
+      throw new Error("AI returned malformed JSON");
     }
 
     if (!parsed.files || !Array.isArray(parsed.files) || parsed.files.length === 0) {
