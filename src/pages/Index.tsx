@@ -233,6 +233,7 @@ const Index = () => {
 
       if (data?.url) {
         setGeneratedLandingUrl(data.url);
+        if (data.html) setGeneratedHtml(data.html);
         setGenerationProgress(100);
         setGenerationStatus('Landing page generated!');
         toast.success('Landing page generated successfully!');
