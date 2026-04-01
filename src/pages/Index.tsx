@@ -513,7 +513,11 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
   if (data.images.sectionImage2) imgLines.push(`Section Image 2: ${data.images.sectionImage2}${data.sectionImage2Context ? ` (Context: ${data.sectionImage2Context})` : ''}`);
   if (data.images.sectionImage3) imgLines.push(`Section Image 3: ${data.images.sectionImage3}${data.sectionImage3Context ? ` (Context: ${data.sectionImage3Context})` : ''}`);
   data.images.productImages.filter(Boolean).forEach((img, i) => imgLines.push(`Product Image ${i + 1}: ${img}`));
-  aiImages.forEach((img, i) => imgLines.push(`${data.generateAiImages ? 'AI Generated' : 'Stock Photo'} ${i + 1}: ${img}`));
+  if (data.generateAiImages) {
+    aiImages.forEach((img, i) => imgLines.push(`AI Generated ${i + 1}: ${img}`));
+  } else if (aiImages.length > 0) {
+    aiImages.forEach((img, i) => imgLines.push(`Stock Photo (Pexels) ${i + 1}: ${img}`));
+  }
 
   const presetLabel = LANDING_PRESETS.find(p => p.value === data.landingPreset)?.label || 'Landing Page';
 
