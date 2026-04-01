@@ -335,7 +335,7 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation.`;
       
       // Remove forbidden imports (shadcn ui, framer-motion, etc.)
       f.content = f.content.replace(
-        /^import\s+.*from\s+["'](@\/components\/ui\/[^"']+|shadcn[^"']*|framer-motion|gsap|aos|@heroicons\/[^"']+|react-icons[^"']*|axios|swr)["'];?\s*$/gm,
+        /^import\s+.*from\s+["'](@\/components\/ui\/[^"']+|shadcn[^"']*|@shadcn[^"']*|@radix-ui[^"']*|framer-motion|gsap|aos|@heroicons\/[^"']+|react-icons[^"']*|axios|swr)["'];?\s*$/gm,
         "// [removed invalid import]"
       );
 
@@ -350,19 +350,39 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation.`;
         }
       );
 
+      // Remove invalid lucide-react exports (e.g. "Mobile" doesn't exist)
+      const VALID_LUCIDE = new Set(["Menu","X","Phone","Mail","MapPin","Star","ChevronRight","ArrowRight","Check","Facebook","Instagram","Twitter","Linkedin","Youtube","Heart","Shield","Clock","Users","Zap","Award","Target","TrendingUp","Sparkles","Globe","MessageCircle","Calendar","DollarSign","BarChart3","Layers","Settings","Play","Download","ExternalLink","ChevronDown","ChevronUp","Search","Plus","Minus","Eye","EyeOff","Copy","Share2","ThumbsUp","Briefcase","Home","Info","AlertCircle","HelpCircle","Bell","Bookmark","Filter","RefreshCw","Send","Trash2","Edit","Lock","Unlock","Wifi","Monitor","Smartphone","Tablet","Code","Database","Server","Cloud","CreditCard","ShoppingCart","Gift","Percent","Tag","FileText","Image","Video","Music","Headphones","Mic","Volume2","Sun","Moon","Thermometer","Droplets","Wind","Umbrella","Coffee","Utensils","Car","Plane","Train","Ship","Building2","Store","GraduationCap","BookOpen","PenTool","Palette","Camera","Scissors","Wrench","Hammer","Key"]);
+      f.content = f.content.replace(
+        /^(import\s*\{)([^}]+)(\}\s*from\s*["']lucide-react["'];?)$/gm,
+        (match, pre, icons, post) => {
+          const filtered = icons.split(",")
+            .map((s: string) => s.trim())
+            .filter((s: string) => s && VALID_LUCIDE.has(s));
+          if (filtered.length === 0) return "// [removed: no valid lucide icons]";
+          return `${pre} ${filtered.join(", ")} ${post}`;
+        }
+      );
+
+      // Remove arbitrary font classes: font-[...] and font-(...)
+      f.content = f.content.replace(/\bfont-\[[^\]]*\]/g, "");
+      f.content = f.content.replace(/\bfont-\([^)]*\)/g, "");
+
       // Replace hardcoded color classes with semantic tokens
       const colorReplacements: [RegExp, string][] = [
         [/\btext-white\b/g, "text-primary-foreground"],
         [/\btext-black\b/g, "text-foreground"],
         [/\bbg-white\b(?!\/)/g, "bg-background"],
         [/\bbg-black\b(?!\/)/g, "bg-foreground"],
-        [/\btext-gray-(\d00)\b/g, "text-muted-foreground"],
-        [/\bbg-gray-(\d0)0?\b/g, "bg-muted"],
+        [/\btext-gray-\d+\b/g, "text-muted-foreground"],
+        [/\bbg-gray-\d+\b/g, "bg-muted"],
         [/\bborder-gray-\d+\b/g, "border-border"],
       ];
       for (const [re, replacement] of colorReplacements) {
         f.content = f.content.replace(re, replacement);
       }
+
+      // Clean up double spaces left by removals
+      f.content = f.content.replace(/  +/g, " ");
     }
 
     // 1. Remove any AI-generated config files (they're locked)
