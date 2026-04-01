@@ -512,6 +512,7 @@ const Index = () => {
                   setShowResults(false);
                   setGeneratedHtml('');
                   setGeneratedImages([]);
+                  localStorage.removeItem(STORAGE_KEY);
                   toast.success('Form cleared');
                 }
               }}
