@@ -296,7 +296,7 @@ const Index = () => {
 
             <div className="space-y-2">
               <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">
-                Generating your prompt...
+                Generating your landing page...
               </h2>
               <p className="text-muted-foreground text-sm min-h-[1.25rem]">
                 {generationStatus}
