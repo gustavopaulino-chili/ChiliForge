@@ -170,7 +170,7 @@ const Index = () => {
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationProgress(0);
-    setGeneratedLandingUrl('');
+    setGeneratedFiles([]);
 
     if (formData.generateAiImages) {
       setIsGeneratingImages(true);
@@ -204,8 +204,7 @@ const Index = () => {
       }
     }
 
-    // Now generate the actual landing page HTML via AI
-    setGenerationStatus('Generating your landing page with AI...');
+    setGenerationStatus('Generating your React project with AI...');
     setGenerationProgress(50);
 
     const currentPrompt = generatePrompt(formData, generatedImages.length > 0 ? generatedImages : []);
@@ -220,7 +219,7 @@ const Index = () => {
 
       if (error) {
         console.error('Generate landing error:', error);
-        toast.error('Failed to generate landing page. Please try again.');
+        toast.error('Failed to generate project. Please try again.');
         setIsGenerating(false);
         return;
       }
@@ -231,21 +230,20 @@ const Index = () => {
         return;
       }
 
-      if (data?.url) {
-        setGeneratedLandingUrl(data.url);
-        if (data.html) setGeneratedHtml(data.html);
+      if (data?.files && data.files.length > 0) {
+        setGeneratedFiles(data.files);
         setGenerationProgress(100);
-        setGenerationStatus('Landing page generated!');
-        toast.success('Landing page generated successfully!');
+        setGenerationStatus('Project generated!');
+        toast.success(`Project generated with ${data.files.length} files!`);
         await new Promise(r => setTimeout(r, 500));
         setIsGenerating(false);
         setShowResults(true);
       } else {
-        throw new Error('No URL returned');
+        throw new Error('No files returned');
       }
     } catch (err) {
       console.error('Generate landing error:', err);
-      toast.error('Failed to generate landing page. Please try again.');
+      toast.error('Failed to generate project. Please try again.');
       setIsGenerating(false);
     }
   };
