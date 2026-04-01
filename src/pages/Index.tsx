@@ -332,7 +332,7 @@ const Index = () => {
                 onClick={() => {
                   navigator.clipboard.writeText(prompt).then(() => {
                     toast.success('Prompt copied! Paste it in the new Lovable project and press Enter.');
-                    window.open('https://lovable.dev/projects/create', '_blank');
+                    window.open('https://lovable.dev', '_blank');
                   });
                 }}
               >
