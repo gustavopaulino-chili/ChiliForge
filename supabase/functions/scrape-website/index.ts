@@ -37,7 +37,33 @@ serve(async (req) => {
     const html = await siteResponse.text();
     const truncatedHtml = html.length > 80000 ? html.substring(0, 80000) : html;
 
-    console.log(`Fetched ${html.length} chars, sending ${truncatedHtml.length} to AI`);
+    // Pre-extract fonts from HTML for better accuracy
+    const googleFontsMatches = html.match(/fonts\.googleapis\.com\/css2?\?[^"'\s)]+/g) || [];
+    const fontFamiliesFromGoogle = googleFontsMatches
+      .flatMap((url: string) => {
+        const families = url.match(/family=([^&"']+)/g) || [];
+        return families.map((f: string) => decodeURIComponent(f.replace('family=', '').split(':')[0].replace(/\+/g, ' ')));
+      })
+      .filter(Boolean);
+
+    const fontFaceMatches = html.match(/@font-face\s*\{[^}]*font-family:\s*['"]?([^'";}\n]+)['"]?/gi) || [];
+    const fontFamiliesFromFontFace = fontFaceMatches.map((m: string) => {
+      const match = m.match(/font-family:\s*['"]?([^'";}\n]+)['"]?/i);
+      return match ? match[1].trim() : '';
+    }).filter(Boolean);
+
+    const cssVarFonts = html.match(/--[a-z-]*font[a-z-]*:\s*['"]?([^'";}\n]+)['"]?/gi) || [];
+    const fontFamiliesFromVars = cssVarFonts.map((m: string) => {
+      const match = m.match(/:\s*['"]?([^'";}\n]+)['"]?/);
+      return match ? match[1].trim().split(',')[0].trim().replace(/['"]/g, '') : '';
+    }).filter(Boolean);
+
+    const allDetectedFonts = [...new Set([...fontFamiliesFromGoogle, ...fontFamiliesFromFontFace, ...fontFamiliesFromVars])];
+    const fontHint = allDetectedFonts.length > 0 
+      ? `\n\nPRE-DETECTED FONTS FROM HTML: ${allDetectedFonts.join(', ')}\nUse these as the primary source for headingFont and bodyFont fields. The first font is likely the heading font, the second (if different) is likely the body font.`
+      : '';
+
+    console.log(`Fetched ${html.length} chars, detected fonts: ${allDetectedFonts.join(', ') || 'none'}, sending ${truncatedHtml.length} to AI`);
 
     const systemPrompt = `You are a website analyzer expert. Analyze the HTML and extract ALL relevant business information.
 
