@@ -16,7 +16,7 @@ import { NicheTemplateSelector } from '@/components/generator/NicheTemplateSelec
 import { PromptPreview } from '@/components/generator/PromptPreview';
 import { HeroLanding } from '@/components/landing/HeroLanding';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock, Download, Monitor, Smartphone, Tablet, Code } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -60,9 +60,9 @@ const Index = () => {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [generatedLandingUrl, setGeneratedLandingUrl] = useState('');
   const [generatedHtml, setGeneratedHtml] = useState('');
   const [isGeneratingLanding, setIsGeneratingLanding] = useState(false);
-  const [previewViewport, setPreviewViewport] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
 
   const getLovableUrl = useCallback(() => {
     const promptText = generatePrompt(formData, generatedImages);
@@ -170,7 +170,7 @@ const Index = () => {
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationProgress(0);
-    setGeneratedHtml('');
+    setGeneratedLandingUrl('');
 
     if (formData.generateAiImages) {
       setIsGeneratingImages(true);
@@ -204,6 +204,7 @@ const Index = () => {
       }
     }
 
+    // Now generate the actual landing page HTML via AI
     setGenerationStatus('Generating your landing page with AI...');
     setGenerationProgress(50);
 
@@ -230,8 +231,9 @@ const Index = () => {
         return;
       }
 
-      if (data?.html) {
-        setGeneratedHtml(data.html);
+      if (data?.url) {
+        setGeneratedLandingUrl(data.url);
+        if (data.html) setGeneratedHtml(data.html);
         setGenerationProgress(100);
         setGenerationStatus('Landing page generated!');
         toast.success('Landing page generated successfully!');
@@ -239,7 +241,7 @@ const Index = () => {
         setIsGenerating(false);
         setShowResults(true);
       } else {
-        throw new Error('No HTML returned');
+        throw new Error('No URL returned');
       }
     } catch (err) {
       console.error('Generate landing error:', err);
@@ -325,127 +327,99 @@ const Index = () => {
     );
   }
 
-  // Results view — ZIP download
-  if (showResults && generatedHtml) {
-    const viewportWidths = { desktop: '100%', tablet: '768px', mobile: '375px' };
-
-    const handleDownloadHtml = () => {
-      const projectName = (formData.businessName || 'landing-page')
-        .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-      const blob = new Blob([generatedHtml], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${projectName}.html`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success('HTML file downloaded!');
-    };
-
-    const handleViewCode = () => {
-      const win = window.open('', '_blank');
-      if (win) {
-        win.document.write(`<pre style="white-space:pre-wrap;word-break:break-word;font-family:monospace;font-size:13px;padding:20px;background:#1a1a2e;color:#e0e0e0;">${generatedHtml.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`);
-        win.document.close();
-      }
-    };
-
+  // Results view — iframe preview
+  if (showResults && (generatedHtml || generatedLandingUrl)) {
     return (
       <div className="min-h-screen bg-background relative flex flex-col">
         <div className="reactive-bg-mouse" />
         <Header onLogoClick={() => setShowLanding(true)} />
-        <main className="flex-1 flex flex-col mx-auto max-w-7xl w-full px-4 py-6 relative z-10">
+        <main className="flex-1 flex flex-col mx-auto max-w-6xl w-full px-6 py-6 relative z-10">
           <div className="text-center mb-6">
-            <div className="mb-3">
-              <img src={logoResult} alt="ChiliForge" className="h-12 w-auto mx-auto object-contain" />
+            <div className="mb-4">
+              <img src={logoResult} alt="ChiliForge" className="h-14 w-auto mx-auto object-contain" />
             </div>
             <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">
               Your Landing Page is Ready! 🎉
             </h2>
-            <p className="mt-1.5 text-muted-foreground text-sm max-w-xl mx-auto">
-              Preview your landing page below. Download the HTML file to use it anywhere — no build step needed.
+            <p className="mt-2 text-muted-foreground text-sm max-w-xl mx-auto">
+              Your AI-generated landing page is live. Preview it below or open in a new tab.
             </p>
           </div>
 
-          {/* Toolbar */}
-          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-            <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
-              <button
-                onClick={() => setPreviewViewport('desktop')}
-                className={`p-2 rounded-md transition-colors ${previewViewport === 'desktop' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                title="Desktop"
-              >
-                <Monitor className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setPreviewViewport('tablet')}
-                className={`p-2 rounded-md transition-colors ${previewViewport === 'tablet' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                title="Tablet"
-              >
-                <Tablet className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setPreviewViewport('mobile')}
-                className={`p-2 rounded-md transition-colors ${previewViewport === 'mobile' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                title="Mobile"
-              >
-                <Smartphone className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleViewCode} className="gap-2">
-                <Code className="h-4 w-4" /> View Code
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleDownloadHtml} className="gap-2">
-                <Download className="h-4 w-4" /> Download HTML
-              </Button>
-              <Button
-                variant="gradient"
-                size="sm"
-                onClick={() => {
-                  const win = window.open('', '_blank');
-                  if (win) {
-                    win.document.write(generatedHtml);
-                    win.document.close();
-                  }
-                }}
-                className="gap-2"
-              >
-                <ExternalLink className="h-4 w-4" /> Open Full Screen
-              </Button>
-            </div>
-          </div>
-
-          {/* Live Preview */}
-          <div className="flex-1 rounded-xl border border-border bg-muted/30 overflow-hidden flex justify-center" style={{ minHeight: '600px' }}>
-            <iframe
-              srcDoc={generatedHtml}
-              className="bg-background rounded-lg shadow-lg transition-all duration-300"
-              style={{
-                width: viewportWidths[previewViewport],
-                maxWidth: '100%',
-                height: '100%',
-                minHeight: '600px',
-                border: 'none',
+          {/* Action bar */}
+          <div className="flex flex-wrap items-center justify-center gap-3 mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                navigator.clipboard.writeText(generatedLandingUrl);
+                setCopiedLink(true);
+                setTimeout(() => setCopiedLink(false), 2000);
+                toast.success('URL copied!');
               }}
-              title="Landing Page Preview"
-              sandbox="allow-scripts allow-same-origin"
-            />
-          </div>
-
-          {/* Bottom actions */}
-          <div className="mt-4 flex gap-3">
+              className="gap-2"
+            >
+              {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+              {copiedLink ? 'Copied!' : 'Copy URL'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(generatedLandingUrl, '_blank')}
+              className="gap-2"
+            >
+              <ExternalLink className="h-4 w-4" /> Open in New Tab
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const a = document.createElement('a');
+                a.href = generatedLandingUrl;
+                a.download = `landing-page-${formData.businessName || 'site'}.html`;
+                a.click();
+              }}
+              className="gap-2"
+            >
+              <Copy className="h-4 w-4" /> Download HTML
+            </Button>
             <Button
               variant="ghost"
+              size="sm"
               onClick={() => {
                 setShowResults(false);
+                setGeneratedLandingUrl('');
                 setGeneratedHtml('');
               }}
               className="gap-2"
             >
               <ArrowLeft className="h-4 w-4" /> Edit & Regenerate
             </Button>
+          </div>
+
+          {/* URL display */}
+          <div className="rounded-lg border border-border bg-muted/50 px-4 py-2 mb-4 flex items-center gap-2 max-w-2xl mx-auto w-full">
+            <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
+            <a
+              href={generatedLandingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-primary truncate hover:underline flex-1"
+            >
+              {generatedLandingUrl}
+            </a>
+          </div>
+
+          {/* iFrame preview */}
+          <div className="flex-1 min-h-[500px] rounded-xl border border-border overflow-hidden bg-white shadow-lg">
+            <iframe
+              srcDoc={generatedHtml || undefined}
+              src={!generatedHtml ? generatedLandingUrl : undefined}
+              className="w-full h-full min-h-[500px]"
+              style={{ minHeight: '70vh' }}
+              title="Landing Page Preview"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            />
           </div>
         </main>
       </div>
@@ -510,7 +484,6 @@ const Index = () => {
                   setCurrentStep(0);
                   setMaxVisitedStep(0);
                   setShowResults(false);
-                  setGeneratedHtml('');
                   setGeneratedImages([]);
                   localStorage.removeItem(STORAGE_KEY);
                   toast.success('Form cleared');
@@ -662,12 +635,12 @@ EXECUTION RULES:
 ================================================
 MANDATORY STRUCTURE REQUIREMENTS:
 
-This must be a complete visual landing page built as a SINGLE self-contained HTML file.
+This must be a complete visual landing page, not a conceptual blueprint.
 Include:
-• Real header with logo text/placement, navigation anchors, CTA button, sticky behavior
-• Proper responsive mobile hamburger menu with JavaScript toggle
+• Real header with logo placement, navigation anchors, CTA button, sticky behavior
+• Proper responsive mobile menu
 • Hero section aligned with value proposition, background images, CTA with text
-• Alternating section backgrounds for visual rhythm
+• Alternating section backgrounds
 • Clear spacing system and professional layout grid
 • Real footer with contact info, legal links, social icons
 • Defined CTA placements throughout the page
@@ -675,23 +648,65 @@ Include:
 • Typography structure (H1, H2, H3)
 
 ================================================
-TECHNOLOGY:
-- Single self-contained HTML file
-- Tailwind CSS via CDN (https://cdn.tailwindcss.com)
-- Google Fonts via <link> tags
-- Lucide Icons via CDN (https://unpkg.com/lucide@latest)
-- Vanilla JavaScript only for interactivity (mobile menu, scroll animations)
-- NO frameworks (no React, Vue, Angular, etc.)
-- Must work by opening the HTML file directly in a browser
+LOVABLE PLATFORM CONSTRAINTS (MANDATORY):
 
-================================================
-VISUAL DESIGN SYSTEM:
+This project runs on Lovable, which uses:
+- React 18 with TypeScript 5
+- Vite 5 as build tool
+- Tailwind CSS v3 with tailwindcss-animate
+- shadcn/ui component library (based on Radix UI primitives)
+- Lucide React for icons
+- React Router DOM for routing
+- Sonner for toast notifications
+- Framer Motion for animations (if needed)
 
-Use exact brand colors: Primary (${data.primaryColor}), Secondary (${data.secondaryColor}), Accent (${data.accentColor}), Text (${data.textColor}), Background (${data.backgroundColor}).
-Configure these in tailwind.config via the CDN script tag.
-Visual consistency across all sections.
-Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
-Modern premium aesthetic: "${data.preferredStyle}" style.
+DO NOT use: Next.js, Angular, Vue, Svelte, or any other framework.
+DO NOT add backend code (Node.js servers, Express, Python, etc.).
+DO NOT use CSS modules or styled-components — use only Tailwind utility classes.
+
+DESIGN SYSTEM (CRITICAL):
+- ALL colors MUST be defined as HSL CSS custom properties in index.css
+- Use semantic design tokens: --background, --foreground, --primary, --primary-foreground, --secondary, --muted, --accent, --card, --border, --ring, --destructive, etc.
+- NEVER hardcode colors directly in components (no text-white, bg-black, bg-red-500, etc.)
+- All colors must go through Tailwind config mapping to CSS variables: bg-primary, text-foreground, border-border, etc.
+- Support both light and dark mode via .dark class on :root
+- Define color tokens in :root { } and .dark { } blocks in index.css
+
+COLOR IMPLEMENTATION PATTERN:
+\`\`\`css
+/* index.css */
+:root {
+  --primary: 210 40% 50%;        /* HSL values without hsl() wrapper */
+  --primary-foreground: 0 0% 100%;
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  /* ... all semantic tokens */
+}
+.dark {
+  --background: 222 47% 11%;
+  --foreground: 0 0% 100%;
+  /* ... dark mode overrides */
+}
+\`\`\`
+
+\`\`\`ts
+// tailwind.config.ts — map tokens to Tailwind classes
+colors: {
+  background: "hsl(var(--background))",
+  foreground: "hsl(var(--foreground))",
+  primary: { DEFAULT: "hsl(var(--primary))", foreground: "hsl(var(--primary-foreground))" },
+  // ... etc
+}
+\`\`\`
+
+COMPONENT ARCHITECTURE:
+- Use shadcn/ui components: Button, Card, Input, Dialog, Sheet, Tabs, Badge, etc.
+- Import from @/components/ui/*
+- Use class-variance-authority (cva) for component variants
+- Use clsx/cn utility for conditional classes: import { cn } from "@/lib/utils"
+- Keep components small and focused — one responsibility per file
+- Place components in src/components/ with logical subdirectories
+- Use @/ path alias for imports (maps to src/)
 
 RESPONSIVE & ACCESSIBILITY:
 - Mobile-first approach with Tailwind breakpoints (sm:, md:, lg:, xl:)
@@ -705,14 +720,24 @@ SEO (MANDATORY):
 - Semantic heading hierarchy (H1 → H2 → H3)
 - Alt text on all images
 - Lazy loading for images below the fold
+- JSON-LD structured data when applicable
 - Responsive viewport meta tag
+
+================================================
+VISUAL DESIGN SYSTEM:
+
+Use exact brand colors: Primary (${data.primaryColor}), Secondary (${data.secondaryColor}), Accent (${data.accentColor}), Text (${data.textColor}), Background (${data.backgroundColor}).
+Map these to HSL CSS custom properties as described above.
+Visual consistency across all sections.
+Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
+Modern premium aesthetic: "${data.preferredStyle}" style.
 
 ================================================
 FINAL REQUIREMENTS:
 
 Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations, fast loading, strong CTAs, accessibility compliant.
 This must feel like a premium agency project. It must not look like a generic AI layout.
-Generate a polished, production-ready landing page as a single HTML file.`;
+Generate a polished, production-ready landing page using ONLY Lovable-compatible technologies.`;
 }
 
 function generatePagesSection(data: BusinessFormData): string {

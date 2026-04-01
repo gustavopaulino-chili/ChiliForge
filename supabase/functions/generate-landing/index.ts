@@ -30,106 +30,32 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const systemPrompt = `You are an expert web designer and front-end developer. The user will give you a detailed landing page specification.
+    // System prompt: convert the Lovable prompt into a complete standalone HTML file
+    const systemPrompt = `You are an expert front-end developer. The user will give you a detailed landing page specification originally designed for a React/Lovable project.
 
-Your task: Generate a SINGLE, COMPLETE, SELF-CONTAINED HTML file that is a beautiful, modern, responsive landing page.
+Your task: Generate a SINGLE, COMPLETE, STANDALONE HTML file that implements the exact same landing page described.
 
-Return a JSON object with this exact structure:
-{
-  "html": "<!DOCTYPE html>..."
-}
-
-TECHNOLOGY STACK — the HTML file must include everything inline:
-- Tailwind CSS via CDN: <script src="https://cdn.tailwindcss.com"></script>
-- Google Fonts via <link> tags in <head>
-- Lucide Icons via CDN: <script src="https://unpkg.com/lucide@latest"></script> and call lucide.createIcons() at end of body
-- Vanilla JavaScript only — NO frameworks, NO React, NO Vue, NO Angular
-- All CSS custom styles in a <style> tag in <head>
-- All JavaScript in a <script> tag at end of <body>
-
-STRUCTURE OF THE HTML FILE:
-1. <!DOCTYPE html> with lang attribute
-2. <head> with:
-   - charset UTF-8
-   - viewport meta tag
-   - <title> with business name
-   - Meta description for SEO
-   - Google Fonts <link> tags
-   - Tailwind CSS CDN script
-   - Tailwind config script to customize theme colors
-   - <style> tag for custom animations, gradients, and any extra CSS
-3. <body> with:
-   - <header> — sticky navigation with logo text, nav links, mobile hamburger menu
-   - <main> with multiple <section> elements
-   - <footer> with contact info, links, social icons
-   - Lucide icons CDN script
-   - <script> for mobile menu toggle, smooth scroll, scroll animations, and lucide.createIcons()
-
-TAILWIND CONFIGURATION (in the HTML file):
-<script>
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        primary: 'THE_PRIMARY_COLOR',
-        secondary: 'THE_SECONDARY_COLOR',
-        accent: 'THE_ACCENT_COLOR',
-      }
-    }
-  }
-}
-</script>
-
-DESIGN RULES:
-- Modern, premium, professional design — this must look like a real agency-built website
-- Mobile-first responsive design using Tailwind breakpoints (sm:, md:, lg:, xl:)
-- Smooth scroll behavior: html { scroll-behavior: smooth; }
-- Subtle CSS animations (fade-in on scroll, hover effects, transitions)
-- Proper visual hierarchy with clear spacing system
-- Alternating section backgrounds for visual rhythm
-- Professional typography with proper font weights
-- High contrast and readability
-- Images: use exact URLs from the spec, with proper alt text. Use object-cover and rounded corners.
-- If no images provided, use CSS gradients, patterns, or placeholder backgrounds — NOT broken image URLs
-- Icons: use Lucide icons via <i data-lucide="icon-name"></i> syntax
-- Available Lucide icons: menu, x, phone, mail, map-pin, star, chevron-right, arrow-right, check, facebook, instagram, twitter, linkedin, youtube, heart, shield, clock, users, zap, award, target, trending-up, sparkles, globe, message-circle, calendar, dollar-sign, bar-chart-3, layers, settings, play, download, external-link, chevron-down, chevron-up, search, plus, minus, eye, copy, share-2, thumbs-up, briefcase, home, info, alert-circle, help-circle, bell, bookmark, filter, refresh-cw, send, trash-2, edit, lock, unlock, wifi, monitor, smartphone, tablet, code, database, server, cloud, credit-card, shopping-cart, gift, percent, tag, file-text, image, video, music, headphones, mic, volume-2, sun, moon, thermometer, droplets, wind, umbrella, coffee, utensils, car, plane, train, ship, building-2, store, graduation-cap, book-open, pen-tool, palette, camera, scissors, wrench, hammer, key
-
-MOBILE MENU (required JavaScript):
-- Hamburger button visible on mobile, hidden on md+
-- Toggle a mobile nav overlay/drawer
-- Close on link click
-- Smooth transitions
-
-SCROLL ANIMATIONS (required JavaScript):
-- Use IntersectionObserver to add fade-in/slide-up animations as sections enter viewport
-- Add CSS classes for the animations in the <style> block
-- Apply data-animate attribute to sections
-
-MANDATORY SECTIONS:
-- Header/Navigation (sticky)
-- Hero section with headline, subtitle, CTA button(s)
-- At least 3-5 content sections based on the spec
-- Footer with contact info
-
-HARD BANS:
-- NEVER use React, Vue, Angular, or any framework
-- NEVER use require() or import statements (except ES module script type)
-- NEVER reference external JS files you haven't included via CDN
-- NEVER use broken image URLs — if unsure, use a gradient background instead
-- NEVER use placeholder.com or via.placeholder.com — use placehold.co if needed
-- The file must work by simply opening it in a browser — zero build step needed
-
-SELF-CHECK before returning:
-1. The HTML is valid and complete (opens and closes all tags)
-2. Tailwind CDN script is included
-3. tailwind.config script customizes colors from the spec
-4. Mobile menu JavaScript works
-5. lucide.createIcons() is called after the Lucide CDN script
-6. All sections are responsive
-7. No framework code (no React, no JSX, no Vue directives)
-8. The page renders beautifully on first load with no errors
-
-Return ONLY valid JSON with the "html" key. No markdown, no code fences, no explanation.`;
+CRITICAL REQUIREMENTS:
+1. Output ONLY the raw HTML code. No markdown, no \`\`\`, no explanation. Just pure HTML starting with <!DOCTYPE html>.
+2. Use Tailwind CSS via CDN: <script src="https://cdn.tailwindcss.com"></script>
+3. All CSS must be inline via Tailwind classes or in a <style> tag inside the HTML.
+4. All JavaScript must be in <script> tags inside the HTML (for mobile menu toggles, smooth scroll, animations, etc.).
+5. Use Google Fonts via <link> tags if fonts are specified.
+6. All images from the specification must be used via <img> tags with the exact URLs provided.
+7. The page must be fully responsive (mobile-first).
+8. Include smooth scroll behavior, sticky header, mobile hamburger menu.
+9. Include all meta tags for SEO (title, description, viewport, charset).
+10. Use modern CSS: gradients, shadows, transitions, hover effects.
+11. The visual quality must match a premium agency landing page.
+12. Use the EXACT brand colors specified in the prompt (as hex or converted to appropriate format).
+13. Include all sections described in the specification.
+14. Add subtle CSS animations (fade-in on scroll using IntersectionObserver, hover effects, etc.).
+15. The HTML file must work when opened directly in any browser — no build step needed.
+16. Include Font Awesome or Heroicons CDN for icons if needed.
+17. DO NOT use React, Vue, or any framework. Pure HTML + Tailwind + vanilla JS only.
+18. Make the design pixel-perfect, premium, and professional.
+19. Add a favicon link using a generic one or the logo if provided.
+20. Ensure proper contrast ratios and accessibility (alt text, aria-labels, focus states).`;
 
     console.log("Calling AI gateway to generate HTML landing page...");
 
@@ -142,15 +68,14 @@ Return ONLY valid JSON with the "html" key. No markdown, no code fences, no expl
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-pro",
+          model: "google/gemini-2.5-flash",
           messages: [
             { role: "system", content: systemPrompt },
             {
               role: "user",
-              content: `Generate the HTML landing page based on this specification:\n\n${prompt}`,
+              content: `Generate the complete HTML landing page based on this specification:\n\n${prompt}`,
             },
           ],
-          response_format: { type: "json_object" },
         }),
       }
     );
@@ -174,58 +99,56 @@ Return ONLY valid JSON with the "html" key. No markdown, no code fences, no expl
     }
 
     const data = await response.json();
-    const rawContent = data.choices?.[0]?.message?.content;
-    if (!rawContent) throw new Error("No response from AI");
+    let htmlContent = data.choices?.[0]?.message?.content;
+    if (!htmlContent) throw new Error("No response from AI");
 
-    // Clean markdown fences and extract JSON
-    const cleaned = rawContent.replace(/```json\s*|```/gi, "").trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error("Could not extract JSON from AI response:", rawContent.substring(0, 500));
-      throw new Error("AI did not return valid JSON");
+    // Clean up: remove markdown code fences if present
+    htmlContent = htmlContent.trim();
+    if (htmlContent.startsWith("```html")) {
+      htmlContent = htmlContent.slice(7);
+    } else if (htmlContent.startsWith("```")) {
+      htmlContent = htmlContent.slice(3);
+    }
+    if (htmlContent.endsWith("```")) {
+      htmlContent = htmlContent.slice(0, -3);
+    }
+    htmlContent = htmlContent.trim();
+
+    // Validate it looks like HTML
+    if (!htmlContent.includes("<!DOCTYPE") && !htmlContent.includes("<html")) {
+      console.error("Generated content doesn't look like HTML:", htmlContent.substring(0, 200));
+      throw new Error("AI did not generate valid HTML");
     }
 
-    let parsed: { html: string };
-    try {
-      parsed = JSON.parse(jsonMatch[0]);
-    } catch {
-      console.error("Failed to parse extracted JSON:", jsonMatch[0].substring(0, 500));
-      throw new Error("AI returned malformed JSON");
+    // Generate a unique filename
+    const slug = (businessName || "landing")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .substring(0, 30);
+    const timestamp = Date.now();
+    const fileName = `${slug}-${timestamp}.html`;
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from("landing-pages")
+      .upload(fileName, htmlContent, {
+        contentType: "text/html",
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error("Storage upload error:", uploadError);
+      throw new Error(`Failed to upload: ${uploadError.message}`);
     }
 
-    if (!parsed.html || typeof parsed.html !== "string") {
-      throw new Error("AI response missing html content");
-    }
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from("landing-pages")
+      .getPublicUrl(fileName);
 
-    // ── Post-processing: sanitize the HTML ──────
-    let html = parsed.html;
-
-    // Ensure Tailwind CDN is present
-    if (!html.includes("cdn.tailwindcss.com")) {
-      html = html.replace("</head>", '<script src="https://cdn.tailwindcss.com"></script>\n</head>');
-    }
-
-    // Ensure Lucide CDN is present
-    if (!html.includes("lucide")) {
-      html = html.replace("</body>", '<script src="https://unpkg.com/lucide@latest"></script>\n<script>lucide.createIcons();</script>\n</body>');
-    }
-
-    // Ensure lucide.createIcons() is called
-    if (html.includes("lucide") && !html.includes("createIcons")) {
-      html = html.replace("</body>", '<script>lucide.createIcons();</script>\n</body>');
-    }
-
-    // Ensure viewport meta is present
-    if (!html.includes("viewport")) {
-      html = html.replace("<head>", '<head>\n<meta name="viewport" content="width=device-width, initial-scale=1.0">');
-    }
-
-    // Ensure charset is present
-    if (!html.includes("charset")) {
-      html = html.replace("<head>", '<head>\n<meta charset="UTF-8">');
-    }
-
-    console.log(`Generated HTML landing page: ${html.length} chars`);
+    const publicUrl = urlData.publicUrl;
+    console.log("Landing page generated and uploaded:", publicUrl);
 
     // Save to generated_prompts for history
     await supabase
@@ -238,7 +161,12 @@ Return ONLY valid JSON with the "html" key. No markdown, no code fences, no expl
       .single();
 
     return new Response(
-      JSON.stringify({ html }),
+      JSON.stringify({
+        url: publicUrl,
+        html: htmlContent,
+        fileName,
+        htmlLength: htmlContent.length,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
