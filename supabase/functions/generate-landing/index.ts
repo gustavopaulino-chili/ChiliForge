@@ -7,163 +7,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ── Locked config files — AI cannot override these ──────────────────────
-const LOCKED_FILES: Record<string, string> = {
-  "package.json": JSON.stringify({
-    name: "landing-page",
-    private: true,
-    version: "0.0.0",
-    type: "module",
-    scripts: {
-      dev: "vite",
-      build: "vite build",
-      preview: "vite preview",
-    },
-    dependencies: {
-      react: "^18.3.1",
-      "react-dom": "^18.3.1",
-      "react-router-dom": "^6.30.0",
-      "lucide-react": "^0.462.0",
-      clsx: "^2.1.1",
-      "tailwind-merge": "^2.6.0",
-      "tailwindcss-animate": "^1.0.7",
-    },
-    devDependencies: {
-      "@types/react": "^18.3.12",
-      "@types/react-dom": "^18.3.1",
-      "@vitejs/plugin-react": "^4.3.4",
-      autoprefixer: "^10.4.20",
-      postcss: "^8.4.49",
-      tailwindcss: "^3.4.17",
-      typescript: "^5.8.0",
-      vite: "^5.4.19",
-    },
-  }, null, 2),
-
-  "tsconfig.json": JSON.stringify({
-    compilerOptions: {
-      target: "ES2020",
-      useDefineForClassFields: true,
-      lib: ["ES2020", "DOM", "DOM.Iterable"],
-      module: "ESNext",
-      skipLibCheck: true,
-      moduleResolution: "bundler",
-      allowImportingTsExtensions: true,
-      resolveJsonModule: true,
-      isolatedModules: true,
-      noEmit: true,
-      jsx: "react-jsx",
-      strict: false,
-      baseUrl: ".",
-      paths: { "@/*": ["./src/*"] },
-    },
-    include: ["src"],
-    references: [{ path: "./tsconfig.node.json" }],
-  }, null, 2),
-
-  "tsconfig.node.json": JSON.stringify({
-    compilerOptions: {
-      composite: true,
-      skipLibCheck: true,
-      module: "ESNext",
-      moduleResolution: "bundler",
-      allowSyntheticDefaultImports: true,
-    },
-    include: ["vite.config.ts"],
-  }, null, 2),
-
-  "postcss.config.js": `export default {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
-};
-`,
-
-  "vite.config.ts": `import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import path from 'path';
-
-export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
-});
-`,
-
-  "tailwind.config.ts": `import type { Config } from "tailwindcss";
-import animate from "tailwindcss-animate";
-
-export default {
-  darkMode: ["class"],
-  content: ["./index.html", "./src/**/*.{ts,tsx,js,jsx}"],
-  theme: {
-    container: {
-      center: true,
-      padding: "2rem",
-      screens: { "2xl": "1400px" },
-    },
-    extend: {
-      colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
-        primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
-        },
-        secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
-        },
-        accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
-        },
-        muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
-        },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
-        },
-        card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
-        },
-        popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
-        },
-      },
-      borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
-      },
-    },
-  },
-  plugins: [animate],
-} satisfies Config;
-`,
-
-  "src/lib/utils.ts": `import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-`,
-};
-
-const LOCKED_PATHS = new Set(Object.keys(LOCKED_FILES));
-
 serve(async (req) => {
   if (req.method === "OPTIONS")
     return new Response(null, { headers: corsHeaders });
@@ -187,99 +30,108 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const systemPrompt = `You are an expert React front-end architect. The user will give you a detailed landing page specification.
+    const systemPrompt = `You are an expert web designer and front-end developer. The user will give you a detailed landing page specification.
 
-Your task: Generate ONLY the source files for a React + Vite + Tailwind CSS project as a JSON object.
-
-IMPORTANT: The following files are pre-built and MUST NOT be included in your response:
-- package.json
-- tsconfig.json
-- tsconfig.node.json
-- postcss.config.js
-- vite.config.ts
-- tailwind.config.ts
-- src/lib/utils.ts
+Your task: Generate a SINGLE, COMPLETE, SELF-CONTAINED HTML file that is a beautiful, modern, responsive landing page.
 
 Return a JSON object with this exact structure:
 {
-  "files": [
-    { "path": "file/path.ext", "content": "file content as string" }
-  ]
+  "html": "<!DOCTYPE html>..."
 }
 
-ALLOWED PACKAGES — you can ONLY import from these and from files YOU create:
-- react
-- react-dom / react-dom/client
-- react-router-dom
-- lucide-react — ONLY these icons exist: Menu, X, Phone, Mail, MapPin, Star, ChevronRight, ArrowRight, Check, Facebook, Instagram, Twitter, Linkedin, Youtube, Heart, Shield, Clock, Users, Zap, Award, Target, TrendingUp, Sparkles, Globe, MessageCircle, Calendar, DollarSign, BarChart3, Layers, Settings, Play, Download, ExternalLink, ChevronDown, ChevronUp, Search, Plus, Minus, Eye, EyeOff, Copy, Share2, ThumbsUp, Briefcase, Home, Info, AlertCircle, HelpCircle, Bell, Bookmark, Filter, RefreshCw, Send, Trash2, Edit, Lock, Unlock, Wifi, Monitor, Smartphone, Tablet, Code, Database, Server, Cloud, CreditCard, ShoppingCart, Gift, Percent, Tag, FileText, Image, Video, Music, Headphones, Mic, Volume2, Sun, Moon, Thermometer, Droplets, Wind, Umbrella, Coffee, Utensils, Car, Plane, Train, Ship, Building2, Store, GraduationCap, BookOpen, PenTool, Palette, Camera, Scissors, Wrench, Hammer, Key
-- clsx
-- tailwind-merge
-- Local files you generate (import with "./" or "@/")
+TECHNOLOGY STACK — the HTML file must include everything inline:
+- Tailwind CSS via CDN: <script src="https://cdn.tailwindcss.com"></script>
+- Google Fonts via <link> tags in <head>
+- Lucide Icons via CDN: <script src="https://unpkg.com/lucide@latest"></script> and call lucide.createIcons() at end of body
+- Vanilla JavaScript only — NO frameworks, NO React, NO Vue, NO Angular
+- All CSS custom styles in a <style> tag in <head>
+- All JavaScript in a <script> tag at end of <body>
 
-HARD BANS — these WILL crash the build:
-- NEVER import from "@/components/ui/..." — Button, Card, Badge etc. do NOT exist
-- NEVER import "Mobile" from lucide-react — it does not exist
-- NEVER import from shadcn, @shadcn, @radix-ui, framer-motion, gsap, aos, @heroicons, react-icons, axios, swr, or ANY unlisted package
-- NEVER use require()
-- NEVER use arbitrary font classes like font-[var(...)], font-[...], or font-(...) — use ONLY standard Tailwind: font-normal, font-medium, font-semibold, font-bold, font-extrabold
-- NEVER combine two font-weight classes on the same element
-- NEVER define custom CSS font variables — use Google Fonts via <link> in index.html and Tailwind's font-sans/font-serif/font-mono
-- NEVER use hardcoded colors: no text-white, text-black, bg-white, bg-black, bg-blue-500, bg-gray-100 etc.
-  - EXCEPTION: bg-black/50, bg-white/10 opacity overlays are OK
+STRUCTURE OF THE HTML FILE:
+1. <!DOCTYPE html> with lang attribute
+2. <head> with:
+   - charset UTF-8
+   - viewport meta tag
+   - <title> with business name
+   - Meta description for SEO
+   - Google Fonts <link> tags
+   - Tailwind CSS CDN script
+   - Tailwind config script to customize theme colors
+   - <style> tag for custom animations, gradients, and any extra CSS
+3. <body> with:
+   - <header> — sticky navigation with logo text, nav links, mobile hamburger menu
+   - <main> with multiple <section> elements
+   - <footer> with contact info, links, social icons
+   - Lucide icons CDN script
+   - <script> for mobile menu toggle, smooth scroll, scroll animations, and lucide.createIcons()
 
-RUNTIME SAFETY RULES (MANDATORY — violations cause white screen):
-- The project MUST render successfully on the FIRST paint. No white screens allowed.
-- Every component MUST have a default export: export default function ComponentName() { ... }
-- src/App.tsx MUST have: export default function App() { ... } — NEVER export const App or named-only export
-- src/main.tsx MUST import App from "./App" (not from "./App.tsx")
-- Every local import MUST resolve to a file you also generate. If you import "@/components/Header", you MUST generate "src/components/Header.tsx"
-- All data (services, testimonials, features, etc.) MUST be hardcoded as const arrays INSIDE the component file or in a shared data file you also generate. NEVER use undefined variables.
-- NEVER call APIs, fetch(), or any async logic during render
-- NEVER use window, document, localStorage, matchMedia, or any browser API at module top level
-- NEVER use .map(), .filter(), .reduce() on a value that could be undefined — always use a hardcoded array
-- NEVER use React.lazy() or dynamic imports — use static imports only
-- Wrap all .map() calls with a fallback: (items || []).map(...)
-- Every useState must have a proper initial value, never undefined
-- NEVER use useEffect with missing dependencies or infinite loops
-- DO NOT use React.StrictMode — just render <App /> directly in main.tsx
+TAILWIND CONFIGURATION (in the HTML file):
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        primary: 'THE_PRIMARY_COLOR',
+        secondary: 'THE_SECONDARY_COLOR',
+        accent: 'THE_ACCENT_COLOR',
+      }
+    }
+  }
+}
+</script>
 
-For buttons: <button className="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Text</button>
-For cards: <div className="rounded-xl border border-border bg-card p-6 shadow-sm">content</div>
+DESIGN RULES:
+- Modern, premium, professional design — this must look like a real agency-built website
+- Mobile-first responsive design using Tailwind breakpoints (sm:, md:, lg:, xl:)
+- Smooth scroll behavior: html { scroll-behavior: smooth; }
+- Subtle CSS animations (fade-in on scroll, hover effects, transitions)
+- Proper visual hierarchy with clear spacing system
+- Alternating section backgrounds for visual rhythm
+- Professional typography with proper font weights
+- High contrast and readability
+- Images: use exact URLs from the spec, with proper alt text. Use object-cover and rounded corners.
+- If no images provided, use CSS gradients, patterns, or placeholder backgrounds — NOT broken image URLs
+- Icons: use Lucide icons via <i data-lucide="icon-name"></i> syntax
+- Available Lucide icons: menu, x, phone, mail, map-pin, star, chevron-right, arrow-right, check, facebook, instagram, twitter, linkedin, youtube, heart, shield, clock, users, zap, award, target, trending-up, sparkles, globe, message-circle, calendar, dollar-sign, bar-chart-3, layers, settings, play, download, external-link, chevron-down, chevron-up, search, plus, minus, eye, copy, share-2, thumbs-up, briefcase, home, info, alert-circle, help-circle, bell, bookmark, filter, refresh-cw, send, trash-2, edit, lock, unlock, wifi, monitor, smartphone, tablet, code, database, server, cloud, credit-card, shopping-cart, gift, percent, tag, file-text, image, video, music, headphones, mic, volume-2, sun, moon, thermometer, droplets, wind, umbrella, coffee, utensils, car, plane, train, ship, building-2, store, graduation-cap, book-open, pen-tool, palette, camera, scissors, wrench, hammer, key
 
-FILES TO GENERATE:
-1. "index.html" — Vite entry with Google Fonts <link>, <div id="root"></div>, <script type="module" src="/src/main.tsx"></script>
-2. "src/main.tsx" — import App from './App'; createRoot render <App />
-3. "src/App.tsx" — default export function App with BrowserRouter + Routes + Route path="/" element={<LandingPage />}
-4. "src/index.css" — @tailwind base/components/utilities + :root with HSL vars (space-separated, NO hsl() wrapper) for ALL tokens: --background, --foreground, --primary, --primary-foreground, --secondary, --secondary-foreground, --muted, --muted-foreground, --accent, --accent-foreground, --destructive, --destructive-foreground, --card, --card-foreground, --popover, --popover-foreground, --border, --input, --ring, --radius + body { @apply bg-background text-foreground; }
-5. "src/pages/LandingPage.tsx" — default export, composes section components
-6. "src/components/*.tsx" — Header, Hero, sections, Footer — each with default export
+MOBILE MENU (required JavaScript):
+- Hamburger button visible on mobile, hidden on md+
+- Toggle a mobile nav overlay/drawer
+- Close on link click
+- Smooth transitions
 
-STYLING:
-- ONLY Tailwind utility classes — no inline styles, no CSS modules, no custom CSS variables for fonts
-- Semantic tokens: bg-primary, text-foreground, bg-card, border-border, bg-muted, text-muted-foreground
-- Font weights: ONLY font-normal, font-medium, font-semibold, font-bold, font-extrabold
-- Import cn from "@/lib/utils" for conditional classes
+SCROLL ANIMATIONS (required JavaScript):
+- Use IntersectionObserver to add fade-in/slide-up animations as sections enter viewport
+- Add CSS classes for the animations in the <style> block
+- Apply data-animate attribute to sections
 
-COMPONENTS:
-- TypeScript functional components with default export
-- Mobile-first: base → sm: → md: → lg:
-- Header: sticky, hamburger with useState (initial value false)
-- Raw HTML elements styled with Tailwind — no component library
-- Icons from lucide-react only, sized with className="h-5 w-5"
-- Images: use placeholder URLs like "https://placehold.co/600x400" if no specific URL given, always with alt text
-- Semantic HTML: <header>, <main>, <section>, <footer>, <nav>
+MANDATORY SECTIONS:
+- Header/Navigation (sticky)
+- Hero section with headline, subtitle, CTA button(s)
+- At least 3-5 content sections based on the spec
+- Footer with contact info
+
+HARD BANS:
+- NEVER use React, Vue, Angular, or any framework
+- NEVER use require() or import statements (except ES module script type)
+- NEVER reference external JS files you haven't included via CDN
+- NEVER use broken image URLs — if unsure, use a gradient background instead
+- NEVER use placeholder.com or via.placeholder.com — use placehold.co if needed
+- The file must work by simply opening it in a browser — zero build step needed
 
 SELF-CHECK before returning:
-1. Verify EVERY import path resolves to a file in your output or an allowed package
-2. Verify EVERY component file has "export default"
-3. Verify App.tsx imports only components you generated
-4. Verify no className contains font-[...] or font-(...)
-5. Verify no hardcoded color classes (text-white, bg-black, etc.)
-6. Verify all arrays used in .map() are defined as const in the same file
+1. The HTML is valid and complete (opens and closes all tags)
+2. Tailwind CDN script is included
+3. tailwind.config script customizes colors from the spec
+4. Mobile menu JavaScript works
+5. lucide.createIcons() is called after the Lucide CDN script
+6. All sections are responsive
+7. No framework code (no React, no JSX, no Vue directives)
+8. The page renders beautifully on first load with no errors
 
-Return ONLY valid JSON. No markdown, no code fences, no explanation.`;
+Return ONLY valid JSON with the "html" key. No markdown, no code fences, no explanation.`;
 
-    console.log("Calling AI gateway to generate React project...");
+    console.log("Calling AI gateway to generate HTML landing page...");
 
     const response = await fetch(
       "https://ai.gateway.lovable.dev/v1/chat/completions",
@@ -295,7 +147,7 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation.`;
             { role: "system", content: systemPrompt },
             {
               role: "user",
-              content: `Generate the React source files based on this specification:\n\n${prompt}`,
+              content: `Generate the HTML landing page based on this specification:\n\n${prompt}`,
             },
           ],
           response_format: { type: "json_object" },
@@ -333,7 +185,7 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation.`;
       throw new Error("AI did not return valid JSON");
     }
 
-    let parsed: { files: { path: string; content: string }[] };
+    let parsed: { html: string };
     try {
       parsed = JSON.parse(jsonMatch[0]);
     } catch {
@@ -341,200 +193,39 @@ Return ONLY valid JSON. No markdown, no code fences, no explanation.`;
       throw new Error("AI returned malformed JSON");
     }
 
-    if (!parsed.files || !Array.isArray(parsed.files) || parsed.files.length === 0) {
-      throw new Error("AI response missing files array");
+    if (!parsed.html || typeof parsed.html !== "string") {
+      throw new Error("AI response missing html content");
     }
 
-    // ── Post-processing: sanitize, enforce locked files & validate ──────
-    // 0. Sanitize all generated files — fix common AI mistakes
-    const ALLOWED_PACKAGES = new Set([
-      "react", "react-dom", "react-dom/client", "react-router-dom",
-      "lucide-react", "clsx", "tailwind-merge",
-    ]);
+    // ── Post-processing: sanitize the HTML ──────
+    let html = parsed.html;
 
-    for (const f of parsed.files) {
-      if (!f.path.endsWith(".tsx") && !f.path.endsWith(".ts")) continue;
-      
-      // Remove forbidden imports (shadcn ui, framer-motion, etc.)
-      f.content = f.content.replace(
-        /^import\s+.*from\s+["'](@\/components\/ui\/[^"']+|shadcn[^"']*|@shadcn[^"']*|@radix-ui[^"']*|framer-motion|gsap|aos|@heroicons\/[^"']+|react-icons[^"']*|axios|swr)["'];?\s*$/gm,
-        "// [removed invalid import]"
-      );
-
-      // Validate all remaining imports are from allowed packages or local paths
-      f.content = f.content.replace(
-        /^(import\s+.*from\s+["'])([^"'.@][^"']*)(["'];?)$/gm,
-        (match, pre, pkg, post) => {
-          const basePkg = pkg.startsWith("@") ? pkg.split("/").slice(0, 2).join("/") : pkg.split("/")[0];
-          if (ALLOWED_PACKAGES.has(pkg) || ALLOWED_PACKAGES.has(basePkg)) return match;
-          console.warn(`Removed forbidden import: ${pkg}`);
-          return `// [removed invalid import: ${basePkg}]`;
-        }
-      );
-
-      // Remove invalid lucide-react exports (e.g. "Mobile" doesn't exist)
-      const VALID_LUCIDE = new Set(["Menu","X","Phone","Mail","MapPin","Star","ChevronRight","ArrowRight","Check","Facebook","Instagram","Twitter","Linkedin","Youtube","Heart","Shield","Clock","Users","Zap","Award","Target","TrendingUp","Sparkles","Globe","MessageCircle","Calendar","DollarSign","BarChart3","Layers","Settings","Play","Download","ExternalLink","ChevronDown","ChevronUp","Search","Plus","Minus","Eye","EyeOff","Copy","Share2","ThumbsUp","Briefcase","Home","Info","AlertCircle","HelpCircle","Bell","Bookmark","Filter","RefreshCw","Send","Trash2","Edit","Lock","Unlock","Wifi","Monitor","Smartphone","Tablet","Code","Database","Server","Cloud","CreditCard","ShoppingCart","Gift","Percent","Tag","FileText","Image","Video","Music","Headphones","Mic","Volume2","Sun","Moon","Thermometer","Droplets","Wind","Umbrella","Coffee","Utensils","Car","Plane","Train","Ship","Building2","Store","GraduationCap","BookOpen","PenTool","Palette","Camera","Scissors","Wrench","Hammer","Key"]);
-      f.content = f.content.replace(
-        /^(import\s*\{)([^}]+)(\}\s*from\s*["']lucide-react["'];?)$/gm,
-        (match, pre, icons, post) => {
-          const filtered = icons.split(",")
-            .map((s: string) => s.trim())
-            .filter((s: string) => s && VALID_LUCIDE.has(s));
-          if (filtered.length === 0) return "// [removed: no valid lucide icons]";
-          return `${pre} ${filtered.join(", ")} ${post}`;
-        }
-      );
-
-      // Remove arbitrary font classes: font-[...] and font-(...)
-      f.content = f.content.replace(/\bfont-\[[^\]]*\]/g, "");
-      f.content = f.content.replace(/\bfont-\([^)]*\)/g, "");
-
-      // Replace hardcoded color classes with semantic tokens
-      const colorReplacements: [RegExp, string][] = [
-        [/\btext-white\b/g, "text-primary-foreground"],
-        [/\btext-black\b/g, "text-foreground"],
-        [/\bbg-white\b(?!\/)/g, "bg-background"],
-        [/\bbg-black\b(?!\/)/g, "bg-foreground"],
-        [/\btext-gray-\d+\b/g, "text-muted-foreground"],
-        [/\bbg-gray-\d+\b/g, "bg-muted"],
-        [/\bborder-gray-\d+\b/g, "border-border"],
-      ];
-      for (const [re, replacement] of colorReplacements) {
-        f.content = f.content.replace(re, replacement);
-      }
-
-      // Clean up double spaces left by removals
-      f.content = f.content.replace(/  +/g, " ");
+    // Ensure Tailwind CDN is present
+    if (!html.includes("cdn.tailwindcss.com")) {
+      html = html.replace("</head>", '<script src="https://cdn.tailwindcss.com"></script>\n</head>');
     }
 
-    // 1. Remove any AI-generated config files (they're locked)
-    parsed.files = parsed.files.filter((f) => !LOCKED_PATHS.has(f.path));
-
-    // 2. Inject all locked files
-    for (const [path, content] of Object.entries(LOCKED_FILES)) {
-      parsed.files.push({ path, content });
+    // Ensure Lucide CDN is present
+    if (!html.includes("lucide")) {
+      html = html.replace("</body>", '<script src="https://unpkg.com/lucide@latest"></script>\n<script>lucide.createIcons();</script>\n</body>');
     }
 
-    // 3. Validate all JSON files in the output
-    for (const f of parsed.files) {
-      if (f.path.endsWith(".json")) {
-        try {
-          JSON.parse(f.content);
-        } catch {
-          console.error(`Invalid JSON in generated file: ${f.path}`);
-          throw new Error(`Generated file ${f.path} contains invalid JSON`);
-        }
-      }
+    // Ensure lucide.createIcons() is called
+    if (html.includes("lucide") && !html.includes("createIcons")) {
+      html = html.replace("</body>", '<script>lucide.createIcons();</script>\n</body>');
     }
 
-    // 4. Cross-file import validation: verify all local imports resolve
-    const generatedPaths = new Set(parsed.files.map((f) => f.path));
-    for (const f of parsed.files) {
-      if (!f.path.endsWith(".tsx") && !f.path.endsWith(".ts")) continue;
-      // Find all local imports
-      const localImports = [...f.content.matchAll(/from\s+["'](@\/|\.\.?\/)(.*?)["']/g)];
-      for (const match of localImports) {
-        const prefix = match[1];
-        const importPath = match[2];
-        let resolvedPath: string;
-        if (prefix === "@/") {
-          resolvedPath = `src/${importPath}`;
-        } else {
-          // Resolve relative path
-          const dir = f.path.substring(0, f.path.lastIndexOf("/"));
-          resolvedPath = `${dir}/${importPath}`.replace(/\/\.\//g, "/");
-        }
-        // Try with common extensions
-        const candidates = [resolvedPath, `${resolvedPath}.tsx`, `${resolvedPath}.ts`, `${resolvedPath}/index.tsx`, `${resolvedPath}/index.ts`];
-        const found = candidates.some((c) => generatedPaths.has(c));
-        if (!found) {
-          console.warn(`Broken import in ${f.path}: "${prefix}${importPath}" — removing line`);
-          // Remove the entire import line
-          f.content = f.content.replace(
-            new RegExp(`^import\\s+.*from\\s+["']${prefix.replace("/", "\\/")}${importPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'];?\\s*$`, "gm"),
-            `// [removed: broken import "${prefix}${importPath}"]`
-          );
-        }
-      }
+    // Ensure viewport meta is present
+    if (!html.includes("viewport")) {
+      html = html.replace("<head>", '<head>\n<meta name="viewport" content="width=device-width, initial-scale=1.0">');
     }
 
-    // 5. Ensure every .tsx file has a default export
-    for (const f of parsed.files) {
-      if (!f.path.endsWith(".tsx")) continue;
-      if (LOCKED_PATHS.has(f.path)) continue;
-      if (!f.content.includes("export default")) {
-        // Try to find the main function/const and add default export
-        const funcMatch = f.content.match(/(?:export\s+)?(?:function|const)\s+(\w+)/);
-        if (funcMatch) {
-          const name = funcMatch[0].includes("export") ? funcMatch[1] : funcMatch[1];
-          if (!f.content.includes(`export default ${name}`)) {
-            f.content += `\nexport default ${name};\n`;
-            console.warn(`Added missing default export for ${name} in ${f.path}`);
-          }
-        }
-      }
+    // Ensure charset is present
+    if (!html.includes("charset")) {
+      html = html.replace("<head>", '<head>\n<meta charset="UTF-8">');
     }
 
-    // 6. Ensure index.html exists
-    const hasIndex = parsed.files.some((f) => f.path === "index.html");
-    if (!hasIndex) {
-      parsed.files.push({
-        path: "index.html",
-        content: `<!DOCTYPE html>
-<html lang="pt-BR">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${businessName || "Landing Page"}</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>`,
-      });
-    }
-
-    // 7. Ensure src/main.tsx exists with safe content
-    const hasMain = parsed.files.some((f) => f.path === "src/main.tsx");
-    if (!hasMain) {
-      parsed.files.push({
-        path: "src/main.tsx",
-        content: `import ReactDOM from 'react-dom/client';
-import App from './App';
-import './index.css';
-
-ReactDOM.createRoot(document.getElementById('root')!).render(<App />);
-`,
-      });
-    } else {
-      // Fix existing main.tsx — ensure it imports from './App' not './App.tsx'
-      const mainFile = parsed.files.find((f) => f.path === "src/main.tsx");
-      if (mainFile) {
-        mainFile.content = mainFile.content.replace(/from\s+["']\.\/App\.tsx["']/g, "from './App'");
-        // Remove StrictMode if present (can cause double-render issues)
-        mainFile.content = mainFile.content.replace(/import\s+React\s+from\s+['"]react['"];?\s*/g, "");
-        mainFile.content = mainFile.content.replace(/<React\.StrictMode>\s*/g, "");
-        mainFile.content = mainFile.content.replace(/\s*<\/React\.StrictMode>/g, "");
-      }
-    }
-
-    // 8. Ensure src/App.tsx has default export
-    const appFile = parsed.files.find((f) => f.path === "src/App.tsx");
-    if (appFile && !appFile.content.includes("export default")) {
-      appFile.content = appFile.content.replace(
-        /export\s+function\s+App/,
-        "export default function App"
-      );
-      if (!appFile.content.includes("export default")) {
-        appFile.content += "\nexport default App;\n";
-      }
-    }
-
-    console.log(`Final project: ${parsed.files.length} files (${parsed.files.filter(f => LOCKED_PATHS.has(f.path)).length} locked)`);
+    console.log(`Generated HTML landing page: ${html.length} chars`);
 
     // Save to generated_prompts for history
     await supabase
@@ -547,10 +238,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(<App />);
       .single();
 
     return new Response(
-      JSON.stringify({
-        files: parsed.files,
-        fileCount: parsed.files.length,
-      }),
+      JSON.stringify({ html }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
