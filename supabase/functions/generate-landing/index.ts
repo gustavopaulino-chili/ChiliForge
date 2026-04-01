@@ -47,7 +47,8 @@ MANDATORY FILES TO GENERATE:
    - react, react-dom (^18.3.1)
    - react-router-dom (^6.30.0)
    - lucide-react (^0.462.0)
-   - tailwindcss (^3.4.17), autoprefixer, postcss
+   - tailwindcss (^3.4.17), tailwindcss-animate (^1.0.7), autoprefixer, postcss
+   - tailwind-merge (^2.6.0), clsx (^2.1.1)
    - @vitejs/plugin-react (devDep)
    - vite (^5.4.19, devDep)
    - typescript (^5.8.0, devDep)
@@ -58,7 +59,8 @@ MANDATORY FILES TO GENERATE:
 
 3. "tsconfig.json" — standard TS config with paths alias
 
-4. "tsconfig.node.json" — for vite config
+4. "tsconfig.node.json" — MUST be valid JSON (no comments, no trailing commas). Use this exact content:
+   {"compilerOptions":{"composite":true,"skipLibCheck":true,"module":"ESNext","moduleResolution":"Bundler","allowSyntheticDefaultImports":true},"include":["vite.config.ts"]}
 
 5. "tailwind.config.ts" — with brand colors mapped to CSS variables (--primary, --secondary, --accent, --background, --foreground, etc.)
 
