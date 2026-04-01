@@ -61,8 +61,7 @@ const Index = () => {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [generatedLandingUrl, setGeneratedLandingUrl] = useState('');
-  const [generatedHtml, setGeneratedHtml] = useState('');
+  const [generatedFiles, setGeneratedFiles] = useState<{ path: string; content: string }[]>([]);
   const [isGeneratingLanding, setIsGeneratingLanding] = useState(false);
 
   const getLovableUrl = useCallback(() => {
