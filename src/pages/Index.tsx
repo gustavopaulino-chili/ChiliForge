@@ -169,6 +169,7 @@ const Index = () => {
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationProgress(0);
+    setGeneratedLandingUrl('');
 
     if (formData.generateAiImages) {
       setIsGeneratingImages(true);
@@ -180,24 +181,12 @@ const Index = () => {
         const images: string[] = [];
         for (let idx = 0; idx < purposes.length; idx++) {
           setGenerationStatus(`Generating image ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
-          setGenerationProgress(Math.round(((idx) / (purposes.length + 1)) * 100));
+          setGenerationProgress(Math.round(((idx) / (purposes.length + 3)) * 100));
           const url = await invokeWithRetry(purposes[idx], referenceUrl);
           if (url) images.push(url);
         }
-
         setGeneratedImages(images);
-        setGenerationStatus('Building final prompt...');
-        setGenerationProgress(90);
-
-        if (images.length > 0) {
-          toast.success(`${images.length}/${purposes.length} AI images generated`);
-        }
-        if (images.length < purposes.length && images.length > 0) {
-          toast.info(`${purposes.length - images.length} image(s) skipped due to rate limits — prompt still includes the successful ones`);
-        }
-        if (images.length === 0) {
-          toast.warning('Could not generate images due to rate limits. The prompt will work without them.');
-        }
+        if (images.length > 0) toast.success(`${images.length}/${purposes.length} AI images generated`);
       } catch (err) {
         console.error('Image generation error:', err);
         toast.error('Error generating AI images');
@@ -205,27 +194,58 @@ const Index = () => {
         setIsGeneratingImages(false);
       }
     } else if (!hasUserImages()) {
-      // No AI images and no user images — search Pexels for stock photos
       setGenerationStatus('Searching for relevant stock images...');
-      setGenerationProgress(30);
+      setGenerationProgress(10);
       const pexelsImages = await searchPexelsImages();
       if (pexelsImages.length > 0) {
         setGeneratedImages(pexelsImages);
         toast.success(`Found ${pexelsImages.length} stock images from Pexels`);
       }
-      setGenerationProgress(70);
-    } else {
-      setGenerationStatus('Building prompt...');
-      setGenerationProgress(50);
     }
 
-    await new Promise(r => setTimeout(r, 600));
-    setGenerationProgress(100);
-    setGenerationStatus('Done!');
-    await new Promise(r => setTimeout(r, 400));
+    // Now generate the actual landing page HTML via AI
+    setGenerationStatus('Generating your landing page with AI...');
+    setGenerationProgress(50);
 
-    setIsGenerating(false);
-    setShowResults(true);
+    const currentPrompt = generatePrompt(formData, generatedImages.length > 0 ? generatedImages : []);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-landing', {
+        body: {
+          prompt: currentPrompt,
+          businessName: formData.businessName,
+        },
+      });
+
+      if (error) {
+        console.error('Generate landing error:', error);
+        toast.error('Failed to generate landing page. Please try again.');
+        setIsGenerating(false);
+        return;
+      }
+
+      if (data?.error) {
+        toast.error(data.error);
+        setIsGenerating(false);
+        return;
+      }
+
+      if (data?.url) {
+        setGeneratedLandingUrl(data.url);
+        setGenerationProgress(100);
+        setGenerationStatus('Landing page generated!');
+        toast.success('Landing page generated successfully!');
+        await new Promise(r => setTimeout(r, 500));
+        setIsGenerating(false);
+        setShowResults(true);
+      } else {
+        throw new Error('No URL returned');
+      }
+    } catch (err) {
+      console.error('Generate landing error:', err);
+      toast.error('Failed to generate landing page. Please try again.');
+      setIsGenerating(false);
+    }
   };
 
   const prompt = generatePrompt(formData, generatedImages);
