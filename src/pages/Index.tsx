@@ -60,6 +60,8 @@ const Index = () => {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [generatedLandingUrl, setGeneratedLandingUrl] = useState('');
+  const [isGeneratingLanding, setIsGeneratingLanding] = useState(false);
 
   const getLovableUrl = useCallback(() => {
     const promptText = generatePrompt(formData, generatedImages);
@@ -167,6 +169,7 @@ const Index = () => {
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationProgress(0);
+    setGeneratedLandingUrl('');
 
     if (formData.generateAiImages) {
       setIsGeneratingImages(true);
@@ -178,24 +181,12 @@ const Index = () => {
         const images: string[] = [];
         for (let idx = 0; idx < purposes.length; idx++) {
           setGenerationStatus(`Generating image ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
-          setGenerationProgress(Math.round(((idx) / (purposes.length + 1)) * 100));
+          setGenerationProgress(Math.round(((idx) / (purposes.length + 3)) * 100));
           const url = await invokeWithRetry(purposes[idx], referenceUrl);
           if (url) images.push(url);
         }
-
         setGeneratedImages(images);
-        setGenerationStatus('Building final prompt...');
-        setGenerationProgress(90);
-
-        if (images.length > 0) {
-          toast.success(`${images.length}/${purposes.length} AI images generated`);
-        }
-        if (images.length < purposes.length && images.length > 0) {
-          toast.info(`${purposes.length - images.length} image(s) skipped due to rate limits — prompt still includes the successful ones`);
-        }
-        if (images.length === 0) {
-          toast.warning('Could not generate images due to rate limits. The prompt will work without them.');
-        }
+        if (images.length > 0) toast.success(`${images.length}/${purposes.length} AI images generated`);
       } catch (err) {
         console.error('Image generation error:', err);
         toast.error('Error generating AI images');
@@ -203,27 +194,58 @@ const Index = () => {
         setIsGeneratingImages(false);
       }
     } else if (!hasUserImages()) {
-      // No AI images and no user images — search Pexels for stock photos
       setGenerationStatus('Searching for relevant stock images...');
-      setGenerationProgress(30);
+      setGenerationProgress(10);
       const pexelsImages = await searchPexelsImages();
       if (pexelsImages.length > 0) {
         setGeneratedImages(pexelsImages);
         toast.success(`Found ${pexelsImages.length} stock images from Pexels`);
       }
-      setGenerationProgress(70);
-    } else {
-      setGenerationStatus('Building prompt...');
-      setGenerationProgress(50);
     }
 
-    await new Promise(r => setTimeout(r, 600));
-    setGenerationProgress(100);
-    setGenerationStatus('Done!');
-    await new Promise(r => setTimeout(r, 400));
+    // Now generate the actual landing page HTML via AI
+    setGenerationStatus('Generating your landing page with AI...');
+    setGenerationProgress(50);
 
-    setIsGenerating(false);
-    setShowResults(true);
+    const currentPrompt = generatePrompt(formData, generatedImages.length > 0 ? generatedImages : []);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-landing', {
+        body: {
+          prompt: currentPrompt,
+          businessName: formData.businessName,
+        },
+      });
+
+      if (error) {
+        console.error('Generate landing error:', error);
+        toast.error('Failed to generate landing page. Please try again.');
+        setIsGenerating(false);
+        return;
+      }
+
+      if (data?.error) {
+        toast.error(data.error);
+        setIsGenerating(false);
+        return;
+      }
+
+      if (data?.url) {
+        setGeneratedLandingUrl(data.url);
+        setGenerationProgress(100);
+        setGenerationStatus('Landing page generated!');
+        toast.success('Landing page generated successfully!');
+        await new Promise(r => setTimeout(r, 500));
+        setIsGenerating(false);
+        setShowResults(true);
+      } else {
+        throw new Error('No URL returned');
+      }
+    } catch (err) {
+      console.error('Generate landing error:', err);
+      toast.error('Failed to generate landing page. Please try again.');
+      setIsGenerating(false);
+    }
   };
 
   const prompt = generatePrompt(formData, generatedImages);
@@ -274,7 +296,7 @@ const Index = () => {
 
             <div className="space-y-2">
               <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">
-                Generating your prompt...
+                Generating your landing page...
               </h2>
               <p className="text-muted-foreground text-sm min-h-[1.25rem]">
                 {generationStatus}
@@ -303,81 +325,97 @@ const Index = () => {
     );
   }
 
-  // Results view
-  if (showResults) {
+  // Results view — iframe preview
+  if (showResults && generatedLandingUrl) {
     return (
-      <div className="min-h-screen bg-background relative">
+      <div className="min-h-screen bg-background relative flex flex-col">
         <div className="reactive-bg-mouse" />
         <Header onLogoClick={() => setShowLanding(true)} />
-        <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
-          <div className="text-center mb-8">
-            <div className="mb-6">
-              <img src={logoResult} alt="ChiliForge" className="h-16 w-auto mx-auto object-contain" />
+        <main className="flex-1 flex flex-col mx-auto max-w-6xl w-full px-6 py-6 relative z-10">
+          <div className="text-center mb-6">
+            <div className="mb-4">
+              <img src={logoResult} alt="ChiliForge" className="h-14 w-auto mx-auto object-contain" />
             </div>
-            <h2 className="font-display text-3xl font-bold tracking-tight text-foreground">
-              Your Prompt is Ready!
+            <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">
+              Your Landing Page is Ready! 🎉
             </h2>
-            <p className="mt-3 text-muted-foreground max-w-xl mx-auto">
-              Copy the generated prompt below and paste it into a new Lovable project to create your website.
+            <p className="mt-2 text-muted-foreground text-sm max-w-xl mx-auto">
+              Your AI-generated landing page is live. Preview it below or open in a new tab.
             </p>
           </div>
 
-          {generatedImages.length > 0 && (
-            <div className="glass-card rounded-xl p-6 mb-6">
-              <h3 className="form-section-title mb-3">{formData.generateAiImages ? 'AI Generated Images' : 'Stock Photos (Pexels)'}</h3>
-              <div className="grid grid-cols-3 gap-3">
-                {generatedImages.map((img, i) => (
-                  <img key={i} src={img} alt={`AI generated ${i + 1}`} className="rounded-lg w-full h-32 object-cover" />
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="glass-card rounded-xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="form-section-title">Generated Lovable Prompt</h3>
-              <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
-                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                {copied ? 'Copied!' : 'Copy Prompt'}
-              </Button>
-            </div>
-            <pre className="bg-muted rounded-lg p-4 text-sm text-foreground/80 whitespace-pre-wrap overflow-auto max-h-96 font-body leading-relaxed">
-              {prompt}
-            </pre>
-          </div>
-
-          <div className="glass-card rounded-xl p-6 mt-6">
-            <h3 className="form-section-title mb-3">Next Steps</h3>
-            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside">
-              <li>Copy the prompt above</li>
-              <li>Open <a href="https://lovable.dev" target="_blank" rel="noopener" className="text-primary hover:underline">lovable.dev</a> and create a new project</li>
-              <li>Paste the prompt — Lovable will generate your full website</li>
-              <li>Continue editing and customizing</li>
-            </ol>
-          </div>
-
-          <div className="mt-6 flex gap-3">
-            <Button variant="ghost" onClick={() => setShowResults(false)} className="gap-2">
-              <ArrowLeft className="h-4 w-4" /> Edit Details
+          {/* Action bar */}
+          <div className="flex flex-wrap items-center justify-center gap-3 mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                navigator.clipboard.writeText(generatedLandingUrl);
+                setCopiedLink(true);
+                setTimeout(() => setCopiedLink(false), 2000);
+                toast.success('URL copied!');
+              }}
+              className="gap-2"
+            >
+              {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+              {copiedLink ? 'Copied!' : 'Copy URL'}
             </Button>
-            <div className="ml-auto flex gap-3">
-              <Button variant="outline" size="lg" onClick={handleCopy} className="gap-2">
-                <Copy className="h-4 w-4" /> {copied ? 'Copied!' : 'Copy Prompt'}
-              </Button>
-              <Button
-                variant="gradient"
-                size="lg"
-                className="gap-2"
-                onClick={() => {
-                  navigator.clipboard.writeText(prompt).then(() => {
-                    toast.success('Prompt copied! Paste it in the new Lovable project and press Enter.');
-                    window.open('https://lovable.dev', '_blank');
-                  });
-                }}
-              >
-                <ExternalLink className="h-4 w-4" /> Copy & Open Lovable
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(generatedLandingUrl, '_blank')}
+              className="gap-2"
+            >
+              <ExternalLink className="h-4 w-4" /> Open in New Tab
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const a = document.createElement('a');
+                a.href = generatedLandingUrl;
+                a.download = `landing-page-${formData.businessName || 'site'}.html`;
+                a.click();
+              }}
+              className="gap-2"
+            >
+              <Copy className="h-4 w-4" /> Download HTML
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowResults(false);
+                setGeneratedLandingUrl('');
+              }}
+              className="gap-2"
+            >
+              <ArrowLeft className="h-4 w-4" /> Edit & Regenerate
+            </Button>
+          </div>
+
+          {/* URL display */}
+          <div className="rounded-lg border border-border bg-muted/50 px-4 py-2 mb-4 flex items-center gap-2 max-w-2xl mx-auto w-full">
+            <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
+            <a
+              href={generatedLandingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-primary truncate hover:underline flex-1"
+            >
+              {generatedLandingUrl}
+            </a>
+          </div>
+
+          {/* iFrame preview */}
+          <div className="flex-1 min-h-[500px] rounded-xl border border-border overflow-hidden bg-white shadow-lg">
+            <iframe
+              src={generatedLandingUrl}
+              className="w-full h-full min-h-[500px]"
+              style={{ minHeight: '70vh' }}
+              title="Landing Page Preview"
+              sandbox="allow-scripts allow-same-origin"
+            />
           </div>
         </main>
       </div>
@@ -468,7 +506,7 @@ const Index = () => {
               {isGeneratingImages ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Generating Images...</>
               ) : (
-                <><Sparkles className="h-4 w-4" /> Generate Prompt</>
+                <><Sparkles className="h-4 w-4" /> Generate Landing Page</>
               )}
             </Button>
           )}
