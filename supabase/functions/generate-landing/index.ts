@@ -30,34 +30,79 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // System prompt: convert the Lovable prompt into a complete standalone HTML file
-    const systemPrompt = `You are an expert front-end developer. The user will give you a detailed landing page specification originally designed for a React/Lovable project.
+    const systemPrompt = `You are an expert React front-end architect. The user will give you a detailed landing page specification.
 
-Your task: Generate a SINGLE, COMPLETE, STANDALONE HTML file that implements the exact same landing page described.
+Your task: Generate a COMPLETE React + Vite + Tailwind CSS project as a JSON object containing all project files.
 
-CRITICAL REQUIREMENTS:
-1. Output ONLY the raw HTML code. No markdown, no \`\`\`, no explanation. Just pure HTML starting with <!DOCTYPE html>.
-2. Use Tailwind CSS via CDN: <script src="https://cdn.tailwindcss.com"></script>
-3. All CSS must be inline via Tailwind classes or in a <style> tag inside the HTML.
-4. All JavaScript must be in <script> tags inside the HTML (for mobile menu toggles, smooth scroll, animations, etc.).
-5. Use Google Fonts via <link> tags if fonts are specified.
-6. All images from the specification must be used via <img> tags with the exact URLs provided.
-7. The page must be fully responsive (mobile-first).
-8. Include smooth scroll behavior, sticky header, mobile hamburger menu.
-9. Include all meta tags for SEO (title, description, viewport, charset).
-10. Use modern CSS: gradients, shadows, transitions, hover effects.
-11. The visual quality must match a premium agency landing page.
-12. Use the EXACT brand colors specified in the prompt (as hex or converted to appropriate format).
-13. Include all sections described in the specification.
-14. Add subtle CSS animations (fade-in on scroll using IntersectionObserver, hover effects, etc.).
-15. The HTML file must work when opened directly in any browser — no build step needed.
-16. Include Font Awesome or Heroicons CDN for icons if needed.
-17. DO NOT use React, Vue, or any framework. Pure HTML + Tailwind + vanilla JS only.
-18. Make the design pixel-perfect, premium, and professional.
-19. Add a favicon link using a generic one or the logo if provided.
-20. Ensure proper contrast ratios and accessibility (alt text, aria-labels, focus states).`;
+Return a JSON object with this exact structure:
+{
+  "files": [
+    { "path": "file/path.ext", "content": "file content as string" }
+  ]
+}
 
-    console.log("Calling AI gateway to generate HTML landing page...");
+MANDATORY FILES TO GENERATE:
+
+1. "package.json" — with these exact dependencies:
+   - react, react-dom (^18.3.1)
+   - react-router-dom (^6.30.0)
+   - lucide-react (^0.462.0)
+   - tailwindcss (^3.4.17), autoprefixer, postcss
+   - @vitejs/plugin-react (devDep)
+   - vite (^5.4.19, devDep)
+   - typescript (^5.8.0, devDep)
+   - @types/react, @types/react-dom (devDeps)
+   Scripts: dev, build, preview
+
+2. "vite.config.ts" — standard React Vite config with path alias "@" -> "./src"
+
+3. "tsconfig.json" — standard TS config with paths alias
+
+4. "tsconfig.node.json" — for vite config
+
+5. "tailwind.config.ts" — with brand colors mapped to CSS variables (--primary, --secondary, --accent, --background, --foreground, etc.)
+
+6. "postcss.config.js" — tailwindcss + autoprefixer
+
+7. "index.html" — standard Vite entry with meta tags, title, Google Fonts links if needed
+
+8. "src/main.tsx" — React entry point
+
+9. "src/App.tsx" — main app with React Router, rendering the LandingPage
+
+10. "src/index.css" — Tailwind directives + CSS custom properties for all brand colors in HSL format in :root and .dark
+
+11. "src/lib/utils.ts" — cn() utility using clsx + tailwind-merge
+
+12. "src/pages/LandingPage.tsx" — the main landing page component that imports and composes all section components
+
+13. "src/components/" — individual section components:
+    - Header.tsx (sticky, responsive, mobile menu)
+    - Hero.tsx (compelling headline, CTA, background)
+    - One component per section from the specification
+    - Footer.tsx (contact, social, legal)
+    - Any shared UI components (Button, Card, etc.)
+
+CRITICAL RULES:
+- Each component must be a proper React functional component with TypeScript
+- Use Tailwind CSS classes ONLY — no inline styles, no CSS modules
+- Use semantic color tokens: bg-primary, text-foreground, etc. (mapped via tailwind.config.ts)
+- NEVER hardcode colors like bg-blue-500, text-white — always use design tokens
+- Use lucide-react for all icons
+- Mobile-first responsive design with sm:, md:, lg: breakpoints
+- Proper TypeScript types
+- Use the EXACT image URLs from the specification
+- Smooth animations with Tailwind (animate-*, transition-*)
+- Use IntersectionObserver for scroll animations
+- The project must work with: npm install && npm run dev
+- Make it production-quality, premium, professional
+- Keep components focused — one per file
+- Use proper semantic HTML (header, main, section, footer, nav)
+- Alt text on all images, aria-labels on interactive elements
+
+Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+
+    console.log("Calling AI gateway to generate React project...");
 
     const response = await fetch(
       "https://ai.gateway.lovable.dev/v1/chat/completions",
@@ -73,9 +118,10 @@ CRITICAL REQUIREMENTS:
             { role: "system", content: systemPrompt },
             {
               role: "user",
-              content: `Generate the complete HTML landing page based on this specification:\n\n${prompt}`,
+              content: `Generate the complete React project based on this specification:\n\n${prompt}`,
             },
           ],
+          response_format: { type: "json_object" },
         }),
       }
     );
@@ -99,56 +145,22 @@ CRITICAL REQUIREMENTS:
     }
 
     const data = await response.json();
-    let htmlContent = data.choices?.[0]?.message?.content;
-    if (!htmlContent) throw new Error("No response from AI");
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error("No response from AI");
 
-    // Clean up: remove markdown code fences if present
-    htmlContent = htmlContent.trim();
-    if (htmlContent.startsWith("```html")) {
-      htmlContent = htmlContent.slice(7);
-    } else if (htmlContent.startsWith("```")) {
-      htmlContent = htmlContent.slice(3);
-    }
-    if (htmlContent.endsWith("```")) {
-      htmlContent = htmlContent.slice(0, -3);
-    }
-    htmlContent = htmlContent.trim();
-
-    // Validate it looks like HTML
-    if (!htmlContent.includes("<!DOCTYPE") && !htmlContent.includes("<html")) {
-      console.error("Generated content doesn't look like HTML:", htmlContent.substring(0, 200));
-      throw new Error("AI did not generate valid HTML");
+    let parsed: { files: { path: string; content: string }[] };
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      console.error("Failed to parse AI response as JSON:", content.substring(0, 500));
+      throw new Error("AI did not return valid JSON");
     }
 
-    // Generate a unique filename
-    const slug = (businessName || "landing")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .substring(0, 30);
-    const timestamp = Date.now();
-    const fileName = `${slug}-${timestamp}.html`;
-
-    // Upload to Supabase Storage
-    const { error: uploadError } = await supabase.storage
-      .from("landing-pages")
-      .upload(fileName, htmlContent, {
-        contentType: "text/html",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error("Storage upload error:", uploadError);
-      throw new Error(`Failed to upload: ${uploadError.message}`);
+    if (!parsed.files || !Array.isArray(parsed.files) || parsed.files.length === 0) {
+      throw new Error("AI response missing files array");
     }
 
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from("landing-pages")
-      .getPublicUrl(fileName);
-
-    const publicUrl = urlData.publicUrl;
-    console.log("Landing page generated and uploaded:", publicUrl);
+    console.log(`Generated ${parsed.files.length} files for React project`);
 
     // Save to generated_prompts for history
     await supabase
@@ -162,10 +174,8 @@ CRITICAL REQUIREMENTS:
 
     return new Response(
       JSON.stringify({
-        url: publicUrl,
-        html: htmlContent,
-        fileName,
-        htmlLength: htmlContent.length,
+        files: parsed.files,
+        fileCount: parsed.files.length,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
