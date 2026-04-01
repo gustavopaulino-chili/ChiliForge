@@ -163,6 +163,7 @@ CRITICAL REQUIREMENTS:
     return new Response(
       JSON.stringify({
         url: publicUrl,
+        html: htmlContent,
         fileName,
         htmlLength: htmlContent.length,
       }),

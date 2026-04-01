@@ -61,6 +61,7 @@ const Index = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [generatedLandingUrl, setGeneratedLandingUrl] = useState('');
+  const [generatedHtml, setGeneratedHtml] = useState('');
   const [isGeneratingLanding, setIsGeneratingLanding] = useState(false);
 
   const getLovableUrl = useCallback(() => {
