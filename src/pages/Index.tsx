@@ -661,12 +661,12 @@ EXECUTION RULES:
 ================================================
 MANDATORY STRUCTURE REQUIREMENTS:
 
-This must be a complete visual landing page, not a conceptual blueprint.
+This must be a complete visual landing page built as a SINGLE self-contained HTML file.
 Include:
-• Real header with logo placement, navigation anchors, CTA button, sticky behavior
-• Proper responsive mobile menu
+• Real header with logo text/placement, navigation anchors, CTA button, sticky behavior
+• Proper responsive mobile hamburger menu with JavaScript toggle
 • Hero section aligned with value proposition, background images, CTA with text
-• Alternating section backgrounds
+• Alternating section backgrounds for visual rhythm
 • Clear spacing system and professional layout grid
 • Real footer with contact info, legal links, social icons
 • Defined CTA placements throughout the page
@@ -674,65 +674,23 @@ Include:
 • Typography structure (H1, H2, H3)
 
 ================================================
-LOVABLE PLATFORM CONSTRAINTS (MANDATORY):
+TECHNOLOGY:
+- Single self-contained HTML file
+- Tailwind CSS via CDN (https://cdn.tailwindcss.com)
+- Google Fonts via <link> tags
+- Lucide Icons via CDN (https://unpkg.com/lucide@latest)
+- Vanilla JavaScript only for interactivity (mobile menu, scroll animations)
+- NO frameworks (no React, Vue, Angular, etc.)
+- Must work by opening the HTML file directly in a browser
 
-This project runs on Lovable, which uses:
-- React 18 with TypeScript 5
-- Vite 5 as build tool
-- Tailwind CSS v3 with tailwindcss-animate
-- shadcn/ui component library (based on Radix UI primitives)
-- Lucide React for icons
-- React Router DOM for routing
-- Sonner for toast notifications
-- Framer Motion for animations (if needed)
+================================================
+VISUAL DESIGN SYSTEM:
 
-DO NOT use: Next.js, Angular, Vue, Svelte, or any other framework.
-DO NOT add backend code (Node.js servers, Express, Python, etc.).
-DO NOT use CSS modules or styled-components — use only Tailwind utility classes.
-
-DESIGN SYSTEM (CRITICAL):
-- ALL colors MUST be defined as HSL CSS custom properties in index.css
-- Use semantic design tokens: --background, --foreground, --primary, --primary-foreground, --secondary, --muted, --accent, --card, --border, --ring, --destructive, etc.
-- NEVER hardcode colors directly in components (no text-white, bg-black, bg-red-500, etc.)
-- All colors must go through Tailwind config mapping to CSS variables: bg-primary, text-foreground, border-border, etc.
-- Support both light and dark mode via .dark class on :root
-- Define color tokens in :root { } and .dark { } blocks in index.css
-
-COLOR IMPLEMENTATION PATTERN:
-\`\`\`css
-/* index.css */
-:root {
-  --primary: 210 40% 50%;        /* HSL values without hsl() wrapper */
-  --primary-foreground: 0 0% 100%;
-  --background: 0 0% 100%;
-  --foreground: 222 47% 11%;
-  /* ... all semantic tokens */
-}
-.dark {
-  --background: 222 47% 11%;
-  --foreground: 0 0% 100%;
-  /* ... dark mode overrides */
-}
-\`\`\`
-
-\`\`\`ts
-// tailwind.config.ts — map tokens to Tailwind classes
-colors: {
-  background: "hsl(var(--background))",
-  foreground: "hsl(var(--foreground))",
-  primary: { DEFAULT: "hsl(var(--primary))", foreground: "hsl(var(--primary-foreground))" },
-  // ... etc
-}
-\`\`\`
-
-COMPONENT ARCHITECTURE:
-- Use shadcn/ui components: Button, Card, Input, Dialog, Sheet, Tabs, Badge, etc.
-- Import from @/components/ui/*
-- Use class-variance-authority (cva) for component variants
-- Use clsx/cn utility for conditional classes: import { cn } from "@/lib/utils"
-- Keep components small and focused — one responsibility per file
-- Place components in src/components/ with logical subdirectories
-- Use @/ path alias for imports (maps to src/)
+Use exact brand colors: Primary (${data.primaryColor}), Secondary (${data.secondaryColor}), Accent (${data.accentColor}), Text (${data.textColor}), Background (${data.backgroundColor}).
+Configure these in tailwind.config via the CDN script tag.
+Visual consistency across all sections.
+Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
+Modern premium aesthetic: "${data.preferredStyle}" style.
 
 RESPONSIVE & ACCESSIBILITY:
 - Mobile-first approach with Tailwind breakpoints (sm:, md:, lg:, xl:)
@@ -746,24 +704,14 @@ SEO (MANDATORY):
 - Semantic heading hierarchy (H1 → H2 → H3)
 - Alt text on all images
 - Lazy loading for images below the fold
-- JSON-LD structured data when applicable
 - Responsive viewport meta tag
-
-================================================
-VISUAL DESIGN SYSTEM:
-
-Use exact brand colors: Primary (${data.primaryColor}), Secondary (${data.secondaryColor}), Accent (${data.accentColor}), Text (${data.textColor}), Background (${data.backgroundColor}).
-Map these to HSL CSS custom properties as described above.
-Visual consistency across all sections.
-Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
-Modern premium aesthetic: "${data.preferredStyle}" style.
 
 ================================================
 FINAL REQUIREMENTS:
 
 Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations, fast loading, strong CTAs, accessibility compliant.
 This must feel like a premium agency project. It must not look like a generic AI layout.
-Generate a polished, production-ready landing page using ONLY Lovable-compatible technologies.`;
+Generate a polished, production-ready landing page as a single HTML file.`;
 }
 
 function generatePagesSection(data: BusinessFormData): string {
