@@ -57,7 +57,8 @@ MANDATORY FILES TO GENERATE:
 
 2. "vite.config.ts" — standard React Vite config with path alias "@" -> "./src"
 
-3. "tsconfig.json" — standard TS config with paths alias
+3. "tsconfig.json" — MUST be valid JSON (no comments, no trailing commas). Use this exact content:
+   {"compilerOptions":{"target":"ES2020","useDefineForClassFields":true,"lib":["ES2020","DOM","DOM.Iterable"],"module":"ESNext","skipLibCheck":true,"moduleResolution":"bundler","allowImportingTsExtensions":true,"resolveJsonModule":true,"isolatedModules":true,"noEmit":true,"jsx":"react-jsx","strict":false,"baseUrl":".","paths":{"@/*":["./src/*"]}},"include":["src"],"references":[{"path":"./tsconfig.node.json"}]}
 
 4. "tsconfig.node.json" — MUST be valid JSON (no comments, no trailing commas). Use this exact content:
    {"compilerOptions":{"composite":true,"skipLibCheck":true,"module":"ESNext","moduleResolution":"Bundler","allowSyntheticDefaultImports":true},"include":["vite.config.ts"]}
