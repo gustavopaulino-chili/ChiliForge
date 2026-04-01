@@ -353,7 +353,48 @@ Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
       throw new Error("AI response missing files array");
     }
 
-    // ── Post-processing: enforce locked files & validate JSON ──────────
+    // ── Post-processing: sanitize, enforce locked files & validate ──────
+    // 0. Sanitize all generated files — fix common AI mistakes
+    const ALLOWED_PACKAGES = new Set([
+      "react", "react-dom", "react-dom/client", "react-router-dom",
+      "lucide-react", "clsx", "tailwind-merge",
+    ]);
+
+    for (const f of parsed.files) {
+      if (!f.path.endsWith(".tsx") && !f.path.endsWith(".ts")) continue;
+      
+      // Remove forbidden imports (shadcn ui, framer-motion, etc.)
+      f.content = f.content.replace(
+        /^import\s+.*from\s+["'](@\/components\/ui\/[^"']+|shadcn[^"']*|framer-motion|gsap|aos|@heroicons\/[^"']+|react-icons[^"']*|axios|swr)["'];?\s*$/gm,
+        "// [removed invalid import]"
+      );
+
+      // Validate all remaining imports are from allowed packages or local paths
+      f.content = f.content.replace(
+        /^(import\s+.*from\s+["'])([^"'.@][^"']*)(["'];?)$/gm,
+        (match, pre, pkg, post) => {
+          const basePkg = pkg.startsWith("@") ? pkg.split("/").slice(0, 2).join("/") : pkg.split("/")[0];
+          if (ALLOWED_PACKAGES.has(pkg) || ALLOWED_PACKAGES.has(basePkg)) return match;
+          console.warn(`Removed forbidden import: ${pkg}`);
+          return `// [removed invalid import: ${basePkg}]`;
+        }
+      );
+
+      // Replace hardcoded color classes with semantic tokens
+      const colorReplacements: [RegExp, string][] = [
+        [/\btext-white\b/g, "text-primary-foreground"],
+        [/\btext-black\b/g, "text-foreground"],
+        [/\bbg-white\b(?!\/)/g, "bg-background"],
+        [/\bbg-black\b(?!\/)/g, "bg-foreground"],
+        [/\btext-gray-(\d00)\b/g, "text-muted-foreground"],
+        [/\bbg-gray-(\d0)0?\b/g, "bg-muted"],
+        [/\bborder-gray-\d+\b/g, "border-border"],
+      ];
+      for (const [re, replacement] of colorReplacements) {
+        f.content = f.content.replace(re, replacement);
+      }
+    }
+
     // 1. Remove any AI-generated config files (they're locked)
     parsed.files = parsed.files.filter((f) => !LOCKED_PATHS.has(f.path));
 
