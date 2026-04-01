@@ -135,6 +135,35 @@ const Index = () => {
     return null;
   };
 
+  const searchPexelsImages = async (): Promise<string[]> => {
+    const searchTerms = [
+      formData.businessCategory || formData.businessName || 'business',
+      formData.services.filter(Boolean)[0] || 'professional',
+      formData.preferredStyle || 'modern',
+    ];
+    const query = `${searchTerms.join(' ')} website`;
+    
+    try {
+      setGenerationStatus('Searching stock images on Pexels...');
+      const { data, error } = await supabase.functions.invoke('search-images', {
+        body: { query, count: 3 },
+      });
+      if (error || !data?.images?.length) {
+        console.warn('Pexels search returned no results:', error);
+        return [];
+      }
+      return data.images.map((img: any) => img.url).filter(Boolean);
+    } catch (err) {
+      console.error('Pexels search error:', err);
+      return [];
+    }
+  };
+
+  const hasUserImages = () => {
+    const imgs = formData.images;
+    return !!(imgs.heroImage1 || imgs.heroImage2 || imgs.brandImage || imgs.sectionImage1 || imgs.sectionImage2 || imgs.sectionImage3);
+  };
+
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationProgress(0);
@@ -173,6 +202,16 @@ const Index = () => {
       } finally {
         setIsGeneratingImages(false);
       }
+    } else if (!hasUserImages()) {
+      // No AI images and no user images — search Pexels for stock photos
+      setGenerationStatus('Searching for relevant stock images...');
+      setGenerationProgress(30);
+      const pexelsImages = await searchPexelsImages();
+      if (pexelsImages.length > 0) {
+        setGeneratedImages(pexelsImages);
+        toast.success(`Found ${pexelsImages.length} stock images from Pexels`);
+      }
+      setGenerationProgress(70);
     } else {
       setGenerationStatus('Building prompt...');
       setGenerationProgress(50);
