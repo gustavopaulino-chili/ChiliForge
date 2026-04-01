@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import JSZip from 'jszip';
 import logoResult from '@/assets/logo-result.png';
 import { BusinessFormData, defaultFormData, LANDING_PRESETS, LandingPreset } from '@/types/businessForm';
 import { StepIndicator } from '@/components/generator/StepIndicator';
@@ -16,7 +17,7 @@ import { NicheTemplateSelector } from '@/components/generator/NicheTemplateSelec
 import { PromptPreview } from '@/components/generator/PromptPreview';
 import { HeroLanding } from '@/components/landing/HeroLanding';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock, Download, FileCode, FolderOpen } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
