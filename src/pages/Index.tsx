@@ -324,7 +324,7 @@ const Index = () => {
 
           {generatedImages.length > 0 && (
             <div className="glass-card rounded-xl p-6 mb-6">
-              <h3 className="form-section-title mb-3">AI Generated Images</h3>
+              <h3 className="form-section-title mb-3">{formData.generateAiImages ? 'AI Generated Images' : 'Stock Photos (Pexels)'}</h3>
               <div className="grid grid-cols-3 gap-3">
                 {generatedImages.map((img, i) => (
                   <img key={i} src={img} alt={`AI generated ${i + 1}`} className="rounded-lg w-full h-32 object-cover" />
