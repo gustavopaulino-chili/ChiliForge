@@ -61,6 +61,7 @@ const Index = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [generatedLandingUrl, setGeneratedLandingUrl] = useState('');
+  const [generatedHtml, setGeneratedHtml] = useState('');
   const [isGeneratingLanding, setIsGeneratingLanding] = useState(false);
 
   const getLovableUrl = useCallback(() => {
@@ -232,6 +233,7 @@ const Index = () => {
 
       if (data?.url) {
         setGeneratedLandingUrl(data.url);
+        if (data.html) setGeneratedHtml(data.html);
         setGenerationProgress(100);
         setGenerationStatus('Landing page generated!');
         toast.success('Landing page generated successfully!');
@@ -326,7 +328,7 @@ const Index = () => {
   }
 
   // Results view — iframe preview
-  if (showResults && generatedLandingUrl) {
+  if (showResults && (generatedHtml || generatedLandingUrl)) {
     return (
       <div className="min-h-screen bg-background relative flex flex-col">
         <div className="reactive-bg-mouse" />
@@ -387,6 +389,7 @@ const Index = () => {
               onClick={() => {
                 setShowResults(false);
                 setGeneratedLandingUrl('');
+                setGeneratedHtml('');
               }}
               className="gap-2"
             >
@@ -410,11 +413,12 @@ const Index = () => {
           {/* iFrame preview */}
           <div className="flex-1 min-h-[500px] rounded-xl border border-border overflow-hidden bg-white shadow-lg">
             <iframe
-              src={generatedLandingUrl}
+              srcDoc={generatedHtml || undefined}
+              src={!generatedHtml ? generatedLandingUrl : undefined}
               className="w-full h-full min-h-[500px]"
               style={{ minHeight: '70vh' }}
               title="Landing Page Preview"
-              sandbox="allow-scripts allow-same-origin"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
             />
           </div>
         </main>
