@@ -224,36 +224,58 @@ HARD BANS — these WILL crash the build:
 - NEVER use arbitrary font classes like font-[var(...)], font-[...], or font-(...) — use ONLY standard Tailwind: font-normal, font-medium, font-semibold, font-bold, font-extrabold
 - NEVER combine two font-weight classes on the same element
 - NEVER define custom CSS font variables — use Google Fonts via <link> in index.html and Tailwind's font-sans/font-serif/font-mono
+- NEVER use hardcoded colors: no text-white, text-black, bg-white, bg-black, bg-blue-500, bg-gray-100 etc.
+  - EXCEPTION: bg-black/50, bg-white/10 opacity overlays are OK
+
+RUNTIME SAFETY RULES (MANDATORY — violations cause white screen):
+- The project MUST render successfully on the FIRST paint. No white screens allowed.
+- Every component MUST have a default export: export default function ComponentName() { ... }
+- src/App.tsx MUST have: export default function App() { ... } — NEVER export const App or named-only export
+- src/main.tsx MUST import App from "./App" (not from "./App.tsx")
+- Every local import MUST resolve to a file you also generate. If you import "@/components/Header", you MUST generate "src/components/Header.tsx"
+- All data (services, testimonials, features, etc.) MUST be hardcoded as const arrays INSIDE the component file or in a shared data file you also generate. NEVER use undefined variables.
+- NEVER call APIs, fetch(), or any async logic during render
+- NEVER use window, document, localStorage, matchMedia, or any browser API at module top level
+- NEVER use .map(), .filter(), .reduce() on a value that could be undefined — always use a hardcoded array
+- NEVER use React.lazy() or dynamic imports — use static imports only
+- Wrap all .map() calls with a fallback: (items || []).map(...)
+- Every useState must have a proper initial value, never undefined
+- NEVER use useEffect with missing dependencies or infinite loops
+- DO NOT use React.StrictMode — just render <App /> directly in main.tsx
 
 For buttons: <button className="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Text</button>
 For cards: <div className="rounded-xl border border-border bg-card p-6 shadow-sm">content</div>
 
 FILES TO GENERATE:
 1. "index.html" — Vite entry with Google Fonts <link>, <div id="root"></div>, <script type="module" src="/src/main.tsx"></script>
-2. "src/main.tsx" — createRoot with StrictMode
-3. "src/App.tsx" — BrowserRouter + Routes + Route path="/" element={<LandingPage />}
-4. "src/index.css" — @tailwind base/components/utilities + :root with HSL vars (space-separated, NO hsl() wrapper) for ALL tokens + .dark block + body { @apply bg-background text-foreground; }
-5. "src/pages/LandingPage.tsx" — composes section components
-6. "src/components/*.tsx" — Header, Hero, sections, Footer
+2. "src/main.tsx" — import App from './App'; createRoot render <App />
+3. "src/App.tsx" — default export function App with BrowserRouter + Routes + Route path="/" element={<LandingPage />}
+4. "src/index.css" — @tailwind base/components/utilities + :root with HSL vars (space-separated, NO hsl() wrapper) for ALL tokens: --background, --foreground, --primary, --primary-foreground, --secondary, --secondary-foreground, --muted, --muted-foreground, --accent, --accent-foreground, --destructive, --destructive-foreground, --card, --card-foreground, --popover, --popover-foreground, --border, --input, --ring, --radius + body { @apply bg-background text-foreground; }
+5. "src/pages/LandingPage.tsx" — default export, composes section components
+6. "src/components/*.tsx" — Header, Hero, sections, Footer — each with default export
 
 STYLING:
 - ONLY Tailwind utility classes — no inline styles, no CSS modules, no custom CSS variables for fonts
 - Semantic tokens: bg-primary, text-foreground, bg-card, border-border, bg-muted, text-muted-foreground
-- NEVER hardcode colors: no bg-blue-500, text-white, text-black, bg-gray-100
-- EXCEPTION: bg-black/50, bg-white/10 for overlays OK
 - Font weights: ONLY font-normal, font-medium, font-semibold, font-bold, font-extrabold
 - Import cn from "@/lib/utils" for conditional classes
 
 COMPONENTS:
-- TypeScript functional components
+- TypeScript functional components with default export
 - Mobile-first: base → sm: → md: → lg:
-- Header: sticky, hamburger with useState
+- Header: sticky, hamburger with useState (initial value false)
 - Raw HTML elements styled with Tailwind — no component library
 - Icons from lucide-react only, sized with className="h-5 w-5"
-- Images: exact URLs from spec, always alt text
+- Images: use placeholder URLs like "https://placehold.co/600x400" if no specific URL given, always with alt text
 - Semantic HTML: <header>, <main>, <section>, <footer>, <nav>
 
-SELF-CHECK before returning: verify every import path resolves to a file in your output or an allowed package. Verify no className contains font-[...] or font-(...).
+SELF-CHECK before returning:
+1. Verify EVERY import path resolves to a file in your output or an allowed package
+2. Verify EVERY component file has "export default"
+3. Verify App.tsx imports only components you generated
+4. Verify no className contains font-[...] or font-(...)
+5. Verify no hardcoded color classes (text-white, bg-black, etc.)
+6. Verify all arrays used in .map() are defined as const in the same file
 
 Return ONLY valid JSON. No markdown, no code fences, no explanation.`;
 
