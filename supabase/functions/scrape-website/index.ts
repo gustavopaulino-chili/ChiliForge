@@ -145,7 +145,7 @@ Return ONLY valid JSON, no markdown fences.`;
         model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Analyze this website HTML and extract all business information:\n\n${truncatedHtml}` },
+          { role: "user", content: `Analyze this website HTML and extract all business information.${fontHint}\n\n${truncatedHtml}` },
         ],
         response_format: { type: "json_object" },
       }),
