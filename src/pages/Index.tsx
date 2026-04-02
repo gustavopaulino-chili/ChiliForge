@@ -172,6 +172,9 @@ const Index = () => {
     setGenerationProgress(0);
     setGeneratedLandingUrl('');
 
+    // Collect images locally to avoid React state timing issues
+    let collectedImages: string[] = [];
+
     if (formData.generateAiImages) {
       setIsGeneratingImages(true);
       const purposes = ['hero banner', 'about section background', 'services section'];
@@ -179,15 +182,14 @@ const Index = () => {
       const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
 
       try {
-        const images: string[] = [];
         for (let idx = 0; idx < purposes.length; idx++) {
           setGenerationStatus(`Generating image ${idx + 1}/${purposes.length}: ${purposeLabels[idx]}...`);
           setGenerationProgress(Math.round(((idx) / (purposes.length + 3)) * 100));
           const url = await invokeWithRetry(purposes[idx], referenceUrl);
-          if (url) images.push(url);
+          if (url) collectedImages.push(url);
         }
-        setGeneratedImages(images);
-        if (images.length > 0) toast.success(`${images.length}/${purposes.length} AI images generated`);
+        setGeneratedImages(collectedImages);
+        if (collectedImages.length > 0) toast.success(`${collectedImages.length}/${purposes.length} AI images generated`);
       } catch (err) {
         console.error('Image generation error:', err);
         toast.error('Error generating AI images');
@@ -199,16 +201,17 @@ const Index = () => {
       setGenerationProgress(10);
       const pexelsImages = await searchPexelsImages();
       if (pexelsImages.length > 0) {
+        collectedImages = pexelsImages;
         setGeneratedImages(pexelsImages);
         toast.success(`Found ${pexelsImages.length} stock images from Pexels`);
       }
     }
 
-    // Now generate the actual landing page HTML via AI
+    // Use locally collected images instead of state (which hasn't updated yet)
     setGenerationStatus('Generating your landing page with AI...');
     setGenerationProgress(50);
 
-    const currentPrompt = generatePrompt(formData, generatedImages.length > 0 ? generatedImages : []);
+    const currentPrompt = generatePrompt(formData, collectedImages);
 
     try {
       const { data, error } = await supabase.functions.invoke('generate-landing', {
