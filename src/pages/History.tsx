@@ -105,6 +105,18 @@ export default function History() {
     }
   };
 
+  const handleDelete = async (prompt: PromptRecord) => {
+    if (!confirm('Tem certeza que deseja excluir este registro?')) return;
+    const { error } = await (supabase.from('generated_prompts').delete() as any).eq('id', prompt.id);
+    if (error) {
+      toast.error('Falha ao excluir');
+    } else {
+      setPrompts(prev => prev.filter(p => p.id !== prompt.id));
+      if (previewId === prompt.id) { setPreviewId(null); setPreviewHtml(null); }
+      toast.success('Registro excluído!');
+    }
+  };
+
   const handleTogglePreview = async (prompt: PromptRecord) => {
     if (previewId === prompt.id) {
       setPreviewId(null);
