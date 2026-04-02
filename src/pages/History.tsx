@@ -361,6 +361,9 @@ export default function History() {
                       {copiedId === prompt.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                       {copiedId === prompt.id ? 'Copied' : 'Copy'}
                     </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleDelete(prompt)} className="gap-1.5 text-destructive hover:text-destructive">
+                      <Trash2 className="h-3.5 w-3.5" /> Delete
+                    </Button>
                   </div>
                 </div>
               </div>
