@@ -489,11 +489,6 @@ const Index = () => {
               variant="outline"
               size="sm"
               onClick={() => {
-                if (generatedLandingUrl) {
-                  window.open(generatedLandingUrl, '_blank', 'noopener,noreferrer');
-                  return;
-                }
-
                 if (generatedHtml) {
                   const previewBlob = new Blob([generatedHtml], { type: 'text/html' });
                   const previewBlobUrl = URL.createObjectURL(previewBlob);
