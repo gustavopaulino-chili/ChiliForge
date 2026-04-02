@@ -162,24 +162,141 @@ const Index = () => {
     }
   };
 
-  const hasUserImages = () => {
-    const imgs = formData.images;
-    return !!(imgs.heroImage1 || imgs.heroImage2 || imgs.brandImage || imgs.sectionImage1 || imgs.sectionImage2 || imgs.sectionImage3);
+  const validateImageUrl = (url: string): Promise<boolean> => {
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) return Promise.resolve(false);
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      const timeout = window.setTimeout(() => {
+        img.onload = null;
+        img.onerror = null;
+        resolve(false);
+      }, 8000);
+
+      img.onload = () => {
+        window.clearTimeout(timeout);
+        img.onload = null;
+        img.onerror = null;
+        resolve(true);
+      };
+
+      img.onerror = () => {
+        window.clearTimeout(timeout);
+        img.onload = null;
+        img.onerror = null;
+        resolve(false);
+      };
+
+      img.src = trimmedUrl;
+    });
+  };
+
+  const sanitizeImagesForGeneration = async (data: BusinessFormData): Promise<BusinessFormData> => {
+    const imageLabels: Record<string, string> = {
+      logoUrl: 'logo',
+      heroImage1: 'hero image 1',
+      heroImage2: 'hero image 2',
+      brandImage: 'brand image',
+      sectionImage1: 'section image 1',
+      sectionImage2: 'section image 2',
+      sectionImage3: 'section image 3',
+    };
+
+    const singleImageKeys = [
+      'logoUrl',
+      'heroImage1',
+      'heroImage2',
+      'brandImage',
+      'sectionImage1',
+      'sectionImage2',
+      'sectionImage3',
+    ] as const;
+
+    const validityEntries = await Promise.all(
+      singleImageKeys.map(async (key) => ({
+        key,
+        url: data.images[key],
+        valid: data.images[key] ? await validateImageUrl(data.images[key]) : false,
+      }))
+    );
+
+    const validUrlSet = new Set(validityEntries.filter((entry) => entry.valid).map((entry) => entry.url));
+    const sanitizedImages = { ...data.images, productImages: [] as string[] };
+    const invalidLabels: string[] = [];
+
+    validityEntries.forEach(({ key, url, valid }) => {
+      if (url && !valid) invalidLabels.push(imageLabels[key]);
+      sanitizedImages[key] = valid ? url : '';
+    });
+
+    const productImageEntries = await Promise.all(
+      data.images.productImages.map(async (url, index) => ({
+        url,
+        index,
+        valid: url ? await validateImageUrl(url) : false,
+      }))
+    );
+
+    sanitizedImages.productImages = productImageEntries.filter((entry) => entry.valid).map((entry) => entry.url);
+    productImageEntries.forEach(({ url, index, valid }) => {
+      if (url && !valid) invalidLabels.push(`product image ${index + 1}`);
+    });
+
+    if (!sanitizedImages.logoUrl) {
+      const fallbackLogoCandidates = [
+        { url: data.images.brandImage, hint: data.brandImageContext },
+        { url: data.images.heroImage1, hint: data.heroImage1Context },
+        { url: data.images.heroImage2, hint: data.heroImage2Context },
+      ].filter((candidate) => candidate.url && validUrlSet.has(candidate.url));
+
+      const logoLikeFallback = fallbackLogoCandidates.find((candidate) =>
+        /logo|icon|brand|mark|favicon|marca/i.test(`${candidate.url} ${candidate.hint}`)
+      );
+
+      sanitizedImages.logoUrl = logoLikeFallback?.url || fallbackLogoCandidates[0]?.url || '';
+    }
+
+    if (!sanitizedImages.brandImage) {
+      sanitizedImages.brandImage = sanitizedImages.sectionImage3 || sanitizedImages.heroImage1 || sanitizedImages.logoUrl;
+    }
+
+    if (!sanitizedImages.heroImage1) {
+      sanitizedImages.heroImage1 = sanitizedImages.sectionImage3 || sanitizedImages.brandImage || sanitizedImages.logoUrl;
+    }
+
+    const uniqueInvalidLabels = [...new Set(invalidLabels)];
+    if (uniqueInvalidLabels.length > 0) {
+      toast.warning(`${uniqueInvalidLabels.length} image(s) were ignored because they are inaccessible from the generated preview.`);
+    }
+
+    return {
+      ...data,
+      images: sanitizedImages,
+    };
+  };
+
+  const hasUserImages = (data: BusinessFormData = formData) => {
+    const imgs = data.images;
+    return !!(imgs.heroImage1 || imgs.heroImage2 || imgs.brandImage || imgs.sectionImage1 || imgs.sectionImage2 || imgs.sectionImage3 || imgs.logoUrl);
   };
 
   const handleGenerate = async () => {
     setIsGenerating(true);
     setGenerationProgress(0);
     setGeneratedLandingUrl('');
+    setGeneratedHtml('');
+
+    const preparedFormData = await sanitizeImagesForGeneration(formData);
 
     // Collect images locally to avoid React state timing issues
     let collectedImages: string[] = [];
 
-    if (formData.generateAiImages) {
+    if (preparedFormData.generateAiImages) {
       setIsGeneratingImages(true);
       const purposes = ['hero banner', 'about section background', 'services section'];
       const purposeLabels = ['Hero Banner', 'About Section', 'Services Section'];
-      const referenceUrl = formData.images.heroImage1 || formData.images.brandImage || formData.images.sectionImage1 || undefined;
+      const referenceUrl = preparedFormData.images.heroImage1 || preparedFormData.images.brandImage || preparedFormData.images.sectionImage1 || undefined;
 
       try {
         for (let idx = 0; idx < purposes.length; idx++) {
@@ -196,7 +313,7 @@ const Index = () => {
       } finally {
         setIsGeneratingImages(false);
       }
-    } else if (!hasUserImages()) {
+    } else if (!hasUserImages(preparedFormData)) {
       setGenerationStatus('Searching for relevant stock images...');
       setGenerationProgress(10);
       const pexelsImages = await searchPexelsImages();
@@ -207,17 +324,16 @@ const Index = () => {
       }
     }
 
-    // Use locally collected images instead of state (which hasn't updated yet)
     setGenerationStatus('Generating your landing page with AI...');
     setGenerationProgress(50);
 
-    const currentPrompt = generatePrompt(formData, collectedImages);
+    const currentPrompt = generatePrompt(preparedFormData, collectedImages);
 
     try {
       const { data, error } = await supabase.functions.invoke('generate-landing', {
         body: {
           prompt: currentPrompt,
-          businessName: formData.businessName,
+          businessName: preparedFormData.businessName,
         },
       });
 
@@ -235,7 +351,11 @@ const Index = () => {
       }
 
       if (data?.url) {
-        setGeneratedLandingUrl(data.url);
+        const previewUrl = data.fileName
+          ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/render-landing-preview?file=${encodeURIComponent(data.fileName)}`
+          : data.url;
+
+        setGeneratedLandingUrl(previewUrl);
         if (data.html) setGeneratedHtml(data.html);
         setGenerationProgress(100);
         setGenerationStatus('Landing page generated!');
