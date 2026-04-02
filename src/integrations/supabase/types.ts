@@ -18,18 +18,21 @@ export type Database = {
         Row: {
           business_name: string | null
           created_at: string
+          html_file_name: string | null
           id: string
           prompt_text: string
         }
         Insert: {
           business_name?: string | null
           created_at?: string
+          html_file_name?: string | null
           id?: string
           prompt_text: string
         }
         Update: {
           business_name?: string | null
           created_at?: string
+          html_file_name?: string | null
           id?: string
           prompt_text?: string
         }
