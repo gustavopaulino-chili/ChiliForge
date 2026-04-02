@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.generate-preset]
 verify_jwt = false
+
+[functions.render-landing-preview]
+verify_jwt = false
