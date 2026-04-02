@@ -16,10 +16,11 @@ import { NicheTemplateSelector } from '@/components/generator/NicheTemplateSelec
 import { PromptPreview } from '@/components/generator/PromptPreview';
 import { HeroLanding } from '@/components/landing/HeroLanding';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock, LogOut, User } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
 
 type StepDef = { id: string; label: string };
 
@@ -46,6 +47,7 @@ const loadSavedProgress = () => {
 };
 
 const Index = () => {
+  const { user, signOut } = useAuth();
   const saved = useMemo(() => loadSavedProgress(), []);
   const [showLanding, setShowLanding] = useState(!saved);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -334,6 +336,7 @@ const Index = () => {
         body: {
           prompt: currentPrompt,
           businessName: preparedFormData.businessName,
+          userId: user?.id,
         },
       });
 
@@ -392,11 +395,16 @@ const Index = () => {
               <img src="/images/logo-small.png" alt="Logo" className="h-8 w-auto" />
               <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
             </button>
-            <Link to="/history">
-              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
-                <Clock className="h-4 w-4" /> History
+            <div className="flex items-center gap-2">
+              <Link to="/history">
+                <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
+                  <Clock className="h-4 w-4" /> History
+                </Button>
+              </Link>
+              <Button variant="ghost" size="sm" onClick={signOut} className="gap-2 text-muted-foreground hover:text-foreground">
+                <LogOut className="h-4 w-4" /> Sair
               </Button>
-            </Link>
+            </div>
           </div>
         </header>
         <HeroLanding onStartGenerator={handleStartGenerator} />
@@ -409,7 +417,7 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background relative flex flex-col">
         <div className="reactive-bg-mouse" />
-        <Header onLogoClick={() => setShowLanding(true)} />
+        <Header onLogoClick={() => setShowLanding(true)} onSignOut={signOut} />
         <main className="flex-1 flex items-center justify-center relative z-10 px-6">
           <div className="max-w-md w-full text-center space-y-8">
             <div className="relative inline-flex h-20 w-20 items-center justify-center mx-auto">
@@ -455,7 +463,7 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background relative flex flex-col">
         <div className="reactive-bg-mouse" />
-        <Header onLogoClick={() => setShowLanding(true)} />
+        <Header onLogoClick={() => setShowLanding(true)} onSignOut={signOut} />
         <main className="flex-1 flex flex-col mx-auto max-w-6xl w-full px-6 py-6 relative z-10">
           <div className="text-center mb-6">
             <div className="mb-4">
@@ -561,7 +569,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background relative">
       <div className="reactive-bg-mouse" />
-      <Header onLogoClick={() => setShowLanding(true)} />
+      <Header onLogoClick={() => setShowLanding(true)} onSignOut={signOut} />
       <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
         <div className="mb-10 text-center">
           <h2 className="font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
@@ -651,7 +659,7 @@ const Index = () => {
   );
 };
 
-function Header({ onLogoClick }: { onLogoClick?: () => void }) {
+function Header({ onLogoClick, onSignOut }: { onLogoClick?: () => void; onSignOut?: () => void }) {
   return (
     <header className="sticky top-0 border-b border-border/50 px-6 py-[13px] z-50 bg-background/60 backdrop-blur-md">
       <div className="mx-auto max-w-6xl flex items-center justify-between">
@@ -659,11 +667,16 @@ function Header({ onLogoClick }: { onLogoClick?: () => void }) {
           <img src="/images/logo-small.png" alt="Logo" className="h-8 w-auto" />
           <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
         </button>
-        <Link to="/history">
-          <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
-            <Clock className="h-4 w-4" /> History
+        <div className="flex items-center gap-2">
+          <Link to="/history">
+            <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
+              <Clock className="h-4 w-4" /> History
+            </Button>
+          </Link>
+          <Button variant="ghost" size="sm" onClick={onSignOut} className="gap-2 text-muted-foreground hover:text-foreground">
+            <LogOut className="h-4 w-4" /> Sair
           </Button>
-        </Link>
+        </div>
       </div>
     </header>
   );

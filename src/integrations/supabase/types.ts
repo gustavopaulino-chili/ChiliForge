@@ -21,6 +21,7 @@ export type Database = {
           html_file_name: string | null
           id: string
           prompt_text: string
+          user_id: string | null
         }
         Insert: {
           business_name?: string | null
@@ -28,6 +29,7 @@ export type Database = {
           html_file_name?: string | null
           id?: string
           prompt_text: string
+          user_id?: string | null
         }
         Update: {
           business_name?: string | null
@@ -35,6 +37,31 @@ export type Database = {
           html_file_name?: string | null
           id?: string
           prompt_text?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          full_name: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          updated_at?: string
         }
         Relationships: []
       }

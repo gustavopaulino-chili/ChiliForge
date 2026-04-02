@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, ArrowLeft, Clock, Search, ExternalLink, Link2, Download, Eye, Trash2 } from 'lucide-react';
+import { Copy, Check, ArrowLeft, Clock, Search, ExternalLink, Link2, Download, Eye, Trash2, LogOut } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface PromptRecord {
   id: string;
@@ -15,6 +16,7 @@ interface PromptRecord {
 }
 
 export default function History() {
+  const { signOut } = useAuth();
   const [prompts, setPrompts] = useState<PromptRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -273,11 +275,16 @@ export default function History() {
             <img src="/images/logo-small.png" alt="Logo" className="h-8 w-auto" />
             <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
           </div>
-          <Link to="/">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ArrowLeft className="h-4 w-4" /> Back to Generator
+          <div className="flex items-center gap-2">
+            <Link to="/">
+              <Button variant="ghost" size="sm" className="gap-2">
+                <ArrowLeft className="h-4 w-4" /> Back to Generator
+              </Button>
+            </Link>
+            <Button variant="ghost" size="sm" onClick={signOut} className="gap-2 text-muted-foreground hover:text-foreground">
+              <LogOut className="h-4 w-4" /> Sair
             </Button>
-          </Link>
+          </div>
         </div>
       </header>
 
