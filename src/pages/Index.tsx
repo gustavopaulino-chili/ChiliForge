@@ -673,7 +673,7 @@ function Header({ onLogoClick, onSignOut }: { onLogoClick?: () => void; onSignOu
               <Clock className="h-4 w-4" /> History
             </Button>
           </Link>
-          <Button variant="ghost" size="sm" onClick={signOut} className="gap-2 text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" onClick={onSignOut} className="gap-2 text-muted-foreground hover:text-foreground">
             <LogOut className="h-4 w-4" /> Sair
           </Button>
         </div>
