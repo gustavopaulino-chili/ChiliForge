@@ -564,180 +564,225 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
   const presetLabel = LANDING_PRESETS.find(p => p.value === data.landingPreset)?.label || 'Landing Page';
 
   const presetContext: Record<LandingPreset, string> = {
-    'general': 'Institutional landing page presenting the company, services, and lead capture.',
-    'campaign': 'Marketing campaign page with strong CTA, urgency elements, and conversion focus. Include campaign-specific messaging and promotional content.',
-    'black-friday': 'Black Friday / promotional page with countdown timer, discount badges, urgency messaging, limited-time offers, and bold promotional design. Use high-contrast colors and excitement-driven layout.',
-    'launch': 'Product launch page with impactful hero, product showcase, features highlight, pre-order/waitlist CTA, and excitement-building sections.',
-    'webinar': 'Event/webinar registration page with event details, speaker profiles, agenda, countdown to event, and prominent registration form.',
-    'lead-capture': 'Lead generation page with compelling offer (ebook, free trial, consultation), benefit bullets, trust indicators, and optimized form placement above the fold.',
-    'app-download': 'App download promotion page with device mockups, feature highlights, app store badges, screenshots/preview, and download CTAs.',
-    'seasonal': 'Seasonal/holiday themed landing page with festive design elements, special offers, themed imagery, and celebration-driven messaging.',
+    'general': 'Institutional landing page presenting the company, services, and lead capture. Professional tone with clear value communication.',
+    'campaign': 'Marketing campaign page with strong CTA, urgency elements, and conversion focus. Include campaign-specific messaging, promotional banners, and countdown elements.',
+    'black-friday': 'Black Friday / promotional page with countdown timer, animated discount badges, urgency messaging ("Only X left!"), limited-time offers, flash deal sections, and bold high-contrast promotional design. Maximum urgency and excitement.',
+    'launch': 'Product launch page with cinematic hero, product showcase with parallax effects, features highlight with animated reveals, pre-order/waitlist CTA, and excitement-building countdown sections.',
+    'webinar': 'Event/webinar registration page with event details, speaker profiles with photos, detailed agenda timeline, countdown to event, and prominent registration form above the fold.',
+    'lead-capture': 'Lead generation page with compelling offer (ebook, free trial, consultation), benefit bullets with checkmarks, trust indicators, and optimized multi-field form placement above the fold with progress indicator.',
+    'app-download': 'App download promotion page with 3D device mockups, feature highlights with animations, app store badges (Apple + Google Play), screenshot carousel, download stats, and prominent download CTAs.',
+    'seasonal': 'Seasonal/holiday themed landing page with festive design elements (particles, themed colors), special offers with decorative frames, themed imagery, and celebration-driven messaging.',
   };
 
-  return `You are a senior UX strategist, UI designer and front-end architect building a real production-ready LANDING PAGE inside Lovable.
+  const styleGuide: Record<string, string> = {
+    'modern': `MODERN STYLE GUIDELINES:
+- Clean geometric shapes, generous whitespace
+- Gradient accents: linear-gradient overlays, gradient text for headlines
+- Subtle glassmorphism: backdrop-blur cards with semi-transparent backgrounds
+- Rounded corners: rounded-2xl on cards, rounded-full on badges
+- Soft shadows: shadow-xl shadow-primary/10
+- Smooth micro-interactions on every interactive element
+- Grid-based layouts with asymmetric compositions
+- Monochromatic sections with accent color pops`,
 
-You must strictly use the structured data provided below.
-Do NOT ignore the provided data.
-Do NOT generate generic layouts.
-Everything must be strategically aligned with the data below.
+    'corporate': `CORPORATE STYLE GUIDELINES:
+- Structured, grid-aligned layouts with clear information hierarchy
+- Professional color usage: primary for CTAs, muted tones for backgrounds
+- Minimal rounded corners: rounded-lg maximum
+- Traditional card patterns with borders and subtle shadows
+- Data-driven sections: statistics, metrics, ROI numbers
+- Trust elements: certifications, awards, partner logos
+- Conservative animations: fade-in only, no playful effects
+- Formal typography with clear readability`,
 
-================================================
-STRUCTURED BUSINESS DATA
-================================================
+    'minimal': `MINIMAL STYLE GUIDELINES:
+- Maximum whitespace — let every element breathe
+- Monochromatic palette with ONE accent color for CTAs
+- Ultra-thin borders or no borders — use spacing for separation
+- Large typography as the primary visual element
+- No gradients, no shadows — flat and clean
+- Full-width sections with centered content
+- Elegant serif or thin sans-serif fonts
+- Subtle hover states: color change only, no movement`,
+
+    'bold': `BOLD STYLE GUIDELINES:
+- High contrast: dark backgrounds with vibrant accent colors
+- Extra-large headlines: text-5xl md:text-7xl font-black
+- Full-bleed images and bold color blocks
+- Dramatic gradients across full sections
+- Oversized CTAs with strong hover effects
+- Dynamic asymmetric layouts breaking the grid
+- Bold iconography and large numbers
+- Energetic feel — movement, scale, contrast`,
+
+    'premium': `PREMIUM / LUXURY STYLE GUIDELINES:
+- Dark backgrounds (near-black) with gold/cream/champagne accents
+- Elegant serif fonts for headings, refined sans-serif for body
+- Generous spacing — double the normal padding
+- Subtle animations: slow fade-ins (0.8s+), gentle parallax
+- Thin gold/accent borders and dividers
+- High-end imagery treatment: slight desaturation, cinematic feel
+- Minimal UI elements — content speaks for itself
+- Glass effects with very subtle opacity (bg-white/5)
+- Letter-spacing on headings: tracking-widest uppercase labels`,
+  };
+
+  return `═══════════════════════════════════════════════
+LANDING PAGE GENERATION SPECIFICATION
+═══════════════════════════════════════════════
 
 LANDING PAGE TYPE: ${presetLabel}
 PRESET CONTEXT: ${presetContext[data.landingPreset] || presetContext['general']}
-STYLE: ${data.preferredStyle}
 
-COMPANY DESCRIPTION:
-Name: ${data.businessName}
-${data.businessDescription}
-Industry: ${data.businessCategory}
-Target Audience: ${data.targetAudience}
-${data.valueProposition ? `Value Proposition: ${data.valueProposition}` : ''}
-Location: ${[data.city, data.country].filter(Boolean).join(', ')}
+═══════════════════════════════════════════════
+BUSINESS INTELLIGENCE
+═══════════════════════════════════════════════
 
-SERVICES & DIFFERENTIATORS:
-${servicesText || 'Not specified'}
-${diffsText ? `Key Differentiators: ${diffsText}` : ''}
+COMPANY: ${data.businessName}
+INDUSTRY: ${data.businessCategory}
+LOCATION: ${[data.city, data.country].filter(Boolean).join(', ') || 'Not specified'}
 
-DESIGN FOUNDATION:
-Style: ${data.preferredStyle}
-Primary Color: ${data.primaryColor}
-Secondary Color: ${data.secondaryColor}
-Accent Color: ${data.accentColor}
-Text Color: ${data.textColor}
-Background Color: ${data.backgroundColor}
-${data.headingFont ? `Heading Font: ${data.headingFont}` : ''}
-${data.bodyFont ? `Body Font: ${data.bodyFont}` : ''}
-${data.headingFont || data.bodyFont ? '\nIMPORTANT: Use the specified fonts via Google Fonts import. These are the exact fonts from the original website and MUST be used.' : ''}
+DESCRIPTION:
+${data.businessDescription || 'Not provided — generate professional copy based on the business name and category.'}
 
-CONTACT INFORMATION:
+TARGET AUDIENCE:
+${data.targetAudience || 'General consumers interested in this business category.'}
+
+VALUE PROPOSITION:
+${data.valueProposition || 'Not specified — craft a compelling value proposition based on the business description and services.'}
+
+SERVICES / OFFERINGS:
+${servicesText || 'Not specified — generate 4-6 relevant services based on the business category.'}
+
+KEY DIFFERENTIATORS:
+${diffsText || 'Not specified — generate 3 compelling differentiators based on the business description.'}
+
+═══════════════════════════════════════════════
+BRAND DESIGN SYSTEM
+═══════════════════════════════════════════════
+
+COLOR PALETTE:
+- Primary: ${data.primaryColor} — Use for CTAs, active states, key highlights
+- Secondary: ${data.secondaryColor} — Use for supporting elements, secondary buttons, gradients
+- Accent: ${data.accentColor} — Use for badges, notifications, special callouts
+- Text: ${data.textColor} — Main body text color
+- Background: ${data.backgroundColor} — Page background
+
+TYPOGRAPHY:
+${data.headingFont ? `- Heading Font: "${data.headingFont}" (load via Google Fonts)` : '- Heading Font: Choose a premium font that matches the style'}
+${data.bodyFont ? `- Body Font: "${data.bodyFont}" (load via Google Fonts)` : '- Body Font: Choose a complementary readable font'}
+${data.headingFont || data.bodyFont ? '\nCRITICAL: These specific fonts MUST be used — they are from the original brand identity.' : ''}
+
+VISUAL STYLE: ${data.preferredStyle}
+${styleGuide[data.preferredStyle] || styleGuide['modern']}
+
+═══════════════════════════════════════════════
+CONTACT & SOCIAL
+═══════════════════════════════════════════════
 ${data.email ? `Email: ${data.email}` : ''}
 ${data.phone ? `Phone: ${data.phone}` : ''}
-${data.whatsapp ? `WhatsApp: ${data.whatsapp}` : ''}
+${data.whatsapp ? `WhatsApp: ${data.whatsapp} — Include a floating WhatsApp button (bottom-right, green, with pulse animation)` : ''}
 ${socialText ? `Social Media: ${socialText}` : ''}
-${imgLines.length > 0 ? `\nIMAGE LIBRARY:\n${imgLines.join('\n')}\n\nDownload these images and use them based on context. Study them and use as base for the rest of the design.${data.generateAiImages ? '\nIF THE IMAGES DON\'T LOAD, GENERATE IMAGES BASED ON THE CONTEXT.' : '\nDO NOT generate any AI images. Only use the provided image URLs above. If an image fails to load, use a placeholder or leave blank.'}${!data.generateAiImages && aiImages.length > 0 ? '\nThe Stock Photos from Pexels are professional stock images — use them as hero backgrounds, section backgrounds, or decorative photos. They are free to use (Pexels license).' : ''}` : ''}
-${data.generateAiImages ? '\nIMPORTANT: Use AI-generated images as background photos and section images ONLY — never overlay text directly baked into images. These are purely photographic/illustrative assets.' : '\nIMPORTANT: DO NOT generate, create, or use any AI-generated images. Only use images explicitly provided in the IMAGE LIBRARY above. If no images were provided, use only solid colors, gradients, or CSS patterns for backgrounds.'}
-${data.sourceWebsite ? `\nSOURCE WEBSITE REFERENCE:\nThis website is based on: ${data.sourceWebsite}\nThe generated landing page MUST follow a similar visual design, layout structure, and aesthetic to the source website.` : ''}
-${data.designNotes ? `\nDESIGN ANALYSIS FROM SOURCE WEBSITE:\n${data.designNotes}\n\nCRITICAL: You MUST replicate the design patterns, layout structure, typography choices, spacing, color usage, and visual style described above.` : ''}
 
-SITE STRUCTURE:
+═══════════════════════════════════════════════
+IMAGE ASSETS
+═══════════════════════════════════════════════
+${imgLines.length > 0 ? `Available images:\n${imgLines.join('\n')}\n\nIMPORTANT: Use ALL provided images strategically throughout the page. Place hero images as full-width backgrounds with dark overlays. Use section images in alternating content blocks. Brand images near the about/story section.` : 'No images provided — use gradient backgrounds, CSS patterns, and Font Awesome icons for visual appeal.'}
+
+${data.generateAiImages ? 'AI-generated images are included — use them as backgrounds and section images only, never with text baked in.' : 'DO NOT generate or reference any AI images. Only use the explicitly provided image URLs above.'}
+${!data.generateAiImages && aiImages.length > 0 ? 'Stock photos from Pexels are included — use as hero backgrounds, section backgrounds, or decorative imagery. They are royalty-free.' : ''}
+
+IMAGE TREATMENT RULES:
+- Hero images: full-width with gradient overlay (from-black/60 to-black/30) and white text on top
+- Section images: rounded-2xl with shadow-2xl, positioned alongside text content
+- All images: object-cover, lazy loading, descriptive alt text
+- Error handling: onerror fallback to gradient backgrounds
+
+${data.sourceWebsite ? `═══════════════════════════════════════════════
+SOURCE WEBSITE REFERENCE
+═══════════════════════════════════════════════
+Original website: ${data.sourceWebsite}
+The generated page MUST follow a similar visual design, layout structure, and aesthetic to this source website.` : ''}
+
+${data.designNotes ? `DESIGN ANALYSIS FROM SOURCE:
+${data.designNotes}
+
+CRITICAL: Replicate the design patterns, layout structure, typography choices, spacing, color usage, and visual style described above as closely as possible.` : ''}
+
+═══════════════════════════════════════════════
+PAGE STRUCTURE & CONTENT
+═══════════════════════════════════════════════
+
 ${generatePagesSection(data)}
 
-================================================
-EXECUTION RULES:
-1. This is a SINGLE-PAGE LANDING PAGE — conversion-focused.
-2. Adapt layout to the preset type: ${presetLabel}.
-3. Follow the Problem → Solution → Benefits → Social Proof → CTA flow.
-4. Strong above-the-fold hook with compelling headline and CTA.
+═══════════════════════════════════════════════
+CONVERSION OPTIMIZATION REQUIREMENTS
+═══════════════════════════════════════════════
 
-================================================
-MANDATORY STRUCTURE REQUIREMENTS:
+CTA STRATEGY:
+- Primary CTA appears in: header, hero, mid-page, and final section (minimum 4 placements)
+- CTA text must be action-oriented and specific to the business
+- Examples: "Schedule Free Consultation", "Start Your Free Trial", "Get Your Quote Now"
+- Above-the-fold: always include at least one CTA button
+- Use contrasting colors for CTAs — they must visually pop
 
-This must be a complete visual landing page, not a conceptual blueprint.
-Include:
-• Real header with logo placement, navigation anchors, CTA button, sticky behavior
-• Proper responsive mobile menu
-• Hero section aligned with value proposition, background images, CTA with text
-• Alternating section backgrounds
-• Clear spacing system and professional layout grid
-• Real footer with contact info, legal links, social icons
-• Defined CTA placements throughout the page
-• Proper visual hierarchy
-• Typography structure (H1, H2, H3)
+TRUST ELEMENTS:
+- Add 3-5 testimonials with realistic names, roles, and companies
+- Include star ratings (★★★★★) where appropriate
+- Statistics section: "X+ clients", "Y years experience", "Z% satisfaction"
+- Trust badges: "Secure", "Money-back guarantee", "24/7 Support"
+- Partner/client logo bar if applicable
 
-================================================
-LOVABLE PLATFORM CONSTRAINTS (MANDATORY):
+URGENCY & SCARCITY (for campaign/promo presets):
+- Countdown timers with JS animation
+- Limited availability badges
+- "X spots remaining" or "Offer ends [date]"
 
-This project runs on Lovable, which uses:
-- React 18 with TypeScript 5
-- Vite 5 as build tool
-- Tailwind CSS v3 with tailwindcss-animate
-- shadcn/ui component library (based on Radix UI primitives)
-- Lucide React for icons
-- React Router DOM for routing
-- Sonner for toast notifications
-- Framer Motion for animations (if needed)
+MICRO-COPY:
+- Form labels and placeholders must be helpful and specific
+- Button states: default, hover (scale + shadow), active (scale down), loading
+- Error/success messages on forms
+- "No credit card required" type reassurance near CTAs
 
-DO NOT use: Next.js, Angular, Vue, Svelte, or any other framework.
-DO NOT add backend code (Node.js servers, Express, Python, etc.).
-DO NOT use CSS modules or styled-components — use only Tailwind utility classes.
+═══════════════════════════════════════════════
+INTERACTIVE ELEMENTS
+═══════════════════════════════════════════════
 
-DESIGN SYSTEM (CRITICAL):
-- ALL colors MUST be defined as HSL CSS custom properties in index.css
-- Use semantic design tokens: --background, --foreground, --primary, --primary-foreground, --secondary, --muted, --accent, --card, --border, --ring, --destructive, etc.
-- NEVER hardcode colors directly in components (no text-white, bg-black, bg-red-500, etc.)
-- All colors must go through Tailwind config mapping to CSS variables: bg-primary, text-foreground, border-border, etc.
-- Support both light and dark mode via .dark class on :root
-- Define color tokens in :root { } and .dark { } blocks in index.css
+MANDATORY JAVASCRIPT FEATURES:
+1. Smooth scroll to sections via anchor links
+2. Sticky header with bg change on scroll
+3. Mobile hamburger menu with slide animation
+4. Scroll-triggered fade-in animations (IntersectionObserver)
+5. Staggered children animations with delay
+6. Counter animation for statistics (count up from 0)
+7. FAQ accordion with smooth height transition
+8. Form validation with visual feedback
+${data.whatsapp ? '9. Floating WhatsApp button with pulse animation' : ''}
 
-COLOR IMPLEMENTATION PATTERN:
+ANIMATION IMPLEMENTATION:
 \`\`\`css
-/* index.css */
-:root {
-  --primary: 210 40% 50%;        /* HSL values without hsl() wrapper */
-  --primary-foreground: 0 0% 100%;
-  --background: 0 0% 100%;
-  --foreground: 222 47% 11%;
-  /* ... all semantic tokens */
+.animate-on-scroll {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
 }
-.dark {
-  --background: 222 47% 11%;
-  --foreground: 0 0% 100%;
-  /* ... dark mode overrides */
+.animate-on-scroll.visible {
+  opacity: 1;
+  transform: translateY(0);
 }
+.animate-on-scroll:nth-child(2) { transition-delay: 0.1s; }
+.animate-on-scroll:nth-child(3) { transition-delay: 0.2s; }
+.animate-on-scroll:nth-child(4) { transition-delay: 0.3s; }
 \`\`\`
 
-\`\`\`ts
-// tailwind.config.ts — map tokens to Tailwind classes
-colors: {
-  background: "hsl(var(--background))",
-  foreground: "hsl(var(--foreground))",
-  primary: { DEFAULT: "hsl(var(--primary))", foreground: "hsl(var(--primary-foreground))" },
-  // ... etc
-}
-\`\`\`
+═══════════════════════════════════════════════
+QUALITY STANDARD
+═══════════════════════════════════════════════
 
-COMPONENT ARCHITECTURE:
-- Use shadcn/ui components: Button, Card, Input, Dialog, Sheet, Tabs, Badge, etc.
-- Import from @/components/ui/*
-- Use class-variance-authority (cva) for component variants
-- Use clsx/cn utility for conditional classes: import { cn } from "@/lib/utils"
-- Keep components small and focused — one responsibility per file
-- Place components in src/components/ with logical subdirectories
-- Use @/ path alias for imports (maps to src/)
-
-RESPONSIVE & ACCESSIBILITY:
-- Mobile-first approach with Tailwind breakpoints (sm:, md:, lg:, xl:)
-- Semantic HTML5 elements (header, nav, main, section, footer, article)
-- WCAG 2.1 AA compliance: proper contrast, focus states, aria labels
-- Keyboard navigation support on interactive elements
-
-SEO (MANDATORY):
-- Single H1 per page with target keyword (< 60 chars)
-- Meta description < 160 chars
-- Semantic heading hierarchy (H1 → H2 → H3)
-- Alt text on all images
-- Lazy loading for images below the fold
-- JSON-LD structured data when applicable
-- Responsive viewport meta tag
-
-================================================
-VISUAL DESIGN SYSTEM:
-
-Use exact brand colors: Primary (${data.primaryColor}), Secondary (${data.secondaryColor}), Accent (${data.accentColor}), Text (${data.textColor}), Background (${data.backgroundColor}).
-Map these to HSL CSS custom properties as described above.
-Visual consistency across all sections.
-Strategic whitespace. Strong hierarchy. Mobile-first. Accessibility (WCAG).
-Modern premium aesthetic: "${data.preferredStyle}" style.
-
-================================================
-FINAL REQUIREMENTS:
-
-Responsive, mobile-first, SEO-optimized, semantic HTML, smooth animations, fast loading, strong CTAs, accessibility compliant.
-This must feel like a premium agency project. It must not look like a generic AI layout.
-Generate a polished, production-ready landing page using ONLY Lovable-compatible technologies.`;
+This landing page must look like it was built by a premium agency charging $50,000+.
+Every pixel matters. Every interaction must feel polished.
+The design must be cohesive, the copy must be compelling, and the UX must be flawless.
+This is NOT a template — it's a custom, conversion-optimized masterpiece.`;
 }
 
 function generatePagesSection(data: BusinessFormData): string {
