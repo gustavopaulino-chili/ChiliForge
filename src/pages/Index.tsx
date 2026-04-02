@@ -336,6 +336,7 @@ const Index = () => {
         body: {
           prompt: currentPrompt,
           businessName: preparedFormData.businessName,
+          userId: user?.id,
         },
       });
 
