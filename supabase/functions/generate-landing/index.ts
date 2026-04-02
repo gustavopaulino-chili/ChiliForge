@@ -98,25 +98,32 @@ FINAL CHECKLIST:
 
     console.log("Calling AI gateway to generate HTML landing page...");
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: `Generate the complete HTML landing page based on this specification:\n\n${prompt}`,
-          },
-        ],
-      }),
+    const aiBody = JSON.stringify({
+      model: "google/gemini-3-flash-preview",
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: `Generate the complete HTML landing page based on this specification:\n\n${prompt}`,
+        },
+      ],
     });
 
-    if (!response.ok) {
+    let response: Response | null = null;
+    const maxRetries = 3;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      console.log(`AI request attempt ${attempt + 1}/${maxRetries}`);
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: aiBody,
+      });
+
+      if (response.ok) break;
+
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
           status: 429,
@@ -131,9 +138,21 @@ FINAL CHECKLIST:
         });
       }
 
+      // Retry on 502/503/504
+      if ([502, 503, 504].includes(response.status) && attempt < maxRetries - 1) {
+        const delay = (attempt + 1) * 5000;
+        console.log(`Got ${response.status}, retrying in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+
       const text = await response.text();
       console.error("AI gateway error:", response.status, text);
       throw new Error(`AI gateway error: ${response.status}`);
+    }
+
+    if (!response || !response.ok) {
+      throw new Error("AI gateway failed after retries");
     }
 
     const data = await response.json();
