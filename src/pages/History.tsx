@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, ArrowLeft, Clock, Search, ExternalLink, Link2, Download, Eye, Trash2 } from 'lucide-react';
+import { Copy, Check, ArrowLeft, Clock, Search, ExternalLink, Link2, Download, Eye, Trash2, LogOut } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface PromptRecord {
   id: string;
