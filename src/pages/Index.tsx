@@ -47,6 +47,7 @@ const loadSavedProgress = () => {
 };
 
 const Index = () => {
+  const { user, signOut } = useAuth();
   const saved = useMemo(() => loadSavedProgress(), []);
   const [showLanding, setShowLanding] = useState(!saved);
   const [isTransitioning, setIsTransitioning] = useState(false);
