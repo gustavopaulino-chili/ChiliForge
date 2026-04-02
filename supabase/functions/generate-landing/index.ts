@@ -327,6 +327,7 @@ KEEP IT COMPACT: No HTML comments, no duplicated wrappers, concise copy, single 
       business_name: businessName || "Landing Page",
       prompt_text: prompt,
       html_file_name: fileName,
+      user_id: userId || null,
     });
 
     return new Response(
