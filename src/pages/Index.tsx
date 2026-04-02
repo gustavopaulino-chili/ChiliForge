@@ -463,7 +463,7 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background relative flex flex-col">
         <div className="reactive-bg-mouse" />
-        <Header onLogoClick={() => setShowLanding(true)} />
+        <Header onLogoClick={() => setShowLanding(true)} onSignOut={signOut} />
         <main className="flex-1 flex flex-col mx-auto max-w-6xl w-full px-6 py-6 relative z-10">
           <div className="text-center mb-6">
             <div className="mb-4">
