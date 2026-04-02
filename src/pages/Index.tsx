@@ -806,9 +806,9 @@ COLOR PALETTE:
 - Background: ${data.backgroundColor} — Page background
 
 TYPOGRAPHY:
-${data.headingFont ? `- Heading Font: "${data.headingFont}" (load via Google Fonts)` : '- Heading Font: Choose a premium font that matches the style'}
-${data.bodyFont ? `- Body Font: "${data.bodyFont}" (load via Google Fonts)` : '- Body Font: Choose a complementary readable font'}
-${data.headingFont || data.bodyFont ? '\nCRITICAL: These specific fonts MUST be used — they are from the original brand identity.' : ''}
+${data.headingFont ? `- Heading Font: "${data.headingFont}" (load via Google Fonts or closest public equivalent)` : '- Heading Font: Choose a premium font that matches the style'}
+${data.bodyFont ? `- Body Font: "${data.bodyFont}" (load via Google Fonts or closest public equivalent)` : '- Body Font: Choose a complementary readable font'}
+${data.headingFont || data.bodyFont ? '\nIMPORTANT: If the detected brand fonts are proprietary or unavailable on Google Fonts/CDN, choose the closest high-quality public substitutes while preserving the original hierarchy, personality, and visual rhythm.' : ''}
 
 VISUAL STYLE: ${data.preferredStyle}
 ${styleGuide[data.preferredStyle] || styleGuide['modern']}
@@ -824,7 +824,7 @@ ${socialText ? `Social Media: ${socialText}` : ''}
 ═══════════════════════════════════════════════
 IMAGE ASSETS
 ═══════════════════════════════════════════════
-${imgLines.length > 0 ? `Available images:\n${imgLines.join('\n')}\n\nIMPORTANT: Use ALL provided images strategically throughout the page. Place hero images as full-width backgrounds with dark overlays. Use section images in alternating content blocks. Brand images near the about/story section.` : 'No images provided — use gradient backgrounds, CSS patterns, and Font Awesome icons for visual appeal.'}
+${imgLines.length > 0 ? `Validated image library:\n${imgLines.join('\n')}\n\nIMPORTANT: Use ONLY the validated URLs listed above. Do not invent, guess, or scrape new asset URLs. If a logo image is missing, render a typographic wordmark using the business name instead of a broken image.` : 'No validated images were provided — use gradient backgrounds, CSS patterns, strong typography, and iconography for visual appeal.'}
 
 ${data.generateAiImages ? 'AI-generated images are included — use them as backgrounds and section images only, never with text baked in.' : 'DO NOT generate or reference any AI images. Only use the explicitly provided image URLs above.'}
 ${!data.generateAiImages && aiImages.length > 0 ? 'Stock photos from Pexels are included — use as hero backgrounds, section backgrounds, or decorative imagery. They are royalty-free.' : ''}
@@ -833,7 +833,7 @@ IMAGE TREATMENT RULES:
 - Hero images: full-width with gradient overlay (from-black/60 to-black/30) and white text on top
 - Section images: rounded-2xl with shadow-2xl, positioned alongside text content
 - All images: object-cover, lazy loading, descriptive alt text
-- Error handling: onerror fallback to gradient backgrounds
+- If an image slot is empty or unavailable, replace it with gradients, shapes, or typographic compositions — never leave broken image placeholders
 
 ${data.sourceWebsite ? `═══════════════════════════════════════════════
 SOURCE WEBSITE REFERENCE
