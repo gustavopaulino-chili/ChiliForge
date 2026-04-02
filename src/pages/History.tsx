@@ -275,11 +275,16 @@ export default function History() {
             <img src="/images/logo-small.png" alt="Logo" className="h-8 w-auto" />
             <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
           </div>
-          <Link to="/">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ArrowLeft className="h-4 w-4" /> Back to Generator
+          <div className="flex items-center gap-2">
+            <Link to="/">
+              <Button variant="ghost" size="sm" className="gap-2">
+                <ArrowLeft className="h-4 w-4" /> Back to Generator
+              </Button>
+            </Link>
+            <Button variant="ghost" size="sm" onClick={signOut} className="gap-2 text-muted-foreground hover:text-foreground">
+              <LogOut className="h-4 w-4" /> Sair
             </Button>
-          </Link>
+          </div>
         </div>
       </header>
 
