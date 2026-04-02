@@ -659,7 +659,7 @@ const Index = () => {
   );
 };
 
-function Header({ onLogoClick }: { onLogoClick?: () => void }) {
+function Header({ onLogoClick, onSignOut }: { onLogoClick?: () => void; onSignOut?: () => void }) {
   return (
     <header className="sticky top-0 border-b border-border/50 px-6 py-[13px] z-50 bg-background/60 backdrop-blur-md">
       <div className="mx-auto max-w-6xl flex items-center justify-between">
