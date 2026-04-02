@@ -550,8 +550,7 @@ const Index = () => {
 
           <div className="flex-1 min-h-[500px] rounded-xl border border-border overflow-hidden bg-white shadow-lg">
             <iframe
-              src={generatedLandingUrl || undefined}
-              srcDoc={!generatedLandingUrl ? generatedHtml || undefined : undefined}
+              srcDoc={generatedHtml || undefined}
               className="w-full h-full min-h-[500px]"
               style={{ minHeight: '70vh' }}
               title="Landing Page Preview"
