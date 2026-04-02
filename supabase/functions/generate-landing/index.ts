@@ -125,7 +125,7 @@ serve(async (req) => {
   }
 
   try {
-    const { prompt, businessName } = await req.json();
+    const { prompt, businessName, userId } = await req.json();
 
     if (!prompt || typeof prompt !== "string" || prompt.length < 50) {
       return new Response(JSON.stringify({ error: "Invalid prompt provided." }), {
