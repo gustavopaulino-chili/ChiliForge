@@ -57,7 +57,7 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen bg-background relative flex items-center justify-center px-4">
-      <div className="reactive-bg" />
+      <div className="reactive-bg-mouse" />
       <div className="glass-card rounded-2xl p-8 w-full max-w-md relative z-10">
         <div className="flex items-center justify-center gap-2 mb-6">
           <img src="/images/logo-small.png" alt="Logo" className="h-10 w-auto" />
