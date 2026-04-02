@@ -94,24 +94,29 @@ IMAGE ANALYSIS & PLACEMENT RULES:
   * https://picsum.photos/WIDTH/HEIGHT (e.g. https://picsum.photos/800/600 for a landscape photo)
   * https://placehold.co/WIDTHxHEIGHT/HEX_BG/HEX_TEXT?text=LABEL (e.g. https://placehold.co/400x300/1a1a2e/ffffff?text=Hero)
 
-IMAGE QUALITY & FORMATTING RULES:
-- For ALL provided image URLs, request the HIGHEST RESOLUTION available:
-  * For Pexels URLs: ALWAYS use the "original" size URL or append ?auto=compress&cs=tinysrgb&w=1920&h=1280&dpr=2
-  * For other URLs: append quality/size parameters if supported (e.g., q_100, w_1920, dpr_2)
+IMAGE QUALITY, UPSCALING & ANTI-PIXELATION RULES:
+- For ALL provided image URLs, you MUST request the MAXIMUM RESOLUTION available to prevent pixelation:
+  * For Pexels URLs: ALWAYS replace any existing size params with ?auto=compress&cs=tinysrgb&w=1920&h=1280&dpr=2&fit=crop
+  * If a Pexels URL contains /w=XXX/ or similar path-based sizing, replace with the largest: w=1920
+  * For other external URLs: append quality/size parameters (e.g., q=100, w=1920, dpr=2)
+  * NEVER use image URLs with w=400, w=640 or any width below 1200px. Always request w=1920 minimum.
+- Add this CSS to EVERY page to upscale and sharpen images:
+  img { image-rendering: auto; image-rendering: -webkit-optimize-contrast; }
+  @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) { img { image-rendering: auto; } }
 - EVERY image MUST use these CSS properties for professional presentation:
   * object-fit: cover — ALWAYS. Never allow images to stretch or distort.
   * object-position: center — to focus on the subject.
   * width: 100% on the container, with explicit height (e.g., h-64, h-80, h-96, h-[500px] for heroes).
   * border-radius for cards (rounded-lg or rounded-xl).
-- For HERO images: use min-h-[500px] or min-h-[600px] with object-cover. Add a subtle dark overlay (bg-black/40) for text readability.
-- For CARD images: use fixed aspect ratios with aspect-video or aspect-[4/3] classes. Ensure uniform height across cards in a grid.
-- For GALLERY images: use a consistent grid with gap-4 and uniform aspect ratios.
-- NEVER display images at their raw size. ALWAYS constrain them within styled containers.
+- For HERO images: use min-h-[500px] or min-h-[600px] with w-full and object-cover. Add a dark overlay (bg-black/50 minimum) for text readability.
+- For CARD images: use fixed aspect ratios with aspect-video or aspect-[4/3]. Ensure uniform height across cards in a grid. Minimum height: h-48 or h-56.
+- For GALLERY images: use a consistent grid with gap-4 and uniform aspect ratios. Each image min-h-[250px].
+- NEVER display images at their raw/natural size. ALWAYS constrain them within styled containers with explicit dimensions.
 - NEVER use images smaller than their container — this causes pixelation. Always request large versions.
 - If a provided image URL fails to load, gracefully fall back to CSS gradients, shapes, or a typographic wordmark.
 - If the logo image is unavailable, render the business name as a high-quality styled text logo.
 - Every img must include descriptive alt text and an onerror handler.
-- Lazy-load below-the-fold images.
+- Lazy-load below-the-fold images with loading="lazy".
 - Add this onerror to ALL img tags: onerror="this.parentElement.classList.add('img-fallback');this.style.display='none'"
 - Add this CSS to the page for fallback styling:
   .img-fallback { background: linear-gradient(135deg, var(--tw-gradient-from, #667eea), var(--tw-gradient-to, #764ba2)); min-height: 200px; display:flex; align-items:center; justify-content:center; }
