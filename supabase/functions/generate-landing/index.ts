@@ -77,23 +77,37 @@ TEXT READABILITY — CRITICAL:
 - When in doubt, increase contrast. Unreadable text is the worst UX failure.
 - Test every section mentally: "Can a user with normal vision read this text instantly?"
 
-IMAGE RULES:
+IMAGE ANALYSIS & PLACEMENT RULES:
+- BEFORE placing any image, analyze its likely content based on the URL and context (e.g., a Pexels photo of "restaurant interior" should go in the About or Gallery section, not as a tiny icon).
+- Match each image to the MOST RELEVANT section of the page. Hero images should be wide/cinematic. Service images should be cropped to cards. Team/about images should be portrait-friendly.
 - Use ONLY image URLs explicitly provided in the specification.
 - NEVER invent, guess, or use URLs from unsplash.com, pexels.com, or any external domain that was not provided.
 - When you need PLACEHOLDER or DECORATIVE images that were NOT provided, use ONLY these reliable services:
   * https://picsum.photos/WIDTH/HEIGHT (e.g. https://picsum.photos/800/600 for a landscape photo)
   * https://placehold.co/WIDTHxHEIGHT/HEX_BG/HEX_TEXT?text=LABEL (e.g. https://placehold.co/400x300/1a1a2e/ffffff?text=Hero)
+
+IMAGE QUALITY & FORMATTING RULES:
 - For ALL provided image URLs, request the HIGHEST RESOLUTION available:
-  * For Pexels URLs: change parameters to w=1920&h=1080&dpr=2 or use the original URL without size constraints
+  * For Pexels URLs: ALWAYS use the "original" size URL or append ?auto=compress&cs=tinysrgb&w=1920&h=1280&dpr=2
   * For other URLs: append quality/size parameters if supported (e.g., q_100, w_1920, dpr_2)
-  * Always prefer larger images and let CSS handle sizing with object-cover
+- EVERY image MUST use these CSS properties for professional presentation:
+  * object-fit: cover — ALWAYS. Never allow images to stretch or distort.
+  * object-position: center — to focus on the subject.
+  * width: 100% on the container, with explicit height (e.g., h-64, h-80, h-96, h-[500px] for heroes).
+  * border-radius for cards (rounded-lg or rounded-xl).
+- For HERO images: use min-h-[500px] or min-h-[600px] with object-cover. Add a subtle dark overlay (bg-black/40) for text readability.
+- For CARD images: use fixed aspect ratios with aspect-video or aspect-[4/3] classes. Ensure uniform height across cards in a grid.
+- For GALLERY images: use a consistent grid with gap-4 and uniform aspect ratios.
+- NEVER display images at their raw size. ALWAYS constrain them within styled containers.
+- NEVER use images smaller than their container — this causes pixelation. Always request large versions.
 - If a provided image URL fails to load, gracefully fall back to CSS gradients, shapes, or a typographic wordmark.
 - If the logo image is unavailable, render the business name as a high-quality styled text logo.
-- Every img must include descriptive alt text and an onerror handler that replaces the image with a styled gradient div.
+- Every img must include descriptive alt text and an onerror handler.
 - Lazy-load below-the-fold images.
 - Add this onerror to ALL img tags: onerror="this.parentElement.classList.add('img-fallback');this.style.display='none'"
 - Add this CSS to the page for fallback styling:
-  .img-fallback { background: linear-gradient(135deg, var(--tw-gradient-from, #667eea), var(--tw-gradient-to, #764ba2)); min-height: 200px; }
+  .img-fallback { background: linear-gradient(135deg, var(--tw-gradient-from, #667eea), var(--tw-gradient-to, #764ba2)); min-height: 200px; display:flex; align-items:center; justify-content:center; }
+  .img-fallback::after { content: ''; }
 
 FONT RULES:
 - If the requested fonts are proprietary or unavailable publicly, choose the closest high-quality public equivalent and preserve the brand feel.
