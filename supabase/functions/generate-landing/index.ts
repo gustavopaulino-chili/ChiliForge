@@ -68,11 +68,15 @@ TAILWIND / DESIGN RULES:
 
 IMAGE RULES:
 - Use ONLY image URLs explicitly provided in the specification.
-- NEVER invent, guess, scrape, or replace with external URLs that were not provided.
-- If a provided image is unavailable or missing, gracefully fall back to gradients, shapes, iconography, or a typographic wordmark.
-- If the logo image is unavailable, render the business name as a high-quality text logo instead of showing a broken image.
-- Every img must include descriptive alt text and onerror fallback behavior.
+- NEVER invent, guess, or use URLs from unsplash.com, pexels.com, or any external domain that was not provided.
+- When you need PLACEHOLDER or DECORATIVE images that were NOT provided, use ONLY these reliable services:
+  * https://picsum.photos/WIDTH/HEIGHT (e.g. https://picsum.photos/800/600 for a landscape photo)
+  * https://placehold.co/WIDTHxHEIGHT/HEX_BG/HEX_TEXT?text=LABEL (e.g. https://placehold.co/400x300/1a1a2e/ffffff?text=Hero)
+- If a provided image URL fails to load, gracefully fall back to CSS gradients, shapes, or a typographic wordmark.
+- If the logo image is unavailable, render the business name as a high-quality styled text logo.
+- Every img must include descriptive alt text and an onerror handler that hides the image or replaces it with a gradient div.
 - Lazy-load below-the-fold images.
+- Add this onerror to ALL img tags: onerror="this.style.display='none'"
 
 FONT RULES:
 - If the requested fonts are proprietary or unavailable publicly, choose the closest high-quality public equivalent and preserve the brand feel.

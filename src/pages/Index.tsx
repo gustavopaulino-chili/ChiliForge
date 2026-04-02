@@ -489,11 +489,6 @@ const Index = () => {
               variant="outline"
               size="sm"
               onClick={() => {
-                if (generatedLandingUrl) {
-                  window.open(generatedLandingUrl, '_blank', 'noopener,noreferrer');
-                  return;
-                }
-
                 if (generatedHtml) {
                   const previewBlob = new Blob([generatedHtml], { type: 'text/html' });
                   const previewBlobUrl = URL.createObjectURL(previewBlob);
@@ -550,8 +545,7 @@ const Index = () => {
 
           <div className="flex-1 min-h-[500px] rounded-xl border border-border overflow-hidden bg-white shadow-lg">
             <iframe
-              src={generatedLandingUrl || undefined}
-              srcDoc={!generatedLandingUrl ? generatedHtml || undefined : undefined}
+              srcDoc={generatedHtml || undefined}
               className="w-full h-full min-h-[500px]"
               style={{ minHeight: '70vh' }}
               title="Landing Page Preview"
