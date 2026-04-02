@@ -9,8 +9,8 @@ const corsHeaders = {
 
 const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const PRIMARY_MODEL = "google/gemini-2.5-flash";
-const STANDARD_MAX_TOKENS = 7000;
-const COMPACT_MAX_TOKENS = 5200;
+const STANDARD_MAX_TOKENS = 16000;
+const COMPACT_MAX_TOKENS = 10000;
 
 function stripCodeFences(content: string) {
   let cleaned = content.trim();
