@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, ArrowLeft, Clock, Search, ExternalLink, Link2, Download, Eye, EyeOff, X } from 'lucide-react';
+import { Copy, Check, ArrowLeft, Clock, Search, ExternalLink, Link2, Download, Eye, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
@@ -102,6 +102,18 @@ export default function History() {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch {
       toast.error('Download failed');
+    }
+  };
+
+  const handleDelete = async (prompt: PromptRecord) => {
+    if (!confirm('Tem certeza que deseja excluir este registro?')) return;
+    const { error } = await (supabase.from('generated_prompts').delete() as any).eq('id', prompt.id);
+    if (error) {
+      toast.error('Falha ao excluir');
+    } else {
+      setPrompts(prev => prev.filter(p => p.id !== prompt.id));
+      if (previewId === prompt.id) { setPreviewId(null); setPreviewHtml(null); }
+      toast.success('Registro excluído!');
     }
   };
 
@@ -348,6 +360,9 @@ export default function History() {
                     <Button variant="outline" size="sm" onClick={() => handleCopyPrompt(prompt)} className="gap-1.5">
                       {copiedId === prompt.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                       {copiedId === prompt.id ? 'Copied' : 'Copy'}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleDelete(prompt)} className="gap-1.5 text-destructive hover:text-destructive">
+                      <Trash2 className="h-3.5 w-3.5" /> Delete
                     </Button>
                   </div>
                 </div>
