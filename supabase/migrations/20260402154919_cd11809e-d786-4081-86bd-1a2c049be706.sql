@@ -1,0 +1,1 @@
+CREATE POLICY "Anyone can delete prompts" ON public.generated_prompts FOR DELETE TO anon, authenticated USING (true);
