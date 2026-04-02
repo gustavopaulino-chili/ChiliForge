@@ -7,6 +7,118 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const PRIMARY_MODEL = "google/gemini-2.5-flash";
+const STANDARD_MAX_TOKENS = 7000;
+const COMPACT_MAX_TOKENS = 5200;
+
+function stripCodeFences(content: string) {
+  let cleaned = content.trim();
+  if (cleaned.startsWith("```html")) cleaned = cleaned.slice(7);
+  else if (cleaned.startsWith("```")) cleaned = cleaned.slice(3);
+  if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3);
+  return cleaned.trim();
+}
+
+function findHtmlStartIndex(content: string) {
+  const patterns = [/<!DOCTYPE/i, /<html/i, /<body/i, /<main/i, /<header/i, /<section/i];
+  let startIndex = -1;
+
+  for (const pattern of patterns) {
+    const index = content.search(pattern);
+    if (index !== -1 && (startIndex === -1 || index < startIndex)) {
+      startIndex = index;
+    }
+  }
+
+  return startIndex;
+}
+
+function ensureHtmlDocument(content: string) {
+  let html = stripCodeFences(content);
+  const hasDoctype = /<!DOCTYPE/i.test(html);
+  const hasHtmlTag = /<html[\s>]/i.test(html);
+  const hasBodyTag = /<body[\s>]/i.test(html);
+
+  if (!hasHtmlTag) {
+    html = `<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n<title>Generated Landing Page</title>\n</head>\n<body>\n${html}`;
+  } else if (!hasDoctype) {
+    html = `<!DOCTYPE html>\n${html}`;
+  }
+
+  if (!hasBodyTag) {
+    if (/<\/head>/i.test(html)) html = html.replace(/<\/head>/i, "</head>\n<body>");
+    else html = html.replace(/<html([^>]*)>/i, "<html$1>\n<body>");
+  }
+
+  if (!/<\/body>/i.test(html)) html += "\n</body>";
+  if (!/<\/html>/i.test(html)) html += "\n</html>";
+
+  return html.trim();
+}
+
+function recoverHtmlFromRawText(rawText: string) {
+  const directHtmlStart = findHtmlStartIndex(rawText);
+  if (directHtmlStart !== -1) {
+    return ensureHtmlDocument(rawText.slice(directHtmlStart));
+  }
+
+  const contentKeyIndex = rawText.indexOf('"content"');
+  if (contentKeyIndex === -1) return null;
+
+  const colonIndex = rawText.indexOf(":", contentKeyIndex);
+  const openingQuoteIndex = rawText.indexOf('"', colonIndex + 1);
+  if (colonIndex === -1 || openingQuoteIndex === -1) return null;
+
+  const decodedContent = rawText
+    .slice(openingQuoteIndex + 1)
+    .replace(/\\u003c/g, "<")
+    .replace(/\\u003e/g, ">")
+    .replace(/\\u0026/g, "&")
+    .replace(/\\\//g, "/")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "")
+    .replace(/\\t/g, "  ")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\");
+
+  const recoveredStart = findHtmlStartIndex(decodedContent);
+  if (recoveredStart === -1) return null;
+
+  return ensureHtmlDocument(decodedContent.slice(recoveredStart));
+}
+
+function parseAiPayload(rawText: string) {
+  try {
+    return JSON.parse(rawText);
+  } catch (parseError) {
+    console.error(
+      "Failed to parse AI response, length:",
+      rawText.length,
+      "first 500 chars:",
+      rawText.substring(0, 500),
+      parseError,
+    );
+
+    const recoveredHtml = recoverHtmlFromRawText(rawText);
+    if (!recoveredHtml) return null;
+
+    console.log("Recovered HTML from incomplete AI response");
+    return { choices: [{ message: { content: recoveredHtml } }] };
+  }
+}
+
+function extractHtmlContent(data: any) {
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || !content.trim()) return null;
+
+  const cleaned = stripCodeFences(content);
+  const looksLikeHtml = /<!DOCTYPE/i.test(cleaned) || /<html/i.test(cleaned) || /<(body|main|header|section|div)\b/i.test(cleaned);
+  if (!looksLikeHtml) return null;
+
+  return ensureHtmlDocument(cleaned);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -58,6 +170,7 @@ CRITICAL QUALITY RULES:
 - Include sticky header, mobile menu, smooth scroll, hover states, section reveal animations.
 - Include subtle but meaningful animation with IntersectionObserver.
 - Include proper accessibility: alt text, aria-labels, focus states, single H1.
+- Keep the implementation lean: no comments, no duplicated wrappers/scripts, concise copy, and reusable patterns so the final HTML stays compact enough to return in one response.
 
 HEADER — CRITICAL (NON-NEGOTIABLE):
 - The header/navbar MUST NEVER be fully transparent. ALWAYS use a translucent solid background.
@@ -141,103 +254,118 @@ FINAL CHECKLIST:
 - Smooth interactions
 - Complete HTML document`;
 
-    console.log("Calling AI gateway to generate HTML landing page...");
+    const buildUserPrompt = (compact = false) => {
+      const compactInstructions = compact
+        ? `\n\nTRUNCATION RECOVERY MODE:\n- The previous response was cut off. Regenerate the SAME landing page with the SAME requested sections and assets, but keep the markup and copy concise.\n- No comments.\n- No duplicated wrappers or repeated decorative elements.\n- Use a single compact script block.\n- Keep the output compact enough to fit safely in one response.`
+        : "";
 
-    const aiBody = JSON.stringify({
-      model: "google/gemini-3-flash-preview",
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: `Generate the complete HTML landing page based on this specification:\n\n${prompt}`,
-        },
-      ],
-    });
+      return `Generate the complete HTML landing page based on this specification:\n\n${prompt}${compactInstructions}`;
+    };
 
-    let response: Response | null = null;
-    const maxRetries = 3;
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      console.log(`AI request attempt ${attempt + 1}/${maxRetries}`);
-      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: aiBody,
+    const requestAiResponse = async (compact = false) => {
+      const aiBody = JSON.stringify({
+        model: PRIMARY_MODEL,
+        max_tokens: compact ? COMPACT_MAX_TOKENS : STANDARD_MAX_TOKENS,
+        temperature: compact ? 0.6 : 0.7,
+        messages: [
+          {
+            role: "system",
+            content: compact
+              ? `${systemPrompt}\n\nOUTPUT SIZE RECOVERY MODE:\n- Preserve the requested sections, visuals, accessibility, and conversion intent.\n- Keep the HTML lean and compact.\n- No comments.\n- Avoid overly verbose copy and repeated decorative markup.\n- Keep JavaScript concise and centralized in one script block.`
+              : systemPrompt,
+          },
+          {
+            role: "user",
+            content: buildUserPrompt(compact),
+          },
+        ],
       });
 
-      if (response.ok) break;
+      let response: Response | null = null;
+      const maxRetries = compact ? 2 : 3;
 
-      if (response.status === 429) {
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        console.log(`AI request attempt ${attempt + 1}/${maxRetries}${compact ? " (compact fallback)" : ""}`);
+        response = await fetch(AI_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: aiBody,
+        });
+
+        if (response.ok) {
+          return { kind: "ok" as const, text: await response.text() };
+        }
+
+        if (response.status === 429) {
+          return { kind: "rate_limit" as const };
+        }
+
+        if (response.status === 402) {
+          return { kind: "credits" as const };
+        }
+
+        if ([502, 503, 504].includes(response.status) && attempt < maxRetries - 1) {
+          const delay = (attempt + 1) * 5000;
+          console.log(`Got ${response.status}, retrying in ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+
+        const text = await response.text();
+        console.error("AI gateway error:", response.status, text);
+        throw new Error(`AI gateway error: ${response.status}`);
+      }
+
+      throw new Error("AI gateway failed after retries");
+    };
+
+    console.log("Calling AI gateway to generate HTML landing page...");
+
+    const primaryResult = await requestAiResponse(false);
+    if (primaryResult.kind === "rate_limit") {
+      return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
+        status: 429,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (primaryResult.kind === "credits") {
+      return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds." }), {
+        status: 402,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    let data = parseAiPayload(primaryResult.text);
+    let htmlContent = data ? extractHtmlContent(data) : null;
+
+    if (!htmlContent) {
+      console.warn("Primary AI response was incomplete; retrying with compact output constraints");
+
+      const compactResult = await requestAiResponse(true);
+      if (compactResult.kind === "rate_limit") {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
           status: 429,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      if (response.status === 402) {
+      if (compactResult.kind === "credits") {
         return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds." }), {
           status: 402,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      // Retry on 502/503/504
-      if ([502, 503, 504].includes(response.status) && attempt < maxRetries - 1) {
-        const delay = (attempt + 1) * 5000;
-        console.log(`Got ${response.status}, retrying in ${delay}ms...`);
-        await new Promise(r => setTimeout(r, delay));
-        continue;
-      }
-
-      const text = await response.text();
-      console.error("AI gateway error:", response.status, text);
-      throw new Error(`AI gateway error: ${response.status}`);
+      data = parseAiPayload(compactResult.text);
+      htmlContent = data ? extractHtmlContent(data) : null;
     }
 
-    if (!response || !response.ok) {
-      throw new Error("AI gateway failed after retries");
-    }
-
-    const rawText = await response.text();
-    let data;
-    try {
-      data = JSON.parse(rawText);
-    } catch (parseErr) {
-      console.error("Failed to parse AI response, length:", rawText.length, "first 500 chars:", rawText.substring(0, 500));
-      // Try to extract HTML directly from truncated response
-      const htmlMatch = rawText.match(/<!DOCTYPE[\s\S]*/i) || rawText.match(/<html[\s\S]*/i);
-      if (htmlMatch) {
-        console.log("Recovered HTML from truncated JSON response");
-        let recovered = htmlMatch[0];
-        // Try to close truncated HTML
-        if (!recovered.includes("</html>")) recovered += "\n</body>\n</html>";
-        data = { choices: [{ message: { content: recovered } }] };
-      } else {
-        throw new Error("AI response was truncated and could not be recovered. Try generating a simpler page.");
-      }
-    }
-
-    let htmlContent = data.choices?.[0]?.message?.content;
-    if (!htmlContent) throw new Error("No response from AI");
-
-    htmlContent = htmlContent.trim();
-    if (htmlContent.startsWith("```html")) htmlContent = htmlContent.slice(7);
-    else if (htmlContent.startsWith("```")) htmlContent = htmlContent.slice(3);
-    if (htmlContent.endsWith("```")) htmlContent = htmlContent.slice(0, -3);
-    htmlContent = htmlContent.trim();
-
-    // Auto-close truncated HTML
-    if (htmlContent.includes("<html") && !htmlContent.includes("</html>")) {
-      console.log("HTML was truncated, auto-closing tags");
-      if (!htmlContent.includes("</body>")) htmlContent += "\n</body>";
-      htmlContent += "\n</html>";
-    }
-
-    if (!htmlContent.includes("<!DOCTYPE") && !htmlContent.includes("<html")) {
-      console.error("Generated content doesn't look like HTML:", htmlContent.substring(0, 200));
-      throw new Error("AI did not generate valid HTML");
+    if (!htmlContent) {
+      throw new Error("AI response was truncated and could not be recovered. Please try again.");
     }
 
     const slug = (businessName || "landing")
