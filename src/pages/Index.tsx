@@ -478,17 +478,29 @@ const Index = () => {
                 navigator.clipboard.writeText(generatedLandingUrl);
                 setCopiedLink(true);
                 setTimeout(() => setCopiedLink(false), 2000);
-                toast.success('URL copied!');
+                toast.success('Preview URL copied!');
               }}
               className="gap-2"
             >
               {copiedLink ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
-              {copiedLink ? 'Copied!' : 'Copy URL'}
+              {copiedLink ? 'Copied!' : 'Copy Preview URL'}
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.open(generatedLandingUrl, '_blank')}
+              onClick={() => {
+                if (generatedLandingUrl) {
+                  window.open(generatedLandingUrl, '_blank', 'noopener,noreferrer');
+                  return;
+                }
+
+                if (generatedHtml) {
+                  const previewBlob = new Blob([generatedHtml], { type: 'text/html' });
+                  const previewBlobUrl = URL.createObjectURL(previewBlob);
+                  window.open(previewBlobUrl, '_blank', 'noopener,noreferrer');
+                  window.setTimeout(() => URL.revokeObjectURL(previewBlobUrl), 60000);
+                }
+              }}
               className="gap-2"
             >
               <ExternalLink className="h-4 w-4" /> Open in New Tab
@@ -497,10 +509,14 @@ const Index = () => {
               variant="outline"
               size="sm"
               onClick={() => {
+                const htmlToDownload = generatedHtml || '';
+                const htmlBlob = new Blob([htmlToDownload], { type: 'text/html' });
+                const htmlBlobUrl = URL.createObjectURL(htmlBlob);
                 const a = document.createElement('a');
-                a.href = generatedLandingUrl;
+                a.href = htmlBlobUrl;
                 a.download = `landing-page-${formData.businessName || 'site'}.html`;
                 a.click();
+                window.setTimeout(() => URL.revokeObjectURL(htmlBlobUrl), 1000);
               }}
               className="gap-2"
             >
@@ -520,7 +536,6 @@ const Index = () => {
             </Button>
           </div>
 
-          {/* URL display */}
           <div className="rounded-lg border border-border bg-muted/50 px-4 py-2 mb-4 flex items-center gap-2 max-w-2xl mx-auto w-full">
             <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
             <a
@@ -533,11 +548,10 @@ const Index = () => {
             </a>
           </div>
 
-          {/* iFrame preview */}
           <div className="flex-1 min-h-[500px] rounded-xl border border-border overflow-hidden bg-white shadow-lg">
             <iframe
-              srcDoc={generatedHtml || undefined}
-              src={!generatedHtml ? generatedLandingUrl : undefined}
+              src={generatedLandingUrl || undefined}
+              srcDoc={!generatedLandingUrl ? generatedHtml || undefined : undefined}
               className="w-full h-full min-h-[500px]"
               style={{ minHeight: '70vh' }}
               title="Landing Page Preview"
