@@ -394,6 +394,7 @@ FINAL CHECKLIST:
     await supabase.from("generated_prompts").insert({
       business_name: businessName || "Landing Page",
       prompt_text: prompt,
+      html_file_name: fileName,
     });
 
     return new Response(
