@@ -16,6 +16,7 @@ interface PromptRecord {
 }
 
 export default function History() {
+  const { signOut } = useAuth();
   const [prompts, setPrompts] = useState<PromptRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
