@@ -200,7 +200,25 @@ FINAL CHECKLIST:
       throw new Error("AI gateway failed after retries");
     }
 
-    const data = await response.json();
+    const rawText = await response.text();
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (parseErr) {
+      console.error("Failed to parse AI response, length:", rawText.length, "first 500 chars:", rawText.substring(0, 500));
+      // Try to extract HTML directly from truncated response
+      const htmlMatch = rawText.match(/<!DOCTYPE[\s\S]*/i) || rawText.match(/<html[\s\S]*/i);
+      if (htmlMatch) {
+        console.log("Recovered HTML from truncated JSON response");
+        let recovered = htmlMatch[0];
+        // Try to close truncated HTML
+        if (!recovered.includes("</html>")) recovered += "\n</body>\n</html>";
+        data = { choices: [{ message: { content: recovered } }] };
+      } else {
+        throw new Error("AI response was truncated and could not be recovered. Try generating a simpler page.");
+      }
+    }
+
     let htmlContent = data.choices?.[0]?.message?.content;
     if (!htmlContent) throw new Error("No response from AI");
 
@@ -209,6 +227,13 @@ FINAL CHECKLIST:
     else if (htmlContent.startsWith("```")) htmlContent = htmlContent.slice(3);
     if (htmlContent.endsWith("```")) htmlContent = htmlContent.slice(0, -3);
     htmlContent = htmlContent.trim();
+
+    // Auto-close truncated HTML
+    if (htmlContent.includes("<html") && !htmlContent.includes("</html>")) {
+      console.log("HTML was truncated, auto-closing tags");
+      if (!htmlContent.includes("</body>")) htmlContent += "\n</body>";
+      htmlContent += "\n</html>";
+    }
 
     if (!htmlContent.includes("<!DOCTYPE") && !htmlContent.includes("<html")) {
       console.error("Generated content doesn't look like HTML:", htmlContent.substring(0, 200));
