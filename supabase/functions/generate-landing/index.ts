@@ -59,6 +59,14 @@ CRITICAL QUALITY RULES:
 - Include subtle but meaningful animation with IntersectionObserver.
 - Include proper accessibility: alt text, aria-labels, focus states, single H1.
 
+HEADER — CRITICAL (NON-NEGOTIABLE):
+- The header/navbar MUST NEVER be fully transparent. ALWAYS use a translucent solid background.
+- Use backdrop-blur-xl combined with a semi-opaque background color: e.g. bg-white/90, bg-gray-900/95, bg-black/80, bg-[#1a1a2e]/90.
+- The header background MUST provide enough contrast for ALL nav links and logo to be clearly readable at ALL times, even when scrolling over hero images or colorful sections.
+- NEVER use bg-transparent or bg-opacity-0 on headers. Minimum opacity: 80%.
+- On scroll, optionally increase opacity or add shadow, but NEVER start from transparent.
+- Test mentally: "If this header scrolls over a white hero image, can I still read the nav links?" — if not, darken the background.
+
 TAILWIND / DESIGN RULES:
 - Define all brand colors in tailwind.config inside a script block.
 - Use semantic colors: primary, secondary, accent, background, foreground, muted, card, border.
