@@ -651,6 +651,7 @@ export function VisualEditor({
   }>>([]);
   const [addingGeneratedImageId, setAddingGeneratedImageId] = useState<number | null>(null);
   const [selected, setSelected] = useState<SelectedNode | null>(null);
+  const selectedRef = useRef<SelectedNode | null>(null);
   const [textValue, setTextValue] = useState('');
   const [hrefValue, setHrefValue] = useState('');
   const [linkTarget, setLinkTarget] = useState('_self');
@@ -2325,6 +2326,9 @@ export function VisualEditor({
     }
   };
 
+  // Keep selectedRef in sync so async file handlers always see the latest selection
+  selectedRef.current = selected;
+
   // NOTE: original `openFilesManager` removed. We'll use `openFilesFolder` (below)
 
   const handleUploadFiles = async (filesList: FileList | null) => {
@@ -2351,19 +2355,18 @@ export function VisualEditor({
       const uploadResult = await uploadProjectFiles(projectId, userId, allowedFiles);
       toast.success(`${allowedFiles.length} arquivo(s) enviados para a pasta de files.`);
 
-      // Auto-link behavior: if an anchor/button is selected, attach the first uploaded file automatically.
+      // Auto-link behavior: if an anchor element is selected, attach the first uploaded file automatically.
+      // Use selectedRef to avoid stale closure issues in async callbacks.
+      const currentSelected = selectedRef.current;
       const firstUploaded = uploadResult.uploaded?.[0];
-      if (selected?.tag === 'a' && firstUploaded?.url) {
+      if (currentSelected?.tag === 'a' && firstUploaded?.url) {
         const rel = toRelativeFilePath(firstUploaded.url);
         setHrefValue(rel);
         setFileDownloadPath(rel);
         applyAnchorLinkLive({ nextHref: rel, nextDownload: rel });
-
-        if ((uploadResult.uploaded?.length || 0) > 1) {
-          toast.success(`Link de download aplicado automaticamente no botão usando ${firstUploaded.name} (primeiro arquivo enviado).`);
-        } else {
-          toast.success(`Link de download aplicado automaticamente no botão: ${firstUploaded.name}.`);
-        }
+        toast.success(`Link aplicado automaticamente no elemento selecionado: ${firstUploaded.name}.`);
+      } else if (firstUploaded?.url) {
+        toast.info('Arquivo enviado. Para aplicar automaticamente num botão/link, selecione o elemento <a> na página antes de enviar.');
       }
 
       await refreshFiles();
@@ -3094,8 +3097,22 @@ export function VisualEditor({
             <p className="text-sm font-medium">Appearance</p>
             <Label className="text-xs text-muted-foreground">Colors</Label>
             <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label htmlFor="cf-text-color" className="text-xs text-muted-foreground">Text</Label>
+              <div className="space-y-1">
+                <Label htmlFor="cf-text-color" className="text-xs text-muted-foreground">Texto</Label>
+                {brandPalette.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {brandPalette.map((color) => (
+                      <button
+                        key={`pt-${color}`}
+                        type="button"
+                        className="h-5 w-5 rounded-sm border border-border/70 hover:scale-110 transition-transform"
+                        style={{ backgroundColor: color }}
+                        title={`Aplicar ${color} como cor de texto`}
+                        onClick={() => { setTextColor(color); applyColorsLive({ nextTextColor: color }); }}
+                      />
+                    ))}
+                  </div>
+                )}
                 <Input
                   id="cf-text-color"
                   type="color"
@@ -3107,8 +3124,22 @@ export function VisualEditor({
                   }}
                 />
               </div>
-              <div>
-                <Label htmlFor="cf-bg-color" className="text-xs text-muted-foreground">Background</Label>
+              <div className="space-y-1">
+                <Label htmlFor="cf-bg-color" className="text-xs text-muted-foreground">Fundo</Label>
+                {brandPalette.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {brandPalette.map((color) => (
+                      <button
+                        key={`pb-${color}`}
+                        type="button"
+                        className="h-5 w-5 rounded-sm border border-border/70 hover:scale-110 transition-transform"
+                        style={{ backgroundColor: color }}
+                        title={`Aplicar ${color} como fundo`}
+                        onClick={() => { setBgColor(color); applyColorsLive({ nextBgColor: color }); }}
+                      />
+                    ))}
+                  </div>
+                )}
                 <Input
                   id="cf-bg-color"
                   type="color"
@@ -3121,27 +3152,6 @@ export function VisualEditor({
                 />
               </div>
             </div>
-
-            {brandPalette.length > 0 && (
-              <div className="space-y-2 rounded-md border border-border/60 p-2">
-                <Label className="text-xs text-muted-foreground">Brand palette from brief</Label>
-                <div className="grid grid-cols-5 gap-2">
-                  {brandPalette.map((color) => (
-                    <button
-                      key={`brand-${color}`}
-                      type="button"
-                      className="h-8 w-full rounded border border-border/70"
-                      style={{ backgroundColor: color }}
-                      title={`Apply ${color}`}
-                      onClick={() => applyBrandPaletteColor(color)}
-                    />
-                  ))}
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Click a swatch to apply. For section selection it updates background; for elements it updates text color.
-                </p>
-              </div>
-            )}
             
             <div className="grid grid-cols-2 gap-2">
               <div>
