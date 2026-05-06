@@ -81,6 +81,7 @@ export default function History() {
         currentStep: project.currentStep ?? 0,
         savedProjectId: project.id,
         generatedLandingUrl: project.public_url ?? '',
+        folderPath: project.folder_path ?? '',
       }
     });
   };
@@ -135,6 +136,7 @@ export default function History() {
                           generatedHtml: project.generated_html ?? '',
                           savedProjectId: project.id,
                           generatedLandingUrl: project.public_url ?? '',
+                          folderPath: project.folder_path ?? '',
                         }
                       });
                     }}

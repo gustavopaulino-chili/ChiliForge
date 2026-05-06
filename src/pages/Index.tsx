@@ -40,11 +40,60 @@ const STEPS: StepDef[] = [
   { id: 'review', label: 'Review' },
 ];
 
-const STORAGE_KEY = 'siteforge_progress';
+const LEGACY_STORAGE_KEY = 'siteforge_progress';
+const STORAGE_KEY_PREFIX = 'siteforge_progress_v2';
 
-const loadSavedProgress = () => {
+type SavedProgress = {
+  currentStep: number;
+  maxVisitedStep: number;
+  formData: BusinessFormData;
+  user_id?: number;
+  folder_path?: string;
+};
+
+const normalizeFolderPathKey = (value?: string) => {
+  const raw = (value || '').trim().toLowerCase();
+  if (!raw) return 'draft';
+  return raw.replace(/[^a-z0-9/_-]/g, '').replace(/\/+$/, '') || 'draft';
+};
+
+const buildProgressStorageKey = (userId?: number, folderPath?: string) => {
+  const safeUserId = Number.isFinite(userId) && (userId || 0) > 0 ? String(userId) : 'guest';
+  const safeFolder = normalizeFolderPathKey(folderPath);
+  return `${STORAGE_KEY_PREFIX}:${safeUserId}:${safeFolder}`;
+};
+
+const deriveFolderPathFromPublicUrl = (url?: string) => {
+  const raw = (url || '').trim();
+  if (!raw) return '';
   try {
-    return safeGetJSON(STORAGE_KEY);
+    const absolute = raw.startsWith('http://') || raw.startsWith('https://')
+      ? new URL(raw)
+      : new URL(raw.startsWith('/') ? raw : `/${raw}`, window.location.origin);
+    const match = absolute.pathname.match(/\/projects\/([^/]+)\/?$/i);
+    if (!match?.[1]) return '';
+    return `/public/projects/${match[1]}`;
+  } catch {
+    const match = raw.match(/\/projects\/([^/]+)\/?$/i);
+    if (!match?.[1]) return '';
+    return `/public/projects/${match[1]}`;
+  }
+};
+
+const hasMeaningfulProgress = (progress: Partial<SavedProgress> | null | undefined) => {
+  if (!progress || !progress.formData) return false;
+  const fd = progress.formData as Partial<BusinessFormData>;
+  const hasNonEmptyService = Array.isArray(fd.services) && fd.services.some((item) => typeof item === 'string' && item.trim() !== '');
+  const hasNonEmptyDifferentiator = Array.isArray(fd.differentiators) && fd.differentiators.some((item) => typeof item === 'string' && item.trim() !== '');
+  const hasCoreText = [fd.businessName, fd.businessDescription, fd.valueProposition, fd.targetAudience, fd.businessCategory]
+    .some((item) => typeof item === 'string' && item.trim() !== '');
+  const hasProgress = Number(progress.currentStep || 0) > 0 || Number(progress.maxVisitedStep || 0) > 0;
+  return hasCoreText || hasNonEmptyService || hasNonEmptyDifferentiator || hasProgress;
+};
+
+const loadSavedProgress = (storageKey: string) => {
+  try {
+    return safeGetJSON(storageKey) as SavedProgress | null;
   } catch { }
   return null;
 };
@@ -198,8 +247,12 @@ const Index = () => {
   const { user, signOut: authSignOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const routeState = location.state as { formData?: BusinessFormData; currentStep?: number; generatedHtml?: string; savedProjectId?: number; generatedLandingUrl?: string } | null;
-  const saved = useMemo(() => loadSavedProgress(), []);
+  const routeState = location.state as { formData?: BusinessFormData; currentStep?: number; generatedHtml?: string; savedProjectId?: number; generatedLandingUrl?: string; folderPath?: string } | null;
+  const [currentProjectFolderPath, setCurrentProjectFolderPath] = useState<string>(() => routeState?.folderPath || deriveFolderPathFromPublicUrl(routeState?.generatedLandingUrl));
+  const progressStorageKey = useMemo(
+    () => buildProgressStorageKey(user?.id, currentProjectFolderPath),
+    [user?.id, currentProjectFolderPath],
+  );
   const [savedProjectId, setSavedProjectId] = useState<number | null>(routeState?.savedProjectId ?? null);
   const [copied, setCopied] = useState(false);
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
@@ -219,7 +272,7 @@ const Index = () => {
   const [generationMessages, setGenerationMessages] = useState<string[]>([]);
   const [showLanding, setShowLanding] = useState(!(routeState?.formData || routeState?.generatedHtml));
   const [showRestoreDialog, setShowRestoreDialog] = useState(false);
-  const [pendingRestore, setPendingRestore] = useState<typeof saved>(null);
+  const [pendingRestore, setPendingRestore] = useState<SavedProgress | null>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [currentStep, setCurrentStep] = useState(routeState?.currentStep ?? 0);
   const [maxVisitedStep, setMaxVisitedStep] = useState(0);
@@ -248,6 +301,14 @@ const Index = () => {
 
     if (routeState?.generatedLandingUrl) {
       setGeneratedLandingUrl(routeState.generatedLandingUrl);
+      if (!routeState?.folderPath) {
+        const derivedFolder = deriveFolderPathFromPublicUrl(routeState.generatedLandingUrl);
+        if (derivedFolder) setCurrentProjectFolderPath(derivedFolder);
+      }
+    }
+
+    if (routeState?.folderPath) {
+      setCurrentProjectFolderPath(routeState.folderPath);
     }
   }, [routeState]);
 
@@ -306,15 +367,13 @@ const Index = () => {
   // Check for saved progress on mount and prompt user
   useEffect(() => {
     if (routeState?.formData || routeState?.generatedHtml) return;
-    const progress = loadSavedProgress();
+    const progress = loadSavedProgress(progressStorageKey);
     if (!progress) return;
-    const hasData = progress.formData?.businessName || progress.formData?.businessDescription ||
-      (progress.formData?.services?.length > 0) || (progress.currentStep > 0);
-    if (hasData) {
+    if (hasMeaningfulProgress(progress)) {
       setPendingRestore(progress);
       setShowRestoreDialog(true);
     }
-  }, []);
+  }, [routeState?.formData, routeState?.generatedHtml, progressStorageKey]);
 
   const handleRestoreSession = () => {
     if (!pendingRestore) return;
@@ -328,7 +387,8 @@ const Index = () => {
   };
 
   const handleDiscardSession = () => {
-    safeRemove(STORAGE_KEY);
+    safeRemove(progressStorageKey);
+    safeRemove(LEGACY_STORAGE_KEY);
     setShowRestoreDialog(false);
     setPendingRestore(null);
   };
@@ -342,8 +402,20 @@ const Index = () => {
   }, [showLanding]);
 
   useEffect(() => {
-    safeSetJSON(STORAGE_KEY, { currentStep, formData, maxVisitedStep });
-  }, [currentStep, formData]);
+    const snapshot: SavedProgress = {
+      currentStep,
+      formData,
+      maxVisitedStep,
+      user_id: user?.id,
+      folder_path: currentProjectFolderPath || undefined,
+    };
+
+    if (hasMeaningfulProgress(snapshot)) {
+      safeSetJSON(progressStorageKey, snapshot);
+    } else {
+      safeRemove(progressStorageKey);
+    }
+  }, [currentStep, formData, maxVisitedStep, user?.id, currentProjectFolderPath, progressStorageKey]);
 
   const steps = STEPS;
 
@@ -1244,6 +1316,9 @@ const Index = () => {
       const saved = await response.json();
       if (saved?.success && saved?.id) {
         setSavedProjectId(saved.id);
+        if (saved?.folder_path) {
+          setCurrentProjectFolderPath(String(saved.folder_path));
+        }
       }
     } catch (saveErr) {
       console.error('Error saving project:', saveErr);
@@ -1259,7 +1334,9 @@ const Index = () => {
     setCurrentStep(0);
     setMaxVisitedStep(0);
     setSavedProjectId(null);
-    localStorage.removeItem(STORAGE_KEY);
+    setCurrentProjectFolderPath('');
+    safeRemove(progressStorageKey);
+    safeRemove(LEGACY_STORAGE_KEY);
   };
 
   const handleNewLandingPage = async () => {
@@ -1641,7 +1718,8 @@ const Index = () => {
                   setMaxVisitedStep(0);
                   setShowResults(false);
                   setGeneratedImages([]);
-                  localStorage.removeItem(STORAGE_KEY);
+                  safeRemove(progressStorageKey);
+                  safeRemove(LEGACY_STORAGE_KEY);
                   toast.success('Form cleared');
                 }
               }}
