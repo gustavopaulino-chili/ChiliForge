@@ -1,0 +1,1 @@
+ALTER TABLE public.generated_prompts ADD COLUMN html_file_name text DEFAULT NULL;

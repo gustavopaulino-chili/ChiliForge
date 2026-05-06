@@ -1,0 +1,156 @@
+import { BusinessFormData, defaultFormData } from '@/types/businessForm';
+
+export interface NicheTemplate {
+  id: string;
+  label: string;
+  emoji: string;
+  desc: string;
+  data: Partial<BusinessFormData>;
+}
+
+export const NICHE_TEMPLATES: NicheTemplate[] = [
+  {
+    id: 'restaurant',
+    label: 'Restaurant',
+    emoji: '🍽️',
+    desc: 'Restaurant, bar, café, or food delivery',
+    data: {
+      businessCategory: 'Restaurant / Food',
+      businessDescription: 'A welcoming restaurant with artisan cuisine and hand-picked fresh ingredients. We offer memorable dining experiences for the whole family.',
+      services: ['Executive lunch', 'À la carte dinner', 'Delivery', 'Private events', 'Party catering'],
+      valueProposition: 'Authentic flavors with fresh ingredients and exceptional service',
+      differentiators: ['Award-winning chef', 'Local organic ingredients', 'Instagram-friendly ambiance'],
+      preferredStyle: 'premium',
+      landingPreset: 'general',
+      targetAudience: 'Couples and families looking for quality dining experiences, ages 25-55',
+    },
+  },
+  {
+    id: 'saas',
+    label: 'SaaS / Tech',
+    emoji: '💻',
+    desc: 'Software, app, or digital platform',
+    data: {
+      businessCategory: 'Technology / SaaS',
+      businessDescription: 'An innovative SaaS platform that automates processes and boosts team productivity with artificial intelligence and intuitive dashboards.',
+      services: ['Process automation', 'Analytics dashboard', 'API integrations', '24/7 support', 'Custom onboarding'],
+      valueProposition: 'Automate your business and gain 10x more productivity',
+      differentiators: ['Built-in AI', '5-minute setup', 'No code required'],
+      preferredStyle: 'modern',
+      landingPreset: 'launch',
+      targetAudience: 'Managers and teams at mid-size companies looking for automation, ages 28-45',
+    },
+  },
+  {
+    id: 'ecommerce',
+    label: 'E-commerce',
+    emoji: '🛒',
+    desc: 'Online store, marketplace, or digital retail',
+    data: {
+      businessCategory: 'E-commerce / Retail',
+      businessDescription: 'An online store with exclusive products, expert curation, and fast shipping. Quality guaranteed with a hassle-free return policy.',
+      services: ['Free shipping over $99', 'Free returns & exchanges', 'Loyalty program', 'WhatsApp support'],
+      valueProposition: 'Exclusive products with fast delivery and satisfaction guarantee',
+      differentiators: ['Exclusive curation', '24h delivery', 'Cashback on all purchases'],
+      preferredStyle: 'bold',
+      landingPreset: 'campaign',
+      targetAudience: 'Digital consumers ages 18-40 who value convenience and exclusivity',
+    },
+  },
+  {
+    id: 'agency',
+    label: 'Agency / Consulting',
+    emoji: '📊',
+    desc: 'Marketing agency, design studio, or business consulting',
+    data: {
+      businessCategory: 'Agency / Consulting',
+      businessDescription: 'A full-service agency specializing in digital strategy, branding, and performance marketing. We turn brands into market leaders with data and creativity.',
+      services: ['Branding & visual identity', 'Performance marketing', 'Social media', 'SEO & content', 'Strategic consulting'],
+      valueProposition: 'Strategy + creativity + data = extraordinary results',
+      differentiators: ['200+ projects delivered', 'Average 300% ROI', 'Multidisciplinary team'],
+      preferredStyle: 'corporate',
+      landingPreset: 'lead-capture',
+      targetAudience: 'CEOs, marketing directors, and entrepreneurs seeking digital growth, ages 30-50',
+    },
+  },
+  {
+    id: 'health',
+    label: 'Healthcare / Clinic',
+    emoji: '🏥',
+    desc: 'Medical clinic, office, or health service',
+    data: {
+      businessCategory: 'Healthcare / Medical',
+      businessDescription: 'A modern clinic with a multidisciplinary team focused on humanized care and cutting-edge technology. Personalized treatment for your health and well-being.',
+      services: ['Specialized consultations', 'Diagnostic exams', 'Telemedicine', 'Executive check-up', 'Preventive programs'],
+      valueProposition: 'Humanized care with cutting-edge technology for your health',
+      differentiators: ['Online booking in 2 min', 'Award-winning team', 'Results in 24h'],
+      preferredStyle: 'minimal',
+      landingPreset: 'general',
+      targetAudience: 'Professionals and families who prioritize preventive health, ages 25-60',
+    },
+  },
+  {
+    id: 'fitness',
+    label: 'Fitness / Gym',
+    emoji: '💪',
+    desc: 'Gym, personal trainer, or fitness program',
+    data: {
+      businessCategory: 'Fitness / Wellness',
+      businessDescription: 'A fully equipped gym with state-of-the-art equipment, certified personal trainers, and customized programs for all fitness levels.',
+      services: ['Weight training', 'CrossFit', 'Yoga & Pilates', 'Personal training', 'Fitness assessment'],
+      valueProposition: 'Transform your body and mind with personalized workouts',
+      differentiators: ['First class free', 'Workout app included', 'Active community'],
+      preferredStyle: 'bold',
+      landingPreset: 'lead-capture',
+      targetAudience: 'Young adults seeking health and fitness, ages 18-45',
+    },
+  },
+  {
+    id: 'realestate',
+    label: 'Real Estate',
+    emoji: '🏠',
+    desc: 'Real estate agency, developer, or property broker',
+    data: {
+      businessCategory: 'Real Estate',
+      businessDescription: 'A real estate agency specializing in luxury properties with personalized consultative service. We find the perfect property for your family or investment.',
+      services: ['Property sales', 'Rentals', 'Investment advisory', 'Property valuation', 'Financing assistance'],
+      valueProposition: 'Find your dream property with expert consulting',
+      differentiators: ['360° virtual tours', 'Financing approved in 48h', 'Exclusive portfolio'],
+      preferredStyle: 'premium',
+      landingPreset: 'general',
+      targetAudience: 'Families and investors looking for quality properties, ages 28-55',
+    },
+  },
+  {
+    id: 'education',
+    label: 'Education / Courses',
+    emoji: '📚',
+    desc: 'School, online course, or education platform',
+    data: {
+      businessCategory: 'Education / Training',
+      businessDescription: 'An online course platform with hands-on methodology and expert instructors. Learn at your own pace with industry-recognized certification.',
+      services: ['Online courses', 'Individual mentoring', 'Certification', 'Student community', 'Supplementary materials'],
+      valueProposition: 'Learn from the best and accelerate your career',
+      differentiators: ['Industry professionals as instructors', 'Real hands-on projects', '30-day guarantee'],
+      preferredStyle: 'modern',
+      landingPreset: 'webinar',
+      targetAudience: 'Professionals seeking upskilling and career transitions, ages 22-40',
+    },
+  },
+  {
+    id: 'beauty',
+    label: 'Beauty / Salon',
+    emoji: '💅',
+    desc: 'Beauty salon, aesthetic clinic, or spa',
+    data: {
+      businessCategory: 'Beauty / Salon',
+      businessDescription: 'A premium beauty salon with renowned professionals and innovative techniques. We care for your beauty with high-quality products and personalized service.',
+      services: ['Haircut & coloring', 'Hair treatments', 'Manicure & pedicure', 'Facial aesthetics', 'Day spa'],
+      valueProposition: 'Beauty and self-care with exclusive techniques and premium products',
+      differentiators: ['Exclusive imported products', 'Instagrammable ambiance', 'Online booking'],
+      preferredStyle: 'premium',
+      landingPreset: 'general',
+      targetAudience: 'Women and men who invest in self-care and aesthetics, ages 20-50',
+    },
+  },
+];

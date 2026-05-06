@@ -1,0 +1,257 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 225 25% 6%;
+    --foreground: 210 40% 96%;
+
+    --card: 225 20% 10%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 225 20% 10%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 359 100% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 225 15% 16%;
+    --secondary-foreground: 210 40% 96%;
+
+    --muted: 225 15% 14%;
+    --muted-foreground: 215 15% 55%;
+
+    --accent: 265 85% 65%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 225 15% 18%;
+    --input: 225 15% 18%;
+    --ring: 359 100% 60%;
+
+    --radius: 0.75rem;
+
+    --success: 160 84% 39%;
+    --success-foreground: 210 40% 98%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(359 100% 60%), hsl(265 85% 65%));
+    --gradient-surface: linear-gradient(180deg, hsl(225 20% 10%), hsl(225 25% 8%));
+    --gradient-glow: radial-gradient(1200px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), hsl(359 100% 60% / 0.08), transparent 50%);
+    --gradient-hero-bg: radial-gradient(
+      1400px circle at 30% 40%,
+      #762534 0%,
+      #440031 35%,
+      #101820 70%,
+      transparent 100%
+    );
+
+    --shadow-glow: 0 0 40px -10px hsl(359 100% 60% / 0.3);
+    --shadow-card: 0 4px 24px -4px hsl(225 25% 2% / 0.5);
+
+    --font-display: 'Space Grotesk', system-ui, sans-serif;
+    --font-body: 'Inter', system-ui, sans-serif;
+
+    --sidebar-background: 225 20% 10%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 359 100% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 225 15% 16%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 225 15% 18%;
+    --sidebar-ring: 359 100% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+  }
+
+  .reactive-bg {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.5;
+    overflow: hidden;
+  }
+
+  .reactive-bg::before {
+    content: '';
+    position: absolute;
+    width: 160%;
+    height: 160%;
+    top: -30%;
+    left: -30%;
+    background: var(--gradient-hero-bg);
+    animation: float-bg 12s ease-in-out infinite;
+  }
+
+  .reactive-bg::after {
+    content: '';
+    position: absolute;
+    width: 140%;
+    height: 140%;
+    top: -20%;
+    right: -20%;
+    background: radial-gradient(
+      1000px circle at 70% 60%,
+      hsl(265 85% 40% / 0.3) 0%,
+      transparent 60%
+    );
+    animation: float-bg-alt 16s ease-in-out infinite;
+  }
+
+  .reactive-bg-mouse {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(
+      1400px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+      #762534 0%,
+      #440031 35%,
+      #101820 70%,
+      transparent 100%
+    );
+    opacity: 0.5;
+    transition: opacity 0.3s ease;
+  }
+
+  .reactive-bg-mouse::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url('/images/bg-pattern.png') center / cover no-repeat;
+    opacity: 0.6;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+  }
+}
+
+@layer components {
+  .gradient-text {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .gradient-border {
+    position: relative;
+    background: hsl(var(--card));
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: var(--gradient-primary);
+    z-index: -1;
+    opacity: 0.3;
+  }
+
+  .glass-card {
+    background: hsl(var(--card) / 0.4);
+    backdrop-filter: blur(20px) saturate(1.4);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    border: 1px solid hsl(var(--border) / 0.4);
+    box-shadow: 0 8px 32px hsl(225 25% 2% / 0.3), inset 0 1px 0 hsl(var(--foreground) / 0.05);
+  }
+
+  .glow-effect {
+    box-shadow: var(--shadow-glow);
+  }
+
+  .form-section-title {
+    font-family: var(--font-display);
+    @apply text-lg font-semibold text-foreground tracking-tight;
+  }
+
+  .form-section-desc {
+    @apply text-sm text-muted-foreground mt-1;
+  }
+
+  .step-indicator-active {
+    background: var(--gradient-primary);
+    @apply text-primary-foreground;
+  }
+
+  .step-indicator-done {
+    @apply bg-primary/20 text-primary;
+  }
+
+  .step-indicator-pending {
+    @apply bg-muted text-muted-foreground;
+  }
+
+  .animate-in-up {
+    animation: slideInUp 0.4s ease-out;
+  }
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px -5px hsl(359 100% 60% / 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px -5px hsl(359 100% 60% / 0.5);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes float-bg {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  25% {
+    transform: translate(5%, -8%) scale(1.05);
+  }
+  50% {
+    transform: translate(-3%, 6%) scale(0.98);
+  }
+  75% {
+    transform: translate(8%, 3%) scale(1.03);
+  }
+}
+
+@keyframes float-bg-alt {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(-6%, 5%) scale(1.04);
+  }
+  66% {
+    transform: translate(4%, -7%) scale(0.97);
+  }
+}

@@ -1,0 +1,32 @@
+# Configurações para Hostinger + PHP API
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Permitir CORS
+  Header always set Access-Control-Allow-Origin "*"
+  Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+  Header always set Access-Control-Allow-Headers "Content-Type, Authorization"
+
+  # Redirect everything else to index.html (SPA), but keep API routes intact
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_URI} !^/api/
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
+
+# Segurança
+<Files *.php>
+  # Bloquear acesso direto aos arquivos PHP (exceto API)
+  Order Deny,Allow
+  Deny from all
+  Allow from all
+</Files>
+
+# Configurações PHP
+php_value upload_max_filesize 10M
+php_value post_max_size 10M
+php_value memory_limit 256M
+php_value max_execution_time 300</content>
+<parameter name="filePath">c:\Users\ativa\Downloads\ChiliForge\public\.htaccess

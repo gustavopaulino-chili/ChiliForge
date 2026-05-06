@@ -1,0 +1,25 @@
+project_id = "vehowvyqxhelyfdesmog"
+
+[functions.generate-images]
+verify_jwt = false
+
+[functions.generate-landing]
+verify_jwt = false
+
+[functions.parse-spreadsheet]
+verify_jwt = false
+
+[functions.parse-products-spreadsheet]
+verify_jwt = false
+
+[functions.generate-preset]
+verify_jwt = false
+
+[functions.scrape-website]
+verify_jwt = false
+
+[functions.search-images]
+verify_jwt = false
+
+[functions.render-landing-preview]
+verify_jwt = false
