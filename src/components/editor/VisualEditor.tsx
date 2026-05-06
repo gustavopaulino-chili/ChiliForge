@@ -2309,6 +2309,29 @@ export function VisualEditor({
     applyColorsLive({ nextTextColor: next });
   };
 
+  const renderBrandPaletteSwatches = (
+    keyPrefix: string,
+    onApply: (color: string) => void,
+    titleBuilder?: (color: string) => string,
+  ) => {
+    if (brandPalette.length === 0) return null;
+
+    return (
+      <div className="mb-1 flex flex-wrap gap-1">
+        {brandPalette.map((color) => (
+          <button
+            key={`${keyPrefix}-${color}`}
+            type="button"
+            className="h-5 w-5 rounded-sm border border-border/70 hover:scale-110 transition-transform"
+            style={{ backgroundColor: color }}
+            title={titleBuilder ? titleBuilder(color) : `Apply ${color}`}
+            onClick={() => onApply(color)}
+          />
+        ))}
+      </div>
+    );
+  };
+
   const refreshFiles = async () => {
     if (!projectId || !userId) return '';
     setFilesLoading(true);
@@ -2342,7 +2365,7 @@ export function VisualEditor({
 
     if (oversized.length > 0) {
       const names = oversized.map(f => f.name).join(', ');
-      toast.error(`Os seguintes arquivos excedem o limite de 15MB e não foram enviados: ${names}`);
+      toast.error(`The following files exceed the 15MB limit and were not uploaded: ${names}`);
     }
 
     if (allowedFiles.length === 0) {
@@ -2353,7 +2376,7 @@ export function VisualEditor({
     setFilesUploading(true);
     try {
       const uploadResult = await uploadProjectFiles(projectId, userId, allowedFiles);
-      toast.success(`${allowedFiles.length} arquivo(s) enviados para a pasta de files.`);
+      toast.success(`${allowedFiles.length} file(s) uploaded to the files folder.`);
 
       // Auto-link behavior: if an anchor element is selected, attach the first uploaded file automatically.
       // Use selectedRef to avoid stale closure issues in async callbacks.
@@ -2364,14 +2387,14 @@ export function VisualEditor({
         setHrefValue(rel);
         setFileDownloadPath(rel);
         applyAnchorLinkLive({ nextHref: rel, nextDownload: rel });
-        toast.success(`Link aplicado automaticamente no elemento selecionado: ${firstUploaded.name}.`);
+        toast.success(`Link applied automatically to the selected element: ${firstUploaded.name}.`);
       } else if (firstUploaded?.url) {
-        toast.info('Arquivo enviado. Para aplicar automaticamente num botão/link, selecione o elemento <a> na página antes de enviar.');
+        toast.info('File uploaded. To auto-apply it to a button/link, select an <a> element on the page before uploading.');
       }
 
       await refreshFiles();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Falha ao enviar arquivos.');
+      toast.error(error instanceof Error ? error.message : 'Failed to upload files.');
     } finally {
       setFilesUploading(false);
       if (fileFolderInputRef.current) fileFolderInputRef.current.value = '';
@@ -3098,20 +3121,14 @@ export function VisualEditor({
             <Label className="text-xs text-muted-foreground">Colors</Label>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label htmlFor="cf-text-color" className="text-xs text-muted-foreground">Texto</Label>
-                {brandPalette.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {brandPalette.map((color) => (
-                      <button
-                        key={`pt-${color}`}
-                        type="button"
-                        className="h-5 w-5 rounded-sm border border-border/70 hover:scale-110 transition-transform"
-                        style={{ backgroundColor: color }}
-                        title={`Aplicar ${color} como cor de texto`}
-                        onClick={() => { setTextColor(color); applyColorsLive({ nextTextColor: color }); }}
-                      />
-                    ))}
-                  </div>
+                <Label htmlFor="cf-text-color" className="text-xs text-muted-foreground">Text</Label>
+                {renderBrandPaletteSwatches(
+                  'text-color',
+                  (color) => {
+                    setTextColor(color);
+                    applyColorsLive({ nextTextColor: color });
+                  },
+                  (color) => `Apply ${color} as text color`,
                 )}
                 <Input
                   id="cf-text-color"
@@ -3125,20 +3142,14 @@ export function VisualEditor({
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="cf-bg-color" className="text-xs text-muted-foreground">Fundo</Label>
-                {brandPalette.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {brandPalette.map((color) => (
-                      <button
-                        key={`pb-${color}`}
-                        type="button"
-                        className="h-5 w-5 rounded-sm border border-border/70 hover:scale-110 transition-transform"
-                        style={{ backgroundColor: color }}
-                        title={`Aplicar ${color} como fundo`}
-                        onClick={() => { setBgColor(color); applyColorsLive({ nextBgColor: color }); }}
-                      />
-                    ))}
-                  </div>
+                <Label htmlFor="cf-bg-color" className="text-xs text-muted-foreground">Background</Label>
+                {renderBrandPaletteSwatches(
+                  'bg-color',
+                  (color) => {
+                    setBgColor(color);
+                    applyColorsLive({ nextBgColor: color });
+                  },
+                  (color) => `Apply ${color} as background color`,
                 )}
                 <Input
                   id="cf-bg-color"
@@ -3207,6 +3218,14 @@ export function VisualEditor({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <Label htmlFor="cf-bg-grad-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                  {renderBrandPaletteSwatches(
+                    'bg-grad-1',
+                    (color) => {
+                      setGradientColor1(color);
+                      applyColorsLive({ nextGrad1: color });
+                    },
+                    (color) => `Apply ${color} as gradient color 1`,
+                  )}
                   <Input
                     id="cf-bg-grad-1"
                     type="color"
@@ -3220,6 +3239,14 @@ export function VisualEditor({
                 </div>
                 <div>
                   <Label htmlFor="cf-bg-grad-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                  {renderBrandPaletteSwatches(
+                    'bg-grad-2',
+                    (color) => {
+                      setGradientColor2(color);
+                      applyColorsLive({ nextGrad2: color });
+                    },
+                    (color) => `Apply ${color} as gradient color 2`,
+                  )}
                   <Input
                     id="cf-bg-grad-2"
                     type="color"
@@ -3388,6 +3415,14 @@ export function VisualEditor({
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <Label htmlFor="cf-bg-overlay-color" className="text-xs text-muted-foreground">Overlay color</Label>
+                        {renderBrandPaletteSwatches(
+                          'bg-overlay-color',
+                          (color) => {
+                            setOverlayColor(color);
+                            applyColorsLive({ nextOverlayColor: color });
+                          },
+                          (color) => `Apply ${color} as overlay color`,
+                        )}
                         <Input
                           id="cf-bg-overlay-color"
                           type="color"
@@ -3421,6 +3456,14 @@ export function VisualEditor({
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <Label htmlFor="cf-bg-overlay-grad-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                        {renderBrandPaletteSwatches(
+                          'bg-overlay-grad-1',
+                          (color) => {
+                            setOverlayGrad1(color);
+                            applyColorsLive({ nextOverlayGrad1: color });
+                          },
+                          (color) => `Apply ${color} as overlay gradient color 1`,
+                        )}
                         <Input
                           id="cf-bg-overlay-grad-1"
                           type="color"
@@ -3434,6 +3477,14 @@ export function VisualEditor({
                       </div>
                       <div>
                         <Label htmlFor="cf-bg-overlay-grad-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                        {renderBrandPaletteSwatches(
+                          'bg-overlay-grad-2',
+                          (color) => {
+                            setOverlayGrad2(color);
+                            applyColorsLive({ nextOverlayGrad2: color });
+                          },
+                          (color) => `Apply ${color} as overlay gradient color 2`,
+                        )}
                         <Input
                           id="cf-bg-overlay-grad-2"
                           type="color"
@@ -3830,6 +3881,14 @@ export function VisualEditor({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor="cf-image-overlay-color" className="text-xs text-muted-foreground">Overlay color</Label>
+                          {renderBrandPaletteSwatches(
+                            'image-overlay-color',
+                            (color) => {
+                              setOverlayColor(color);
+                              applyImageFormattingLive({ nextOverlayColor: color });
+                            },
+                            (color) => `Apply ${color} as image overlay color`,
+                          )}
                           <Input
                             id="cf-image-overlay-color"
                             type="color"
@@ -3863,6 +3922,14 @@ export function VisualEditor({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor="cf-image-overlay-grad-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                          {renderBrandPaletteSwatches(
+                            'image-overlay-grad-1',
+                            (color) => {
+                              setOverlayGrad1(color);
+                              applyImageFormattingLive({ nextOverlayGrad1: color });
+                            },
+                            (color) => `Apply ${color} as image overlay gradient color 1`,
+                          )}
                           <Input
                             id="cf-image-overlay-grad-1"
                             type="color"
@@ -3876,6 +3943,14 @@ export function VisualEditor({
                         </div>
                         <div>
                           <Label htmlFor="cf-image-overlay-grad-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                          {renderBrandPaletteSwatches(
+                            'image-overlay-grad-2',
+                            (color) => {
+                              setOverlayGrad2(color);
+                              applyImageFormattingLive({ nextOverlayGrad2: color });
+                            },
+                            (color) => `Apply ${color} as image overlay gradient color 2`,
+                          )}
                           <Input
                             id="cf-image-overlay-grad-2"
                             type="color"
@@ -4524,6 +4599,14 @@ export function VisualEditor({
                 </div>
                 <div>
                   <Label htmlFor="cf-container-border-color" className="text-xs text-muted-foreground">Border color</Label>
+                  {renderBrandPaletteSwatches(
+                    'container-border-color',
+                    (color) => {
+                      setContainerBorderColor(color);
+                      applyContainerSizingLive({ nextBorderColor: color });
+                    },
+                    (color) => `Apply ${color} as border color`,
+                  )}
                   <Input
                     id="cf-container-border-color"
                     type="color"
@@ -4924,6 +5007,14 @@ export function VisualEditor({
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <Label htmlFor="cf-grad-color-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                    {renderBrandPaletteSwatches(
+                      'section-grad-1',
+                      (color) => {
+                        setGradientColor1(color);
+                        applySectionBackgroundLive({ nextGrad1: color });
+                      },
+                      (color) => `Apply ${color} as gradient color 1`,
+                    )}
                     <Input
                       id="cf-grad-color-1"
                       type="color"
@@ -4937,6 +5028,14 @@ export function VisualEditor({
                   </div>
                   <div>
                     <Label htmlFor="cf-grad-color-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                    {renderBrandPaletteSwatches(
+                      'section-grad-2',
+                      (color) => {
+                        setGradientColor2(color);
+                        applySectionBackgroundLive({ nextGrad2: color });
+                      },
+                      (color) => `Apply ${color} as gradient color 2`,
+                    )}
                     <Input
                       id="cf-grad-color-2"
                       type="color"
@@ -5065,6 +5164,14 @@ export function VisualEditor({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor="cf-section-bg-overlay-color" className="text-xs text-muted-foreground">Overlay color</Label>
+                          {renderBrandPaletteSwatches(
+                            'section-overlay-color',
+                            (color) => {
+                              setOverlayColor(color);
+                              applySectionBackgroundLive({ nextOverlayColor: color });
+                            },
+                            (color) => `Apply ${color} as overlay color`,
+                          )}
                           <Input
                             id="cf-section-bg-overlay-color"
                             type="color"
@@ -5098,6 +5205,14 @@ export function VisualEditor({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor="cf-section-bg-overlay-grad-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                          {renderBrandPaletteSwatches(
+                            'section-overlay-grad-1',
+                            (color) => {
+                              setOverlayGrad1(color);
+                              applySectionBackgroundLive({ nextOverlayGrad1: color });
+                            },
+                            (color) => `Apply ${color} as overlay gradient color 1`,
+                          )}
                           <Input
                             id="cf-section-bg-overlay-grad-1"
                             type="color"
@@ -5111,6 +5226,14 @@ export function VisualEditor({
                         </div>
                         <div>
                           <Label htmlFor="cf-section-bg-overlay-grad-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                          {renderBrandPaletteSwatches(
+                            'section-overlay-grad-2',
+                            (color) => {
+                              setOverlayGrad2(color);
+                              applySectionBackgroundLive({ nextOverlayGrad2: color });
+                            },
+                            (color) => `Apply ${color} as overlay gradient color 2`,
+                          )}
                           <Input
                             id="cf-section-bg-overlay-grad-2"
                             type="color"
@@ -5177,6 +5300,14 @@ export function VisualEditor({
               ) : (
                 <div>
                   <Label htmlFor="cf-solid-color" className="text-xs text-muted-foreground">Solid color</Label>
+                  {renderBrandPaletteSwatches(
+                    'section-solid-color',
+                    (color) => {
+                      setBgColor(color);
+                      applySectionBackgroundLive({ nextBgColor: color });
+                    },
+                    (color) => `Apply ${color} as solid background color`,
+                  )}
                   <Input
                     id="cf-solid-color"
                     type="color"

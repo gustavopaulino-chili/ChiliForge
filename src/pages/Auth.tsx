@@ -51,12 +51,23 @@ export default function Auth() {
         throw new Error(data.error || `Authentication error (${res.status})`);
       }
 
+      const resolvedId = Number(data?.id ?? data?.user_id ?? data?.userId ?? data?.user?.id);
+      const resolvedEmail = String(data?.email ?? data?.user_email ?? data?.userEmail ?? data?.user?.email ?? '').trim().toLowerCase();
+      const resolvedName = String((data?.name ?? data?.user?.name ?? resolvedEmail) || '').trim();
+      const resolvedAccountType = (data?.accountType ?? data?.account_type ?? data?.user?.accountType ?? data?.user?.account_type) === 'admin'
+        ? 'admin'
+        : 'testing';
+
+      if (!Number.isFinite(resolvedId) || resolvedId <= 0 || !resolvedEmail) {
+        throw new Error('Authentication response is missing valid user id/email.');
+      }
+
       // ✅ save user in context
       signIn({
-        id: data.id,
-        email: data.email,
-        name: data.name || data.email,
-        accountType: data.accountType === 'admin' ? 'admin' : 'testing',
+        id: resolvedId,
+        email: resolvedEmail,
+        name: resolvedName || resolvedEmail,
+        accountType: resolvedAccountType,
       });
 
       toast.success(isLogin ? "Login successful!" : "Account created successfully!");
