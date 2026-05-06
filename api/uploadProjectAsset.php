@@ -100,14 +100,43 @@ try {
         return $candidate;
     };
 
+    $uploadErrorReason = function (int $errorCode): string {
+        switch ($errorCode) {
+            case UPLOAD_ERR_INI_SIZE:
+            case UPLOAD_ERR_FORM_SIZE:
+                return 'File exceeds server upload size limit.';
+            case UPLOAD_ERR_PARTIAL:
+                return 'File upload was partial. Please try again.';
+            case UPLOAD_ERR_NO_FILE:
+                return 'No file data received.';
+            case UPLOAD_ERR_NO_TMP_DIR:
+                return 'Server temporary folder is missing.';
+            case UPLOAD_ERR_CANT_WRITE:
+                return 'Server failed to write uploaded file.';
+            case UPLOAD_ERR_EXTENSION:
+                return 'A server extension blocked this upload.';
+            default:
+                return 'Unknown upload error.';
+        }
+    };
+
     for ($i = 0; $i < $count; $i++) {
-        if (!isset($files['error'][$i]) || $files['error'][$i] !== UPLOAD_ERR_OK) {
+        $errorCode = isset($files['error'][$i]) ? (int)$files['error'][$i] : UPLOAD_ERR_NO_FILE;
+        $originalName = (string)($files['name'][$i] ?? ('file-' . ($i + 1)));
+        if ($errorCode !== UPLOAD_ERR_OK) {
+            $skipped[] = [
+                'name' => $originalName,
+                'reason' => $uploadErrorReason($errorCode),
+            ];
             continue;
         }
 
         $tmpName = $files['tmp_name'][$i] ?? '';
-        $originalName = $files['name'][$i] ?? '';
         if (!is_string($tmpName) || $tmpName === '' || !is_uploaded_file($tmpName)) {
+            $skipped[] = [
+                'name' => $originalName,
+                'reason' => 'Uploaded file is not available in temporary storage.',
+            ];
             continue;
         }
 
@@ -115,6 +144,10 @@ try {
 
         $targetPath = $assetsDir . DIRECTORY_SEPARATOR . $candidate;
         if (!move_uploaded_file($tmpName, $targetPath)) {
+            $skipped[] = [
+                'name' => $originalName,
+                'reason' => 'Failed to move uploaded file into project assets folder.',
+            ];
             continue;
         }
 

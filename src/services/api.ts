@@ -199,7 +199,7 @@ export const uploadProjectAssets = async (projectId: number, userId: number, fil
     throw new Error(data?.error || `Request failed with status ${response.status}`);
   }
 
-  return data as { success: boolean; uploaded: ProjectAsset[] };
+  return data as { success: boolean; uploaded: ProjectAsset[]; skipped?: Array<{ name?: string; url?: string; reason: string }> };
 };
 
 export const uploadProjectAssetsFromUrls = async (

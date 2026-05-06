@@ -2348,8 +2348,24 @@ export function VisualEditor({
 
     setFilesUploading(true);
     try {
-      await uploadProjectFiles(projectId, userId, allowedFiles);
+      const uploadResult = await uploadProjectFiles(projectId, userId, allowedFiles);
       toast.success(`${allowedFiles.length} arquivo(s) enviados para a pasta de files.`);
+
+      // Auto-link behavior: if an anchor/button is selected, attach the first uploaded file automatically.
+      const firstUploaded = uploadResult.uploaded?.[0];
+      if (selected?.tag === 'a' && firstUploaded?.url) {
+        const rel = toRelativeFilePath(firstUploaded.url);
+        setHrefValue(rel);
+        setFileDownloadPath(rel);
+        applyAnchorLinkLive({ nextHref: rel, nextDownload: rel });
+
+        if ((uploadResult.uploaded?.length || 0) > 1) {
+          toast.success(`Link de download aplicado automaticamente no botão usando ${firstUploaded.name} (primeiro arquivo enviado).`);
+        } else {
+          toast.success(`Link de download aplicado automaticamente no botão: ${firstUploaded.name}.`);
+        }
+      }
+
       await refreshFiles();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Falha ao enviar arquivos.');
@@ -2448,8 +2464,23 @@ export function VisualEditor({
 
     setAssetsUploading(true);
     try {
-      await uploadProjectAssets(projectId, userId, fileArray);
-      toast.success(`${fileArray.length} file(s) uploaded to assets folder.`);
+      const result = await uploadProjectAssets(projectId, userId, fileArray);
+      const uploadedCount = result.uploaded?.length || 0;
+      const skipped = result.skipped || [];
+
+      if (uploadedCount > 0) {
+        toast.success(`${uploadedCount} file(s) uploaded to assets folder.`);
+      }
+
+      if (skipped.length > 0) {
+        const firstReason = skipped[0]?.reason || 'Unknown upload error.';
+        toast.error(`${skipped.length} file(s) failed to upload. ${firstReason}`);
+      }
+
+      if (uploadedCount === 0 && skipped.length === 0) {
+        toast.error('No files were uploaded. Please try again.');
+      }
+
       await refreshAssets();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to upload assets.');
@@ -3473,7 +3504,7 @@ export function VisualEditor({
                   ref={bgFileInputRef}
                   type="file"
                   multiple
-                  accept="image/*"
+                  accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.svg,.avif,.bmp,.ico,.tif,.tiff,.heic,.heif"
                   className="hidden"
                   onChange={(e) => handleUploadAssets(e.target.files)}
                 />
@@ -3964,7 +3995,7 @@ export function VisualEditor({
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept="image/*"
+                    accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.svg,.avif,.bmp,.ico,.tif,.tiff,.heic,.heif"
                     className="hidden"
                     onChange={(e) => handleUploadAssets(e.target.files)}
                   />
