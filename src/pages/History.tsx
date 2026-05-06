@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { getProjects } from "@/services/api";
 
 type Project = {
   id: number;
@@ -41,8 +42,7 @@ export default function History() {
     }
 
     try {
-      const res = await fetch(`/api/getProjects.php?user_id=${user.id}`);
-      const data = await res.json();
+      const data = await getProjects(user.id, user.email);
       setProjects(data || []);
     } catch (err) {
       toast.error("Error loading projects");
@@ -149,7 +149,7 @@ export default function History() {
                     size="sm"
                     onClick={() => navigate(`/visual-editor?projectId=${project.id}`)}
                     title="Abrir editor visual"
-                    disabled={!project.generated_html}
+                    disabled={!project.generated_html && !project.public_url}
                   >
                     <Edit3 className="h-4 w-4" />
                   </Button>

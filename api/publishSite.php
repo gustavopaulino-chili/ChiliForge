@@ -33,6 +33,8 @@ $assets = isset($data["assets"]) && is_array($data["assets"]) ? $data["assets"] 
 // Inline doc: AI returned a complete <!DOCTYPE html> with embedded <style> and <script>.
 $isInlineDoc = isset($data["inline_doc"]) ? (bool)$data["inline_doc"] : preg_match('/<!DOCTYPE|<html/i', $html) === 1;
 
+$html = strip_editor_bridge_artifacts($html);
+
 if ($user_id <= 0) {
     http_response_code(400);
     echo json_encode(["error" => "ID de usuário inválido"]);

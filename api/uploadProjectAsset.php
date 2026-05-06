@@ -67,6 +67,7 @@ try {
     $files = $_FILES['files'] ?? null;
     $count = ($files && is_array($files['name'])) ? count($files['name']) : 0;
     $uploaded = [];
+    $skipped = [];
 
     $reserveCandidateName = function (string $originalName) use ($assetsDir): string {
         $safeName = preg_replace('/[^a-zA-Z0-9._-]+/', '-', (string)$originalName);
@@ -134,11 +135,19 @@ try {
     foreach ($sourceUrls as $index => $rawUrl) {
         $normalizedUrl = normalize_asset_url((string)$rawUrl);
         if ($normalizedUrl === '' || !is_supported_asset_url($normalizedUrl)) {
+            $skipped[] = [
+                'url' => (string)$rawUrl,
+                'reason' => 'URL is invalid or unsupported. Use a direct file URL (jpg, png, webp, svg, avif, gif).',
+            ];
             continue;
         }
 
         $downloaded = download_remote_asset($normalizedUrl);
         if ($downloaded === null || !isset($downloaded['body'])) {
+            $skipped[] = [
+                'url' => (string)$rawUrl,
+                'reason' => 'Source blocked download or returned no file data.',
+            ];
             continue;
         }
 
@@ -151,6 +160,10 @@ try {
         $targetPath = $assetsDir . DIRECTORY_SEPARATOR . $candidate;
 
         if (@file_put_contents($targetPath, $downloaded['body']) === false) {
+            $skipped[] = [
+                'url' => (string)$rawUrl,
+                'reason' => 'Failed to write file on server.',
+            ];
             continue;
         }
 
@@ -165,6 +178,7 @@ try {
     echo json_encode([
         'success' => true,
         'uploaded' => $uploaded,
+        'skipped' => $skipped,
     ]);
 } catch (Throwable $error) {
     http_response_code(500);

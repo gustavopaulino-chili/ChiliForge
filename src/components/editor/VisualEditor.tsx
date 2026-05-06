@@ -95,6 +95,7 @@ type VisualEditorProps = {
   projectId?: number | null;
   userId?: number | null;
   projectPublicUrl?: string;
+  brandPalette?: string[];
   /** 'split' = iframe left + panel right (default); 'overlay' = iframe full-screen + floating toggle panel */
   layout?: 'split' | 'overlay';
 };
@@ -310,6 +311,49 @@ const toPxNumber = (value: string, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const parsePositionKeyword = (value: string) => {
+  const lower = (value || '').toLowerCase().trim();
+  if (!lower) return { x: 50, y: 50 };
+
+  const mapX: Record<string, number> = { left: 0, center: 50, right: 100 };
+  const mapY: Record<string, number> = { top: 0, center: 50, bottom: 100 };
+  const tokens = lower.split(/\s+/).filter(Boolean);
+
+  let x: number | null = null;
+  let y: number | null = null;
+
+  for (const token of tokens) {
+    if (token in mapX && x === null) x = mapX[token];
+    if (token in mapY && y === null) y = mapY[token];
+  }
+
+  return {
+    x: x ?? 50,
+    y: y ?? 50,
+  };
+};
+
+const parsePositionToPercent = (value: string) => {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return { x: 50, y: 50 };
+
+  const percentMatch = trimmed.match(/(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%/);
+  if (percentMatch) {
+    return {
+      x: Math.max(0, Math.min(100, Number(percentMatch[1]))),
+      y: Math.max(0, Math.min(100, Number(percentMatch[2]))),
+    };
+  }
+
+  return parsePositionKeyword(trimmed);
+};
+
+const formatPositionFromPercent = (x: number, y: number) => {
+  const safeX = Math.max(0, Math.min(100, Math.round(x)));
+  const safeY = Math.max(0, Math.min(100, Math.round(y)));
+  return `${safeX}% ${safeY}%`;
+};
+
 const serializeDocument = (doc: Document) => {
   const doctype = doc.doctype
     ? `<!DOCTYPE ${doc.doctype.name}${doc.doctype.publicId ? ` PUBLIC "${doc.doctype.publicId}"` : ''}${doc.doctype.systemId ? ` "${doc.doctype.systemId}"` : ''}>\n`
@@ -373,6 +417,7 @@ export function VisualEditor({
   projectId,
   userId,
   projectPublicUrl,
+  brandPalette = [],
   layout = 'split',
 }: VisualEditorProps) {
   // ...existing code...
@@ -616,6 +661,8 @@ export function VisualEditor({
   const [selectedImagePath, setSelectedImagePath] = useState<string | null>(null);
   const [imageFit, setImageFit] = useState('cover');
   const [imagePosition, setImagePosition] = useState('center');
+  const [imagePositionX, setImagePositionX] = useState(50);
+  const [imagePositionY, setImagePositionY] = useState(50);
   const [imageWidth, setImageWidth] = useState('');
   const [imageMinWidth, setImageMinWidth] = useState('');
   const [imageHeight, setImageHeight] = useState('');
@@ -738,6 +785,8 @@ export function VisualEditor({
   const [bgImageUrl, setBgImageUrl] = useState('');
   const [bgImageSize, setBgImageSize] = useState('cover');
   const [bgImagePosition, setBgImagePosition] = useState('center');
+  const [bgImagePositionX, setBgImagePositionX] = useState(50);
+  const [bgImagePositionY, setBgImagePositionY] = useState(50);
   const [bgImageRepeat, setBgImageRepeat] = useState('no-repeat');
   const [overlayMode, setOverlayMode] = useState<OverlayMode>('none');
   const [overlayColor, setOverlayColor] = useState('#000000');
@@ -751,6 +800,9 @@ export function VisualEditor({
   const [gradientAngle, setGradientAngle] = useState(135);
   const [showAssetManager, setShowAssetManager] = useState(false);
   const [showBgAssetManager, setShowBgAssetManager] = useState(false);
+  const [assetUrlInput, setAssetUrlInput] = useState('');
+  const [bgAssetUrlInput, setBgAssetUrlInput] = useState('');
+  const [assetUrlImporting, setAssetUrlImporting] = useState(false);
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
   const [assetsPublicUrl, setAssetsPublicUrl] = useState('');
   const [assetsLoading, setAssetsLoading] = useState(false);
@@ -1329,7 +1381,11 @@ export function VisualEditor({
         // ignore cross-origin or other errors
       }
       setImageFit(payload.objectFit || 'cover');
-      setImagePosition(payload.objectPosition && payload.objectPosition !== 'initial' ? payload.objectPosition : 'center');
+      const nextImagePosition = payload.objectPosition && payload.objectPosition !== 'initial' ? payload.objectPosition : 'center';
+      setImagePosition(nextImagePosition);
+      const parsedImagePos = parsePositionToPercent(nextImagePosition);
+      setImagePositionX(parsedImagePos.x);
+      setImagePositionY(parsedImagePos.y);
       setImageWidth(payload.width || '');
       setImageMinWidth(payload.minWidth || '');
       setImageHeight(payload.height || '');
@@ -1360,7 +1416,11 @@ export function VisualEditor({
         setBgImageUrl('');
       }
       setBgImageSize(payload.backgroundSize || 'cover');
-      setBgImagePosition(payload.backgroundPosition || 'center');
+      const nextBgPosition = payload.backgroundPosition || 'center';
+      setBgImagePosition(nextBgPosition);
+      const parsedBgPos = parsePositionToPercent(nextBgPosition);
+      setBgImagePositionX(parsedBgPos.x);
+      setBgImagePositionY(parsedBgPos.y);
       setBgImageRepeat(payload.backgroundRepeat || 'no-repeat');
       setOverlayMode('none');
       setOverlayColor('#000000');
@@ -2185,6 +2245,69 @@ export function VisualEditor({
     }
   };
 
+  const handleImportAssetFromUrl = async (rawUrl: string, context: 'element' | 'background') => {
+    if (!projectId || !userId) {
+      toast.error('Save/publish this project first to import assets.');
+      return;
+    }
+
+    const nextUrl = (rawUrl || '').trim();
+    if (!nextUrl) {
+      toast.error('Enter a valid image URL first.');
+      return;
+    }
+
+    setAssetUrlImporting(true);
+    try {
+      const result = await uploadProjectAssetsFromUrls(projectId, userId, [nextUrl]);
+      const uploadedAsset = result.uploaded?.[0];
+
+      if (!uploadedAsset?.url) {
+        const maybeSkipped = (result as any)?.skipped?.[0];
+        if (maybeSkipped?.reason) {
+          throw new Error(`Could not import URL: ${maybeSkipped.reason}`);
+        }
+        throw new Error('Could not import URL. The source may block download or is not a supported file type.');
+      }
+
+      if (context === 'background') {
+        setBgAssetUrlInput('');
+        setSectionBgMode('image');
+        setBgImageUrl(uploadedAsset.url);
+        if (isSelectedSection()) {
+          applySectionBackgroundLive({ nextMode: 'image', nextBgImageUrl: uploadedAsset.url });
+        } else {
+          applyColorsLive({ nextMode: 'image', nextBgImageUrl: uploadedAsset.url });
+        }
+      } else {
+        setAssetUrlInput('');
+        setSrcValue(uploadedAsset.url);
+        applyImageLive(uploadedAsset.url);
+      }
+
+      await refreshAssets();
+      toast.success('Image URL imported to assets successfully.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to import URL to assets.');
+    } finally {
+      setAssetUrlImporting(false);
+    }
+  };
+
+  const applyBrandPaletteColor = (color: string) => {
+    const next = (color || '').trim();
+    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(next)) return;
+
+    if (isSelectedSection() || selected?.tag === 'section') {
+      setBgColor(next);
+      applySectionBackgroundLive({ nextMode: 'solid', nextBgColor: next });
+      return;
+    }
+
+    setTextColor(next);
+    applyColorsLive({ nextTextColor: next });
+  };
+
   const refreshFiles = async () => {
     if (!projectId || !userId) return '';
     setFilesLoading(true);
@@ -2967,6 +3090,27 @@ export function VisualEditor({
                 />
               </div>
             </div>
+
+            {brandPalette.length > 0 && (
+              <div className="space-y-2 rounded-md border border-border/60 p-2">
+                <Label className="text-xs text-muted-foreground">Brand palette from brief</Label>
+                <div className="grid grid-cols-5 gap-2">
+                  {brandPalette.map((color) => (
+                    <button
+                      key={`brand-${color}`}
+                      type="button"
+                      className="h-8 w-full rounded border border-border/70"
+                      style={{ backgroundColor: color }}
+                      title={`Apply ${color}`}
+                      onClick={() => applyBrandPaletteColor(color)}
+                    />
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Click a swatch to apply. For section selection it updates background; for elements it updates text color.
+                </p>
+              </div>
+            )}
             
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -3107,6 +3251,9 @@ export function VisualEditor({
                       onChange={(e) => {
                         const next = e.target.value;
                         setBgImagePosition(next);
+                        const parsed = parsePositionToPercent(next);
+                        setBgImagePositionX(parsed.x);
+                        setBgImagePositionY(parsed.y);
                         applyColorsLive({ nextBgImagePosition: next });
                       }}
                     >
@@ -3120,6 +3267,42 @@ export function VisualEditor({
                       <option value="bottom left">bottom left</option>
                       <option value="bottom right">bottom right</option>
                     </select>
+                  </div>
+                  <div className="col-span-2 grid grid-cols-2 gap-2">
+                    <div>
+                      <Label htmlFor="cf-bg-image-position-x" className="text-xs text-muted-foreground">Position X ({bgImagePositionX}%)</Label>
+                      <Input
+                        id="cf-bg-image-position-x"
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={bgImagePositionX}
+                        onChange={(e) => {
+                          const nextX = Number(e.target.value || 50);
+                          const nextPos = formatPositionFromPercent(nextX, bgImagePositionY);
+                          setBgImagePositionX(nextX);
+                          setBgImagePosition(nextPos);
+                          applyColorsLive({ nextBgImagePosition: nextPos });
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="cf-bg-image-position-y" className="text-xs text-muted-foreground">Position Y ({bgImagePositionY}%)</Label>
+                      <Input
+                        id="cf-bg-image-position-y"
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={bgImagePositionY}
+                        onChange={(e) => {
+                          const nextY = Number(e.target.value || 50);
+                          const nextPos = formatPositionFromPercent(bgImagePositionX, nextY);
+                          setBgImagePositionY(nextY);
+                          setBgImagePosition(nextPos);
+                          applyColorsLive({ nextBgImagePosition: nextPos });
+                        }}
+                      />
+                    </div>
                   </div>
                   <div className="col-span-2">
                     <Label htmlFor="cf-bg-image-repeat" className="text-xs text-muted-foreground">Repeat</Label>
@@ -3300,6 +3483,26 @@ export function VisualEditor({
                   {assetsUploading ? 'Uploading...' : 'Upload files to assets'}
                 </Button>
 
+                <div className="space-y-2 rounded-md border border-border/60 p-2">
+                  <Label htmlFor="cf-bg-asset-url" className="text-xs text-muted-foreground">Import image URL to assets</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="cf-bg-asset-url"
+                      value={bgAssetUrlInput}
+                      placeholder="https://.../image.jpg"
+                      onChange={(e) => setBgAssetUrlInput(e.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={assetUrlImporting}
+                      onClick={() => handleImportAssetFromUrl(bgAssetUrlInput, 'background')}
+                    >
+                      {assetUrlImporting ? 'Importing...' : 'Import URL'}
+                    </Button>
+                  </div>
+                </div>
+
                 {(projectPublicUrl || assetsPublicUrl) && (
                   <Button
                     size="sm"
@@ -3415,6 +3618,9 @@ export function VisualEditor({
                     onChange={(e) => {
                       const next = e.target.value;
                       setImagePosition(next);
+                      const parsed = parsePositionToPercent(next);
+                      setImagePositionX(parsed.x);
+                      setImagePositionY(parsed.y);
                       applyImageFormattingLive({ nextPosition: next });
                     }}
                   >
@@ -3428,6 +3634,42 @@ export function VisualEditor({
                     <option value="bottom left">bottom left</option>
                     <option value="bottom right">bottom right</option>
                   </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor="cf-image-position-x" className="text-xs text-muted-foreground">Position X ({imagePositionX}%)</Label>
+                    <Input
+                      id="cf-image-position-x"
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={imagePositionX}
+                      onChange={(e) => {
+                        const nextX = Number(e.target.value || 50);
+                        const nextPos = formatPositionFromPercent(nextX, imagePositionY);
+                        setImagePositionX(nextX);
+                        setImagePosition(nextPos);
+                        applyImageFormattingLive({ nextPosition: nextPos });
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="cf-image-position-y" className="text-xs text-muted-foreground">Position Y ({imagePositionY}%)</Label>
+                    <Input
+                      id="cf-image-position-y"
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={imagePositionY}
+                      onChange={(e) => {
+                        const nextY = Number(e.target.value || 50);
+                        const nextPos = formatPositionFromPercent(imagePositionX, nextY);
+                        setImagePositionY(nextY);
+                        setImagePosition(nextPos);
+                        applyImageFormattingLive({ nextPosition: nextPos });
+                      }}
+                    />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -3731,6 +3973,26 @@ export function VisualEditor({
                     <Upload className="mr-2 h-4 w-4" />
                     {assetsUploading ? 'Uploading...' : 'Upload files to assets'}
                   </Button>
+
+                  <div className="space-y-2 rounded-md border border-border/60 p-2">
+                    <Label htmlFor="cf-asset-url" className="text-xs text-muted-foreground">Import image URL to assets</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="cf-asset-url"
+                        value={assetUrlInput}
+                        placeholder="https://.../image.jpg"
+                        onChange={(e) => setAssetUrlInput(e.target.value)}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={assetUrlImporting}
+                        onClick={() => handleImportAssetFromUrl(assetUrlInput, 'element')}
+                      >
+                        {assetUrlImporting ? 'Importing...' : 'Import URL'}
+                      </Button>
+                    </div>
+                  </div>
 
                   {(projectPublicUrl || assetsPublicUrl) && (
                     <Button

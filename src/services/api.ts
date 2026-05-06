@@ -94,9 +94,17 @@ export const register = (email: string, pwd: string) =>
     body: JSON.stringify({ email, pwd }),
   }).then(res => res.json());
 
-export const getProjects = (user_id: number) =>
-  fetch(`${API}/getProjects.php?user_id=${user_id}`)
-    .then(res => res.json());
+export const getProjects = (user_id: number, user_email?: string) => {
+  const params = new URLSearchParams({ user_id: String(user_id) });
+  if (user_email && user_email.trim()) {
+    params.set('user_email', user_email.trim());
+  }
+
+  return fetch(`${API}/getProjects.php?${params.toString()}`, {
+    cache: 'no-store',
+    credentials: 'same-origin',
+  }).then(res => res.json());
+};
 
 export const getProjectEditorContent = async (projectId: number, userId: number) => {
   const params = new URLSearchParams({
@@ -217,7 +225,7 @@ export const uploadProjectAssetsFromUrls = async (
     throw new Error(data?.error || `Request failed with status ${response.status}`);
   }
 
-  return data as { success: boolean; uploaded: ProjectAsset[] };
+  return data as { success: boolean; uploaded: ProjectAsset[]; skipped?: Array<{ url: string; reason: string }> };
 };
 
 export const deleteProjectAssetFile = async (projectId: number, userId: number, fileName: string) => {
