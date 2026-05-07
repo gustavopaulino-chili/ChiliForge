@@ -55,11 +55,22 @@ try {
     $assetsDir = $projectDir . DIRECTORY_SEPARATOR . 'assets';
     ensure_directory($assetsDir);
 
-    $publicBase = trim((string)$publicUrl);
+    $folderSlug = sanitize_slug((string)basename(trim((string)$folderPath, " \/\\")));
+    $publicBase = $folderSlug !== ''
+        ? '/projects/' . $folderSlug . '/'
+        : trim((string)$publicUrl);
     if ($publicBase === '') {
         $slug = basename(trim((string)$folderPath, " \/\\"));
         $publicBase = '/projects/' . sanitize_slug($slug) . '/';
     }
+
+    $publicBase = preg_replace('/\/index\.html$/i', '/', $publicBase);
+    $publicBase = is_string($publicBase) ? $publicBase : '';
+
+    if (!preg_match('/^https?:\/\//i', $publicBase) && !str_starts_with($publicBase, '/')) {
+        $publicBase = '/' . $publicBase;
+    }
+
     if (!str_ends_with($publicBase, '/')) {
         $publicBase .= '/';
     }
