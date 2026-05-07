@@ -274,7 +274,44 @@ const Index = () => {
 
   const [isGeneratingLanding, setIsGeneratingLanding] = useState(false);
 
+  const GENERATION_LEAVE_WARNING = 'Leaving now will cancel your landing page generation and progress will be lost. Do you want to leave?';
+
+  const confirmLeaveGeneration = useCallback(() => {
+    if (!isGenerating) return true;
+    return window.confirm(GENERATION_LEAVE_WARNING);
+  }, [isGenerating]);
+
+  useEffect(() => {
+    if (!isGenerating) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = GENERATION_LEAVE_WARNING;
+      return GENERATION_LEAVE_WARNING;
+    };
+
+    const handlePopState = () => {
+      const shouldLeave = window.confirm(GENERATION_LEAVE_WARNING);
+      if (shouldLeave) {
+        window.removeEventListener('popstate', handlePopState);
+        window.history.back();
+      } else {
+        window.history.pushState({ cfGenerationGuard: true }, '', window.location.href);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.history.pushState({ cfGenerationGuard: true }, '', window.location.href);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isGenerating, GENERATION_LEAVE_WARNING]);
+
   const signOut = () => {
+    if (!confirmLeaveGeneration()) return;
     authSignOut();
     navigate("/auth");
   };
@@ -465,8 +502,9 @@ const Index = () => {
           differentiators: formData.differentiators.filter(Boolean),
         });
 
-        // Real AI image — accept it
-        if (data?.imageUrl && !data?.fallback) {
+        // Accept non-fallback responses, and also accept AI fallback providers (e.g., pollinations)
+        // so we only fall back to Pexels when the provider is explicitly Pexels or no image is returned.
+        if (data?.imageUrl && (!data?.fallback || (data?.provider && data.provider !== 'pexels'))) {
           return data.imageUrl;
         }
 
@@ -1414,11 +1452,9 @@ const Index = () => {
               <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
             </button>
             <div className="flex items-center gap-2">
-              <Link to="/history">
-                <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
-                  <Clock className="h-4 w-4" /> History
-                </Button>
-              </Link>
+              <Button variant="ghost" size="sm" onClick={() => { if (!confirmLeaveGeneration()) return; navigate('/history'); }} className="gap-2 text-muted-foreground hover:text-foreground">
+                <Clock className="h-4 w-4" /> History
+              </Button>
               <Button variant="ghost" size="sm" onClick={signOut} className="gap-2 text-muted-foreground hover:text-foreground">
                 <LogOut className="h-4 w-4" /> Log out
               </Button>
@@ -1457,7 +1493,15 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background relative flex flex-col">
         <div className="reactive-bg-mouse" />
-        <Header onLogoClick={() => setShowLanding(true)} onSignOut={signOut} />
+        <Header onLogoClick={() => {
+          if (!confirmLeaveGeneration()) return;
+          setIsGenerating(false);
+          setShowLanding(true);
+        }} onSignOut={signOut} onHistoryClick={() => {
+          if (!confirmLeaveGeneration()) return;
+          setIsGenerating(false);
+          navigate('/history');
+        }} />
         <main className="flex-1 flex items-center justify-center relative z-10 px-6">
           <div className="max-w-md w-full text-center space-y-8">
             <div className="relative inline-flex h-20 w-20 items-center justify-center mx-auto">
@@ -1790,7 +1834,7 @@ const Index = () => {
   );
 };
 
-function Header({ onLogoClick, onSignOut }: { onLogoClick?: () => void; onSignOut?: () => void; }) {
+function Header({ onLogoClick, onSignOut, onHistoryClick }: { onLogoClick?: () => void; onSignOut?: () => void; onHistoryClick?: () => void; }) {
   return (
     <header className="sticky top-0 border-b border-border/50 px-6 py-[13px] z-50 bg-background/60 backdrop-blur-md">
       <div className="mx-auto max-w-6xl flex items-center justify-between">
@@ -1799,11 +1843,17 @@ function Header({ onLogoClick, onSignOut }: { onLogoClick?: () => void; onSignOu
           <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
         </button>
         <div className="flex items-center gap-2">
-          <Link to="/history">
-            <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
+          {onHistoryClick ? (
+            <Button variant="ghost" size="sm" onClick={onHistoryClick} className="gap-2 text-muted-foreground hover:text-foreground">
               <Clock className="h-4 w-4" /> History
             </Button>
-          </Link>
+          ) : (
+            <Link to="/history">
+              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
+                <Clock className="h-4 w-4" /> History
+              </Button>
+            </Link>
+          )}
           <Button variant="ghost" size="sm" onClick={onSignOut} className="gap-2 text-muted-foreground hover:text-foreground">
             <LogOut className="h-4 w-4" /> Log out
           </Button>
@@ -2255,7 +2305,7 @@ BRAND & VISUAL IDENTITY
 VISUAL STYLE: ${data.preferredStyle || 'modern'} — ${styleGuide[data.preferredStyle] || styleGuide['modern']}
 FONTS: Heading — "${data.headingFont || 'Inter'}" | Body — "${data.bodyFont || 'Inter'}"
 BRAND COLORS (pre-applied via skeleton — echo back in theme.* exactly): Primary ${data.primaryColor} · Secondary ${data.secondaryColor} · Accent ${data.accentColor} · Text ${data.textColor} · BG ${data.backgroundColor}
-LOGO ENFORCEMENT: ${data.images.logoUrl ? `Use EXACTLY this logo URL in header/footer brand image and do not replace it: ${data.images.logoUrl}` : 'No logo URL provided. Use business name as text only and do not promote any other image to logo.'}
+LOGO ENFORCEMENT: ${data.images.logoUrl ? `Use EXACTLY this logo URL in header/footer brand image and do not replace it: ${/^data:image\//i.test(data.images.logoUrl) ? '[logo provided via formData — see images.logo field]' : data.images.logoUrl}` : 'No logo URL provided. Use business name as text only and do not promote any other image to logo.'}
 
 ═══════════════════════════════════════════════════════════
 LAYOUT DIRECTION (AI-CONTROLLED — you decide based on the business)

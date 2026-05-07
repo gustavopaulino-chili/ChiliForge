@@ -253,6 +253,70 @@ const buildAssetsFolderUrl = (value?: string) => {
   return `${base}assets/`;
 };
 
+const buildAssetUrlCandidates = (rawUrl: string, projectUrl?: string, assetsUrl?: string, assetName?: string) => {
+  const raw = (rawUrl || '').trim();
+  const name = (assetName || '').trim();
+  const candidates: string[] = [];
+
+  const assetsBase = (assetsUrl || '').trim();
+  const projectBase = normalizePublicBaseUrl(projectUrl);
+
+  try {
+    const absoluteProjectBase = projectBase
+      ? new URL(projectBase, window.location.origin).toString()
+      : '';
+    const absoluteAssetsBase = assetsBase
+      ? new URL(assetsBase, absoluteProjectBase || window.location.origin).toString()
+      : '';
+    const origin = absoluteProjectBase
+      ? new URL(absoluteProjectBase).origin
+      : window.location.origin;
+
+    // Canonical candidate: assets base + filename from listing.
+    if (name && absoluteAssetsBase) {
+      candidates.push(new URL(encodeURIComponent(name), absoluteAssetsBase).toString());
+    }
+
+    if (raw && /^(data:|blob:|https?:\/\/)/i.test(raw)) {
+      candidates.push(raw);
+    }
+
+    if (raw && raw.startsWith('/')) {
+      candidates.push(new URL(raw, origin).toString());
+    }
+
+    if (raw && absoluteAssetsBase) {
+      candidates.push(new URL(raw, absoluteAssetsBase).toString());
+    }
+
+    if (raw && absoluteProjectBase) {
+      candidates.push(new URL(raw, absoluteProjectBase).toString());
+    }
+  } catch {
+    // handled by fallbacks below
+  }
+
+  if (raw) candidates.push(raw);
+
+  if (name && assetsBase) {
+    const normalizedBase = assetsBase.endsWith('/') ? assetsBase : `${assetsBase}/`;
+    candidates.push(`${normalizedBase}${encodeURIComponent(name)}`);
+  }
+
+  return Array.from(new Set(candidates.filter(Boolean)));
+};
+
+const resolveAssetUrl = (rawUrl: string, projectUrl?: string, assetsUrl?: string, assetName?: string) => {
+  const candidates = buildAssetUrlCandidates(rawUrl, projectUrl, assetsUrl, assetName);
+  return candidates[0] || '';
+};
+
+const resolveNextAssetUrlCandidate = (currentUrl: string, rawUrl: string, projectUrl?: string, assetsUrl?: string, assetName?: string) => {
+  const current = (currentUrl || '').trim();
+  const candidates = buildAssetUrlCandidates(rawUrl, projectUrl, assetsUrl, assetName);
+  return candidates.find((candidate) => candidate !== current) || '';
+};
+
 const buildFilesFolderUrl = (value?: string) => {
   const base = normalizePublicBaseUrl(value);
   if (!base) return '';
@@ -678,8 +742,12 @@ export function VisualEditor({
   const [containerMaxWidth, setContainerMaxWidth] = useState('');
   const [containerMaxHeight, setContainerMaxHeight] = useState('');
   const [selectedWrapperPath, setSelectedWrapperPath] = useState<string | null>(null);
+  const [containerPaddingTop, setContainerPaddingTop] = useState('');
+  const [containerPaddingBottom, setContainerPaddingBottom] = useState('');
   const [containerPaddingLeft, setContainerPaddingLeft] = useState('');
   const [containerPaddingRight, setContainerPaddingRight] = useState('');
+  const [containerMarginTop, setContainerMarginTop] = useState('');
+  const [containerMarginBottom, setContainerMarginBottom] = useState('');
   const [containerMarginLeft, setContainerMarginLeft] = useState('');
   const [containerMarginRight, setContainerMarginRight] = useState('');
   const [containerBorderWidth, setContainerBorderWidth] = useState('');
@@ -696,15 +764,16 @@ export function VisualEditor({
   const [containerGridAutoFlow, setContainerGridAutoFlow] = useState<string>('');
 
   // --- simple validators for CSS-like inputs ---
-  const sizeRegex = /^-?\d+(?:\.\d+)?(?:px|rem|em|%|vw|vh|ch|vmin|vmax|fr)?$/i;
+  const sizeRegex = /^-?\d+(?:\.\d+)?(?:px|rem|em|%|vw|vh|ch|vmin|vmax|svw|svh|lvw|lvh|dvw|dvh|fr)?$/i;
+  const cssUnits = ['px', 'rem', 'em', '%', 'vw', 'vh', 'ch', 'vmin', 'vmax', 'svw', 'svh', 'lvw', 'lvh', 'dvw', 'dvh', 'fr'];
   const isCssSize = (v: string) => {
     if (!v) return true;
     const s = v.trim();
     if (!s) return false;
-    const keywords = ['auto', 'none', 'initial', 'inherit', 'unset'];
+    const keywords = ['auto', 'none', 'initial', 'inherit', 'unset', 'normal', 'fit-content', 'min-content', 'max-content', 'content'];
     if (keywords.includes(s)) return true;
     if (sizeRegex.test(s)) return true;
-    if (/^calc\(.+\)$/.test(s)) return true;
+    if (/^(calc|min|max|clamp|var)\(.+\)$/.test(s)) return true;
     return false;
   };
 
@@ -724,8 +793,10 @@ export function VisualEditor({
   // extract unit from previous value, fallback to 'px'
   const extractUnit = (prev: string) => {
     if (!prev) return 'px';
-    const m = prev.trim().match(/[a-z%]+$/i);
-    return m ? m[0] : 'px';
+    const m = prev.trim().toLowerCase().match(/[a-z%]+$/i);
+    if (!m) return 'px';
+    const unit = m[0];
+    return cssUnits.includes(unit) ? unit : 'px';
   };
 
   const normalizeSizeWithFallback = (val: string, prev: string) => {
@@ -733,7 +804,7 @@ export function VisualEditor({
     const s = val.trim();
     if (!s) return '';
     // allow functions and keywords
-    if (/^calc\(|repeat\(|minmax\(|auto$|none$|initial$|inherit$|unset$/i.test(s)) return s;
+    if (/^(calc\(|repeat\(|minmax\(|clamp\(|min\(|max\(|var\(|auto$|none$|initial$|inherit$|unset$|normal$|fit-content$|min-content$|max-content$|content$)/i.test(s)) return s;
     // if already has unit or contains non-numeric chars, return as-is
     if (sizeRegex.test(s)) return s;
     // if it's a plain number, append previous unit
@@ -752,8 +823,12 @@ export function VisualEditor({
   const [cmhError, setCmhError] = useState(false);
   const [cmaxwError, setCmaxwError] = useState(false);
   const [cmaxhError, setCmaxhError] = useState(false);
+  const [cpadTError, setCpadTError] = useState(false);
+  const [cpadBError, setCpadBError] = useState(false);
   const [cpadLError, setCpadLError] = useState(false);
   const [cpadRError, setCpadRError] = useState(false);
+  const [cmTError, setCmTError] = useState(false);
+  const [cmBError, setCmBError] = useState(false);
   const [cmLError, setCmLError] = useState(false);
   const [cmRError, setCmRError] = useState(false);
   const [cbwError, setCbwError] = useState(false);
@@ -767,8 +842,12 @@ export function VisualEditor({
   const [bgColor, setBgColor] = useState('#ffffff');
   const [paddingTop, setPaddingTop] = useState(16);
   const [paddingBottom, setPaddingBottom] = useState(16);
+  const [paddingLeft, setPaddingLeft] = useState(0);
+  const [paddingRight, setPaddingRight] = useState(0);
   const [marginTop, setMarginTop] = useState(0);
   const [marginBottom, setMarginBottom] = useState(0);
+  const [marginLeft, setMarginLeft] = useState(0);
+  const [marginRight, setMarginRight] = useState(0);
   const [fontFamily, setFontFamily] = useState('');
   const [fontFamilyPickerValue, setFontFamilyPickerValue] = useState('__custom__');
   const [customFontFamilyDraft, setCustomFontFamilyDraft] = useState('');
@@ -1259,6 +1338,37 @@ export function VisualEditor({
             const markerSelector = `[data-cf-editor-id="${marker}"]`;
             setSelectedWrapperPath(null);
             setSelected(prev => prev ? ({ ...prev, path: markerSelector }) : prev);
+
+            // Keep Container / Div controls in sync with the clicked element styles.
+            try {
+              const cs = window.getComputedStyle(clickedEl as Element);
+              setContainerWidth(cs.width || '');
+              setContainerMinWidth(cs.minWidth || '');
+              setContainerHeight(cs.height || '');
+              setContainerMinHeight(cs.minHeight || '');
+              setContainerMaxWidth(cs.maxWidth || '');
+              setContainerMaxHeight(cs.maxHeight || '');
+              setContainerPaddingTop(cs.paddingTop || '');
+              setContainerPaddingBottom(cs.paddingBottom || '');
+              setContainerPaddingLeft(cs.paddingLeft || '');
+              setContainerPaddingRight(cs.paddingRight || '');
+              setContainerMarginTop(cs.marginTop || '');
+              setContainerMarginBottom(cs.marginBottom || '');
+              setContainerMarginLeft(cs.marginLeft || '');
+              setContainerMarginRight(cs.marginRight || '');
+              setContainerBorderWidth(cs.borderWidth || '');
+              setContainerBorderRadius(cs.borderRadius || '');
+              try { setContainerBorderColor(rgbToHex(cs.borderColor || '#000000')); } catch (e) {}
+              setContainerDisplay(cs.display || '');
+              setContainerFlexDirection(cs.flexDirection || '');
+              setContainerFlexWrap(cs.flexWrap || '');
+              setContainerGap(cs.gap || '');
+              setContainerGridTemplateColumns(cs.gridTemplateColumns || '');
+              setContainerGridGap(cs.gridGap || cs.gap || '');
+              setContainerGridAutoFlow(cs.gridAutoFlow || '');
+            } catch (e) {
+              // ignore
+            }
           }
         }
       } catch (e) {
@@ -1367,8 +1477,12 @@ export function VisualEditor({
                     setContainerMinHeight(cs.minHeight || '');
                     setContainerMaxWidth(cs.maxWidth || '');
                     setContainerMaxHeight(cs.maxHeight || '');
+                    setContainerPaddingTop(cs.paddingTop || '');
+                    setContainerPaddingBottom(cs.paddingBottom || '');
                     setContainerPaddingLeft(cs.paddingLeft || '');
                     setContainerPaddingRight(cs.paddingRight || '');
+                    setContainerMarginTop(cs.marginTop || '');
+                    setContainerMarginBottom(cs.marginBottom || '');
                     setContainerMarginLeft(cs.marginLeft || '');
                     setContainerMarginRight(cs.marginRight || '');
                     setContainerBorderWidth(cs.borderWidth || '');
@@ -1454,10 +1568,17 @@ export function VisualEditor({
       setOverlayGrad2('#ffffff');
       setOverlayAngle(180);
       setDarkOverlayStrength(45);
-      setPaddingTop(toPxNumber(payload.paddingTop, 16));
-      setPaddingBottom(toPxNumber(payload.paddingBottom, 16));
-      setMarginTop(toPxNumber(payload.marginTop, 0));
-      setMarginBottom(toPxNumber(payload.marginBottom, 0));
+      const docForSection = iframeRef.current?.contentDocument;
+      const sectionEl = payload.sectionPath ? docForSection?.querySelector(payload.sectionPath) : null;
+      const sectionStyles = sectionEl ? window.getComputedStyle(sectionEl as Element) : null;
+      setPaddingTop(toPxNumber(sectionStyles?.paddingTop || payload.paddingTop, 16));
+      setPaddingBottom(toPxNumber(sectionStyles?.paddingBottom || payload.paddingBottom, 16));
+      setPaddingLeft(toPxNumber(sectionStyles?.paddingLeft || '', 0));
+      setPaddingRight(toPxNumber(sectionStyles?.paddingRight || '', 0));
+      setMarginTop(toPxNumber(sectionStyles?.marginTop || payload.marginTop, 0));
+      setMarginBottom(toPxNumber(sectionStyles?.marginBottom || payload.marginBottom, 0));
+      setMarginLeft(toPxNumber(sectionStyles?.marginLeft || '', 0));
+      setMarginRight(toPxNumber(sectionStyles?.marginRight || '', 0));
       setFontFamily(payload.fontFamily || '');
       setFontSize(toPxNumber(payload.fontSize, 16));
       setFontWeight(Number.parseInt(payload.fontWeight || '400', 10) || 400);
@@ -1730,8 +1851,12 @@ export function VisualEditor({
     nextMinHeight: string;
     nextMaxWidth: string;
     nextMaxHeight: string;
+    nextPaddingTop: string;
+    nextPaddingBottom: string;
     nextPaddingLeft: string;
     nextPaddingRight: string;
+    nextMarginTop: string;
+    nextMarginBottom: string;
     nextMarginLeft: string;
     nextMarginRight: string;
     nextBorderWidth: string;
@@ -1791,9 +1916,29 @@ export function VisualEditor({
           if (v) t.style.paddingLeft = v; else t.style.removeProperty('padding-left');
         }
 
+        if (has('nextPaddingTop')) {
+          const v = (overrides.nextPaddingTop || '').trim();
+          if (v) t.style.paddingTop = v; else t.style.removeProperty('padding-top');
+        }
+
+        if (has('nextPaddingBottom')) {
+          const v = (overrides.nextPaddingBottom || '').trim();
+          if (v) t.style.paddingBottom = v; else t.style.removeProperty('padding-bottom');
+        }
+
         if (has('nextPaddingRight')) {
           const v = (overrides.nextPaddingRight || '').trim();
           if (v) t.style.paddingRight = v; else t.style.removeProperty('padding-right');
+        }
+
+        if (has('nextMarginTop')) {
+          const v = (overrides.nextMarginTop || '').trim();
+          if (v) t.style.marginTop = v; else t.style.removeProperty('margin-top');
+        }
+
+        if (has('nextMarginBottom')) {
+          const v = (overrides.nextMarginBottom || '').trim();
+          if (v) t.style.marginBottom = v; else t.style.removeProperty('margin-bottom');
         }
 
         if (has('nextMarginLeft')) {
@@ -2099,20 +2244,32 @@ export function VisualEditor({
   const applySectionSpacingLive = (overrides?: Partial<{
     nextPaddingTop: number;
     nextPaddingBottom: number;
+    nextPaddingLeft: number;
+    nextPaddingRight: number;
     nextMarginTop: number;
     nextMarginBottom: number;
+    nextMarginLeft: number;
+    nextMarginRight: number;
   }>) => {
     if (!selected?.sectionPath) return;
     const nextPaddingTop = overrides?.nextPaddingTop ?? paddingTop;
     const nextPaddingBottom = overrides?.nextPaddingBottom ?? paddingBottom;
+    const nextPaddingLeft = overrides?.nextPaddingLeft ?? paddingLeft;
+    const nextPaddingRight = overrides?.nextPaddingRight ?? paddingRight;
     const nextMarginTop = overrides?.nextMarginTop ?? marginTop;
     const nextMarginBottom = overrides?.nextMarginBottom ?? marginBottom;
+    const nextMarginLeft = overrides?.nextMarginLeft ?? marginLeft;
+    const nextMarginRight = overrides?.nextMarginRight ?? marginRight;
 
     applyMutation(selected.sectionPath, (el) => {
       (el as HTMLElement).style.paddingTop = `${nextPaddingTop}px`;
       (el as HTMLElement).style.paddingBottom = `${nextPaddingBottom}px`;
+      (el as HTMLElement).style.paddingLeft = `${nextPaddingLeft}px`;
+      (el as HTMLElement).style.paddingRight = `${nextPaddingRight}px`;
       (el as HTMLElement).style.marginTop = `${nextMarginTop}px`;
       (el as HTMLElement).style.marginBottom = `${nextMarginBottom}px`;
+      (el as HTMLElement).style.marginLeft = `${nextMarginLeft}px`;
+      (el as HTMLElement).style.marginRight = `${nextMarginRight}px`;
     });
   };
 
@@ -2282,8 +2439,12 @@ export function VisualEditor({
     setAssetsLoading(true);
     try {
       const data = await getProjectAssets(projectId, userId);
-      setAssets(data.assets || []);
-      setAssetsPublicUrl(data.assetsPublicUrl || buildAssetsFolderUrl(projectPublicUrl));
+      const nextAssetsPublicUrl = data.assetsPublicUrl || buildAssetsFolderUrl(projectPublicUrl);
+      setAssetsPublicUrl(nextAssetsPublicUrl);
+      setAssets((data.assets || []).map((asset) => ({
+        ...asset,
+        url: resolveAssetUrl(asset.url, projectPublicUrl, nextAssetsPublicUrl, asset.name),
+      })));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load assets folder.');
     } finally {
@@ -2317,18 +2478,20 @@ export function VisualEditor({
       }
 
       if (context === 'background') {
+        const resolvedUploadedUrl = resolveAssetUrl(uploadedAsset.url, projectPublicUrl, assetsPublicUrl);
         setBgAssetUrlInput('');
         setSectionBgMode('image');
-        setBgImageUrl(uploadedAsset.url);
+        setBgImageUrl(resolvedUploadedUrl);
         if (isSelectedSection()) {
-          applySectionBackgroundLive({ nextMode: 'image', nextBgImageUrl: uploadedAsset.url });
+          applySectionBackgroundLive({ nextMode: 'image', nextBgImageUrl: resolvedUploadedUrl });
         } else {
-          applyColorsLive({ nextMode: 'image', nextBgImageUrl: uploadedAsset.url });
+          applyColorsLive({ nextMode: 'image', nextBgImageUrl: resolvedUploadedUrl });
         }
       } else {
+        const resolvedUploadedUrl = resolveAssetUrl(uploadedAsset.url, projectPublicUrl, assetsPublicUrl);
         setAssetUrlInput('');
-        setSrcValue(uploadedAsset.url);
-        applyImageLive(uploadedAsset.url);
+        setSrcValue(resolvedUploadedUrl);
+        applyImageLive(resolvedUploadedUrl);
       }
 
       await refreshAssets();
@@ -2711,8 +2874,9 @@ export function VisualEditor({
       setShowAssetManager(true);
       await refreshAssets();
 
-      setSrcValue(uploadedAsset.url);
-      applyImageLive(uploadedAsset.url);
+      const resolvedUploadedUrl = resolveAssetUrl(uploadedAsset.url, projectPublicUrl, assetsPublicUrl);
+      setSrcValue(resolvedUploadedUrl);
+      applyImageLive(resolvedUploadedUrl);
       toast.success('Generated image added to assets and applied to the selected image.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to add generated image to assets.');
@@ -2802,6 +2966,10 @@ export function VisualEditor({
 
   // Selecionar sessão no painel lateral: não deve preencher campo de texto
   const selectSection = (path: string) => {
+    const doc = iframeRef.current?.contentDocument;
+    const sectionEl = doc?.querySelector(path) as HTMLElement | null;
+    const sectionStyles = sectionEl ? window.getComputedStyle(sectionEl) : null;
+
     setSelected({
       path,
       sectionPath: path,
@@ -2848,10 +3016,14 @@ export function VisualEditor({
     setGradientColor2('#e2e8f0');
     setGradientAngle(135);
     setSectionBgMode('solid');
-    setPaddingTop(16);
-    setPaddingBottom(16);
-    setMarginTop(0);
-    setMarginBottom(0);
+    setPaddingTop(toPxNumber(sectionStyles?.paddingTop || '', 16));
+    setPaddingBottom(toPxNumber(sectionStyles?.paddingBottom || '', 16));
+    setPaddingLeft(toPxNumber(sectionStyles?.paddingLeft || '', 0));
+    setPaddingRight(toPxNumber(sectionStyles?.paddingRight || '', 0));
+    setMarginTop(toPxNumber(sectionStyles?.marginTop || '', 0));
+    setMarginBottom(toPxNumber(sectionStyles?.marginBottom || '', 0));
+    setMarginLeft(toPxNumber(sectionStyles?.marginLeft || '', 0));
+    setMarginRight(toPxNumber(sectionStyles?.marginRight || '', 0));
     setFontFamily('');
     setFontSize(16);
     setFontWeight(400);
@@ -3694,7 +3866,23 @@ export function VisualEditor({
                   ) : assets.map((asset) => (
                     <div key={`bg-${asset.name}`} className="rounded border border-border/60 p-2">
                       <div className="mb-2 flex items-center gap-2">
-                        <img src={asset.url} alt={asset.name} className="h-10 w-10 rounded object-cover" />
+                        <img
+                          src={resolveAssetUrl(asset.url, projectPublicUrl, assetsPublicUrl, asset.name)}
+                          alt={asset.name}
+                          className="h-10 w-10 rounded object-cover"
+                          onError={(event) => {
+                            const nextCandidate = resolveNextAssetUrlCandidate(
+                              event.currentTarget.currentSrc || event.currentTarget.src,
+                              asset.url,
+                              projectPublicUrl,
+                              assetsPublicUrl,
+                              asset.name,
+                            );
+                            if (nextCandidate && nextCandidate !== event.currentTarget.src) {
+                              event.currentTarget.src = nextCandidate;
+                            }
+                          }}
+                        />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-xs font-medium">{asset.name}</p>
                           <p className="text-[11px] text-muted-foreground">{Math.round((asset.size || 0) / 1024)} KB</p>
@@ -3706,11 +3894,12 @@ export function VisualEditor({
                           variant="outline"
                           onClick={() => {
                             setSectionBgMode('image');
-                            setBgImageUrl(asset.url);
+                            const resolvedAssetUrl = resolveAssetUrl(asset.url, projectPublicUrl, assetsPublicUrl, asset.name);
+                            setBgImageUrl(resolvedAssetUrl);
                             if (isSelectedSection()) {
-                              applySectionBackgroundLive({ nextMode: 'image', nextBgImageUrl: asset.url });
+                              applySectionBackgroundLive({ nextMode: 'image', nextBgImageUrl: resolvedAssetUrl });
                             } else {
-                              applyColorsLive({ nextMode: 'image', nextBgImageUrl: asset.url });
+                              applyColorsLive({ nextMode: 'image', nextBgImageUrl: resolvedAssetUrl });
                             }
                           }}
                         >
@@ -4209,7 +4398,23 @@ export function VisualEditor({
                     ) : assets.map((asset) => (
                       <div key={asset.name} className="rounded border border-border/60 p-2">
                         <div className="mb-2 flex items-center gap-2">
-                          <img src={asset.url} alt={asset.name} className="h-10 w-10 rounded object-cover" />
+                          <img
+                            src={resolveAssetUrl(asset.url, projectPublicUrl, assetsPublicUrl, asset.name)}
+                            alt={asset.name}
+                            className="h-10 w-10 rounded object-cover"
+                            onError={(event) => {
+                              const nextCandidate = resolveNextAssetUrlCandidate(
+                                event.currentTarget.currentSrc || event.currentTarget.src,
+                                asset.url,
+                                projectPublicUrl,
+                                assetsPublicUrl,
+                                asset.name,
+                              );
+                              if (nextCandidate && nextCandidate !== event.currentTarget.src) {
+                                event.currentTarget.src = nextCandidate;
+                              }
+                            }}
+                          />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-xs font-medium">{asset.name}</p>
                             <p className="text-[11px] text-muted-foreground">{Math.round((asset.size || 0) / 1024)} KB</p>
@@ -4220,8 +4425,9 @@ export function VisualEditor({
                             size="sm"
                             variant="outline"
                             onClick={() => {
-                              setSrcValue(asset.url);
-                              applyImageLive(asset.url);
+                              const resolvedAssetUrl = resolveAssetUrl(asset.url, projectPublicUrl, assetsPublicUrl, asset.name);
+                              setSrcValue(resolvedAssetUrl);
+                              applyImageLive(resolvedAssetUrl);
                             }}
                           >
                             <ImagePlus className="mr-2 h-4 w-4" /> Use
@@ -4585,6 +4791,40 @@ export function VisualEditor({
                   />
                 </div>
                 <div>
+                  <Label htmlFor="cf-container-padding-top" className="text-xs text-muted-foreground">Padding top</Label>
+                  <Input
+                    id="cf-container-padding-top"
+                      value={containerPaddingTop}
+                      placeholder="16px or 1rem"
+                      className={cpadTError ? 'border-destructive' : ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const next = normalizeSizeWithFallback(raw, containerPaddingTop || '16px');
+                        setContainerPaddingTop(next);
+                        if (!isCssSize(next)) { setCpadTError(true); toast.error('Padding inválido'); return; }
+                        setCpadTError(false);
+                        applyContainerSizingLive({ nextPaddingTop: next });
+                      }}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cf-container-padding-bottom" className="text-xs text-muted-foreground">Padding bottom</Label>
+                  <Input
+                    id="cf-container-padding-bottom"
+                      value={containerPaddingBottom}
+                      placeholder="16px or 1rem"
+                      className={cpadBError ? 'border-destructive' : ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const next = normalizeSizeWithFallback(raw, containerPaddingBottom || containerPaddingTop || '16px');
+                        setContainerPaddingBottom(next);
+                        if (!isCssSize(next)) { setCpadBError(true); toast.error('Padding inválido'); return; }
+                        setCpadBError(false);
+                        applyContainerSizingLive({ nextPaddingBottom: next });
+                      }}
+                  />
+                </div>
+                <div>
                   <Label htmlFor="cf-container-padding-right" className="text-xs text-muted-foreground">Padding right</Label>
                   <Input
                     id="cf-container-padding-right"
@@ -4889,6 +5129,44 @@ export function VisualEditor({
                   </div>
                 </>
               )}
+                <div>
+                  <FieldLabel htmlFor="cf-container-margin-top" hint="Sets the top margin of the container wrapper.">
+                    Margin top
+                  </FieldLabel>
+                  <Input
+                    id="cf-container-margin-top"
+                    value={containerMarginTop}
+                    placeholder="0px"
+                    className={cmTError ? 'border-destructive' : ''}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const next = normalizeSizeWithFallback(raw, containerMarginTop || '0px');
+                      setContainerMarginTop(next);
+                      if (!isCssSize(next)) { setCmTError(true); toast.error('Margin top inválido'); return; }
+                      setCmTError(false);
+                      applyContainerSizingLive({ nextMarginTop: next });
+                    }}
+                  />
+                </div>
+                <div>
+                  <FieldLabel htmlFor="cf-container-margin-bottom" hint="Sets the bottom margin of the container wrapper.">
+                    Margin bottom
+                  </FieldLabel>
+                  <Input
+                    id="cf-container-margin-bottom"
+                    value={containerMarginBottom}
+                    placeholder="0px"
+                    className={cmBError ? 'border-destructive' : ''}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const next = normalizeSizeWithFallback(raw, containerMarginBottom || '0px');
+                      setContainerMarginBottom(next);
+                      if (!isCssSize(next)) { setCmBError(true); toast.error('Margin bottom inválido'); return; }
+                      setCmBError(false);
+                      applyContainerSizingLive({ nextMarginBottom: next });
+                    }}
+                  />
+                </div>
                 <div className="col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                   <div>
                     <FieldLabel htmlFor="cf-container-margin-left" hint="Sets the left margin of the container. Use 'auto' to horizontally center the container when width is constrained.">
@@ -5037,6 +5315,66 @@ export function VisualEditor({
                       const next = Number(e.target.value || 0);
                       setMarginBottom(next);
                       applySectionSpacingLive({ nextMarginBottom: next });
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cf-section-pl" className="text-xs text-muted-foreground">Padding left (px)</Label>
+                  <Input
+                    id="cf-section-pl"
+                    type="number"
+                    min={0}
+                    max={300}
+                    value={paddingLeft}
+                    onChange={(e) => {
+                      const next = Number(e.target.value || 0);
+                      setPaddingLeft(next);
+                      applySectionSpacingLive({ nextPaddingLeft: next });
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cf-section-pr" className="text-xs text-muted-foreground">Padding right (px)</Label>
+                  <Input
+                    id="cf-section-pr"
+                    type="number"
+                    min={0}
+                    max={300}
+                    value={paddingRight}
+                    onChange={(e) => {
+                      const next = Number(e.target.value || 0);
+                      setPaddingRight(next);
+                      applySectionSpacingLive({ nextPaddingRight: next });
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cf-section-ml" className="text-xs text-muted-foreground">Margin left (px)</Label>
+                  <Input
+                    id="cf-section-ml"
+                    type="number"
+                    min={0}
+                    max={300}
+                    value={marginLeft}
+                    onChange={(e) => {
+                      const next = Number(e.target.value || 0);
+                      setMarginLeft(next);
+                      applySectionSpacingLive({ nextMarginLeft: next });
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cf-section-mr" className="text-xs text-muted-foreground">Margin right (px)</Label>
+                  <Input
+                    id="cf-section-mr"
+                    type="number"
+                    min={0}
+                    max={300}
+                    value={marginRight}
+                    onChange={(e) => {
+                      const next = Number(e.target.value || 0);
+                      setMarginRight(next);
+                      applySectionSpacingLive({ nextMarginRight: next });
                     }}
                   />
                 </div>
