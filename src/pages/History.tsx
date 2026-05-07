@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { getProjects } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 type Project = {
   id: number;
@@ -27,33 +29,44 @@ type Project = {
 
 export default function History() {
   const navigate = useNavigate();
+  const { user, loading: authLoading, isGuest } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
 
-  const user = JSON.parse(localStorage.getItem("user") || "null");
-
   // fetch projects from MySQL for logged-in users
   const fetchProjects = async () => {
-    if (!user) {
+    const resolvedUserId = Number(user?.id);
+    const resolvedUserEmail = typeof user?.email === 'string' ? user.email.trim().toLowerCase() : '';
+
+    if (!user || !Number.isFinite(resolvedUserId) || resolvedUserId <= 0) {
+      setProjects([]);
       setLoading(false);
       return;
     }
 
+    if (isGuest) {
+      setProjects([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     try {
-      const res = await fetch(`/api/getProjects.php?user_id=${user.id}`);
-      const data = await res.json();
-      setProjects(data || []);
+      const data = await getProjects(resolvedUserId, resolvedUserEmail || undefined);
+      setProjects(Array.isArray(data) ? data : []);
     } catch (err) {
       toast.error("Error loading projects");
+      setProjects([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    if (authLoading) return;
     fetchProjects();
-  }, []);
+  }, [authLoading, user?.id, user?.email, isGuest]);
 
   // 🗑 delete project
   const deleteProject = async (id: number) => {
@@ -70,7 +83,7 @@ export default function History() {
       setProjectToDelete(null);
       toast.success("Project deleted");
     } catch {
-      toast.error("Erro ao deletar");
+      toast.error("Failed to delete project");
     }
   };
 
@@ -81,6 +94,7 @@ export default function History() {
         currentStep: project.currentStep ?? 0,
         savedProjectId: project.id,
         generatedLandingUrl: project.public_url ?? '',
+        folderPath: project.folder_path ?? '',
       }
     });
   };
@@ -101,6 +115,8 @@ export default function History() {
       <main className="max-w-4xl mx-auto p-6">
         {loading ? (
           <p>Loading...</p>
+        ) : isGuest ? (
+          <p className="text-muted-foreground">Guest mode does not load server project history.</p>
         ) : projects.length === 0 ? (
           <p className="text-muted-foreground">
             No projects found.
@@ -118,7 +134,7 @@ export default function History() {
                     {new Date(project.created_at).toLocaleString()}
                   </p>
                   {project.generated_html && (
-                    <p className="text-xs text-green-600 mt-1">✓ Site gerado salvo</p>
+                    <p className="text-xs text-green-600 mt-1">✓ Saved generated site</p>
                   )}
                 </div>
 
@@ -135,6 +151,7 @@ export default function History() {
                           generatedHtml: project.generated_html ?? '',
                           savedProjectId: project.id,
                           generatedLandingUrl: project.public_url ?? '',
+                          folderPath: project.folder_path ?? '',
                         }
                       });
                     }}
@@ -149,7 +166,7 @@ export default function History() {
                     size="sm"
                     onClick={() => navigate(`/visual-editor?projectId=${project.id}`)}
                     title="Abrir editor visual"
-                    disabled={!project.generated_html}
+                    disabled={!project.generated_html && !project.public_url}
                   >
                     <Edit3 className="h-4 w-4" />
                   </Button>

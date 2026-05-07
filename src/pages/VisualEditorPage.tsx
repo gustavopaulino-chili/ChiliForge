@@ -22,6 +22,13 @@ type Project = {
   public_url?: string;
   folder_path?: string;
   generated_html?: string;
+  form_data?: {
+    primaryColor?: string;
+    secondaryColor?: string;
+    accentColor?: string;
+    textColor?: string;
+    backgroundColor?: string;
+  } | null;
 };
 
 const toAbsoluteUrl = (value: string) => {
@@ -70,6 +77,14 @@ export default function VisualEditorPage() {
   const [unsaved, setUnsaved] = useState(false);
   const originalHtmlRef = useRef('');
 
+  const navigateBackSafely = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate('/history');
+  };
+
   useEffect(() => {
     let mounted = true;
 
@@ -79,7 +94,7 @@ export default function VisualEditorPage() {
         return;
       }
       try {
-        const projects = await getProjects(user.id);
+        const projects = await getProjects(user.id, user.email);
         const found = (projects || []).find((item: any) => Number(item.id) === projectId) as Project | undefined;
         if (!mounted) return;
         if (!found) {
@@ -142,6 +157,19 @@ export default function VisualEditorPage() {
     );
   }
 
+  const editorPalette = [
+    project?.form_data?.primaryColor,
+    project?.form_data?.secondaryColor,
+    project?.form_data?.accentColor,
+    project?.form_data?.textColor,
+    project?.form_data?.backgroundColor,
+  ].filter((value, index, list): value is string => {
+    if (typeof value !== 'string') return false;
+    const color = value.trim();
+    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color)) return false;
+    return list.findIndex((v) => (v || '').toLowerCase() === color.toLowerCase()) === index;
+  });
+
   return (
     <div className="fixed inset-0 flex flex-col bg-background">
       <AlertDialog open={showUnsavedDialog} onOpenChange={setShowUnsavedDialog}>
@@ -152,7 +180,7 @@ export default function VisualEditorPage() {
                 if (unsaved) {
                   setShowUnsavedDialog(true);
                 } else {
-                  navigate(-1);
+                  navigateBackSafely();
                 }
               }}>
                 <ArrowLeft className="mr-2 h-4 w-4" /> Back
@@ -169,7 +197,7 @@ export default function VisualEditorPage() {
                 <span className="text-xs text-yellow-600 font-medium mr-2">Unsaved changes</span>
               )}
               <Button
-                variant="primary"
+                variant="default"
                 size="sm"
                 disabled={!unsaved || saving}
                 onClick={async () => {
@@ -210,6 +238,7 @@ export default function VisualEditorPage() {
             projectId={project.id}
             userId={user?.id}
             projectPublicUrl={project.public_url || ''}
+            brandPalette={editorPalette}
             layout="overlay"
           />
         </main>
@@ -228,7 +257,7 @@ export default function VisualEditorPage() {
               setUnsaved(false);
               setShowUnsavedDialog(false);
               toast.info('Changes discarded.');
-              navigate(-1);
+              navigateBackSafely();
             }}>
               Discard Changes
             </AlertDialogCancel>
@@ -245,7 +274,7 @@ export default function VisualEditorPage() {
                 setUnsaved(false);
                 setShowUnsavedDialog(false);
                 toast.success('Project saved!');
-                navigate(-1);
+                navigateBackSafely();
               } catch {
                 toast.error('Could not save project.');
               } finally {

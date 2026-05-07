@@ -9,7 +9,6 @@ const corsHeaders = {
 const DEFAULT_GEMINI_IMAGE_MODELS = [
   "gemini-2.5-flash-image-preview",
   "gemini-2.0-flash-preview-image-generation",
-  "gemini-2.0-flash-exp",
 ];
 
 const GEMINI_IMAGE_MODELS = Array.from(new Set([

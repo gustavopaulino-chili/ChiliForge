@@ -19,7 +19,7 @@ if (!$data || !isset($data['id']) || !isset($data['user_id']) || !isset($data['g
 
 $projectId = (int)$data['id'];
 $userId = (int)$data['user_id'];
-$generatedHtml = (string)$data['generated_html'];
+$generatedHtml = strip_editor_bridge_artifacts((string)$data['generated_html']);
 
 if ($projectId <= 0 || $userId <= 0) {
     http_response_code(400);

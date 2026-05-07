@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import logoResult from '@/assets/logo-result.png';
-import { BusinessFormData, defaultFormData, LANDING_PRESETS, LandingPreset } from '@/types/businessForm';
+import { BusinessFormData, ImageUrls, defaultFormData, LANDING_PRESETS, LandingPreset } from '@/types/businessForm';
 import { StepIndicator } from '@/components/generator/StepIndicator';
 import { StepCsvImport } from '@/components/generator/StepCsvImport';
 import { StepWebsiteType } from '@/components/generator/StepWebsiteType';
@@ -19,7 +19,7 @@ import { VisualEditor } from '@/components/editor/VisualEditor';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock, LogOut, User, Server, Edit3 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-import { downloadProjectZip, generateImages, generateLanding, searchImages, updateProjectContent } from '@/services/api';
+import { downloadProjectZip, generateImages, generateLanding, searchImages, updateProjectContent, updateProjectFormState, getProjectById } from '@/services/api';
 import { isUploadedImage } from '@/services/imageUpload';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
@@ -40,11 +40,60 @@ const STEPS: StepDef[] = [
   { id: 'review', label: 'Review' },
 ];
 
-const STORAGE_KEY = 'siteforge_progress';
+const LEGACY_STORAGE_KEY = 'siteforge_progress';
+const STORAGE_KEY_PREFIX = 'siteforge_progress_v2';
 
-const loadSavedProgress = () => {
+type SavedProgress = {
+  currentStep: number;
+  maxVisitedStep: number;
+  formData: BusinessFormData;
+  user_id?: number;
+  folder_path?: string;
+};
+
+const normalizeFolderPathKey = (value?: string) => {
+  const raw = (value || '').trim().toLowerCase();
+  if (!raw) return 'draft';
+  return raw.replace(/[^a-z0-9/_-]/g, '').replace(/\/+$/, '') || 'draft';
+};
+
+const buildProgressStorageKey = (userId?: number, folderPath?: string) => {
+  const safeUserId = Number.isFinite(userId) && (userId || 0) > 0 ? String(userId) : 'guest';
+  const safeFolder = normalizeFolderPathKey(folderPath);
+  return `${STORAGE_KEY_PREFIX}:${safeUserId}:${safeFolder}`;
+};
+
+const deriveFolderPathFromPublicUrl = (url?: string) => {
+  const raw = (url || '').trim();
+  if (!raw) return '';
   try {
-    return safeGetJSON(STORAGE_KEY);
+    const absolute = raw.startsWith('http://') || raw.startsWith('https://')
+      ? new URL(raw)
+      : new URL(raw.startsWith('/') ? raw : `/${raw}`, window.location.origin);
+    const match = absolute.pathname.match(/\/projects\/([^/]+)\/?$/i);
+    if (!match?.[1]) return '';
+    return `/public/projects/${match[1]}`;
+  } catch {
+    const match = raw.match(/\/projects\/([^/]+)\/?$/i);
+    if (!match?.[1]) return '';
+    return `/public/projects/${match[1]}`;
+  }
+};
+
+const hasMeaningfulProgress = (progress: Partial<SavedProgress> | null | undefined) => {
+  if (!progress || !progress.formData) return false;
+  const fd = progress.formData as Partial<BusinessFormData>;
+  const hasNonEmptyService = Array.isArray(fd.services) && fd.services.some((item) => typeof item === 'string' && item.trim() !== '');
+  const hasNonEmptyDifferentiator = Array.isArray(fd.differentiators) && fd.differentiators.some((item) => typeof item === 'string' && item.trim() !== '');
+  const hasCoreText = [fd.businessName, fd.businessDescription, fd.valueProposition, fd.targetAudience, fd.businessCategory]
+    .some((item) => typeof item === 'string' && item.trim() !== '');
+  const hasProgress = Number(progress.currentStep || 0) > 0 || Number(progress.maxVisitedStep || 0) > 0;
+  return hasCoreText || hasNonEmptyService || hasNonEmptyDifferentiator || hasProgress;
+};
+
+const loadSavedProgress = (storageKey: string) => {
+  try {
+    return safeGetJSON(storageKey) as SavedProgress | null;
   } catch { }
   return null;
 };
@@ -198,8 +247,12 @@ const Index = () => {
   const { user, signOut: authSignOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const routeState = location.state as { formData?: BusinessFormData; currentStep?: number; generatedHtml?: string; savedProjectId?: number; generatedLandingUrl?: string } | null;
-  const saved = useMemo(() => loadSavedProgress(), []);
+  const routeState = location.state as { formData?: BusinessFormData; currentStep?: number; generatedHtml?: string; savedProjectId?: number; generatedLandingUrl?: string; folderPath?: string } | null;
+  const [currentProjectFolderPath, setCurrentProjectFolderPath] = useState<string>(() => routeState?.folderPath || deriveFolderPathFromPublicUrl(routeState?.generatedLandingUrl));
+  const progressStorageKey = useMemo(
+    () => buildProgressStorageKey(user?.id, currentProjectFolderPath),
+    [user?.id, currentProjectFolderPath],
+  );
   const [savedProjectId, setSavedProjectId] = useState<number | null>(routeState?.savedProjectId ?? null);
   const [copied, setCopied] = useState(false);
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
@@ -219,7 +272,7 @@ const Index = () => {
   const [generationMessages, setGenerationMessages] = useState<string[]>([]);
   const [showLanding, setShowLanding] = useState(!(routeState?.formData || routeState?.generatedHtml));
   const [showRestoreDialog, setShowRestoreDialog] = useState(false);
-  const [pendingRestore, setPendingRestore] = useState<typeof saved>(null);
+  const [pendingRestore, setPendingRestore] = useState<SavedProgress | null>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [currentStep, setCurrentStep] = useState(routeState?.currentStep ?? 0);
   const [maxVisitedStep, setMaxVisitedStep] = useState(0);
@@ -248,6 +301,14 @@ const Index = () => {
 
     if (routeState?.generatedLandingUrl) {
       setGeneratedLandingUrl(routeState.generatedLandingUrl);
+      if (!routeState?.folderPath) {
+        const derivedFolder = deriveFolderPathFromPublicUrl(routeState.generatedLandingUrl);
+        if (derivedFolder) setCurrentProjectFolderPath(derivedFolder);
+      }
+    }
+
+    if (routeState?.folderPath) {
+      setCurrentProjectFolderPath(routeState.folderPath);
     }
   }, [routeState]);
 
@@ -274,7 +335,44 @@ const Index = () => {
 
   const [isGeneratingLanding, setIsGeneratingLanding] = useState(false);
 
+  const GENERATION_LEAVE_WARNING = 'Leaving now will cancel your landing page generation and progress will be lost. Do you want to leave?';
+
+  const confirmLeaveGeneration = useCallback(() => {
+    if (!isGenerating) return true;
+    return window.confirm(GENERATION_LEAVE_WARNING);
+  }, [isGenerating]);
+
+  useEffect(() => {
+    if (!isGenerating) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = GENERATION_LEAVE_WARNING;
+      return GENERATION_LEAVE_WARNING;
+    };
+
+    const handlePopState = () => {
+      const shouldLeave = window.confirm(GENERATION_LEAVE_WARNING);
+      if (shouldLeave) {
+        window.removeEventListener('popstate', handlePopState);
+        window.history.back();
+      } else {
+        window.history.pushState({ cfGenerationGuard: true }, '', window.location.href);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.history.pushState({ cfGenerationGuard: true }, '', window.location.href);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isGenerating, GENERATION_LEAVE_WARNING]);
+
   const signOut = () => {
+    if (!confirmLeaveGeneration()) return;
     authSignOut();
     navigate("/auth");
   };
@@ -295,8 +393,35 @@ const Index = () => {
   };
 
 
+  const createDraftProject = async () => {
+    if (!user?.id) return;
+    try {
+      const response = await fetch('/api/createProject.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.id,
+          name: 'Draft',
+          public_url: '',
+          folder_path: '',
+          form_data: defaultFormData,
+          generated_html: '',
+          current_step: 0,
+        }),
+      });
+      const saved = await response.json();
+      if (saved?.success && saved?.id) {
+        setSavedProjectId(saved.id);
+        try { localStorage.setItem('lastEditedProjectId', String(saved.id)); } catch {}
+      }
+    } catch (err) {
+      console.error('Failed to create draft project:', err);
+    }
+  };
+
   const handleStartGenerator = () => {
     setIsTransitioning(true);
+    createDraftProject();
     setTimeout(() => {
       setShowLanding(false);
       setIsTransitioning(false);
@@ -306,15 +431,56 @@ const Index = () => {
   // Check for saved progress on mount and prompt user
   useEffect(() => {
     if (routeState?.formData || routeState?.generatedHtml) return;
-    const progress = loadSavedProgress();
+    const progress = loadSavedProgress(progressStorageKey);
     if (!progress) return;
-    const hasData = progress.formData?.businessName || progress.formData?.businessDescription ||
-      (progress.formData?.services?.length > 0) || (progress.currentStep > 0);
-    if (hasData) {
+    if (hasMeaningfulProgress(progress)) {
       setPendingRestore(progress);
       setShowRestoreDialog(true);
     }
-  }, []);
+  }, [routeState?.formData, routeState?.generatedHtml, progressStorageKey]);
+
+  // Try to load from database if no localStorage and user is logged in
+  useEffect(() => {
+    if (routeState?.formData || routeState?.generatedHtml || !user?.id) return;
+    if (showRestoreDialog || pendingRestore) return; // Already showing restore dialog
+    
+    const lastProjectId = (() => {
+      try {
+        const stored = localStorage.getItem('lastEditedProjectId');
+        return stored ? parseInt(stored, 10) : null;
+      } catch {
+        return null;
+      }
+    })();
+
+    if (!lastProjectId) return;
+
+    const loadProject = async () => {
+      try {
+        const project = await getProjectById(lastProjectId, user.id);
+        if (!project || !project.form_data) return;
+
+        const projectData: SavedProgress = {
+          currentStep: project.current_step ?? 0,
+          maxVisitedStep: project.current_step ?? 0,
+          formData: typeof project.form_data === 'string' ? JSON.parse(project.form_data) : project.form_data,
+          user_id: user.id,
+          folder_path: project.folder_path || undefined,
+        };
+
+        if (hasMeaningfulProgress(projectData)) {
+          setSavedProjectId(lastProjectId);
+          setCurrentProjectFolderPath(project.folder_path || '');
+          setPendingRestore(projectData);
+          setShowRestoreDialog(true);
+        }
+      } catch (error) {
+        console.error('Failed to load project from database:', error);
+      }
+    };
+
+    loadProject();
+  }, [user?.id, routeState?.formData, routeState?.generatedHtml, showRestoreDialog, pendingRestore]);
 
   const handleRestoreSession = () => {
     if (!pendingRestore) return;
@@ -328,9 +494,12 @@ const Index = () => {
   };
 
   const handleDiscardSession = () => {
-    safeRemove(STORAGE_KEY);
+    safeRemove(progressStorageKey);
+    safeRemove(LEGACY_STORAGE_KEY);
+    try { localStorage.removeItem('lastEditedProjectId'); } catch {}
     setShowRestoreDialog(false);
     setPendingRestore(null);
+    setSavedProjectId(null);
   };
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -342,8 +511,20 @@ const Index = () => {
   }, [showLanding]);
 
   useEffect(() => {
-    safeSetJSON(STORAGE_KEY, { currentStep, formData, maxVisitedStep });
-  }, [currentStep, formData]);
+    const snapshot: SavedProgress = {
+      currentStep,
+      formData,
+      maxVisitedStep,
+      user_id: user?.id,
+      folder_path: currentProjectFolderPath || undefined,
+    };
+
+    if (hasMeaningfulProgress(snapshot)) {
+      safeSetJSON(progressStorageKey, snapshot);
+    } else {
+      safeRemove(progressStorageKey);
+    }
+  }, [currentStep, formData, maxVisitedStep, user?.id, currentProjectFolderPath, progressStorageKey]);
 
   const steps = STEPS;
 
@@ -393,8 +574,9 @@ const Index = () => {
           differentiators: formData.differentiators.filter(Boolean),
         });
 
-        // Real AI image — accept it
-        if (data?.imageUrl && !data?.fallback) {
+        // Accept non-fallback responses, and also accept AI fallback providers (e.g., pollinations)
+        // so we only fall back to Pexels when the provider is explicitly Pexels or no image is returned.
+        if (data?.imageUrl && (!data?.fallback || (data?.provider && data.provider !== 'pexels'))) {
           return data.imageUrl;
         }
 
@@ -727,7 +909,8 @@ const Index = () => {
     const referenceUrl = preparedFormData.images.heroImage1 || preparedFormData.images.brandImage || preparedFormData.images.sectionImage1 || undefined;
 
     try {
-      const userHero = preparedFormData.images.heroImage1 || preparedFormData.images.heroImage2 || preparedFormData.images.brandImage;
+      // User-provided StepImages hero always has priority over AI/fallback.
+      const userHero = preparedFormData.images.heroImage1 || preparedFormData.images.heroImage2;
 
       if (userHero) {
         // User already has a hero image — use it, skip AI generation for the hero
@@ -816,7 +999,7 @@ const Index = () => {
       setGeneratedImages(collectedImages);
     } catch (err) {
       console.error('Hero image generation error:', err);
-      const userHero = preparedFormData.images.heroImage1 || preparedFormData.images.heroImage2 || preparedFormData.images.brandImage;
+      const userHero = preparedFormData.images.heroImage1 || preparedFormData.images.heroImage2;
       if (userHero) {
         collectedImages = [userHero];
       } else {
@@ -1170,6 +1353,12 @@ const Index = () => {
             const publishedHtml = saved.html || previewDocument;
             setSavedProjectId(saved.id);
             setGeneratedLandingUrl(saved.url || '');
+            if (saved?.folder_path) {
+              setCurrentProjectFolderPath(String(saved.folder_path));
+            } else {
+              const derivedFolder = deriveFolderPathFromPublicUrl(saved?.url || '');
+              if (derivedFolder) setCurrentProjectFolderPath(derivedFolder);
+            }
             setGeneratedHtml(publishedHtml);
             setGenerationProgress(95);
             pushGenerationMessage('Publishing completed successfully.');
@@ -1244,6 +1433,9 @@ const Index = () => {
       const saved = await response.json();
       if (saved?.success && saved?.id) {
         setSavedProjectId(saved.id);
+        if (saved?.folder_path) {
+          setCurrentProjectFolderPath(String(saved.folder_path));
+        }
       }
     } catch (saveErr) {
       console.error('Error saving project:', saveErr);
@@ -1259,13 +1451,46 @@ const Index = () => {
     setCurrentStep(0);
     setMaxVisitedStep(0);
     setSavedProjectId(null);
-    localStorage.removeItem(STORAGE_KEY);
+    setCurrentProjectFolderPath('');
+    safeRemove(progressStorageKey);
+    safeRemove(LEGACY_STORAGE_KEY);
+    try { localStorage.removeItem('lastEditedProjectId'); } catch {}
   };
 
   const handleNewLandingPage = async () => {
     await saveCurrentProject();
     resetToNewSession();
   };
+
+  useEffect(() => {
+    if (!savedProjectId || !user?.id) return;
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        await updateProjectFormState({
+          id: savedProjectId,
+          user_id: user.id,
+          current_step: currentStep,
+          form_data: formData,
+        });
+      } catch (error) {
+        console.error('Form state autosave failed:', error);
+      }
+    }, 500);
+
+    return () => window.clearTimeout(timeout);
+  }, [savedProjectId, user?.id, currentStep, formData]);
+
+  // Save last edited project ID to localStorage for recovery on re-open
+  useEffect(() => {
+    if (savedProjectId) {
+      try {
+        localStorage.setItem('lastEditedProjectId', String(savedProjectId));
+      } catch (error) {
+        console.error('Failed to save lastEditedProjectId:', error);
+      }
+    }
+  }, [savedProjectId]);
 
   const prompt = generatePrompt(formData, generatedImages);
 
@@ -1304,11 +1529,9 @@ const Index = () => {
               <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
             </button>
             <div className="flex items-center gap-2">
-              <Link to="/history">
-                <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
-                  <Clock className="h-4 w-4" /> History
-                </Button>
-              </Link>
+              <Button variant="ghost" size="sm" onClick={() => { if (!confirmLeaveGeneration()) return; navigate('/history'); }} className="gap-2 text-muted-foreground hover:text-foreground">
+                <Clock className="h-4 w-4" /> History
+              </Button>
               <Button variant="ghost" size="sm" onClick={signOut} className="gap-2 text-muted-foreground hover:text-foreground">
                 <LogOut className="h-4 w-4" /> Log out
               </Button>
@@ -1347,7 +1570,15 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background relative flex flex-col">
         <div className="reactive-bg-mouse" />
-        <Header onLogoClick={() => setShowLanding(true)} onSignOut={signOut} />
+        <Header onLogoClick={() => {
+          if (!confirmLeaveGeneration()) return;
+          setIsGenerating(false);
+          setShowLanding(true);
+        }} onSignOut={signOut} onHistoryClick={() => {
+          if (!confirmLeaveGeneration()) return;
+          setIsGenerating(false);
+          navigate('/history');
+        }} />
         <main className="flex-1 flex items-center justify-center relative z-10 px-6">
           <div className="max-w-md w-full text-center space-y-8">
             <div className="relative inline-flex h-20 w-20 items-center justify-center mx-auto">
@@ -1641,7 +1872,8 @@ const Index = () => {
                   setMaxVisitedStep(0);
                   setShowResults(false);
                   setGeneratedImages([]);
-                  localStorage.removeItem(STORAGE_KEY);
+                  safeRemove(progressStorageKey);
+                  safeRemove(LEGACY_STORAGE_KEY);
                   toast.success('Form cleared');
                 }
               }}
@@ -1680,7 +1912,7 @@ const Index = () => {
   );
 };
 
-function Header({ onLogoClick, onSignOut }: { onLogoClick?: () => void; onSignOut?: () => void; }) {
+function Header({ onLogoClick, onSignOut, onHistoryClick }: { onLogoClick?: () => void; onSignOut?: () => void; onHistoryClick?: () => void; }) {
   return (
     <header className="sticky top-0 border-b border-border/50 px-6 py-[13px] z-50 bg-background/60 backdrop-blur-md">
       <div className="mx-auto max-w-6xl flex items-center justify-between">
@@ -1689,11 +1921,17 @@ function Header({ onLogoClick, onSignOut }: { onLogoClick?: () => void; onSignOu
           <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
         </button>
         <div className="flex items-center gap-2">
-          <Link to="/history">
-            <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
+          {onHistoryClick ? (
+            <Button variant="ghost" size="sm" onClick={onHistoryClick} className="gap-2 text-muted-foreground hover:text-foreground">
               <Clock className="h-4 w-4" /> History
             </Button>
-          </Link>
+          ) : (
+            <Link to="/history">
+              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
+                <Clock className="h-4 w-4" /> History
+              </Button>
+            </Link>
+          )}
           <Button variant="ghost" size="sm" onClick={onSignOut} className="gap-2 text-muted-foreground hover:text-foreground">
             <LogOut className="h-4 w-4" /> Log out
           </Button>
@@ -2145,7 +2383,7 @@ BRAND & VISUAL IDENTITY
 VISUAL STYLE: ${data.preferredStyle || 'modern'} — ${styleGuide[data.preferredStyle] || styleGuide['modern']}
 FONTS: Heading — "${data.headingFont || 'Inter'}" | Body — "${data.bodyFont || 'Inter'}"
 BRAND COLORS (pre-applied via skeleton — echo back in theme.* exactly): Primary ${data.primaryColor} · Secondary ${data.secondaryColor} · Accent ${data.accentColor} · Text ${data.textColor} · BG ${data.backgroundColor}
-LOGO ENFORCEMENT: ${data.images.logoUrl ? `Use EXACTLY this logo URL in header/footer brand image and do not replace it: ${data.images.logoUrl}` : 'No logo URL provided. Use business name as text only and do not promote any other image to logo.'}
+LOGO ENFORCEMENT: ${data.images.logoUrl ? `Use EXACTLY this logo URL in header/footer brand image and do not replace it: ${/^data:image\//i.test(data.images.logoUrl) ? '[logo provided via formData — see images.logo field]' : data.images.logoUrl}` : 'No logo URL provided. Use business name as text only and do not promote any other image to logo.'}
 
 ═══════════════════════════════════════════════════════════
 LAYOUT DIRECTION (AI-CONTROLLED — you decide based on the business)

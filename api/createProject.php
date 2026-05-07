@@ -75,6 +75,8 @@ if ($stmt->execute()) {
     echo json_encode([
         "success" => true,
         "id" => $project_id,
+        "public_url" => $public_url,
+        "folder_path" => $folder_path,
         "message" => "Projeto salvo com sucesso"
     ]);
 } else {

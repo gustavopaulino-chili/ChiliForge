@@ -16,7 +16,7 @@ if (!$data || !isset($data["email"]) || !isset($data["pwd"])) {
     exit;
 }
 
-$email = trim($data["email"]);
+$email = strtolower(trim($data["email"]));
 $pwd = $data["pwd"];
 
 if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {

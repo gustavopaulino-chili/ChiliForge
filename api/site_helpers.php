@@ -34,6 +34,40 @@ function normalize_asset_url($url) {
     return is_string($normalized) ? $normalized : '';
 }
 
+function strip_editor_bridge_artifacts($html) {
+    if (!is_string($html) || trim($html) === '') {
+        return is_string($html) ? $html : '';
+    }
+
+    $clean = $html;
+
+    // Remove injected editor bridge style/script blocks if present.
+    $clean = preg_replace('/<style[^>]*id=["\']cf-editor-bridge-style["\'][^>]*>[\s\S]*?<\/style>/i', '', $clean);
+    $clean = preg_replace('/<script[^>]*id=["\']cf-editor-bridge-script["\'][^>]*>[\s\S]*?<\/script>/i', '', $clean);
+    $clean = preg_replace('/<base[^>]*id=["\']cf-editor-base["\'][^>]*>/i', '', $clean);
+
+    // Remove temporary selection classes from elements.
+    $clean = preg_replace_callback('/\bclass=("|\')([^"\']*)(\1)/i', function ($matches) {
+        $raw = trim((string)$matches[2]);
+        if ($raw === '') {
+            return $matches[0];
+        }
+
+        $classes = preg_split('/\s+/', $raw) ?: [];
+        $filtered = array_values(array_filter($classes, function ($name) {
+            return $name !== 'cf-editor-hover' && $name !== 'cf-editor-selected';
+        }));
+
+        if (count($filtered) === 0) {
+            return '';
+        }
+
+        return 'class=' . $matches[1] . implode(' ', $filtered) . $matches[1];
+    }, $clean);
+
+    return is_string($clean) ? $clean : $html;
+}
+
 function is_inline_asset_data($value) {
     if (!is_string($value)) {
         return false;

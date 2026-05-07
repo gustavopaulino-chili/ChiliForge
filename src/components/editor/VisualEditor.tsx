@@ -95,6 +95,7 @@ type VisualEditorProps = {
   projectId?: number | null;
   userId?: number | null;
   projectPublicUrl?: string;
+  brandPalette?: string[];
   /** 'split' = iframe left + panel right (default); 'overlay' = iframe full-screen + floating toggle panel */
   layout?: 'split' | 'overlay';
 };
@@ -252,6 +253,70 @@ const buildAssetsFolderUrl = (value?: string) => {
   return `${base}assets/`;
 };
 
+const buildAssetUrlCandidates = (rawUrl: string, projectUrl?: string, assetsUrl?: string, assetName?: string) => {
+  const raw = (rawUrl || '').trim();
+  const name = (assetName || '').trim();
+  const candidates: string[] = [];
+
+  const assetsBase = (assetsUrl || '').trim();
+  const projectBase = normalizePublicBaseUrl(projectUrl);
+
+  try {
+    const absoluteProjectBase = projectBase
+      ? new URL(projectBase, window.location.origin).toString()
+      : '';
+    const absoluteAssetsBase = assetsBase
+      ? new URL(assetsBase, absoluteProjectBase || window.location.origin).toString()
+      : '';
+    const origin = absoluteProjectBase
+      ? new URL(absoluteProjectBase).origin
+      : window.location.origin;
+
+    // Canonical candidate: assets base + filename from listing.
+    if (name && absoluteAssetsBase) {
+      candidates.push(new URL(encodeURIComponent(name), absoluteAssetsBase).toString());
+    }
+
+    if (raw && /^(data:|blob:|https?:\/\/)/i.test(raw)) {
+      candidates.push(raw);
+    }
+
+    if (raw && raw.startsWith('/')) {
+      candidates.push(new URL(raw, origin).toString());
+    }
+
+    if (raw && absoluteAssetsBase) {
+      candidates.push(new URL(raw, absoluteAssetsBase).toString());
+    }
+
+    if (raw && absoluteProjectBase) {
+      candidates.push(new URL(raw, absoluteProjectBase).toString());
+    }
+  } catch {
+    // handled by fallbacks below
+  }
+
+  if (raw) candidates.push(raw);
+
+  if (name && assetsBase) {
+    const normalizedBase = assetsBase.endsWith('/') ? assetsBase : `${assetsBase}/`;
+    candidates.push(`${normalizedBase}${encodeURIComponent(name)}`);
+  }
+
+  return Array.from(new Set(candidates.filter(Boolean)));
+};
+
+const resolveAssetUrl = (rawUrl: string, projectUrl?: string, assetsUrl?: string, assetName?: string) => {
+  const candidates = buildAssetUrlCandidates(rawUrl, projectUrl, assetsUrl, assetName);
+  return candidates[0] || '';
+};
+
+const resolveNextAssetUrlCandidate = (currentUrl: string, rawUrl: string, projectUrl?: string, assetsUrl?: string, assetName?: string) => {
+  const current = (currentUrl || '').trim();
+  const candidates = buildAssetUrlCandidates(rawUrl, projectUrl, assetsUrl, assetName);
+  return candidates.find((candidate) => candidate !== current) || '';
+};
+
 const buildFilesFolderUrl = (value?: string) => {
   const base = normalizePublicBaseUrl(value);
   if (!base) return '';
@@ -308,6 +373,49 @@ const composeBackgroundImageWithOverlay = (params: {
 const toPxNumber = (value: string, fallback = 0) => {
   const n = Number.parseFloat((value || '').replace('px', '').trim());
   return Number.isFinite(n) ? n : fallback;
+};
+
+const parsePositionKeyword = (value: string) => {
+  const lower = (value || '').toLowerCase().trim();
+  if (!lower) return { x: 50, y: 50 };
+
+  const mapX: Record<string, number> = { left: 0, center: 50, right: 100 };
+  const mapY: Record<string, number> = { top: 0, center: 50, bottom: 100 };
+  const tokens = lower.split(/\s+/).filter(Boolean);
+
+  let x: number | null = null;
+  let y: number | null = null;
+
+  for (const token of tokens) {
+    if (token in mapX && x === null) x = mapX[token];
+    if (token in mapY && y === null) y = mapY[token];
+  }
+
+  return {
+    x: x ?? 50,
+    y: y ?? 50,
+  };
+};
+
+const parsePositionToPercent = (value: string) => {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return { x: 50, y: 50 };
+
+  const percentMatch = trimmed.match(/(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%/);
+  if (percentMatch) {
+    return {
+      x: Math.max(0, Math.min(100, Number(percentMatch[1]))),
+      y: Math.max(0, Math.min(100, Number(percentMatch[2]))),
+    };
+  }
+
+  return parsePositionKeyword(trimmed);
+};
+
+const formatPositionFromPercent = (x: number, y: number) => {
+  const safeX = Math.max(0, Math.min(100, Math.round(x)));
+  const safeY = Math.max(0, Math.min(100, Math.round(y)));
+  return `${safeX}% ${safeY}%`;
 };
 
 const serializeDocument = (doc: Document) => {
@@ -373,6 +481,7 @@ export function VisualEditor({
   projectId,
   userId,
   projectPublicUrl,
+  brandPalette = [],
   layout = 'split',
 }: VisualEditorProps) {
   // ...existing code...
@@ -606,6 +715,7 @@ export function VisualEditor({
   }>>([]);
   const [addingGeneratedImageId, setAddingGeneratedImageId] = useState<number | null>(null);
   const [selected, setSelected] = useState<SelectedNode | null>(null);
+  const selectedRef = useRef<SelectedNode | null>(null);
   const [textValue, setTextValue] = useState('');
   const [hrefValue, setHrefValue] = useState('');
   const [linkTarget, setLinkTarget] = useState('_self');
@@ -616,6 +726,8 @@ export function VisualEditor({
   const [selectedImagePath, setSelectedImagePath] = useState<string | null>(null);
   const [imageFit, setImageFit] = useState('cover');
   const [imagePosition, setImagePosition] = useState('center');
+  const [imagePositionX, setImagePositionX] = useState(50);
+  const [imagePositionY, setImagePositionY] = useState(50);
   const [imageWidth, setImageWidth] = useState('');
   const [imageMinWidth, setImageMinWidth] = useState('');
   const [imageHeight, setImageHeight] = useState('');
@@ -630,8 +742,12 @@ export function VisualEditor({
   const [containerMaxWidth, setContainerMaxWidth] = useState('');
   const [containerMaxHeight, setContainerMaxHeight] = useState('');
   const [selectedWrapperPath, setSelectedWrapperPath] = useState<string | null>(null);
+  const [containerPaddingTop, setContainerPaddingTop] = useState('');
+  const [containerPaddingBottom, setContainerPaddingBottom] = useState('');
   const [containerPaddingLeft, setContainerPaddingLeft] = useState('');
   const [containerPaddingRight, setContainerPaddingRight] = useState('');
+  const [containerMarginTop, setContainerMarginTop] = useState('');
+  const [containerMarginBottom, setContainerMarginBottom] = useState('');
   const [containerMarginLeft, setContainerMarginLeft] = useState('');
   const [containerMarginRight, setContainerMarginRight] = useState('');
   const [containerBorderWidth, setContainerBorderWidth] = useState('');
@@ -648,15 +764,16 @@ export function VisualEditor({
   const [containerGridAutoFlow, setContainerGridAutoFlow] = useState<string>('');
 
   // --- simple validators for CSS-like inputs ---
-  const sizeRegex = /^-?\d+(?:\.\d+)?(?:px|rem|em|%|vw|vh|ch|vmin|vmax|fr)?$/i;
+  const sizeRegex = /^-?\d+(?:\.\d+)?(?:px|rem|em|%|vw|vh|ch|vmin|vmax|svw|svh|lvw|lvh|dvw|dvh|fr)?$/i;
+  const cssUnits = ['px', 'rem', 'em', '%', 'vw', 'vh', 'ch', 'vmin', 'vmax', 'svw', 'svh', 'lvw', 'lvh', 'dvw', 'dvh', 'fr'];
   const isCssSize = (v: string) => {
     if (!v) return true;
     const s = v.trim();
     if (!s) return false;
-    const keywords = ['auto', 'none', 'initial', 'inherit', 'unset'];
+    const keywords = ['auto', 'none', 'initial', 'inherit', 'unset', 'normal', 'fit-content', 'min-content', 'max-content', 'content'];
     if (keywords.includes(s)) return true;
     if (sizeRegex.test(s)) return true;
-    if (/^calc\(.+\)$/.test(s)) return true;
+    if (/^(calc|min|max|clamp|var)\(.+\)$/.test(s)) return true;
     return false;
   };
 
@@ -676,8 +793,10 @@ export function VisualEditor({
   // extract unit from previous value, fallback to 'px'
   const extractUnit = (prev: string) => {
     if (!prev) return 'px';
-    const m = prev.trim().match(/[a-z%]+$/i);
-    return m ? m[0] : 'px';
+    const m = prev.trim().toLowerCase().match(/[a-z%]+$/i);
+    if (!m) return 'px';
+    const unit = m[0];
+    return cssUnits.includes(unit) ? unit : 'px';
   };
 
   const normalizeSizeWithFallback = (val: string, prev: string) => {
@@ -685,7 +804,7 @@ export function VisualEditor({
     const s = val.trim();
     if (!s) return '';
     // allow functions and keywords
-    if (/^calc\(|repeat\(|minmax\(|auto$|none$|initial$|inherit$|unset$/i.test(s)) return s;
+    if (/^(calc\(|repeat\(|minmax\(|clamp\(|min\(|max\(|var\(|auto$|none$|initial$|inherit$|unset$|normal$|fit-content$|min-content$|max-content$|content$)/i.test(s)) return s;
     // if already has unit or contains non-numeric chars, return as-is
     if (sizeRegex.test(s)) return s;
     // if it's a plain number, append previous unit
@@ -704,8 +823,12 @@ export function VisualEditor({
   const [cmhError, setCmhError] = useState(false);
   const [cmaxwError, setCmaxwError] = useState(false);
   const [cmaxhError, setCmaxhError] = useState(false);
+  const [cpadTError, setCpadTError] = useState(false);
+  const [cpadBError, setCpadBError] = useState(false);
   const [cpadLError, setCpadLError] = useState(false);
   const [cpadRError, setCpadRError] = useState(false);
+  const [cmTError, setCmTError] = useState(false);
+  const [cmBError, setCmBError] = useState(false);
   const [cmLError, setCmLError] = useState(false);
   const [cmRError, setCmRError] = useState(false);
   const [cbwError, setCbwError] = useState(false);
@@ -719,8 +842,12 @@ export function VisualEditor({
   const [bgColor, setBgColor] = useState('#ffffff');
   const [paddingTop, setPaddingTop] = useState(16);
   const [paddingBottom, setPaddingBottom] = useState(16);
+  const [paddingLeft, setPaddingLeft] = useState(0);
+  const [paddingRight, setPaddingRight] = useState(0);
   const [marginTop, setMarginTop] = useState(0);
   const [marginBottom, setMarginBottom] = useState(0);
+  const [marginLeft, setMarginLeft] = useState(0);
+  const [marginRight, setMarginRight] = useState(0);
   const [fontFamily, setFontFamily] = useState('');
   const [fontFamilyPickerValue, setFontFamilyPickerValue] = useState('__custom__');
   const [customFontFamilyDraft, setCustomFontFamilyDraft] = useState('');
@@ -738,6 +865,8 @@ export function VisualEditor({
   const [bgImageUrl, setBgImageUrl] = useState('');
   const [bgImageSize, setBgImageSize] = useState('cover');
   const [bgImagePosition, setBgImagePosition] = useState('center');
+  const [bgImagePositionX, setBgImagePositionX] = useState(50);
+  const [bgImagePositionY, setBgImagePositionY] = useState(50);
   const [bgImageRepeat, setBgImageRepeat] = useState('no-repeat');
   const [overlayMode, setOverlayMode] = useState<OverlayMode>('none');
   const [overlayColor, setOverlayColor] = useState('#000000');
@@ -751,6 +880,9 @@ export function VisualEditor({
   const [gradientAngle, setGradientAngle] = useState(135);
   const [showAssetManager, setShowAssetManager] = useState(false);
   const [showBgAssetManager, setShowBgAssetManager] = useState(false);
+  const [assetUrlInput, setAssetUrlInput] = useState('');
+  const [bgAssetUrlInput, setBgAssetUrlInput] = useState('');
+  const [assetUrlImporting, setAssetUrlImporting] = useState(false);
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
   const [assetsPublicUrl, setAssetsPublicUrl] = useState('');
   const [assetsLoading, setAssetsLoading] = useState(false);
@@ -777,6 +909,9 @@ export function VisualEditor({
   const bgFileInputRef = useRef<HTMLInputElement | null>(null);
   const fileFolderInputRef = useRef<HTMLInputElement | null>(null);
   const filesPanelRef = useRef<HTMLDivElement | null>(null);
+  const emitChangeFrameRef = useRef<number | null>(null);
+  const pendingChangeRef = useRef<string | null>(null);
+  const lastEmittedHtmlRef = useRef('');
 
   const canUndo = historyPastRef.current.length > 0;
   const canRedo = historyFutureRef.current.length > 0;
@@ -794,8 +929,28 @@ export function VisualEditor({
     return `${normalized}${sep}cf_editor_ts=${Date.now()}`;
   }, [projectPublicUrl]);
 
-  // Strip bridge before propagating any edit to parent (so saving never persists bridge artifacts)
-  const emitChange = useCallback((next: string) => onChange(stripEditorBridge(next)), [onChange]);
+  // Batch high-frequency mutations into animation frames to keep long editing sessions smooth.
+  const emitChange = useCallback((next: string) => {
+    pendingChangeRef.current = stripEditorBridge(next);
+
+    if (emitChangeFrameRef.current !== null) return;
+
+    emitChangeFrameRef.current = window.requestAnimationFrame(() => {
+      emitChangeFrameRef.current = null;
+      const payload = pendingChangeRef.current;
+      pendingChangeRef.current = null;
+      if (typeof payload !== 'string') return;
+      if (payload === lastEmittedHtmlRef.current) return;
+      lastEmittedHtmlRef.current = payload;
+      onChange(payload);
+    });
+  }, [onChange]);
+
+  useEffect(() => () => {
+    if (emitChangeFrameRef.current !== null) {
+      window.cancelAnimationFrame(emitChangeFrameRef.current);
+    }
+  }, []);
 
   const handleIframeLoad = useCallback(() => {
     setIframeReady(true);
@@ -899,6 +1054,7 @@ export function VisualEditor({
     historyPastRef.current = [];
     historyFutureRef.current = [];
     lastHtmlRef.current = stripEditorBridge(html || '');
+    lastEmittedHtmlRef.current = stripEditorBridge(html || '');
     skipHistoryRecordRef.current = false;
     setSelected(null);
     setHistoryVersion((value) => value + 1);
@@ -1182,6 +1338,37 @@ export function VisualEditor({
             const markerSelector = `[data-cf-editor-id="${marker}"]`;
             setSelectedWrapperPath(null);
             setSelected(prev => prev ? ({ ...prev, path: markerSelector }) : prev);
+
+            // Keep Container / Div controls in sync with the clicked element styles.
+            try {
+              const cs = window.getComputedStyle(clickedEl as Element);
+              setContainerWidth(cs.width || '');
+              setContainerMinWidth(cs.minWidth || '');
+              setContainerHeight(cs.height || '');
+              setContainerMinHeight(cs.minHeight || '');
+              setContainerMaxWidth(cs.maxWidth || '');
+              setContainerMaxHeight(cs.maxHeight || '');
+              setContainerPaddingTop(cs.paddingTop || '');
+              setContainerPaddingBottom(cs.paddingBottom || '');
+              setContainerPaddingLeft(cs.paddingLeft || '');
+              setContainerPaddingRight(cs.paddingRight || '');
+              setContainerMarginTop(cs.marginTop || '');
+              setContainerMarginBottom(cs.marginBottom || '');
+              setContainerMarginLeft(cs.marginLeft || '');
+              setContainerMarginRight(cs.marginRight || '');
+              setContainerBorderWidth(cs.borderWidth || '');
+              setContainerBorderRadius(cs.borderRadius || '');
+              try { setContainerBorderColor(rgbToHex(cs.borderColor || '#000000')); } catch (e) {}
+              setContainerDisplay(cs.display || '');
+              setContainerFlexDirection(cs.flexDirection || '');
+              setContainerFlexWrap(cs.flexWrap || '');
+              setContainerGap(cs.gap || '');
+              setContainerGridTemplateColumns(cs.gridTemplateColumns || '');
+              setContainerGridGap(cs.gridGap || cs.gap || '');
+              setContainerGridAutoFlow(cs.gridAutoFlow || '');
+            } catch (e) {
+              // ignore
+            }
           }
         }
       } catch (e) {
@@ -1290,8 +1477,12 @@ export function VisualEditor({
                     setContainerMinHeight(cs.minHeight || '');
                     setContainerMaxWidth(cs.maxWidth || '');
                     setContainerMaxHeight(cs.maxHeight || '');
+                    setContainerPaddingTop(cs.paddingTop || '');
+                    setContainerPaddingBottom(cs.paddingBottom || '');
                     setContainerPaddingLeft(cs.paddingLeft || '');
                     setContainerPaddingRight(cs.paddingRight || '');
+                    setContainerMarginTop(cs.marginTop || '');
+                    setContainerMarginBottom(cs.marginBottom || '');
                     setContainerMarginLeft(cs.marginLeft || '');
                     setContainerMarginRight(cs.marginRight || '');
                     setContainerBorderWidth(cs.borderWidth || '');
@@ -1329,7 +1520,11 @@ export function VisualEditor({
         // ignore cross-origin or other errors
       }
       setImageFit(payload.objectFit || 'cover');
-      setImagePosition(payload.objectPosition && payload.objectPosition !== 'initial' ? payload.objectPosition : 'center');
+      const nextImagePosition = payload.objectPosition && payload.objectPosition !== 'initial' ? payload.objectPosition : 'center';
+      setImagePosition(nextImagePosition);
+      const parsedImagePos = parsePositionToPercent(nextImagePosition);
+      setImagePositionX(parsedImagePos.x);
+      setImagePositionY(parsedImagePos.y);
       setImageWidth(payload.width || '');
       setImageMinWidth(payload.minWidth || '');
       setImageHeight(payload.height || '');
@@ -1360,7 +1555,11 @@ export function VisualEditor({
         setBgImageUrl('');
       }
       setBgImageSize(payload.backgroundSize || 'cover');
-      setBgImagePosition(payload.backgroundPosition || 'center');
+      const nextBgPosition = payload.backgroundPosition || 'center';
+      setBgImagePosition(nextBgPosition);
+      const parsedBgPos = parsePositionToPercent(nextBgPosition);
+      setBgImagePositionX(parsedBgPos.x);
+      setBgImagePositionY(parsedBgPos.y);
       setBgImageRepeat(payload.backgroundRepeat || 'no-repeat');
       setOverlayMode('none');
       setOverlayColor('#000000');
@@ -1369,10 +1568,17 @@ export function VisualEditor({
       setOverlayGrad2('#ffffff');
       setOverlayAngle(180);
       setDarkOverlayStrength(45);
-      setPaddingTop(toPxNumber(payload.paddingTop, 16));
-      setPaddingBottom(toPxNumber(payload.paddingBottom, 16));
-      setMarginTop(toPxNumber(payload.marginTop, 0));
-      setMarginBottom(toPxNumber(payload.marginBottom, 0));
+      const docForSection = iframeRef.current?.contentDocument;
+      const sectionEl = payload.sectionPath ? docForSection?.querySelector(payload.sectionPath) : null;
+      const sectionStyles = sectionEl ? window.getComputedStyle(sectionEl as Element) : null;
+      setPaddingTop(toPxNumber(sectionStyles?.paddingTop || payload.paddingTop, 16));
+      setPaddingBottom(toPxNumber(sectionStyles?.paddingBottom || payload.paddingBottom, 16));
+      setPaddingLeft(toPxNumber(sectionStyles?.paddingLeft || '', 0));
+      setPaddingRight(toPxNumber(sectionStyles?.paddingRight || '', 0));
+      setMarginTop(toPxNumber(sectionStyles?.marginTop || payload.marginTop, 0));
+      setMarginBottom(toPxNumber(sectionStyles?.marginBottom || payload.marginBottom, 0));
+      setMarginLeft(toPxNumber(sectionStyles?.marginLeft || '', 0));
+      setMarginRight(toPxNumber(sectionStyles?.marginRight || '', 0));
       setFontFamily(payload.fontFamily || '');
       setFontSize(toPxNumber(payload.fontSize, 16));
       setFontWeight(Number.parseInt(payload.fontWeight || '400', 10) || 400);
@@ -1572,27 +1778,48 @@ export function VisualEditor({
         const target = el as HTMLElement;
         if (nextFit) {
           target.style.backgroundSize = nextFit === 'cover' ? 'cover' : nextFit === 'contain' ? 'contain' : nextFit;
+        } else {
+          target.style.removeProperty('background-size');
         }
         if (nextPosition) {
           target.style.backgroundPosition = nextPosition;
+        } else {
+          target.style.removeProperty('background-position');
         }
         if (nextWidth) {
           target.style.width = nextWidth;
+        } else {
+          target.style.removeProperty('width');
         }
         if (nextMinWidth) {
           target.style.minWidth = nextMinWidth;
+        } else {
+          target.style.removeProperty('min-width');
         }
         if (nextHeight) {
           target.style.height = nextHeight;
+        } else {
+          target.style.removeProperty('height');
         }
         if (nextMinHeight) {
           target.style.minHeight = nextMinHeight;
+        } else {
+          target.style.removeProperty('min-height');
         }
         if (nextMaxWidth) {
           target.style.maxWidth = nextMaxWidth;
+        } else {
+          target.style.removeProperty('max-width');
         }
         if (nextMaxHeight) {
           target.style.maxHeight = nextMaxHeight;
+        } else {
+          target.style.removeProperty('max-height');
+        }
+        if (nextAspectRatio) {
+          target.style.aspectRatio = nextAspectRatio;
+        } else {
+          target.style.removeProperty('aspect-ratio');
         }
 
         const currentBgUrl = (() => {
@@ -1624,8 +1851,12 @@ export function VisualEditor({
     nextMinHeight: string;
     nextMaxWidth: string;
     nextMaxHeight: string;
+    nextPaddingTop: string;
+    nextPaddingBottom: string;
     nextPaddingLeft: string;
     nextPaddingRight: string;
+    nextMarginTop: string;
+    nextMarginBottom: string;
     nextMarginLeft: string;
     nextMarginRight: string;
     nextBorderWidth: string;
@@ -1685,9 +1916,29 @@ export function VisualEditor({
           if (v) t.style.paddingLeft = v; else t.style.removeProperty('padding-left');
         }
 
+        if (has('nextPaddingTop')) {
+          const v = (overrides.nextPaddingTop || '').trim();
+          if (v) t.style.paddingTop = v; else t.style.removeProperty('padding-top');
+        }
+
+        if (has('nextPaddingBottom')) {
+          const v = (overrides.nextPaddingBottom || '').trim();
+          if (v) t.style.paddingBottom = v; else t.style.removeProperty('padding-bottom');
+        }
+
         if (has('nextPaddingRight')) {
           const v = (overrides.nextPaddingRight || '').trim();
           if (v) t.style.paddingRight = v; else t.style.removeProperty('padding-right');
+        }
+
+        if (has('nextMarginTop')) {
+          const v = (overrides.nextMarginTop || '').trim();
+          if (v) t.style.marginTop = v; else t.style.removeProperty('margin-top');
+        }
+
+        if (has('nextMarginBottom')) {
+          const v = (overrides.nextMarginBottom || '').trim();
+          if (v) t.style.marginBottom = v; else t.style.removeProperty('margin-bottom');
         }
 
         if (has('nextMarginLeft')) {
@@ -1993,20 +2244,32 @@ export function VisualEditor({
   const applySectionSpacingLive = (overrides?: Partial<{
     nextPaddingTop: number;
     nextPaddingBottom: number;
+    nextPaddingLeft: number;
+    nextPaddingRight: number;
     nextMarginTop: number;
     nextMarginBottom: number;
+    nextMarginLeft: number;
+    nextMarginRight: number;
   }>) => {
     if (!selected?.sectionPath) return;
     const nextPaddingTop = overrides?.nextPaddingTop ?? paddingTop;
     const nextPaddingBottom = overrides?.nextPaddingBottom ?? paddingBottom;
+    const nextPaddingLeft = overrides?.nextPaddingLeft ?? paddingLeft;
+    const nextPaddingRight = overrides?.nextPaddingRight ?? paddingRight;
     const nextMarginTop = overrides?.nextMarginTop ?? marginTop;
     const nextMarginBottom = overrides?.nextMarginBottom ?? marginBottom;
+    const nextMarginLeft = overrides?.nextMarginLeft ?? marginLeft;
+    const nextMarginRight = overrides?.nextMarginRight ?? marginRight;
 
     applyMutation(selected.sectionPath, (el) => {
       (el as HTMLElement).style.paddingTop = `${nextPaddingTop}px`;
       (el as HTMLElement).style.paddingBottom = `${nextPaddingBottom}px`;
+      (el as HTMLElement).style.paddingLeft = `${nextPaddingLeft}px`;
+      (el as HTMLElement).style.paddingRight = `${nextPaddingRight}px`;
       (el as HTMLElement).style.marginTop = `${nextMarginTop}px`;
       (el as HTMLElement).style.marginBottom = `${nextMarginBottom}px`;
+      (el as HTMLElement).style.marginLeft = `${nextMarginLeft}px`;
+      (el as HTMLElement).style.marginRight = `${nextMarginRight}px`;
     });
   };
 
@@ -2176,13 +2439,105 @@ export function VisualEditor({
     setAssetsLoading(true);
     try {
       const data = await getProjectAssets(projectId, userId);
-      setAssets(data.assets || []);
-      setAssetsPublicUrl(data.assetsPublicUrl || buildAssetsFolderUrl(projectPublicUrl));
+      const nextAssetsPublicUrl = data.assetsPublicUrl || buildAssetsFolderUrl(projectPublicUrl);
+      setAssetsPublicUrl(nextAssetsPublicUrl);
+      setAssets((data.assets || []).map((asset) => ({
+        ...asset,
+        url: resolveAssetUrl(asset.url, projectPublicUrl, nextAssetsPublicUrl, asset.name),
+      })));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load assets folder.');
     } finally {
       setAssetsLoading(false);
     }
+  };
+
+  const handleImportAssetFromUrl = async (rawUrl: string, context: 'element' | 'background') => {
+    if (!projectId || !userId) {
+      toast.error('Save/publish this project first to import assets.');
+      return;
+    }
+
+    const nextUrl = (rawUrl || '').trim();
+    if (!nextUrl) {
+      toast.error('Enter a valid image URL first.');
+      return;
+    }
+
+    setAssetUrlImporting(true);
+    try {
+      const result = await uploadProjectAssetsFromUrls(projectId, userId, [nextUrl]);
+      const uploadedAsset = result.uploaded?.[0];
+
+      if (!uploadedAsset?.url) {
+        const maybeSkipped = (result as any)?.skipped?.[0];
+        if (maybeSkipped?.reason) {
+          throw new Error(`Could not import URL: ${maybeSkipped.reason}`);
+        }
+        throw new Error('Could not import URL. The source may block download or is not a supported file type.');
+      }
+
+      if (context === 'background') {
+        const resolvedUploadedUrl = resolveAssetUrl(uploadedAsset.url, projectPublicUrl, assetsPublicUrl);
+        setBgAssetUrlInput('');
+        setSectionBgMode('image');
+        setBgImageUrl(resolvedUploadedUrl);
+        if (isSelectedSection()) {
+          applySectionBackgroundLive({ nextMode: 'image', nextBgImageUrl: resolvedUploadedUrl });
+        } else {
+          applyColorsLive({ nextMode: 'image', nextBgImageUrl: resolvedUploadedUrl });
+        }
+      } else {
+        const resolvedUploadedUrl = resolveAssetUrl(uploadedAsset.url, projectPublicUrl, assetsPublicUrl);
+        setAssetUrlInput('');
+        setSrcValue(resolvedUploadedUrl);
+        applyImageLive(resolvedUploadedUrl);
+      }
+
+      await refreshAssets();
+      toast.success('Image URL imported to assets successfully.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to import URL to assets.');
+    } finally {
+      setAssetUrlImporting(false);
+    }
+  };
+
+  const applyBrandPaletteColor = (color: string) => {
+    const next = (color || '').trim();
+    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(next)) return;
+
+    if (isSelectedSection() || selected?.tag === 'section') {
+      setBgColor(next);
+      applySectionBackgroundLive({ nextMode: 'solid', nextBgColor: next });
+      return;
+    }
+
+    setTextColor(next);
+    applyColorsLive({ nextTextColor: next });
+  };
+
+  const renderBrandPaletteSwatches = (
+    keyPrefix: string,
+    onApply: (color: string) => void,
+    titleBuilder?: (color: string) => string,
+  ) => {
+    if (brandPalette.length === 0) return null;
+
+    return (
+      <div className="mb-1 flex flex-wrap gap-1">
+        {brandPalette.map((color) => (
+          <button
+            key={`${keyPrefix}-${color}`}
+            type="button"
+            className="h-5 w-5 rounded-sm border border-border/70 hover:scale-110 transition-transform"
+            style={{ backgroundColor: color }}
+            title={titleBuilder ? titleBuilder(color) : `Apply ${color}`}
+            onClick={() => onApply(color)}
+          />
+        ))}
+      </div>
+    );
   };
 
   const refreshFiles = async () => {
@@ -2202,6 +2557,9 @@ export function VisualEditor({
     }
   };
 
+  // Keep selectedRef in sync so async file handlers always see the latest selection
+  selectedRef.current = selected;
+
   // NOTE: original `openFilesManager` removed. We'll use `openFilesFolder` (below)
 
   const handleUploadFiles = async (filesList: FileList | null) => {
@@ -2215,7 +2573,7 @@ export function VisualEditor({
 
     if (oversized.length > 0) {
       const names = oversized.map(f => f.name).join(', ');
-      toast.error(`Os seguintes arquivos excedem o limite de 15MB e não foram enviados: ${names}`);
+      toast.error(`The following files exceed the 15MB limit and were not uploaded: ${names}`);
     }
 
     if (allowedFiles.length === 0) {
@@ -2225,11 +2583,26 @@ export function VisualEditor({
 
     setFilesUploading(true);
     try {
-      await uploadProjectFiles(projectId, userId, allowedFiles);
-      toast.success(`${allowedFiles.length} arquivo(s) enviados para a pasta de files.`);
+      const uploadResult = await uploadProjectFiles(projectId, userId, allowedFiles);
+      toast.success(`${allowedFiles.length} file(s) uploaded to the files folder.`);
+
+      // Auto-link behavior: if an anchor element is selected, attach the first uploaded file automatically.
+      // Use selectedRef to avoid stale closure issues in async callbacks.
+      const currentSelected = selectedRef.current;
+      const firstUploaded = uploadResult.uploaded?.[0];
+      if (currentSelected?.tag === 'a' && firstUploaded?.url) {
+        const rel = toRelativeFilePath(firstUploaded.url);
+        setHrefValue(rel);
+        setFileDownloadPath(rel);
+        applyAnchorLinkLive({ nextHref: rel, nextDownload: rel });
+        toast.success(`Link applied automatically to the selected element: ${firstUploaded.name}.`);
+      } else if (firstUploaded?.url) {
+        toast.info('File uploaded. To auto-apply it to a button/link, select an <a> element on the page before uploading.');
+      }
+
       await refreshFiles();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Falha ao enviar arquivos.');
+      toast.error(error instanceof Error ? error.message : 'Failed to upload files.');
     } finally {
       setFilesUploading(false);
       if (fileFolderInputRef.current) fileFolderInputRef.current.value = '';
@@ -2325,8 +2698,23 @@ export function VisualEditor({
 
     setAssetsUploading(true);
     try {
-      await uploadProjectAssets(projectId, userId, fileArray);
-      toast.success(`${fileArray.length} file(s) uploaded to assets folder.`);
+      const result = await uploadProjectAssets(projectId, userId, fileArray);
+      const uploadedCount = result.uploaded?.length || 0;
+      const skipped = result.skipped || [];
+
+      if (uploadedCount > 0) {
+        toast.success(`${uploadedCount} file(s) uploaded to assets folder.`);
+      }
+
+      if (skipped.length > 0) {
+        const firstReason = skipped[0]?.reason || 'Unknown upload error.';
+        toast.error(`${skipped.length} file(s) failed to upload. ${firstReason}`);
+      }
+
+      if (uploadedCount === 0 && skipped.length === 0) {
+        toast.error('No files were uploaded. Please try again.');
+      }
+
       await refreshAssets();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to upload assets.');
@@ -2385,6 +2773,8 @@ export function VisualEditor({
   };
 
   const handleGenerateImage = async () => {
+    if (aiGenerating) return;
+
     const prompt = aiPrompt.trim();
     if (!prompt) {
       toast.error('Write a prompt before generating an image.');
@@ -2395,7 +2785,7 @@ export function VisualEditor({
     setAiGeneratingError('');
 
     try {
-      const result = await generateImages({
+      const runGenerate = () => generateImages({
         purpose: prompt,
         businessName: 'Website',
         businessCategory: 'General',
@@ -2403,6 +2793,29 @@ export function VisualEditor({
         websiteType: 'landing',
         referenceImageUrl: selected?.tag === 'img' ? srcValue || undefined : undefined,
       });
+
+      const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+        let timeoutId: number | null = null;
+        const timeoutPromise = new Promise<T>((_, reject) => {
+          timeoutId = window.setTimeout(() => reject(new Error('Image generation timed out.')), timeoutMs);
+        });
+
+        try {
+          return await Promise.race([promise, timeoutPromise]);
+        } finally {
+          if (timeoutId !== null) window.clearTimeout(timeoutId);
+        }
+      };
+
+      let result;
+      try {
+        result = await withTimeout(runGenerate(), 35000);
+      } catch (firstError) {
+        const firstMessage = firstError instanceof Error ? firstError.message.toLowerCase() : '';
+        const retryable = firstMessage.includes('timeout') || firstMessage.includes('network') || firstMessage.includes('429') || firstMessage.includes('503');
+        if (!retryable) throw firstError;
+        result = await withTimeout(runGenerate(), 35000);
+      }
 
       if (!result?.imageUrl) {
         throw new Error('Image provider returned no image URL.');
@@ -2426,7 +2839,10 @@ export function VisualEditor({
       setAiPrompt('');
       toast.success('Image generated. Use Add to place it in assets.');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to generate image.';
+      const rawMessage = error instanceof Error ? error.message : 'Failed to generate image.';
+      const message = rawMessage.toLowerCase().includes('timed out')
+        ? 'Image generation timed out. Please try a shorter prompt or retry in a few seconds.'
+        : rawMessage;
       setAiGeneratingError(message);
       toast.error(message);
     } finally {
@@ -2458,8 +2874,9 @@ export function VisualEditor({
       setShowAssetManager(true);
       await refreshAssets();
 
-      setSrcValue(uploadedAsset.url);
-      applyImageLive(uploadedAsset.url);
+      const resolvedUploadedUrl = resolveAssetUrl(uploadedAsset.url, projectPublicUrl, assetsPublicUrl);
+      setSrcValue(resolvedUploadedUrl);
+      applyImageLive(resolvedUploadedUrl);
       toast.success('Generated image added to assets and applied to the selected image.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to add generated image to assets.');
@@ -2549,6 +2966,10 @@ export function VisualEditor({
 
   // Selecionar sessão no painel lateral: não deve preencher campo de texto
   const selectSection = (path: string) => {
+    const doc = iframeRef.current?.contentDocument;
+    const sectionEl = doc?.querySelector(path) as HTMLElement | null;
+    const sectionStyles = sectionEl ? window.getComputedStyle(sectionEl) : null;
+
     setSelected({
       path,
       sectionPath: path,
@@ -2595,10 +3016,14 @@ export function VisualEditor({
     setGradientColor2('#e2e8f0');
     setGradientAngle(135);
     setSectionBgMode('solid');
-    setPaddingTop(16);
-    setPaddingBottom(16);
-    setMarginTop(0);
-    setMarginBottom(0);
+    setPaddingTop(toPxNumber(sectionStyles?.paddingTop || '', 16));
+    setPaddingBottom(toPxNumber(sectionStyles?.paddingBottom || '', 16));
+    setPaddingLeft(toPxNumber(sectionStyles?.paddingLeft || '', 0));
+    setPaddingRight(toPxNumber(sectionStyles?.paddingRight || '', 0));
+    setMarginTop(toPxNumber(sectionStyles?.marginTop || '', 0));
+    setMarginBottom(toPxNumber(sectionStyles?.marginBottom || '', 0));
+    setMarginLeft(toPxNumber(sectionStyles?.marginLeft || '', 0));
+    setMarginRight(toPxNumber(sectionStyles?.marginRight || '', 0));
     setFontFamily('');
     setFontSize(16);
     setFontWeight(400);
@@ -2940,8 +3365,16 @@ export function VisualEditor({
             <p className="text-sm font-medium">Appearance</p>
             <Label className="text-xs text-muted-foreground">Colors</Label>
             <div className="grid grid-cols-2 gap-2">
-              <div>
+              <div className="space-y-1">
                 <Label htmlFor="cf-text-color" className="text-xs text-muted-foreground">Text</Label>
+                {renderBrandPaletteSwatches(
+                  'text-color',
+                  (color) => {
+                    setTextColor(color);
+                    applyColorsLive({ nextTextColor: color });
+                  },
+                  (color) => `Apply ${color} as text color`,
+                )}
                 <Input
                   id="cf-text-color"
                   type="color"
@@ -2953,8 +3386,16 @@ export function VisualEditor({
                   }}
                 />
               </div>
-              <div>
+              <div className="space-y-1">
                 <Label htmlFor="cf-bg-color" className="text-xs text-muted-foreground">Background</Label>
+                {renderBrandPaletteSwatches(
+                  'bg-color',
+                  (color) => {
+                    setBgColor(color);
+                    applyColorsLive({ nextBgColor: color });
+                  },
+                  (color) => `Apply ${color} as background color`,
+                )}
                 <Input
                   id="cf-bg-color"
                   type="color"
@@ -3022,6 +3463,14 @@ export function VisualEditor({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <Label htmlFor="cf-bg-grad-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                  {renderBrandPaletteSwatches(
+                    'bg-grad-1',
+                    (color) => {
+                      setGradientColor1(color);
+                      applyColorsLive({ nextGrad1: color });
+                    },
+                    (color) => `Apply ${color} as gradient color 1`,
+                  )}
                   <Input
                     id="cf-bg-grad-1"
                     type="color"
@@ -3035,6 +3484,14 @@ export function VisualEditor({
                 </div>
                 <div>
                   <Label htmlFor="cf-bg-grad-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                  {renderBrandPaletteSwatches(
+                    'bg-grad-2',
+                    (color) => {
+                      setGradientColor2(color);
+                      applyColorsLive({ nextGrad2: color });
+                    },
+                    (color) => `Apply ${color} as gradient color 2`,
+                  )}
                   <Input
                     id="cf-bg-grad-2"
                     type="color"
@@ -3107,6 +3564,9 @@ export function VisualEditor({
                       onChange={(e) => {
                         const next = e.target.value;
                         setBgImagePosition(next);
+                        const parsed = parsePositionToPercent(next);
+                        setBgImagePositionX(parsed.x);
+                        setBgImagePositionY(parsed.y);
                         applyColorsLive({ nextBgImagePosition: next });
                       }}
                     >
@@ -3120,6 +3580,42 @@ export function VisualEditor({
                       <option value="bottom left">bottom left</option>
                       <option value="bottom right">bottom right</option>
                     </select>
+                  </div>
+                  <div className="col-span-2 grid grid-cols-2 gap-2">
+                    <div>
+                      <Label htmlFor="cf-bg-image-position-x" className="text-xs text-muted-foreground">Position X ({bgImagePositionX}%)</Label>
+                      <Input
+                        id="cf-bg-image-position-x"
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={bgImagePositionX}
+                        onChange={(e) => {
+                          const nextX = Number(e.target.value || 50);
+                          const nextPos = formatPositionFromPercent(nextX, bgImagePositionY);
+                          setBgImagePositionX(nextX);
+                          setBgImagePosition(nextPos);
+                          applyColorsLive({ nextBgImagePosition: nextPos });
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="cf-bg-image-position-y" className="text-xs text-muted-foreground">Position Y ({bgImagePositionY}%)</Label>
+                      <Input
+                        id="cf-bg-image-position-y"
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={bgImagePositionY}
+                        onChange={(e) => {
+                          const nextY = Number(e.target.value || 50);
+                          const nextPos = formatPositionFromPercent(bgImagePositionX, nextY);
+                          setBgImagePositionY(nextY);
+                          setBgImagePosition(nextPos);
+                          applyColorsLive({ nextBgImagePosition: nextPos });
+                        }}
+                      />
+                    </div>
                   </div>
                   <div className="col-span-2">
                     <Label htmlFor="cf-bg-image-repeat" className="text-xs text-muted-foreground">Repeat</Label>
@@ -3164,6 +3660,14 @@ export function VisualEditor({
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <Label htmlFor="cf-bg-overlay-color" className="text-xs text-muted-foreground">Overlay color</Label>
+                        {renderBrandPaletteSwatches(
+                          'bg-overlay-color',
+                          (color) => {
+                            setOverlayColor(color);
+                            applyColorsLive({ nextOverlayColor: color });
+                          },
+                          (color) => `Apply ${color} as overlay color`,
+                        )}
                         <Input
                           id="cf-bg-overlay-color"
                           type="color"
@@ -3197,6 +3701,14 @@ export function VisualEditor({
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <Label htmlFor="cf-bg-overlay-grad-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                        {renderBrandPaletteSwatches(
+                          'bg-overlay-grad-1',
+                          (color) => {
+                            setOverlayGrad1(color);
+                            applyColorsLive({ nextOverlayGrad1: color });
+                          },
+                          (color) => `Apply ${color} as overlay gradient color 1`,
+                        )}
                         <Input
                           id="cf-bg-overlay-grad-1"
                           type="color"
@@ -3210,6 +3722,14 @@ export function VisualEditor({
                       </div>
                       <div>
                         <Label htmlFor="cf-bg-overlay-grad-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                        {renderBrandPaletteSwatches(
+                          'bg-overlay-grad-2',
+                          (color) => {
+                            setOverlayGrad2(color);
+                            applyColorsLive({ nextOverlayGrad2: color });
+                          },
+                          (color) => `Apply ${color} as overlay gradient color 2`,
+                        )}
                         <Input
                           id="cf-bg-overlay-grad-2"
                           type="color"
@@ -3290,7 +3810,7 @@ export function VisualEditor({
                   ref={bgFileInputRef}
                   type="file"
                   multiple
-                  accept="image/*"
+                  accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.svg,.avif,.bmp,.ico,.tif,.tiff,.heic,.heif"
                   className="hidden"
                   onChange={(e) => handleUploadAssets(e.target.files)}
                 />
@@ -3299,6 +3819,26 @@ export function VisualEditor({
                   <Upload className="mr-2 h-4 w-4" />
                   {assetsUploading ? 'Uploading...' : 'Upload files to assets'}
                 </Button>
+
+                <div className="space-y-2 rounded-md border border-border/60 p-2">
+                  <Label htmlFor="cf-bg-asset-url" className="text-xs text-muted-foreground">Import image URL to assets</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="cf-bg-asset-url"
+                      value={bgAssetUrlInput}
+                      placeholder="https://.../image.jpg"
+                      onChange={(e) => setBgAssetUrlInput(e.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={assetUrlImporting}
+                      onClick={() => handleImportAssetFromUrl(bgAssetUrlInput, 'background')}
+                    >
+                      {assetUrlImporting ? 'Importing...' : 'Import URL'}
+                    </Button>
+                  </div>
+                </div>
 
                 {(projectPublicUrl || assetsPublicUrl) && (
                   <Button
@@ -3326,7 +3866,23 @@ export function VisualEditor({
                   ) : assets.map((asset) => (
                     <div key={`bg-${asset.name}`} className="rounded border border-border/60 p-2">
                       <div className="mb-2 flex items-center gap-2">
-                        <img src={asset.url} alt={asset.name} className="h-10 w-10 rounded object-cover" />
+                        <img
+                          src={resolveAssetUrl(asset.url, projectPublicUrl, assetsPublicUrl, asset.name)}
+                          alt={asset.name}
+                          className="h-10 w-10 rounded object-cover"
+                          onError={(event) => {
+                            const nextCandidate = resolveNextAssetUrlCandidate(
+                              event.currentTarget.currentSrc || event.currentTarget.src,
+                              asset.url,
+                              projectPublicUrl,
+                              assetsPublicUrl,
+                              asset.name,
+                            );
+                            if (nextCandidate && nextCandidate !== event.currentTarget.src) {
+                              event.currentTarget.src = nextCandidate;
+                            }
+                          }}
+                        />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-xs font-medium">{asset.name}</p>
                           <p className="text-[11px] text-muted-foreground">{Math.round((asset.size || 0) / 1024)} KB</p>
@@ -3338,11 +3894,12 @@ export function VisualEditor({
                           variant="outline"
                           onClick={() => {
                             setSectionBgMode('image');
-                            setBgImageUrl(asset.url);
+                            const resolvedAssetUrl = resolveAssetUrl(asset.url, projectPublicUrl, assetsPublicUrl, asset.name);
+                            setBgImageUrl(resolvedAssetUrl);
                             if (isSelectedSection()) {
-                              applySectionBackgroundLive({ nextMode: 'image', nextBgImageUrl: asset.url });
+                              applySectionBackgroundLive({ nextMode: 'image', nextBgImageUrl: resolvedAssetUrl });
                             } else {
-                              applyColorsLive({ nextMode: 'image', nextBgImageUrl: asset.url });
+                              applyColorsLive({ nextMode: 'image', nextBgImageUrl: resolvedAssetUrl });
                             }
                           }}
                         >
@@ -3368,8 +3925,8 @@ export function VisualEditor({
             </div>
           )}
 
-          {(selected.tag === 'img' || (selectedBackground && sectionBgMode !== 'image')) && (
-            <div className="space-y-2">
+          {(selected.tag === 'img' || selectedBackground) && (
+            <div className="flex flex-col gap-2">
               <Label htmlFor="cf-image-src">Image URL</Label>
               <Input
                 id="cf-image-src"
@@ -3385,7 +3942,7 @@ export function VisualEditor({
               </Button>
 
 
-              <div className="space-y-2 rounded-md border border-border/60 p-3">
+              <div className="order-3 space-y-2 rounded-md border border-border/60 p-3">
                 <p className="text-sm font-medium">Image Formatting</p>
                 <div>
                   <Label htmlFor="cf-image-fit" className="text-xs text-muted-foreground">Fit</Label>
@@ -3415,6 +3972,9 @@ export function VisualEditor({
                     onChange={(e) => {
                       const next = e.target.value;
                       setImagePosition(next);
+                      const parsed = parsePositionToPercent(next);
+                      setImagePositionX(parsed.x);
+                      setImagePositionY(parsed.y);
                       applyImageFormattingLive({ nextPosition: next });
                     }}
                   >
@@ -3428,6 +3988,42 @@ export function VisualEditor({
                     <option value="bottom left">bottom left</option>
                     <option value="bottom right">bottom right</option>
                   </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor="cf-image-position-x" className="text-xs text-muted-foreground">Position X ({imagePositionX}%)</Label>
+                    <Input
+                      id="cf-image-position-x"
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={imagePositionX}
+                      onChange={(e) => {
+                        const nextX = Number(e.target.value || 50);
+                        const nextPos = formatPositionFromPercent(nextX, imagePositionY);
+                        setImagePositionX(nextX);
+                        setImagePosition(nextPos);
+                        applyImageFormattingLive({ nextPosition: nextPos });
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="cf-image-position-y" className="text-xs text-muted-foreground">Position Y ({imagePositionY}%)</Label>
+                    <Input
+                      id="cf-image-position-y"
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={imagePositionY}
+                      onChange={(e) => {
+                        const nextY = Number(e.target.value || 50);
+                        const nextPos = formatPositionFromPercent(imagePositionX, nextY);
+                        setImagePositionY(nextY);
+                        setImagePosition(nextPos);
+                        applyImageFormattingLive({ nextPosition: nextPos });
+                      }}
+                    />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -3547,6 +4143,14 @@ export function VisualEditor({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor="cf-image-overlay-color" className="text-xs text-muted-foreground">Overlay color</Label>
+                          {renderBrandPaletteSwatches(
+                            'image-overlay-color',
+                            (color) => {
+                              setOverlayColor(color);
+                              applyImageFormattingLive({ nextOverlayColor: color });
+                            },
+                            (color) => `Apply ${color} as image overlay color`,
+                          )}
                           <Input
                             id="cf-image-overlay-color"
                             type="color"
@@ -3580,6 +4184,14 @@ export function VisualEditor({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor="cf-image-overlay-grad-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                          {renderBrandPaletteSwatches(
+                            'image-overlay-grad-1',
+                            (color) => {
+                              setOverlayGrad1(color);
+                              applyImageFormattingLive({ nextOverlayGrad1: color });
+                            },
+                            (color) => `Apply ${color} as image overlay gradient color 1`,
+                          )}
                           <Input
                             id="cf-image-overlay-grad-1"
                             type="color"
@@ -3593,6 +4205,14 @@ export function VisualEditor({
                         </div>
                         <div>
                           <Label htmlFor="cf-image-overlay-grad-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                          {renderBrandPaletteSwatches(
+                            'image-overlay-grad-2',
+                            (color) => {
+                              setOverlayGrad2(color);
+                              applyImageFormattingLive({ nextOverlayGrad2: color });
+                            },
+                            (color) => `Apply ${color} as image overlay gradient color 2`,
+                          )}
                           <Input
                             id="cf-image-overlay-grad-2"
                             type="color"
@@ -3658,7 +4278,7 @@ export function VisualEditor({
                 </div>
               </div>
 
-              <div className="space-y-3 rounded-md border border-border/60 p-3">
+              <div className="order-2 space-y-3 rounded-md border border-border/60 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-medium">Gemini Image Chat</p>
                   <Badge variant="secondary">AI</Badge>
@@ -3708,7 +4328,7 @@ export function VisualEditor({
               </div>
 
               {showAssetManager && (
-                <div className="space-y-3 rounded-md border border-border/60 p-3">
+                <div className="order-1 space-y-3 rounded-md border border-border/60 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium">Project Assets Folder</p>
                     <Button size="sm" variant="ghost" onClick={() => setShowAssetManager(false)}>Close</Button>
@@ -3722,7 +4342,7 @@ export function VisualEditor({
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept="image/*"
+                    accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.svg,.avif,.bmp,.ico,.tif,.tiff,.heic,.heif"
                     className="hidden"
                     onChange={(e) => handleUploadAssets(e.target.files)}
                   />
@@ -3731,6 +4351,26 @@ export function VisualEditor({
                     <Upload className="mr-2 h-4 w-4" />
                     {assetsUploading ? 'Uploading...' : 'Upload files to assets'}
                   </Button>
+
+                  <div className="space-y-2 rounded-md border border-border/60 p-2">
+                    <Label htmlFor="cf-asset-url" className="text-xs text-muted-foreground">Import image URL to assets</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="cf-asset-url"
+                        value={assetUrlInput}
+                        placeholder="https://.../image.jpg"
+                        onChange={(e) => setAssetUrlInput(e.target.value)}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={assetUrlImporting}
+                        onClick={() => handleImportAssetFromUrl(assetUrlInput, 'element')}
+                      >
+                        {assetUrlImporting ? 'Importing...' : 'Import URL'}
+                      </Button>
+                    </div>
+                  </div>
 
                   {(projectPublicUrl || assetsPublicUrl) && (
                     <Button
@@ -3758,7 +4398,23 @@ export function VisualEditor({
                     ) : assets.map((asset) => (
                       <div key={asset.name} className="rounded border border-border/60 p-2">
                         <div className="mb-2 flex items-center gap-2">
-                          <img src={asset.url} alt={asset.name} className="h-10 w-10 rounded object-cover" />
+                          <img
+                            src={resolveAssetUrl(asset.url, projectPublicUrl, assetsPublicUrl, asset.name)}
+                            alt={asset.name}
+                            className="h-10 w-10 rounded object-cover"
+                            onError={(event) => {
+                              const nextCandidate = resolveNextAssetUrlCandidate(
+                                event.currentTarget.currentSrc || event.currentTarget.src,
+                                asset.url,
+                                projectPublicUrl,
+                                assetsPublicUrl,
+                                asset.name,
+                              );
+                              if (nextCandidate && nextCandidate !== event.currentTarget.src) {
+                                event.currentTarget.src = nextCandidate;
+                              }
+                            }}
+                          />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-xs font-medium">{asset.name}</p>
                             <p className="text-[11px] text-muted-foreground">{Math.round((asset.size || 0) / 1024)} KB</p>
@@ -3769,8 +4425,9 @@ export function VisualEditor({
                             size="sm"
                             variant="outline"
                             onClick={() => {
-                              setSrcValue(asset.url);
-                              applyImageLive(asset.url);
+                              const resolvedAssetUrl = resolveAssetUrl(asset.url, projectPublicUrl, assetsPublicUrl, asset.name);
+                              setSrcValue(resolvedAssetUrl);
+                              applyImageLive(resolvedAssetUrl);
                             }}
                           >
                             <ImagePlus className="mr-2 h-4 w-4" /> Use
@@ -4134,6 +4791,40 @@ export function VisualEditor({
                   />
                 </div>
                 <div>
+                  <Label htmlFor="cf-container-padding-top" className="text-xs text-muted-foreground">Padding top</Label>
+                  <Input
+                    id="cf-container-padding-top"
+                      value={containerPaddingTop}
+                      placeholder="16px or 1rem"
+                      className={cpadTError ? 'border-destructive' : ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const next = normalizeSizeWithFallback(raw, containerPaddingTop || '16px');
+                        setContainerPaddingTop(next);
+                        if (!isCssSize(next)) { setCpadTError(true); toast.error('Padding inválido'); return; }
+                        setCpadTError(false);
+                        applyContainerSizingLive({ nextPaddingTop: next });
+                      }}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cf-container-padding-bottom" className="text-xs text-muted-foreground">Padding bottom</Label>
+                  <Input
+                    id="cf-container-padding-bottom"
+                      value={containerPaddingBottom}
+                      placeholder="16px or 1rem"
+                      className={cpadBError ? 'border-destructive' : ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const next = normalizeSizeWithFallback(raw, containerPaddingBottom || containerPaddingTop || '16px');
+                        setContainerPaddingBottom(next);
+                        if (!isCssSize(next)) { setCpadBError(true); toast.error('Padding inválido'); return; }
+                        setCpadBError(false);
+                        applyContainerSizingLive({ nextPaddingBottom: next });
+                      }}
+                  />
+                </div>
+                <div>
                   <Label htmlFor="cf-container-padding-right" className="text-xs text-muted-foreground">Padding right</Label>
                   <Input
                     id="cf-container-padding-right"
@@ -4221,6 +4912,14 @@ export function VisualEditor({
                 </div>
                 <div>
                   <Label htmlFor="cf-container-border-color" className="text-xs text-muted-foreground">Border color</Label>
+                  {renderBrandPaletteSwatches(
+                    'container-border-color',
+                    (color) => {
+                      setContainerBorderColor(color);
+                      applyContainerSizingLive({ nextBorderColor: color });
+                    },
+                    (color) => `Apply ${color} as border color`,
+                  )}
                   <Input
                     id="cf-container-border-color"
                     type="color"
@@ -4430,6 +5129,44 @@ export function VisualEditor({
                   </div>
                 </>
               )}
+                <div>
+                  <FieldLabel htmlFor="cf-container-margin-top" hint="Sets the top margin of the container wrapper.">
+                    Margin top
+                  </FieldLabel>
+                  <Input
+                    id="cf-container-margin-top"
+                    value={containerMarginTop}
+                    placeholder="0px"
+                    className={cmTError ? 'border-destructive' : ''}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const next = normalizeSizeWithFallback(raw, containerMarginTop || '0px');
+                      setContainerMarginTop(next);
+                      if (!isCssSize(next)) { setCmTError(true); toast.error('Margin top inválido'); return; }
+                      setCmTError(false);
+                      applyContainerSizingLive({ nextMarginTop: next });
+                    }}
+                  />
+                </div>
+                <div>
+                  <FieldLabel htmlFor="cf-container-margin-bottom" hint="Sets the bottom margin of the container wrapper.">
+                    Margin bottom
+                  </FieldLabel>
+                  <Input
+                    id="cf-container-margin-bottom"
+                    value={containerMarginBottom}
+                    placeholder="0px"
+                    className={cmBError ? 'border-destructive' : ''}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const next = normalizeSizeWithFallback(raw, containerMarginBottom || '0px');
+                      setContainerMarginBottom(next);
+                      if (!isCssSize(next)) { setCmBError(true); toast.error('Margin bottom inválido'); return; }
+                      setCmBError(false);
+                      applyContainerSizingLive({ nextMarginBottom: next });
+                    }}
+                  />
+                </div>
                 <div className="col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                   <div>
                     <FieldLabel htmlFor="cf-container-margin-left" hint="Sets the left margin of the container. Use 'auto' to horizontally center the container when width is constrained.">
@@ -4581,6 +5318,66 @@ export function VisualEditor({
                     }}
                   />
                 </div>
+                <div>
+                  <Label htmlFor="cf-section-pl" className="text-xs text-muted-foreground">Padding left (px)</Label>
+                  <Input
+                    id="cf-section-pl"
+                    type="number"
+                    min={0}
+                    max={300}
+                    value={paddingLeft}
+                    onChange={(e) => {
+                      const next = Number(e.target.value || 0);
+                      setPaddingLeft(next);
+                      applySectionSpacingLive({ nextPaddingLeft: next });
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cf-section-pr" className="text-xs text-muted-foreground">Padding right (px)</Label>
+                  <Input
+                    id="cf-section-pr"
+                    type="number"
+                    min={0}
+                    max={300}
+                    value={paddingRight}
+                    onChange={(e) => {
+                      const next = Number(e.target.value || 0);
+                      setPaddingRight(next);
+                      applySectionSpacingLive({ nextPaddingRight: next });
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cf-section-ml" className="text-xs text-muted-foreground">Margin left (px)</Label>
+                  <Input
+                    id="cf-section-ml"
+                    type="number"
+                    min={0}
+                    max={300}
+                    value={marginLeft}
+                    onChange={(e) => {
+                      const next = Number(e.target.value || 0);
+                      setMarginLeft(next);
+                      applySectionSpacingLive({ nextMarginLeft: next });
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cf-section-mr" className="text-xs text-muted-foreground">Margin right (px)</Label>
+                  <Input
+                    id="cf-section-mr"
+                    type="number"
+                    min={0}
+                    max={300}
+                    value={marginRight}
+                    onChange={(e) => {
+                      const next = Number(e.target.value || 0);
+                      setMarginRight(next);
+                      applySectionSpacingLive({ nextMarginRight: next });
+                    }}
+                  />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -4621,6 +5418,14 @@ export function VisualEditor({
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <Label htmlFor="cf-grad-color-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                    {renderBrandPaletteSwatches(
+                      'section-grad-1',
+                      (color) => {
+                        setGradientColor1(color);
+                        applySectionBackgroundLive({ nextGrad1: color });
+                      },
+                      (color) => `Apply ${color} as gradient color 1`,
+                    )}
                     <Input
                       id="cf-grad-color-1"
                       type="color"
@@ -4634,6 +5439,14 @@ export function VisualEditor({
                   </div>
                   <div>
                     <Label htmlFor="cf-grad-color-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                    {renderBrandPaletteSwatches(
+                      'section-grad-2',
+                      (color) => {
+                        setGradientColor2(color);
+                        applySectionBackgroundLive({ nextGrad2: color });
+                      },
+                      (color) => `Apply ${color} as gradient color 2`,
+                    )}
                     <Input
                       id="cf-grad-color-2"
                       type="color"
@@ -4762,6 +5575,14 @@ export function VisualEditor({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor="cf-section-bg-overlay-color" className="text-xs text-muted-foreground">Overlay color</Label>
+                          {renderBrandPaletteSwatches(
+                            'section-overlay-color',
+                            (color) => {
+                              setOverlayColor(color);
+                              applySectionBackgroundLive({ nextOverlayColor: color });
+                            },
+                            (color) => `Apply ${color} as overlay color`,
+                          )}
                           <Input
                             id="cf-section-bg-overlay-color"
                             type="color"
@@ -4795,6 +5616,14 @@ export function VisualEditor({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor="cf-section-bg-overlay-grad-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                          {renderBrandPaletteSwatches(
+                            'section-overlay-grad-1',
+                            (color) => {
+                              setOverlayGrad1(color);
+                              applySectionBackgroundLive({ nextOverlayGrad1: color });
+                            },
+                            (color) => `Apply ${color} as overlay gradient color 1`,
+                          )}
                           <Input
                             id="cf-section-bg-overlay-grad-1"
                             type="color"
@@ -4808,6 +5637,14 @@ export function VisualEditor({
                         </div>
                         <div>
                           <Label htmlFor="cf-section-bg-overlay-grad-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                          {renderBrandPaletteSwatches(
+                            'section-overlay-grad-2',
+                            (color) => {
+                              setOverlayGrad2(color);
+                              applySectionBackgroundLive({ nextOverlayGrad2: color });
+                            },
+                            (color) => `Apply ${color} as overlay gradient color 2`,
+                          )}
                           <Input
                             id="cf-section-bg-overlay-grad-2"
                             type="color"
@@ -4874,6 +5711,14 @@ export function VisualEditor({
               ) : (
                 <div>
                   <Label htmlFor="cf-solid-color" className="text-xs text-muted-foreground">Solid color</Label>
+                  {renderBrandPaletteSwatches(
+                    'section-solid-color',
+                    (color) => {
+                      setBgColor(color);
+                      applySectionBackgroundLive({ nextBgColor: color });
+                    },
+                    (color) => `Apply ${color} as solid background color`,
+                  )}
                   <Input
                     id="cf-solid-color"
                     type="color"
