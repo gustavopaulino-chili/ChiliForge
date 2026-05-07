@@ -3,7 +3,7 @@ ini_set('display_errors', '1');
 ini_set('display_startup_errors', '1');
 error_reporting(E_ALL);
 
-// Database configuration
+
 $host = getenv('DB_HOST') ?: 'localhost';
 $user = getenv('DB_USER') ?: 'u427845891_forge_admin';
 $pass = getenv('DB_PASS') ?: 'ChiliForge2026@';
@@ -20,6 +20,5 @@ if ($conn->connect_error) {
         "database" => $db
     ]));
 }
-
 $conn->set_charset("utf8mb4");
 ?>
