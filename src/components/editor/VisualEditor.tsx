@@ -651,6 +651,7 @@ export function VisualEditor({
   }>>([]);
   const [addingGeneratedImageId, setAddingGeneratedImageId] = useState<number | null>(null);
   const [selected, setSelected] = useState<SelectedNode | null>(null);
+  const selectedRef = useRef<SelectedNode | null>(null);
   const [textValue, setTextValue] = useState('');
   const [hrefValue, setHrefValue] = useState('');
   const [linkTarget, setLinkTarget] = useState('_self');
@@ -829,6 +830,9 @@ export function VisualEditor({
   const bgFileInputRef = useRef<HTMLInputElement | null>(null);
   const fileFolderInputRef = useRef<HTMLInputElement | null>(null);
   const filesPanelRef = useRef<HTMLDivElement | null>(null);
+  const emitChangeFrameRef = useRef<number | null>(null);
+  const pendingChangeRef = useRef<string | null>(null);
+  const lastEmittedHtmlRef = useRef('');
 
   const canUndo = historyPastRef.current.length > 0;
   const canRedo = historyFutureRef.current.length > 0;
@@ -846,8 +850,28 @@ export function VisualEditor({
     return `${normalized}${sep}cf_editor_ts=${Date.now()}`;
   }, [projectPublicUrl]);
 
-  // Strip bridge before propagating any edit to parent (so saving never persists bridge artifacts)
-  const emitChange = useCallback((next: string) => onChange(stripEditorBridge(next)), [onChange]);
+  // Batch high-frequency mutations into animation frames to keep long editing sessions smooth.
+  const emitChange = useCallback((next: string) => {
+    pendingChangeRef.current = stripEditorBridge(next);
+
+    if (emitChangeFrameRef.current !== null) return;
+
+    emitChangeFrameRef.current = window.requestAnimationFrame(() => {
+      emitChangeFrameRef.current = null;
+      const payload = pendingChangeRef.current;
+      pendingChangeRef.current = null;
+      if (typeof payload !== 'string') return;
+      if (payload === lastEmittedHtmlRef.current) return;
+      lastEmittedHtmlRef.current = payload;
+      onChange(payload);
+    });
+  }, [onChange]);
+
+  useEffect(() => () => {
+    if (emitChangeFrameRef.current !== null) {
+      window.cancelAnimationFrame(emitChangeFrameRef.current);
+    }
+  }, []);
 
   const handleIframeLoad = useCallback(() => {
     setIframeReady(true);
@@ -951,6 +975,7 @@ export function VisualEditor({
     historyPastRef.current = [];
     historyFutureRef.current = [];
     lastHtmlRef.current = stripEditorBridge(html || '');
+    lastEmittedHtmlRef.current = stripEditorBridge(html || '');
     skipHistoryRecordRef.current = false;
     setSelected(null);
     setHistoryVersion((value) => value + 1);
@@ -1632,27 +1657,48 @@ export function VisualEditor({
         const target = el as HTMLElement;
         if (nextFit) {
           target.style.backgroundSize = nextFit === 'cover' ? 'cover' : nextFit === 'contain' ? 'contain' : nextFit;
+        } else {
+          target.style.removeProperty('background-size');
         }
         if (nextPosition) {
           target.style.backgroundPosition = nextPosition;
+        } else {
+          target.style.removeProperty('background-position');
         }
         if (nextWidth) {
           target.style.width = nextWidth;
+        } else {
+          target.style.removeProperty('width');
         }
         if (nextMinWidth) {
           target.style.minWidth = nextMinWidth;
+        } else {
+          target.style.removeProperty('min-width');
         }
         if (nextHeight) {
           target.style.height = nextHeight;
+        } else {
+          target.style.removeProperty('height');
         }
         if (nextMinHeight) {
           target.style.minHeight = nextMinHeight;
+        } else {
+          target.style.removeProperty('min-height');
         }
         if (nextMaxWidth) {
           target.style.maxWidth = nextMaxWidth;
+        } else {
+          target.style.removeProperty('max-width');
         }
         if (nextMaxHeight) {
           target.style.maxHeight = nextMaxHeight;
+        } else {
+          target.style.removeProperty('max-height');
+        }
+        if (nextAspectRatio) {
+          target.style.aspectRatio = nextAspectRatio;
+        } else {
+          target.style.removeProperty('aspect-ratio');
         }
 
         const currentBgUrl = (() => {
@@ -2308,6 +2354,29 @@ export function VisualEditor({
     applyColorsLive({ nextTextColor: next });
   };
 
+  const renderBrandPaletteSwatches = (
+    keyPrefix: string,
+    onApply: (color: string) => void,
+    titleBuilder?: (color: string) => string,
+  ) => {
+    if (brandPalette.length === 0) return null;
+
+    return (
+      <div className="mb-1 flex flex-wrap gap-1">
+        {brandPalette.map((color) => (
+          <button
+            key={`${keyPrefix}-${color}`}
+            type="button"
+            className="h-5 w-5 rounded-sm border border-border/70 hover:scale-110 transition-transform"
+            style={{ backgroundColor: color }}
+            title={titleBuilder ? titleBuilder(color) : `Apply ${color}`}
+            onClick={() => onApply(color)}
+          />
+        ))}
+      </div>
+    );
+  };
+
   const refreshFiles = async () => {
     if (!projectId || !userId) return '';
     setFilesLoading(true);
@@ -2325,6 +2394,9 @@ export function VisualEditor({
     }
   };
 
+  // Keep selectedRef in sync so async file handlers always see the latest selection
+  selectedRef.current = selected;
+
   // NOTE: original `openFilesManager` removed. We'll use `openFilesFolder` (below)
 
   const handleUploadFiles = async (filesList: FileList | null) => {
@@ -2338,7 +2410,7 @@ export function VisualEditor({
 
     if (oversized.length > 0) {
       const names = oversized.map(f => f.name).join(', ');
-      toast.error(`Os seguintes arquivos excedem o limite de 15MB e não foram enviados: ${names}`);
+      toast.error(`The following files exceed the 15MB limit and were not uploaded: ${names}`);
     }
 
     if (allowedFiles.length === 0) {
@@ -2349,26 +2421,25 @@ export function VisualEditor({
     setFilesUploading(true);
     try {
       const uploadResult = await uploadProjectFiles(projectId, userId, allowedFiles);
-      toast.success(`${allowedFiles.length} arquivo(s) enviados para a pasta de files.`);
+      toast.success(`${allowedFiles.length} file(s) uploaded to the files folder.`);
 
-      // Auto-link behavior: if an anchor/button is selected, attach the first uploaded file automatically.
+      // Auto-link behavior: if an anchor element is selected, attach the first uploaded file automatically.
+      // Use selectedRef to avoid stale closure issues in async callbacks.
+      const currentSelected = selectedRef.current;
       const firstUploaded = uploadResult.uploaded?.[0];
-      if (selected?.tag === 'a' && firstUploaded?.url) {
+      if (currentSelected?.tag === 'a' && firstUploaded?.url) {
         const rel = toRelativeFilePath(firstUploaded.url);
         setHrefValue(rel);
         setFileDownloadPath(rel);
         applyAnchorLinkLive({ nextHref: rel, nextDownload: rel });
-
-        if ((uploadResult.uploaded?.length || 0) > 1) {
-          toast.success(`Link de download aplicado automaticamente no botão usando ${firstUploaded.name} (primeiro arquivo enviado).`);
-        } else {
-          toast.success(`Link de download aplicado automaticamente no botão: ${firstUploaded.name}.`);
-        }
+        toast.success(`Link applied automatically to the selected element: ${firstUploaded.name}.`);
+      } else if (firstUploaded?.url) {
+        toast.info('File uploaded. To auto-apply it to a button/link, select an <a> element on the page before uploading.');
       }
 
       await refreshFiles();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Falha ao enviar arquivos.');
+      toast.error(error instanceof Error ? error.message : 'Failed to upload files.');
     } finally {
       setFilesUploading(false);
       if (fileFolderInputRef.current) fileFolderInputRef.current.value = '';
@@ -2539,6 +2610,8 @@ export function VisualEditor({
   };
 
   const handleGenerateImage = async () => {
+    if (aiGenerating) return;
+
     const prompt = aiPrompt.trim();
     if (!prompt) {
       toast.error('Write a prompt before generating an image.');
@@ -2549,7 +2622,7 @@ export function VisualEditor({
     setAiGeneratingError('');
 
     try {
-      const result = await generateImages({
+      const runGenerate = () => generateImages({
         purpose: prompt,
         businessName: 'Website',
         businessCategory: 'General',
@@ -2557,6 +2630,29 @@ export function VisualEditor({
         websiteType: 'landing',
         referenceImageUrl: selected?.tag === 'img' ? srcValue || undefined : undefined,
       });
+
+      const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+        let timeoutId: number | null = null;
+        const timeoutPromise = new Promise<T>((_, reject) => {
+          timeoutId = window.setTimeout(() => reject(new Error('Image generation timed out.')), timeoutMs);
+        });
+
+        try {
+          return await Promise.race([promise, timeoutPromise]);
+        } finally {
+          if (timeoutId !== null) window.clearTimeout(timeoutId);
+        }
+      };
+
+      let result;
+      try {
+        result = await withTimeout(runGenerate(), 35000);
+      } catch (firstError) {
+        const firstMessage = firstError instanceof Error ? firstError.message.toLowerCase() : '';
+        const retryable = firstMessage.includes('timeout') || firstMessage.includes('network') || firstMessage.includes('429') || firstMessage.includes('503');
+        if (!retryable) throw firstError;
+        result = await withTimeout(runGenerate(), 35000);
+      }
 
       if (!result?.imageUrl) {
         throw new Error('Image provider returned no image URL.');
@@ -2580,7 +2676,10 @@ export function VisualEditor({
       setAiPrompt('');
       toast.success('Image generated. Use Add to place it in assets.');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to generate image.';
+      const rawMessage = error instanceof Error ? error.message : 'Failed to generate image.';
+      const message = rawMessage.toLowerCase().includes('timed out')
+        ? 'Image generation timed out. Please try a shorter prompt or retry in a few seconds.'
+        : rawMessage;
       setAiGeneratingError(message);
       toast.error(message);
     } finally {
@@ -3094,8 +3193,16 @@ export function VisualEditor({
             <p className="text-sm font-medium">Appearance</p>
             <Label className="text-xs text-muted-foreground">Colors</Label>
             <div className="grid grid-cols-2 gap-2">
-              <div>
+              <div className="space-y-1">
                 <Label htmlFor="cf-text-color" className="text-xs text-muted-foreground">Text</Label>
+                {renderBrandPaletteSwatches(
+                  'text-color',
+                  (color) => {
+                    setTextColor(color);
+                    applyColorsLive({ nextTextColor: color });
+                  },
+                  (color) => `Apply ${color} as text color`,
+                )}
                 <Input
                   id="cf-text-color"
                   type="color"
@@ -3107,8 +3214,16 @@ export function VisualEditor({
                   }}
                 />
               </div>
-              <div>
+              <div className="space-y-1">
                 <Label htmlFor="cf-bg-color" className="text-xs text-muted-foreground">Background</Label>
+                {renderBrandPaletteSwatches(
+                  'bg-color',
+                  (color) => {
+                    setBgColor(color);
+                    applyColorsLive({ nextBgColor: color });
+                  },
+                  (color) => `Apply ${color} as background color`,
+                )}
                 <Input
                   id="cf-bg-color"
                   type="color"
@@ -3121,27 +3236,6 @@ export function VisualEditor({
                 />
               </div>
             </div>
-
-            {brandPalette.length > 0 && (
-              <div className="space-y-2 rounded-md border border-border/60 p-2">
-                <Label className="text-xs text-muted-foreground">Brand palette from brief</Label>
-                <div className="grid grid-cols-5 gap-2">
-                  {brandPalette.map((color) => (
-                    <button
-                      key={`brand-${color}`}
-                      type="button"
-                      className="h-8 w-full rounded border border-border/70"
-                      style={{ backgroundColor: color }}
-                      title={`Apply ${color}`}
-                      onClick={() => applyBrandPaletteColor(color)}
-                    />
-                  ))}
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Click a swatch to apply. For section selection it updates background; for elements it updates text color.
-                </p>
-              </div>
-            )}
             
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -3197,6 +3291,14 @@ export function VisualEditor({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <Label htmlFor="cf-bg-grad-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                  {renderBrandPaletteSwatches(
+                    'bg-grad-1',
+                    (color) => {
+                      setGradientColor1(color);
+                      applyColorsLive({ nextGrad1: color });
+                    },
+                    (color) => `Apply ${color} as gradient color 1`,
+                  )}
                   <Input
                     id="cf-bg-grad-1"
                     type="color"
@@ -3210,6 +3312,14 @@ export function VisualEditor({
                 </div>
                 <div>
                   <Label htmlFor="cf-bg-grad-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                  {renderBrandPaletteSwatches(
+                    'bg-grad-2',
+                    (color) => {
+                      setGradientColor2(color);
+                      applyColorsLive({ nextGrad2: color });
+                    },
+                    (color) => `Apply ${color} as gradient color 2`,
+                  )}
                   <Input
                     id="cf-bg-grad-2"
                     type="color"
@@ -3378,6 +3488,14 @@ export function VisualEditor({
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <Label htmlFor="cf-bg-overlay-color" className="text-xs text-muted-foreground">Overlay color</Label>
+                        {renderBrandPaletteSwatches(
+                          'bg-overlay-color',
+                          (color) => {
+                            setOverlayColor(color);
+                            applyColorsLive({ nextOverlayColor: color });
+                          },
+                          (color) => `Apply ${color} as overlay color`,
+                        )}
                         <Input
                           id="cf-bg-overlay-color"
                           type="color"
@@ -3411,6 +3529,14 @@ export function VisualEditor({
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <Label htmlFor="cf-bg-overlay-grad-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                        {renderBrandPaletteSwatches(
+                          'bg-overlay-grad-1',
+                          (color) => {
+                            setOverlayGrad1(color);
+                            applyColorsLive({ nextOverlayGrad1: color });
+                          },
+                          (color) => `Apply ${color} as overlay gradient color 1`,
+                        )}
                         <Input
                           id="cf-bg-overlay-grad-1"
                           type="color"
@@ -3424,6 +3550,14 @@ export function VisualEditor({
                       </div>
                       <div>
                         <Label htmlFor="cf-bg-overlay-grad-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                        {renderBrandPaletteSwatches(
+                          'bg-overlay-grad-2',
+                          (color) => {
+                            setOverlayGrad2(color);
+                            applyColorsLive({ nextOverlayGrad2: color });
+                          },
+                          (color) => `Apply ${color} as overlay gradient color 2`,
+                        )}
                         <Input
                           id="cf-bg-overlay-grad-2"
                           type="color"
@@ -3602,8 +3736,8 @@ export function VisualEditor({
             </div>
           )}
 
-          {(selected.tag === 'img' || (selectedBackground && sectionBgMode !== 'image')) && (
-            <div className="space-y-2">
+          {(selected.tag === 'img' || selectedBackground) && (
+            <div className="flex flex-col gap-2">
               <Label htmlFor="cf-image-src">Image URL</Label>
               <Input
                 id="cf-image-src"
@@ -3619,7 +3753,7 @@ export function VisualEditor({
               </Button>
 
 
-              <div className="space-y-2 rounded-md border border-border/60 p-3">
+              <div className="order-3 space-y-2 rounded-md border border-border/60 p-3">
                 <p className="text-sm font-medium">Image Formatting</p>
                 <div>
                   <Label htmlFor="cf-image-fit" className="text-xs text-muted-foreground">Fit</Label>
@@ -3820,6 +3954,14 @@ export function VisualEditor({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor="cf-image-overlay-color" className="text-xs text-muted-foreground">Overlay color</Label>
+                          {renderBrandPaletteSwatches(
+                            'image-overlay-color',
+                            (color) => {
+                              setOverlayColor(color);
+                              applyImageFormattingLive({ nextOverlayColor: color });
+                            },
+                            (color) => `Apply ${color} as image overlay color`,
+                          )}
                           <Input
                             id="cf-image-overlay-color"
                             type="color"
@@ -3853,6 +3995,14 @@ export function VisualEditor({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor="cf-image-overlay-grad-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                          {renderBrandPaletteSwatches(
+                            'image-overlay-grad-1',
+                            (color) => {
+                              setOverlayGrad1(color);
+                              applyImageFormattingLive({ nextOverlayGrad1: color });
+                            },
+                            (color) => `Apply ${color} as image overlay gradient color 1`,
+                          )}
                           <Input
                             id="cf-image-overlay-grad-1"
                             type="color"
@@ -3866,6 +4016,14 @@ export function VisualEditor({
                         </div>
                         <div>
                           <Label htmlFor="cf-image-overlay-grad-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                          {renderBrandPaletteSwatches(
+                            'image-overlay-grad-2',
+                            (color) => {
+                              setOverlayGrad2(color);
+                              applyImageFormattingLive({ nextOverlayGrad2: color });
+                            },
+                            (color) => `Apply ${color} as image overlay gradient color 2`,
+                          )}
                           <Input
                             id="cf-image-overlay-grad-2"
                             type="color"
@@ -3931,7 +4089,7 @@ export function VisualEditor({
                 </div>
               </div>
 
-              <div className="space-y-3 rounded-md border border-border/60 p-3">
+              <div className="order-2 space-y-3 rounded-md border border-border/60 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-medium">Gemini Image Chat</p>
                   <Badge variant="secondary">AI</Badge>
@@ -3981,7 +4139,7 @@ export function VisualEditor({
               </div>
 
               {showAssetManager && (
-                <div className="space-y-3 rounded-md border border-border/60 p-3">
+                <div className="order-1 space-y-3 rounded-md border border-border/60 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium">Project Assets Folder</p>
                     <Button size="sm" variant="ghost" onClick={() => setShowAssetManager(false)}>Close</Button>
@@ -4514,6 +4672,14 @@ export function VisualEditor({
                 </div>
                 <div>
                   <Label htmlFor="cf-container-border-color" className="text-xs text-muted-foreground">Border color</Label>
+                  {renderBrandPaletteSwatches(
+                    'container-border-color',
+                    (color) => {
+                      setContainerBorderColor(color);
+                      applyContainerSizingLive({ nextBorderColor: color });
+                    },
+                    (color) => `Apply ${color} as border color`,
+                  )}
                   <Input
                     id="cf-container-border-color"
                     type="color"
@@ -4914,6 +5080,14 @@ export function VisualEditor({
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <Label htmlFor="cf-grad-color-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                    {renderBrandPaletteSwatches(
+                      'section-grad-1',
+                      (color) => {
+                        setGradientColor1(color);
+                        applySectionBackgroundLive({ nextGrad1: color });
+                      },
+                      (color) => `Apply ${color} as gradient color 1`,
+                    )}
                     <Input
                       id="cf-grad-color-1"
                       type="color"
@@ -4927,6 +5101,14 @@ export function VisualEditor({
                   </div>
                   <div>
                     <Label htmlFor="cf-grad-color-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                    {renderBrandPaletteSwatches(
+                      'section-grad-2',
+                      (color) => {
+                        setGradientColor2(color);
+                        applySectionBackgroundLive({ nextGrad2: color });
+                      },
+                      (color) => `Apply ${color} as gradient color 2`,
+                    )}
                     <Input
                       id="cf-grad-color-2"
                       type="color"
@@ -5055,6 +5237,14 @@ export function VisualEditor({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor="cf-section-bg-overlay-color" className="text-xs text-muted-foreground">Overlay color</Label>
+                          {renderBrandPaletteSwatches(
+                            'section-overlay-color',
+                            (color) => {
+                              setOverlayColor(color);
+                              applySectionBackgroundLive({ nextOverlayColor: color });
+                            },
+                            (color) => `Apply ${color} as overlay color`,
+                          )}
                           <Input
                             id="cf-section-bg-overlay-color"
                             type="color"
@@ -5088,6 +5278,14 @@ export function VisualEditor({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label htmlFor="cf-section-bg-overlay-grad-1" className="text-xs text-muted-foreground">Gradient color 1</Label>
+                          {renderBrandPaletteSwatches(
+                            'section-overlay-grad-1',
+                            (color) => {
+                              setOverlayGrad1(color);
+                              applySectionBackgroundLive({ nextOverlayGrad1: color });
+                            },
+                            (color) => `Apply ${color} as overlay gradient color 1`,
+                          )}
                           <Input
                             id="cf-section-bg-overlay-grad-1"
                             type="color"
@@ -5101,6 +5299,14 @@ export function VisualEditor({
                         </div>
                         <div>
                           <Label htmlFor="cf-section-bg-overlay-grad-2" className="text-xs text-muted-foreground">Gradient color 2</Label>
+                          {renderBrandPaletteSwatches(
+                            'section-overlay-grad-2',
+                            (color) => {
+                              setOverlayGrad2(color);
+                              applySectionBackgroundLive({ nextOverlayGrad2: color });
+                            },
+                            (color) => `Apply ${color} as overlay gradient color 2`,
+                          )}
                           <Input
                             id="cf-section-bg-overlay-grad-2"
                             type="color"
@@ -5167,6 +5373,14 @@ export function VisualEditor({
               ) : (
                 <div>
                   <Label htmlFor="cf-solid-color" className="text-xs text-muted-foreground">Solid color</Label>
+                  {renderBrandPaletteSwatches(
+                    'section-solid-color',
+                    (color) => {
+                      setBgColor(color);
+                      applySectionBackgroundLive({ nextBgColor: color });
+                    },
+                    (color) => `Apply ${color} as solid background color`,
+                  )}
                   <Input
                     id="cf-solid-color"
                     type="color"

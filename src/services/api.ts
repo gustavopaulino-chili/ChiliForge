@@ -106,6 +106,26 @@ export const getProjects = (user_id: number, user_email?: string) => {
   }).then(res => res.json());
 };
 
+export const getProjectById = async (projectId: number, userId: number) => {
+  const params = new URLSearchParams({
+    user_id: String(userId),
+    id: String(projectId),
+  });
+
+  const response = await fetch(`${API}/getProjects.php?${params.toString()}`, {
+    cache: 'no-store',
+    credentials: 'same-origin',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch project: ${response.status}`);
+  }
+
+  const data = await response.json();
+  // When fetching by ID, getProjects returns an array with one item
+  return Array.isArray(data) && data.length > 0 ? data[0] : null;
+};
+
 export const getProjectEditorContent = async (projectId: number, userId: number) => {
   const params = new URLSearchParams({
     project_id: String(projectId),
@@ -147,6 +167,32 @@ export const deleteProject = (id: number) =>
 
 export const updateProjectContent = (payload: { id: number; user_id: number; generated_html: string }) =>
   fetch(`${API}/updateProjectContent.php`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).then(async (res) => {
+    const data = await res.json();
+    if (!res.ok || data?.error) {
+      throw new Error(data?.error || `Request failed with status ${res.status}`);
+    }
+    return data;
+  });
+
+export const updateProjectStep = (payload: { id: number; user_id: number; current_step: number }) =>
+  fetch(`${API}/updateProjectStep.php`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).then(async (res) => {
+    const data = await res.json();
+    if (!res.ok || data?.error) {
+      throw new Error(data?.error || `Request failed with status ${res.status}`);
+    }
+    return data;
+  });
+
+export const updateProjectFormState = (payload: { id: number; user_id: number; current_step: number; form_data: unknown }) =>
+  fetch(`${API}/updateProjectFormState.php`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

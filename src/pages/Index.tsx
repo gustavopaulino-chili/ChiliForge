@@ -19,7 +19,7 @@ import { VisualEditor } from '@/components/editor/VisualEditor';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock, LogOut, User, Server, Edit3 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-import { downloadProjectZip, generateImages, generateLanding, searchImages, updateProjectContent } from '@/services/api';
+import { downloadProjectZip, generateImages, generateLanding, searchImages, updateProjectContent, updateProjectFormState, getProjectById } from '@/services/api';
 import { isUploadedImage } from '@/services/imageUpload';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
@@ -332,8 +332,35 @@ const Index = () => {
   };
 
 
+  const createDraftProject = async () => {
+    if (!user?.id) return;
+    try {
+      const response = await fetch('/api/createProject.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.id,
+          name: 'Draft',
+          public_url: '',
+          folder_path: '',
+          form_data: defaultFormData,
+          generated_html: '',
+          current_step: 0,
+        }),
+      });
+      const saved = await response.json();
+      if (saved?.success && saved?.id) {
+        setSavedProjectId(saved.id);
+        try { localStorage.setItem('lastEditedProjectId', String(saved.id)); } catch {}
+      }
+    } catch (err) {
+      console.error('Failed to create draft project:', err);
+    }
+  };
+
   const handleStartGenerator = () => {
     setIsTransitioning(true);
+    createDraftProject();
     setTimeout(() => {
       setShowLanding(false);
       setIsTransitioning(false);
@@ -353,6 +380,49 @@ const Index = () => {
     }
   }, []);
 
+  // Try to load from database if no localStorage and user is logged in
+  useEffect(() => {
+    if (routeState?.formData || routeState?.generatedHtml || !user?.id) return;
+    if (showRestoreDialog || pendingRestore) return; // Already showing restore dialog
+    
+    const lastProjectId = (() => {
+      try {
+        const stored = localStorage.getItem('lastEditedProjectId');
+        return stored ? parseInt(stored, 10) : null;
+      } catch {
+        return null;
+      }
+    })();
+
+    if (!lastProjectId) return;
+
+    const loadProject = async () => {
+      try {
+        const project = await getProjectById(lastProjectId, user.id);
+        if (!project || !project.form_data) return;
+
+        const projectData: SavedProgress = {
+          currentStep: project.current_step ?? 0,
+          maxVisitedStep: project.current_step ?? 0,
+          formData: typeof project.form_data === 'string' ? JSON.parse(project.form_data) : project.form_data,
+          user_id: user.id,
+          folder_path: project.folder_path || undefined,
+        };
+
+        if (hasMeaningfulProgress(projectData)) {
+          setSavedProjectId(lastProjectId);
+          setCurrentProjectFolderPath(project.folder_path || '');
+          setPendingRestore(projectData);
+          setShowRestoreDialog(true);
+        }
+      } catch (error) {
+        console.error('Failed to load project from database:', error);
+      }
+    };
+
+    loadProject();
+  }, [user?.id, routeState?.formData, routeState?.generatedHtml, showRestoreDialog, pendingRestore]);
+
   const handleRestoreSession = () => {
     if (!pendingRestore) return;
     setFormData(normalizeFormData(pendingRestore.formData));
@@ -366,8 +436,10 @@ const Index = () => {
 
   const handleDiscardSession = () => {
     safeRemove(STORAGE_KEY);
+    try { localStorage.removeItem('lastEditedProjectId'); } catch {}
     setShowRestoreDialog(false);
     setPendingRestore(null);
+    setSavedProjectId(null);
   };
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -764,7 +836,8 @@ const Index = () => {
     const referenceUrl = preparedFormData.images.heroImage1 || preparedFormData.images.brandImage || preparedFormData.images.sectionImage1 || undefined;
 
     try {
-      const userHero = preparedFormData.images.heroImage1 || preparedFormData.images.heroImage2 || preparedFormData.images.brandImage;
+      // User-provided StepImages hero always has priority over AI/fallback.
+      const userHero = preparedFormData.images.heroImage1 || preparedFormData.images.heroImage2;
 
       if (userHero) {
         // User already has a hero image — use it, skip AI generation for the hero
@@ -853,7 +926,7 @@ const Index = () => {
       setGeneratedImages(collectedImages);
     } catch (err) {
       console.error('Hero image generation error:', err);
-      const userHero = preparedFormData.images.heroImage1 || preparedFormData.images.heroImage2 || preparedFormData.images.brandImage;
+      const userHero = preparedFormData.images.heroImage1 || preparedFormData.images.heroImage2;
       if (userHero) {
         collectedImages = [userHero];
       } else {
@@ -1207,6 +1280,12 @@ const Index = () => {
             const publishedHtml = saved.html || previewDocument;
             setSavedProjectId(saved.id);
             setGeneratedLandingUrl(saved.url || '');
+            if (saved?.folder_path) {
+              setCurrentProjectFolderPath(String(saved.folder_path));
+            } else {
+              const derivedFolder = deriveFolderPathFromPublicUrl(saved?.url || '');
+              if (derivedFolder) setCurrentProjectFolderPath(derivedFolder);
+            }
             setGeneratedHtml(publishedHtml);
             setGenerationProgress(95);
             pushGenerationMessage('Publishing completed successfully.');
@@ -1297,12 +1376,43 @@ const Index = () => {
     setMaxVisitedStep(0);
     setSavedProjectId(null);
     localStorage.removeItem(STORAGE_KEY);
+    try { localStorage.removeItem('lastEditedProjectId'); } catch {}
   };
 
   const handleNewLandingPage = async () => {
     await saveCurrentProject();
     resetToNewSession();
   };
+
+  useEffect(() => {
+    if (!savedProjectId || !user?.id) return;
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        await updateProjectFormState({
+          id: savedProjectId,
+          user_id: user.id,
+          current_step: currentStep,
+          form_data: formData,
+        });
+      } catch (error) {
+        console.error('Form state autosave failed:', error);
+      }
+    }, 500);
+
+    return () => window.clearTimeout(timeout);
+  }, [savedProjectId, user?.id, currentStep, formData]);
+
+  // Save last edited project ID to localStorage for recovery on re-open
+  useEffect(() => {
+    if (savedProjectId) {
+      try {
+        localStorage.setItem('lastEditedProjectId', String(savedProjectId));
+      } catch (error) {
+        console.error('Failed to save lastEditedProjectId:', error);
+      }
+    }
+  }, [savedProjectId]);
 
   const prompt = generatePrompt(formData, generatedImages);
 
