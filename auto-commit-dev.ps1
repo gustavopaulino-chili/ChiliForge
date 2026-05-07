@@ -1,66 +1,55 @@
 $repoPath = "C:\Users\ativa\Downloads\ChiliForge"
 
-# tempo entre verificações (segundos)
 $interval = 10
-
-# tempo de inatividade para commitar (segundos) -> 5 min
 $idleTime = 300
 
+cd $repoPath
+
+$currentBranch = git rev-parse --abbrev-ref HEAD
+if ($currentBranch -ne "dev") {
+    Write-Host "⚠️ Vá para a branch dev antes de rodar"
+    exit
+}
+
 $lastChange = Get-Date
+$hadChanges = $false
 
 while ($true) {
-    cd $repoPath
 
-    git checkout dev | Out-Null
-
-    # verifica mudanças
     $status = git status --porcelain
 
-    if ($status) {
+    if ($status -and -not $hadChanges) {
         $lastChange = Get-Date
-        Write-Host "Mudança detectada..."
+        $hadChanges = $true
+        Write-Host "🟡 Mudança detectada (iniciando contagem)..."
     }
 
     $now = Get-Date
     $diffSeconds = ($now - $lastChange).TotalSeconds
 
-    # só commita se passou tempo sem mudanças
-    if ($diffSeconds -ge $idleTime -and $status) {
+    if ($hadChanges -and $diffSeconds -ge $idleTime) {
 
         $files = git diff --name-only
 
-        # tipo do commit
         $type = "chore"
 
-        if ($files -match "\.php") {
-            $type = "fix(api)"
-        }
-        elseif ($files -match "\.(js|ts|tsx)") {
-            $type = "feat(front)"
-        }
-        elseif ($files -match "\.(css|scss)") {
-            $type = "style"
-        }
-        elseif ($files -match "\.(md)") {
-            $type = "docs"
-        }
+        if ($files -match "\.php") { $type = "fix(api)" }
+        elseif ($files -match "\.(js|ts|tsx)") { $type = "feat(front)" }
+        elseif ($files -match "\.(css|scss)") { $type = "style" }
 
-        # resumo dos arquivos (máx 3)
         $summary = ($files | Select-Object -First 3) -join ", "
-
         $time = Get-Date -Format "HH:mm"
 
-
-        $message = "${type}: updates in $summary ($time)"
+        $message = "${type}: auto commit $summary ($time)"
 
         git add .
         git commit -m "$message"
         git push origin dev
 
-        Write-Host "Commit feito: $message"
+        Write-Host "✅ Commit feito: $message"
 
-        # reseta tempo
-        $lastChange = Get-Date
+        # reset
+        $hadChanges = $false
     }
 
     Start-Sleep -Seconds $interval

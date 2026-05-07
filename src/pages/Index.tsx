@@ -799,7 +799,8 @@ const Index = () => {
     const referenceUrl = preparedFormData.images.heroImage1 || preparedFormData.images.brandImage || preparedFormData.images.sectionImage1 || undefined;
 
     try {
-      const userHero = preparedFormData.images.heroImage1 || preparedFormData.images.heroImage2 || preparedFormData.images.brandImage;
+      // User-provided StepImages hero always has priority over AI/fallback.
+      const userHero = preparedFormData.images.heroImage1 || preparedFormData.images.heroImage2;
 
       if (userHero) {
         // User already has a hero image — use it, skip AI generation for the hero
@@ -888,7 +889,7 @@ const Index = () => {
       setGeneratedImages(collectedImages);
     } catch (err) {
       console.error('Hero image generation error:', err);
-      const userHero = preparedFormData.images.heroImage1 || preparedFormData.images.heroImage2 || preparedFormData.images.brandImage;
+      const userHero = preparedFormData.images.heroImage1 || preparedFormData.images.heroImage2;
       if (userHero) {
         collectedImages = [userHero];
       } else {
