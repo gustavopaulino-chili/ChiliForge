@@ -502,8 +502,9 @@ const Index = () => {
           differentiators: formData.differentiators.filter(Boolean),
         });
 
-        // Real AI image — accept it
-        if (data?.imageUrl && !data?.fallback) {
+        // Accept non-fallback responses, and also accept AI fallback providers (e.g., pollinations)
+        // so we only fall back to Pexels when the provider is explicitly Pexels or no image is returned.
+        if (data?.imageUrl && (!data?.fallback || (data?.provider && data.provider !== 'pexels'))) {
           return data.imageUrl;
         }
 
