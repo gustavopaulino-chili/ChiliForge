@@ -274,7 +274,44 @@ const Index = () => {
 
   const [isGeneratingLanding, setIsGeneratingLanding] = useState(false);
 
+  const GENERATION_LEAVE_WARNING = 'Leaving now will cancel your landing page generation and progress will be lost. Do you want to leave?';
+
+  const confirmLeaveGeneration = useCallback(() => {
+    if (!isGenerating) return true;
+    return window.confirm(GENERATION_LEAVE_WARNING);
+  }, [isGenerating]);
+
+  useEffect(() => {
+    if (!isGenerating) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = GENERATION_LEAVE_WARNING;
+      return GENERATION_LEAVE_WARNING;
+    };
+
+    const handlePopState = () => {
+      const shouldLeave = window.confirm(GENERATION_LEAVE_WARNING);
+      if (shouldLeave) {
+        window.removeEventListener('popstate', handlePopState);
+        window.history.back();
+      } else {
+        window.history.pushState({ cfGenerationGuard: true }, '', window.location.href);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.history.pushState({ cfGenerationGuard: true }, '', window.location.href);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isGenerating, GENERATION_LEAVE_WARNING]);
+
   const signOut = () => {
+    if (!confirmLeaveGeneration()) return;
     authSignOut();
     navigate("/auth");
   };
@@ -1347,7 +1384,11 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background relative flex flex-col">
         <div className="reactive-bg-mouse" />
-        <Header onLogoClick={() => setShowLanding(true)} onSignOut={signOut} />
+        <Header onLogoClick={() => {
+          if (!confirmLeaveGeneration()) return;
+          setIsGenerating(false);
+          setShowLanding(true);
+        }} onSignOut={signOut} />
         <main className="flex-1 flex items-center justify-center relative z-10 px-6">
           <div className="max-w-md w-full text-center space-y-8">
             <div className="relative inline-flex h-20 w-20 items-center justify-center mx-auto">
