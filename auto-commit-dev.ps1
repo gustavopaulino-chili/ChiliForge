@@ -40,7 +40,7 @@ while ($true) {
         $summary = ($files | Select-Object -First 3) -join ", "
         $time = Get-Date -Format "HH:mm"
 
-        $message = "${type}: auto commit $summary ($time)"
+        $message = "${type}: auto commit ($time)"
 
         git add .
         git commit -m "$message"

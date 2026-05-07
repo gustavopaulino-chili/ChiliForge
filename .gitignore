@@ -25,3 +25,4 @@ dist-ssr
 *.env
 projects/
 node_modules/
+auto-commit-dev.ps1
