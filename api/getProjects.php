@@ -23,7 +23,12 @@ if ($user_id <= 0 && !$has_valid_email) {
 
 include "db.php";
 
-if ($user_id > 0 && $has_valid_email) {
+$project_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+
+if ($project_id > 0 && $user_id > 0) {
+    $stmt = $conn->prepare("SELECT id, name, public_url, folder_path, form_data, generated_html, current_step, created_at FROM projects WHERE id = ? AND user_id = ?");
+    $stmt->bind_param("ii", $project_id, $user_id);
+} elseif ($user_id > 0 && $has_valid_email) {
     $stmt = $conn->prepare("SELECT p.id, p.name, p.public_url, p.folder_path, p.form_data, p.generated_html, p.current_step, p.created_at FROM projects p LEFT JOIN users u ON u.id = p.user_id WHERE p.user_id = ? OR LOWER(u.email) = LOWER(?) ORDER BY p.id DESC");
     $stmt->bind_param("is", $user_id, $user_email);
 } elseif ($user_id > 0) {

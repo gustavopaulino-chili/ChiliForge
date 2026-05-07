@@ -830,6 +830,9 @@ export function VisualEditor({
   const bgFileInputRef = useRef<HTMLInputElement | null>(null);
   const fileFolderInputRef = useRef<HTMLInputElement | null>(null);
   const filesPanelRef = useRef<HTMLDivElement | null>(null);
+  const emitChangeFrameRef = useRef<number | null>(null);
+  const pendingChangeRef = useRef<string | null>(null);
+  const lastEmittedHtmlRef = useRef('');
 
   const canUndo = historyPastRef.current.length > 0;
   const canRedo = historyFutureRef.current.length > 0;
@@ -847,8 +850,28 @@ export function VisualEditor({
     return `${normalized}${sep}cf_editor_ts=${Date.now()}`;
   }, [projectPublicUrl]);
 
-  // Strip bridge before propagating any edit to parent (so saving never persists bridge artifacts)
-  const emitChange = useCallback((next: string) => onChange(stripEditorBridge(next)), [onChange]);
+  // Batch high-frequency mutations into animation frames to keep long editing sessions smooth.
+  const emitChange = useCallback((next: string) => {
+    pendingChangeRef.current = stripEditorBridge(next);
+
+    if (emitChangeFrameRef.current !== null) return;
+
+    emitChangeFrameRef.current = window.requestAnimationFrame(() => {
+      emitChangeFrameRef.current = null;
+      const payload = pendingChangeRef.current;
+      pendingChangeRef.current = null;
+      if (typeof payload !== 'string') return;
+      if (payload === lastEmittedHtmlRef.current) return;
+      lastEmittedHtmlRef.current = payload;
+      onChange(payload);
+    });
+  }, [onChange]);
+
+  useEffect(() => () => {
+    if (emitChangeFrameRef.current !== null) {
+      window.cancelAnimationFrame(emitChangeFrameRef.current);
+    }
+  }, []);
 
   const handleIframeLoad = useCallback(() => {
     setIframeReady(true);
@@ -952,6 +975,7 @@ export function VisualEditor({
     historyPastRef.current = [];
     historyFutureRef.current = [];
     lastHtmlRef.current = stripEditorBridge(html || '');
+    lastEmittedHtmlRef.current = stripEditorBridge(html || '');
     skipHistoryRecordRef.current = false;
     setSelected(null);
     setHistoryVersion((value) => value + 1);
@@ -1633,27 +1657,48 @@ export function VisualEditor({
         const target = el as HTMLElement;
         if (nextFit) {
           target.style.backgroundSize = nextFit === 'cover' ? 'cover' : nextFit === 'contain' ? 'contain' : nextFit;
+        } else {
+          target.style.removeProperty('background-size');
         }
         if (nextPosition) {
           target.style.backgroundPosition = nextPosition;
+        } else {
+          target.style.removeProperty('background-position');
         }
         if (nextWidth) {
           target.style.width = nextWidth;
+        } else {
+          target.style.removeProperty('width');
         }
         if (nextMinWidth) {
           target.style.minWidth = nextMinWidth;
+        } else {
+          target.style.removeProperty('min-width');
         }
         if (nextHeight) {
           target.style.height = nextHeight;
+        } else {
+          target.style.removeProperty('height');
         }
         if (nextMinHeight) {
           target.style.minHeight = nextMinHeight;
+        } else {
+          target.style.removeProperty('min-height');
         }
         if (nextMaxWidth) {
           target.style.maxWidth = nextMaxWidth;
+        } else {
+          target.style.removeProperty('max-width');
         }
         if (nextMaxHeight) {
           target.style.maxHeight = nextMaxHeight;
+        } else {
+          target.style.removeProperty('max-height');
+        }
+        if (nextAspectRatio) {
+          target.style.aspectRatio = nextAspectRatio;
+        } else {
+          target.style.removeProperty('aspect-ratio');
         }
 
         const currentBgUrl = (() => {
@@ -2565,6 +2610,8 @@ export function VisualEditor({
   };
 
   const handleGenerateImage = async () => {
+    if (aiGenerating) return;
+
     const prompt = aiPrompt.trim();
     if (!prompt) {
       toast.error('Write a prompt before generating an image.');
@@ -2575,7 +2622,7 @@ export function VisualEditor({
     setAiGeneratingError('');
 
     try {
-      const result = await generateImages({
+      const runGenerate = () => generateImages({
         purpose: prompt,
         businessName: 'Website',
         businessCategory: 'General',
@@ -2583,6 +2630,29 @@ export function VisualEditor({
         websiteType: 'landing',
         referenceImageUrl: selected?.tag === 'img' ? srcValue || undefined : undefined,
       });
+
+      const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+        let timeoutId: number | null = null;
+        const timeoutPromise = new Promise<T>((_, reject) => {
+          timeoutId = window.setTimeout(() => reject(new Error('Image generation timed out.')), timeoutMs);
+        });
+
+        try {
+          return await Promise.race([promise, timeoutPromise]);
+        } finally {
+          if (timeoutId !== null) window.clearTimeout(timeoutId);
+        }
+      };
+
+      let result;
+      try {
+        result = await withTimeout(runGenerate(), 35000);
+      } catch (firstError) {
+        const firstMessage = firstError instanceof Error ? firstError.message.toLowerCase() : '';
+        const retryable = firstMessage.includes('timeout') || firstMessage.includes('network') || firstMessage.includes('429') || firstMessage.includes('503');
+        if (!retryable) throw firstError;
+        result = await withTimeout(runGenerate(), 35000);
+      }
 
       if (!result?.imageUrl) {
         throw new Error('Image provider returned no image URL.');
@@ -2606,7 +2676,10 @@ export function VisualEditor({
       setAiPrompt('');
       toast.success('Image generated. Use Add to place it in assets.');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to generate image.';
+      const rawMessage = error instanceof Error ? error.message : 'Failed to generate image.';
+      const message = rawMessage.toLowerCase().includes('timed out')
+        ? 'Image generation timed out. Please try a shorter prompt or retry in a few seconds.'
+        : rawMessage;
       setAiGeneratingError(message);
       toast.error(message);
     } finally {
@@ -3663,8 +3736,8 @@ export function VisualEditor({
             </div>
           )}
 
-          {(selected.tag === 'img' || (selectedBackground && sectionBgMode !== 'image')) && (
-            <div className="space-y-2">
+          {(selected.tag === 'img' || selectedBackground) && (
+            <div className="flex flex-col gap-2">
               <Label htmlFor="cf-image-src">Image URL</Label>
               <Input
                 id="cf-image-src"
@@ -3680,7 +3753,7 @@ export function VisualEditor({
               </Button>
 
 
-              <div className="space-y-2 rounded-md border border-border/60 p-3">
+              <div className="order-3 space-y-2 rounded-md border border-border/60 p-3">
                 <p className="text-sm font-medium">Image Formatting</p>
                 <div>
                   <Label htmlFor="cf-image-fit" className="text-xs text-muted-foreground">Fit</Label>
@@ -4016,7 +4089,7 @@ export function VisualEditor({
                 </div>
               </div>
 
-              <div className="space-y-3 rounded-md border border-border/60 p-3">
+              <div className="order-2 space-y-3 rounded-md border border-border/60 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-medium">Gemini Image Chat</p>
                   <Badge variant="secondary">AI</Badge>
@@ -4066,7 +4139,7 @@ export function VisualEditor({
               </div>
 
               {showAssetManager && (
-                <div className="space-y-3 rounded-md border border-border/60 p-3">
+                <div className="order-1 space-y-3 rounded-md border border-border/60 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium">Project Assets Folder</p>
                     <Button size="sm" variant="ghost" onClick={() => setShowAssetManager(false)}>Close</Button>
