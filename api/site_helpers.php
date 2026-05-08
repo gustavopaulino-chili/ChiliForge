@@ -98,6 +98,7 @@ function is_supported_asset_url($url) {
     // Plain page URLs (social profiles, SVG namespaces, etc.) must not be mirrored.
     $path = strtolower((string)(parse_url($normalized, PHP_URL_PATH) ?: ''));
     $mediaExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif',
+                        'heic', 'heif', 'bmp', 'tif', 'tiff',
                         'mp4', 'webm', 'ogg', 'mp3', 'wav',
                         'pdf', 'woff', 'woff2', 'ttf', 'otf', 'eot', 'ico'];
     $ext = ltrim((string)pathinfo($path, PATHINFO_EXTENSION), '.');
@@ -188,6 +189,15 @@ function extract_extension_from_url($url, $contentType = null) {
         'image/webp' => 'webp',
         'image/gif' => 'gif',
         'image/svg+xml' => 'svg',
+        'image/avif' => 'avif',
+        'image/bmp' => 'bmp',
+        'image/x-bmp' => 'bmp',
+        'image/tiff' => 'tiff',
+        'image/x-tiff' => 'tiff',
+        'image/heic' => 'jpg',
+        'image/heif' => 'jpg',
+        'image/x-icon' => 'ico',
+        'image/vnd.microsoft.icon' => 'ico',
         'video/mp4' => 'mp4',
         'video/webm' => 'webm',
         'video/ogg' => 'ogv',

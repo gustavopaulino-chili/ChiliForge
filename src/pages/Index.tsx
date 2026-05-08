@@ -19,7 +19,7 @@ import { VisualEditor } from '@/components/editor/VisualEditor';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock, LogOut, User, Server, Edit3 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-import { downloadProjectZip, generateImages, generateLanding, searchImages, updateProjectContent, updateProjectFormState, getProjectById } from '@/services/api';
+import { downloadProjectZip, generateImages, generateLanding, searchImages, updateProjectContent, updateProjectFormState, getProjectById, uploadProjectAssetsFromUrls, uploadProjectAssets } from '@/services/api';
 import { isUploadedImage } from '@/services/imageUpload';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
@@ -162,6 +162,17 @@ const normalizeHostedPreviewUrl = (url: string) => {
   }
 };
 
+const toAbsoluteUrl = (value: string) => {
+  const raw = (value || '').trim();
+  if (!raw) return '';
+  if (/^(data:|blob:|https?:\/\/)/i.test(raw)) return raw;
+  try {
+    return new URL(raw.startsWith('/') ? raw : `/${raw}`, window.location.origin).toString();
+  } catch {
+    return raw;
+  }
+};
+
 type ParsedGeneratedSite = {
   html: string;
   css: string;  // empty when html is already a complete inline document
@@ -259,6 +270,9 @@ const Index = () => {
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [generationStatus, setGenerationStatus] = useState('');
   const [generationProgress, setGenerationProgress] = useState(0);
+  const [stepImagesAiGenerating, setStepImagesAiGenerating] = useState(false);
+  const [stepImagesAiPercent, setStepImagesAiPercent] = useState(0);
+  const [stepImagesAiLog, setStepImagesAiLog] = useState<{label: string; status: 'pending'|'active'|'done'|'error'}[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [showFtpDeploy, setShowFtpDeploy] = useState(false);
@@ -311,6 +325,9 @@ const Index = () => {
       setCurrentProjectFolderPath(routeState.folderPath);
     }
   }, [routeState]);
+
+  // Note: When restoring from History, the new project ID is passed via routeState.savedProjectId
+  // (History.tsx creates the draft before navigating). No auto-draft needed here.
 
   useEffect(() => {
     if (!generatedHtml || !savedProjectId || !user?.id) return;
@@ -412,6 +429,9 @@ const Index = () => {
       const saved = await response.json();
       if (saved?.success && saved?.id) {
         setSavedProjectId(saved.id);
+        if (saved?.folder_path) {
+          setCurrentProjectFolderPath(String(saved.folder_path));
+        }
         try { localStorage.setItem('lastEditedProjectId', String(saved.id)); } catch {}
       }
     } catch (err) {
@@ -863,6 +883,255 @@ const Index = () => {
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   };
 
+  const syncStepImagesAssets = async (): Promise<BusinessFormData> => {
+    if (!savedProjectId || !user?.id) {
+      return formData;
+    }
+
+    let nextImages: BusinessFormData['images'] = {
+      ...formData.images,
+      productImages: [...formData.images.productImages],
+    };
+
+    const referenceUrl = nextImages.heroImage1 || nextImages.brandImage || nextImages.sectionImage1 || undefined;
+
+    if (formData.generateAiImages) {
+      if (!nextImages.heroImage1 && !nextImages.heroImage2) {
+        const heroAi = await invokeWithRetry('hero banner', referenceUrl);
+        if (heroAi) nextImages.heroImage1 = heroAi;
+      }
+
+      const sectionSlots = ['sectionImage1', 'sectionImage2', 'sectionImage3'] as const;
+      for (let index = 0; index < sectionSlots.length; index++) {
+        const key = sectionSlots[index];
+        if (nextImages[key]) continue;
+        const aiImage = await invokeWithRetry(`section image ${index + 1}`, referenceUrl);
+        if (aiImage) nextImages[key] = aiImage;
+      }
+    }
+
+    const sectionSlots = buildSectionImageSlots(formData);
+    const fieldSources: Array<{ key: 'logoUrl' | 'heroImage1' | 'heroImage2' | 'brandImage' | 'sectionImage1' | 'sectionImage2' | 'sectionImage3' | 'aboutImage' | 'teamImage'; source: string; fileStem: string }> = [
+      { key: 'logoUrl', source: nextImages.logoUrl, fileStem: 'logo' },
+      { key: 'heroImage1', source: nextImages.heroImage1, fileStem: 'hero-image' },
+      { key: 'heroImage2', source: nextImages.heroImage2, fileStem: 'hero-image-2' },
+      { key: 'brandImage', source: nextImages.brandImage, fileStem: 'brand-image' },
+      { key: 'sectionImage1', source: nextImages.sectionImage1, fileStem: sectionSlots[0].fileStem },
+      { key: 'sectionImage2', source: nextImages.sectionImage2, fileStem: sectionSlots[1].fileStem },
+      { key: 'sectionImage3', source: nextImages.sectionImage3, fileStem: sectionSlots[2].fileStem },
+      { key: 'aboutImage', source: nextImages.aboutImage, fileStem: 'about-image' },
+      { key: 'teamImage', source: nextImages.teamImage, fileStem: 'team-image' },
+    ];
+
+    for (const field of fieldSources) {
+      const source = (field.source || '').trim();
+      // Skip data URIs and URLs already saved inside this project's assets folder
+      if (!source || /^data:image\//i.test(source) || /\/projects\/[^/]+\/assets\//.test(source)) continue;
+      try {
+        const result = await uploadProjectAssetsFromUrls(savedProjectId, user.id, [source], [field.fileStem], { overwriteExisting: true });
+        const uploaded = result.uploaded?.[0];
+        if (uploaded?.url) {
+          nextImages[field.key] = toAbsoluteUrl(uploaded.url);
+        }
+      } catch (error) {
+        console.error(`Failed to sync ${field.fileStem}:`, error);
+      }
+    }
+
+    const nextProductImages: string[] = [];
+    for (let index = 0; index < nextImages.productImages.length; index++) {
+      const source = (nextImages.productImages[index] || '').trim();
+      if (!source || /^data:image\//i.test(source)) {
+        if (source) nextProductImages.push(source);
+        continue;
+      }
+      try {
+        const result = await uploadProjectAssetsFromUrls(savedProjectId, user.id, [source], [`product-image-${index + 1}`], { overwriteExisting: true });
+        const uploaded = result.uploaded?.[0];
+        nextProductImages.push(uploaded?.url ? toAbsoluteUrl(uploaded.url) : source);
+      } catch (error) {
+        console.error(`Failed to sync product image ${index + 1}:`, error);
+        nextProductImages.push(source);
+      }
+    }
+    nextImages.productImages = nextProductImages;
+
+    const nextFormData: BusinessFormData = {
+      ...formData,
+      images: nextImages,
+    };
+
+    setFormData(nextFormData);
+    await updateProjectFormState({
+      id: savedProjectId,
+      user_id: user.id,
+      current_step: currentStep,
+      form_data: nextFormData,
+    });
+
+    return nextFormData;
+  };
+
+  const handleAiImagesGenerate = async () => {
+    if (!savedProjectId || !user?.id) {
+      toast.error('Save a project first before generating AI images.');
+      return;
+    }
+
+    const slots = buildSectionImageSlots(formData);
+    const initialLog: {label: string; status: 'pending'|'active'|'done'|'error'}[] = [
+      { label: 'Initializing project folder', status: 'pending' },
+      { label: 'Generating hero image', status: 'pending' },
+      ...slots.map(s => ({ label: `Generating image: "${s.name}"`, status: 'pending' as const })),
+      { label: 'Uploading to assets folder', status: 'pending' },
+    ];
+
+    setStepImagesAiGenerating(true);
+    setStepImagesAiPercent(0);
+    setStepImagesAiLog(initialLog);
+
+    const updateLog = (index: number, status: 'active'|'done'|'error') => {
+      setStepImagesAiLog(prev => prev.map((e, i) => i === index ? { ...e, status } : e));
+    };
+
+    let nextImages: BusinessFormData['images'] = {
+      ...formData.images,
+      productImages: [...formData.images.productImages],
+    };
+
+    try {
+      // Step 0: folder already exists (created on project save)
+      updateLog(0, 'done');
+      setStepImagesAiPercent(10);
+
+      const referenceUrl = nextImages.heroImage1 || nextImages.brandImage || nextImages.sectionImage1 || undefined;
+      const totalSteps = 2 + slots.length; // hero + slots + upload
+      let stepsDone = 1;
+
+      // Hero image
+      if (!nextImages.heroImage1 && !nextImages.heroImage2) {
+        updateLog(1, 'active');
+        const heroAi = await invokeWithRetry('hero banner', referenceUrl);
+        if (heroAi) {
+          nextImages.heroImage1 = heroAi;
+          updateLog(1, 'done');
+        } else {
+          updateLog(1, 'error');
+        }
+      } else {
+        updateLog(1, 'done');
+      }
+      stepsDone++;
+      setStepImagesAiPercent(Math.round((stepsDone / totalSteps) * 75));
+
+      // Section images
+      const sectionKeys = ['sectionImage1', 'sectionImage2', 'sectionImage3'] as const;
+      for (let i = 0; i < sectionKeys.length; i++) {
+        const key = sectionKeys[i];
+        const logIdx = 2 + i;
+        if (nextImages[key]) {
+          updateLog(logIdx, 'done');
+        } else {
+          updateLog(logIdx, 'active');
+          const aiImg = await invokeWithRetry(slots[i].name, referenceUrl);
+          if (aiImg) {
+            nextImages[key] = aiImg;
+            updateLog(logIdx, 'done');
+          } else {
+            updateLog(logIdx, 'error');
+          }
+        }
+        stepsDone++;
+        setStepImagesAiPercent(Math.round((stepsDone / totalSteps) * 75));
+      }
+
+      // Upload to assets
+      const uploadLogIdx = 2 + slots.length;
+      updateLog(uploadLogIdx, 'active');
+      setStepImagesAiPercent(80);
+
+      const fieldSourcesToUpload: Array<{ key: typeof sectionKeys[number] | 'logoUrl' | 'heroImage1' | 'heroImage2' | 'brandImage' | 'aboutImage' | 'teamImage'; source: string; fileStem: string }> = [
+        { key: 'logoUrl', source: nextImages.logoUrl, fileStem: 'logo' },
+        { key: 'heroImage1', source: nextImages.heroImage1, fileStem: 'hero-image' },
+        { key: 'heroImage2', source: nextImages.heroImage2, fileStem: 'hero-image-2' },
+        { key: 'brandImage', source: nextImages.brandImage, fileStem: 'brand-image' },
+        { key: 'sectionImage1', source: nextImages.sectionImage1, fileStem: slots[0].fileStem },
+        { key: 'sectionImage2', source: nextImages.sectionImage2, fileStem: slots[1].fileStem },
+        { key: 'sectionImage3', source: nextImages.sectionImage3, fileStem: slots[2].fileStem },
+        { key: 'aboutImage', source: nextImages.aboutImage, fileStem: 'about-image' },
+        { key: 'teamImage', source: nextImages.teamImage, fileStem: 'team-image' },
+      ];
+
+      for (const field of fieldSourcesToUpload) {
+        const src = (field.source || '').trim();
+        if (!src || /^data:image\//i.test(src) || /\/projects\/[^/]+\/assets\//.test(src)) continue;
+        try {
+          const result = await uploadProjectAssetsFromUrls(savedProjectId, user.id, [src], [field.fileStem], { overwriteExisting: true });
+          const uploaded = result.uploaded?.[0];
+          if (uploaded?.url) {
+            (nextImages as any)[field.key] = toAbsoluteUrl(uploaded.url);
+          }
+        } catch (err) {
+          console.error(`AI gen upload failed for ${field.fileStem}:`, err);
+        }
+      }
+
+      updateLog(uploadLogIdx, 'done');
+      setStepImagesAiPercent(100);
+
+      // Disable AI generation after running StepImages so LP generation doesn't
+      // redundantly invoke AI for the same slots (LP still fills empty slots via Pexels).
+      const nextFormData: BusinessFormData = {
+        ...formData,
+        images: nextImages,
+        generateAiImages: false,
+      };
+      setFormData(nextFormData);
+      await updateProjectFormState({
+        id: savedProjectId,
+        user_id: user.id,
+        current_step: currentStep,
+        form_data: nextFormData,
+      });
+
+    } catch (err) {
+      console.error('AI image generation failed:', err);
+      toast.error('Image generation encountered an error. Check the steps above.');
+    } finally {
+      setStepImagesAiGenerating(false);
+    }
+  };
+
+  const handleUploadImagesForStep = async (files: File[]): Promise<{ name: string; url: string }[]> => {
+    if (!savedProjectId || !user?.id) {
+      toast.error('Save a project first to upload assets.');
+      return [];
+    }
+    try {
+      const result = await uploadProjectAssets(savedProjectId, user.id, files);
+      return (result.uploaded || []).map((a: any) => ({ name: a.name, url: toAbsoluteUrl(a.url) }));
+    } catch {
+      toast.error('Failed to upload images to assets.');
+      return [];
+    }
+  };
+
+  const handleNext = async () => {
+    if (currentStepId === 'images') {
+      try {
+        setIsGeneratingImages(true);
+        setGenerationStatus('Preparing project assets...');
+        await syncStepImagesAssets();
+      } catch (error) {
+        console.error('StepImages asset preparation failed:', error);
+        toast.warning('Some assets could not be prepared yet. Continuing with the current data.');
+      } finally {
+        setIsGeneratingImages(false);
+      }
+    }
+    next();
+  };
+
   const replaceUrlsInContent = (content: string, replacements: Record<string, string>) => {
     let next = content;
     Object.entries(replacements).forEach(([from, to]) => {
@@ -1248,6 +1517,7 @@ const Index = () => {
           pushGenerationMessage(isInlineDoc ? 'Publishing index.html (inline) and assets...' : 'Publishing index.html, style.css, script.js, and assets...');
           const requestedSlug = resolveProjectSlug(generationFormData);
           const basePayload = {
+            project_id: savedProjectId,
             user_id: user.id,
             name: generationFormData.businessName || 'Projeto',
             slug: requestedSlug,
@@ -1847,7 +2117,7 @@ const Index = () => {
           {currentStepId === 'services' && <StepServices data={formData} onChange={updateForm} />}
           {currentStepId === 'brand' && <StepBrand data={formData} onChange={updateForm} />}
           {currentStepId === 'pages' && <StepPages data={formData} onChange={updateForm} />}
-          {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} />}
+          {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} onGenerateAiImages={handleAiImagesGenerate} isGeneratingAiImages={stepImagesAiGenerating} aiPercent={stepImagesAiPercent} aiLog={stepImagesAiLog} onUploadImages={handleUploadImagesForStep} />}
           {currentStepId === 'contact' && <StepContact data={formData} onChange={updateForm} />}
           {/* Files step removed: download files will be created automatically from AI references to ./files/ in generated content. */}
           {currentStepId === 'review' && <StepReview data={formData} />}
@@ -1885,11 +2155,15 @@ const Index = () => {
 
           {currentStep < steps.length - 1 ? (
             <Button
-              onClick={next}
-              disabled={currentStepId === 'basics' && !formData.customSlug.trim()}
+              onClick={handleNext}
+              disabled={(currentStepId === 'basics' && !formData.customSlug.trim()) || (currentStepId === 'images' && (isGeneratingImages || stepImagesAiGenerating))}
               className="gap-2"
             >
-              Next <ArrowRight className="h-4 w-4" />
+              {currentStepId === 'images' && isGeneratingImages ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Preparing assets...</>
+              ) : (
+                <>Next <ArrowRight className="h-4 w-4" /></>
+              )}
             </Button>
           ) : (
             <Button
@@ -2481,6 +2755,23 @@ DESIGN CONTRAST:
 `;
 }
 
+function slugifyImageName(name: string): string {
+  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'image';
+}
+
+// Maps each of the 3 section image slots to the corresponding enabled section name/fileStem.
+function buildSectionImageSlots(data: BusinessFormData): { name: string; fileStem: string }[] {
+  const pages = data.pagesConfig?.pages || [];
+  const sections = pages.filter(p => p.enabled && resolveSectionKind(p.name) !== null);
+  const defaults = ['section-1', 'section-2', 'section-3'];
+  return [0, 1, 2].map(i => {
+    const sec = sections[i];
+    return sec
+      ? { name: sec.name, fileStem: slugifyImageName(sec.name) + '-image' }
+      : { name: `Section ${i + 1}`, fileStem: defaults[i] + '-image' };
+  });
+}
+
 function buildMandatorySections(data: BusinessFormData): Array<{ name: string; kind: string; required: boolean; description: string; embedCode?: string; formAction?: string; formButton?: string; formFields?: Array<{ label: string; type: string; placeholder?: string; required?: boolean }> }> {
   const cfg = data.pagesConfig;
   if (!cfg || !Array.isArray(cfg.pages)) return [];
@@ -2495,7 +2786,7 @@ function buildMandatorySections(data: BusinessFormData): Array<{ name: string; k
       } else {
         kind = resolveSectionKind(p.name);
       }
-      if (kind === null || kind === 'embed') return null; // hero, faq e embed não vão para a LP
+      if (kind === null) return null; // hero and faq go to dedicated plan fields; all other kinds (including embed without embedCode) pass as sections
       const directives = [
         p.description,
         p.kind === 'form' && p.formAction ? `FORM_ACTION: ${p.formAction}` : '',

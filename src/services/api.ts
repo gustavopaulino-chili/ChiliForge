@@ -253,10 +253,14 @@ export const uploadProjectAssetsFromUrls = async (
   userId: number,
   sourceUrls: string[],
   sourceNames?: string[],
+  options?: { overwriteExisting?: boolean },
 ) => {
   const formData = new FormData();
   formData.append("project_id", String(projectId));
   formData.append("user_id", String(userId));
+  if (options?.overwriteExisting) {
+    formData.append("replace_existing", "1");
+  }
 
   sourceUrls.forEach((url) => formData.append("source_urls[]", url));
   (sourceNames || []).forEach((name) => formData.append("source_names[]", name));

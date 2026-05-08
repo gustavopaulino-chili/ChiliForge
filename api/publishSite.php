@@ -20,6 +20,7 @@ if (!$data || !isset($data["user_id"]) || !isset($data["name"]) || !isset($data[
 }
 
 $user_id = (int)$data["user_id"];
+$project_id = isset($data["project_id"]) ? (int)$data["project_id"] : 0;
 $name = trim((string)$data["name"]);
 $formDataPayload = is_array($data["form_data"]) ? $data["form_data"] : [];
 $form_data = json_encode($data["form_data"], JSON_UNESCAPED_UNICODE);
@@ -51,8 +52,58 @@ try {
     $sitesBasePath = resolve_sites_base_path();
     ensure_directory($sitesBasePath);
 
-    $slug = ensure_unique_slug($requested_slug, $sitesBasePath);
-    $projectPath = $sitesBasePath . DIRECTORY_SEPARATOR . $slug;
+    $existingProject = null;
+    if ($project_id > 0) {
+        $projectLookup = $conn->prepare("SELECT id, public_url, folder_path FROM projects WHERE id = ? AND user_id = ? LIMIT 1");
+        $projectLookup->bind_param("ii", $project_id, $user_id);
+        $projectLookup->execute();
+        $projectResult = $projectLookup->get_result();
+        $existingProject = $projectResult ? $projectResult->fetch_assoc() : null;
+        $projectLookup->close();
+    }
+
+    if ($existingProject) {
+        $public_url = trim((string)($existingProject['public_url'] ?? ''));
+        $folder_path = trim((string)($existingProject['folder_path'] ?? ''));
+        if ($public_url === '' && $folder_path !== '') {
+            $folderSlug = sanitize_slug((string)basename(trim($folder_path, " \/\\")));
+            $public_url = '/projects/' . $folderSlug . '/';
+        }
+        $projectPath = resolve_project_directory_from_folder_path($folder_path, $public_url);
+        $slug = sanitize_slug((string)basename($projectPath));
+
+        // --- Slug rename: renomeia pasta para o customSlug do formulário ---
+        $requestedSlugNorm = sanitize_slug($requested_slug);
+        if ($requestedSlugNorm !== '' && $requestedSlugNorm !== $slug) {
+            $newSlug = !is_dir($sitesBasePath . DIRECTORY_SEPARATOR . $requestedSlugNorm)
+                ? $requestedSlugNorm
+                : ensure_unique_slug($requestedSlugNorm, $sitesBasePath);
+
+            $newProjectPath = $sitesBasePath . DIRECTORY_SEPARATOR . $newSlug;
+
+            if (@rename($projectPath, $newProjectPath)) {
+                $oldPrefix = '/projects/' . $slug . '/';
+                $newPrefix = '/projects/' . $newSlug . '/';
+                $html = str_replace($oldPrefix, $newPrefix, $html);
+                $css  = str_replace($oldPrefix, $newPrefix, $css);
+                $js   = str_replace($oldPrefix, $newPrefix, $js);
+
+                $projectPath = $newProjectPath;
+                $slug        = $newSlug;
+                $public_url  = '/projects/' . $newSlug . '/';
+                $folder_path = '/public/projects/' . $newSlug;
+            } else {
+                error_log('[ChiliForge] publishSite: could not rename ' . $projectPath . ' → ' . $newProjectPath . '; keeping old slug.');
+            }
+        }
+        // --- End slug rename ---
+    } else {
+        $slug = ensure_unique_slug($requested_slug, $sitesBasePath);
+        $projectPath = $sitesBasePath . DIRECTORY_SEPARATOR . $slug;
+        $public_url = '/projects/' . $slug . '/';
+        $folder_path = '/public/projects/' . $slug;
+    }
+
     $assetsPath = $projectPath . DIRECTORY_SEPARATOR . 'assets';
     $downloadsPath = $projectPath . DIRECTORY_SEPARATOR . 'files';
 
@@ -206,6 +257,15 @@ try {
         }
     }
 
+    $currentProjectAssetPrefix = trim((string)$public_url);
+    $currentProjectAssetPrefix = preg_replace('/\/index\.html$/i', '/', $currentProjectAssetPrefix);
+    if (!is_string($currentProjectAssetPrefix)) {
+        $currentProjectAssetPrefix = '';
+    }
+    if ($currentProjectAssetPrefix !== '' && !str_ends_with($currentProjectAssetPrefix, '/')) {
+        $currentProjectAssetPrefix .= '/';
+    }
+
     $assetMap = [];
     $failedAssetMirrors = [];
     $failedLogoMirror = false;
@@ -213,6 +273,21 @@ try {
     foreach ($assets as $assetUrl) {
         if (!is_string($assetUrl) || trim($assetUrl) === '' || !is_supported_asset_url($assetUrl)) {
             continue;
+        }
+
+        $normalizedAssetUrl = normalize_asset_url($assetUrl);
+        $assetPath = (string)(parse_url($normalizedAssetUrl, PHP_URL_PATH) ?: '');
+        $expectedPrefix = $currentProjectAssetPrefix !== ''
+            ? (string)(parse_url($currentProjectAssetPrefix, PHP_URL_PATH) ?: $currentProjectAssetPrefix)
+            : '';
+        if ($assetPath !== '' && $expectedPrefix !== '' && str_starts_with($assetPath, $expectedPrefix . 'assets/')) {
+            $existingFileName = basename($assetPath);
+            $existingRelativePath = 'assets/' . $existingFileName;
+            $existingFilePath = $assetsPath . DIRECTORY_SEPARATOR . $existingFileName;
+            if (is_file($existingFilePath)) {
+                $assetMap[$assetUrl] = $existingRelativePath;
+                continue;
+            }
         }
 
         $downloaded = download_remote_asset($assetUrl);
@@ -356,18 +431,26 @@ try {
         file_put_contents($projectPath . DIRECTORY_SEPARATOR . 'script.js', $js);
     }
 
-    $public_url = '/projects/' . $slug . '/';
-    $folder_path = '/public/projects/' . $slug;
+    if ($existingProject) {
+        $project_id = (int)$existingProject['id'];
+        $update = $conn->prepare("UPDATE projects SET name = ?, public_url = ?, folder_path = ?, form_data = ?, generated_html = ?, current_step = ? WHERE id = ? AND user_id = ?");
+        $update->bind_param("sssssiii", $name, $public_url, $folder_path, $form_data, $hostedHtml, $current_step, $project_id, $user_id);
+        if (!$update->execute()) {
+            throw new RuntimeException('Erro ao atualizar projeto: ' . $update->error);
+        }
+        $update->close();
+    } else {
+        $stmt = $conn->prepare("INSERT INTO projects (user_id, name, public_url, folder_path, form_data, generated_html, current_step, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
+        $stmt->bind_param("isssssi", $user_id, $name, $public_url, $folder_path, $form_data, $hostedHtml, $current_step);
 
-    $stmt = $conn->prepare("INSERT INTO projects (user_id, name, public_url, folder_path, form_data, generated_html, current_step, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
-    $stmt->bind_param("isssssi", $user_id, $name, $public_url, $folder_path, $form_data, $hostedHtml, $current_step);
+        if (!$stmt->execute()) {
+            throw new RuntimeException('Erro ao salvar projeto: ' . $stmt->error);
+        }
 
-    if (!$stmt->execute()) {
-        throw new RuntimeException('Erro ao salvar projeto: ' . $stmt->error);
+        $project_id = $conn->insert_id;
+        $stmt->close();
     }
 
-    $project_id = $conn->insert_id;
-    $stmt->close();
     $conn->close();
 
     echo json_encode([

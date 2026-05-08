@@ -2382,27 +2382,72 @@ export function VisualEditor({
     }
   };
 
-  const resolveHeroTargetPath = () => {
+  const resolveHeroTargetPath = (): { path: string; isBackground: boolean } | null => {
     try {
       const doc = iframeRef.current?.contentDocument;
       if (!doc) return null;
 
-      const fixedSelectors = ['#top', '#hero', '.hero-section', '.hero-carousel', 'header[id*="hero"]', 'section[id*="hero"]'];
-      for (const selector of fixedSelectors) {
-        const found = doc.querySelector(selector);
-        if (found) return selector;
+      const heroSelectors = ['#top', '#hero', '.hero-section', '.hero-carousel', 'header[id*="hero"]', 'section[id*="hero"]'];
+      let heroEl: Element | null = null;
+      for (const selector of heroSelectors) {
+        heroEl = doc.querySelector(selector);
+        if (heroEl) break;
       }
 
-      if (selected?.path) {
+      if (!heroEl && selected?.path) {
         const selectedEl = doc.querySelector(selected.path) as HTMLElement | null;
-        const heroAncestor = selectedEl?.closest('#top, #hero, .hero-section, .hero-carousel, header[id*="hero"], section[id*="hero"]') as HTMLElement | null;
-        if (heroAncestor) {
-          const marker = `cfsel-hero-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-          heroAncestor.setAttribute('data-cf-editor-id', marker);
-          lastEditorMarkerRef.current = marker;
-          return `[data-cf-editor-id="${marker}"]`;
+        heroEl = selectedEl?.closest('#top, #hero, .hero-section, .hero-carousel, header[id*="hero"], section[id*="hero"]') as Element | null;
+      }
+
+      if (!heroEl) return null;
+
+      const computePath = (el: Element): string => {
+        if (!el || el === doc.documentElement) return 'html';
+        const parts: string[] = [];
+        let node: Element | null = el;
+        while (node && node.nodeType === 1 && node !== doc.body) {
+          const tag = node.tagName.toLowerCase();
+          let idx = 1;
+          let sib = node.previousElementSibling as Element | null;
+          while (sib) { if (sib.tagName === node.tagName) idx++; sib = sib.previousElementSibling as Element | null; }
+          parts.unshift(`${tag}:nth-of-type(${idx})`);
+          node = node.parentElement;
+        }
+        return `body > ${parts.join(' > ')}`;
+      };
+
+      const addMarker = (el: Element): string => {
+        const marker = `cfsel-hero-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        (el as HTMLElement).setAttribute('data-cf-editor-id', marker);
+        lastEditorMarkerRef.current = marker;
+        return `[data-cf-editor-id="${marker}"]`;
+      };
+
+      // Priority 1: <img> with src inside the hero
+      const img = heroEl.querySelector('img');
+      if (img && img.getAttribute('src')) {
+        return { path: computePath(img), isBackground: false };
+      }
+
+      // Priority 2: element with inline background-image (hero first, then child containers)
+      const candidates = [heroEl, ...Array.from(heroEl.querySelectorAll('div, section, header, span, figure'))];
+      for (const el of candidates) {
+        const inlineBg = (el as HTMLElement).style?.backgroundImage;
+        if (inlineBg && inlineBg !== 'none' && inlineBg.trim() !== '') {
+          return { path: addMarker(el), isBackground: true };
         }
       }
+
+      // Priority 3: element with computed background-image from CSS
+      for (const el of candidates) {
+        const cs = doc.defaultView?.getComputedStyle(el as Element);
+        if (cs?.backgroundImage && cs.backgroundImage !== 'none') {
+          return { path: addMarker(el), isBackground: true };
+        }
+      }
+
+      // Fallback: marker on the hero container itself
+      return { path: addMarker(heroEl), isBackground: true };
     } catch {
       // ignore
     }
@@ -2415,21 +2460,16 @@ export function VisualEditor({
       return;
     }
 
-    const targetPath = resolveHeroTargetPath();
-    if (!targetPath) {
-      toast.error('Could not find the hero container to replace image.');
+    const result = resolveHeroTargetPath();
+    if (!result) {
+      toast.error('Could not find hero image. Click inside the hero section first, then try again.');
       return;
     }
 
-    // Ensure panel is visible and on Element tab
     setPanelOpen(true);
     setEditorTab('element');
-    
-    // Set context for asset manager
-    setSelectedImagePath(targetPath);
-    setSelectedBackground(true);
-    
-    // Open asset manager
+    setSelectedImagePath(result.path);
+    setSelectedBackground(result.isBackground);
     setShowAssetManager(true);
     await refreshAssets();
   };
@@ -3249,7 +3289,16 @@ export function VisualEditor({
       ) : (
         !selected ? (
           <>
-            <p className="text-sm text-muted-foreground">Click any element in the preview to start editing.</p>
+            <div className="rounded-md border border-border/50 bg-muted/20 p-4 space-y-2">
+              <p className="text-sm font-medium text-foreground">No element selected</p>
+              <p className="text-xs text-muted-foreground">Click any text, image, or section in the preview to start editing it.</p>
+              <ul className="text-xs text-muted-foreground space-y-1 mt-2 list-disc pl-4">
+                <li>Click a <strong>heading or paragraph</strong> to edit its text and style</li>
+                <li>Click an <strong>image</strong> to swap it from your assets folder</li>
+                <li>Click inside the <strong>hero section</strong> to see the Replace Image shortcut</li>
+                <li>Switch to <strong>Sections</strong> tab above to reorder or remove sections</li>
+              </ul>
+            </div>
             {showFilesFolder && (
               <div ref={filesPanelRef} className="space-y-3 rounded-md border border-primary/60 p-3 mt-3" style={{ position: 'relative', zIndex: 99999 }}>
                 <div className="flex items-center justify-between gap-2">
@@ -3917,9 +3966,18 @@ export function VisualEditor({
           </div>
 
           {isHeroSelected() && (
-            <div className="space-y-2 rounded-md border border-border/60 p-3">
-              <p className="text-sm font-medium">Hero</p>
-              <Button className="w-full" size="sm" variant="default" onClick={handleReplaceHeroImage}>
+            <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3">
+              <div>
+                <p className="text-sm font-medium">Hero Section</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Quickly replace the main hero image from your uploaded assets.</p>
+              </div>
+              <Button
+                className="w-full"
+                size="sm"
+                variant="default"
+                onClick={handleReplaceHeroImage}
+                title="Find the hero image automatically and open the assets picker to replace it"
+              >
                 <ImagePlus className="mr-2 h-4 w-4" /> Replace Hero Image
               </Button>
             </div>
@@ -3927,19 +3985,32 @@ export function VisualEditor({
 
           {(selected.tag === 'img' || selectedBackground) && (
             <div className="flex flex-col gap-2">
-              <Label htmlFor="cf-image-src">Image URL</Label>
-              <Input
-                id="cf-image-src"
-                value={srcValue}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setSrcValue(next);
-                  applyImageLive(next);
-                }}
-              />
-              <Button className="w-full" size="sm" variant="secondary" onClick={openAssetManager}>
-                <FolderOpen className="mr-2 h-4 w-4" /> Replace Image (Open Assets Folder)
-              </Button>
+              <div className="rounded-md border border-border/60 p-3 space-y-2">
+                <div>
+                  <p className="text-sm font-medium">Image</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Paste a URL or pick from your uploaded assets.</p>
+                </div>
+                <Label htmlFor="cf-image-src" className="text-xs text-muted-foreground">Image URL</Label>
+                <Input
+                  id="cf-image-src"
+                  value={srcValue}
+                  placeholder="https://… or /projects/slug/assets/image.jpg"
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setSrcValue(next);
+                    applyImageLive(next);
+                  }}
+                />
+                <Button
+                  className="w-full"
+                  size="sm"
+                  variant="secondary"
+                  onClick={openAssetManager}
+                  title="Browse and select from images already uploaded to this project's assets folder"
+                >
+                  <FolderOpen className="mr-2 h-4 w-4" /> Pick from Assets Folder
+                </Button>
+              </div>
 
 
               <div className="order-3 space-y-2 rounded-md border border-border/60 p-3">
