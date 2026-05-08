@@ -26,3 +26,4 @@ dist-ssr
 projects/
 node_modules/
 auto-commit-dev.ps1
+.claude/
