@@ -51,12 +51,22 @@ $stmt->bind_param("isssssi", $user_id, $name, $public_url, $folder_path, $form_d
 
 if ($stmt->execute()) {
     $project_id = $conn->insert_id;
-    $slug = 'site-' . $project_id;
-    $public_url = "/projects/" . $slug . "/";
-    $folder_path = "/public/projects/" . $slug;
 
     $sitesBasePath = resolve_sites_base_path();
     ensure_directory($sitesBasePath);
+
+    $formDataDecoded = is_array($data["form_data"]) ? $data["form_data"] : [];
+    $rawCustomSlug   = isset($formDataDecoded['customSlug']) ? (string)$formDataDecoded['customSlug'] : '';
+    $sanitizedCustom = sanitize_slug($rawCustomSlug);
+
+    if ($sanitizedCustom !== '' && $sanitizedCustom !== 'site') {
+        $slug = ensure_unique_slug($sanitizedCustom, $sitesBasePath);
+    } else {
+        $slug = 'site-' . $project_id;
+    }
+
+    $public_url  = "/projects/" . $slug . "/";
+    $folder_path = "/public/projects/" . $slug;
 
     $projectPath = $sitesBasePath . DIRECTORY_SEPARATOR . $slug;
     ensure_directory($projectPath);

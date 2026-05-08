@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(supabase --version)",
+      "Bash(supabase projects *)",
+      "PowerShell(\\(Get-Content \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\supabase\\\\functions\\\\generate-landing\\\\index.ts\"\\).Count)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}
