@@ -20,20 +20,19 @@ if ($projectId <= 0 || $userId <= 0) {
     exit;
 }
 
-$stmt = $conn->prepare("SELECT name, folder_path, public_url FROM projects WHERE id = ? AND user_id = ? LIMIT 1");
-$stmt->bind_param("ii", $projectId, $userId);
-$stmt->execute();
-$stmt->bind_result($projectName, $folderPath, $publicUrl);
-$found = $stmt->fetch();
-$stmt->close();
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.name, p.folder_path, p.public_url');
 $conn->close();
 
-if (!$found) {
+if (!$projectRow) {
     http_response_code(404);
     header('Content-Type: application/json');
     echo json_encode(["error" => "Projeto nao encontrado"]);
     exit;
 }
+
+$projectName = (string)($projectRow['name'] ?? '');
+$folderPath = (string)($projectRow['folder_path'] ?? '');
+$publicUrl = (string)($projectRow['public_url'] ?? '');
 
 try {
     $projectPath = resolve_project_directory_from_folder_path($folderPath, $publicUrl);

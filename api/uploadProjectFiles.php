@@ -20,24 +20,16 @@ if ($projectId <= 0 || $userId <= 0) {
     exit;
 }
 
-$stmt = $conn->prepare("SELECT folder_path, public_url FROM projects WHERE id = ? AND user_id = ? LIMIT 1");
-$stmt->bind_param("ii", $projectId, $userId);
-$stmt->execute();
-$stmt->store_result();
-
-if ($stmt->num_rows === 0) {
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.folder_path, p.public_url');
+if (!$projectRow) {
     http_response_code(404);
     echo json_encode(["error" => "Project not found"]);
-    $stmt->close();
     $conn->close();
     exit;
 }
 
-$folderPath = '';
-$publicUrl = '';
-$stmt->bind_result($folderPath, $publicUrl);
-$stmt->fetch();
-$stmt->close();
+$folderPath = (string)($projectRow['folder_path'] ?? '');
+$publicUrl = (string)($projectRow['public_url'] ?? '');
 
 if (!isset($_FILES['files'])) {
     if (!isset($_POST['source_urls'])) {

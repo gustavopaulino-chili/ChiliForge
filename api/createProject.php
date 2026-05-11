@@ -22,6 +22,7 @@ $user_id = (int)$data["user_id"];
 $name = trim($data["name"]);
 $form_data = json_encode($data["form_data"], JSON_UNESCAPED_UNICODE);
 $generated_html = isset($data["generated_html"]) ? $data["generated_html"] : "";
+$draft_only = isset($data["draft_only"]) && in_array(strtolower((string)$data["draft_only"]), ['1', 'true', 'yes', 'on'], true);
 
 if ($user_id <= 0) {
     http_response_code(400);
@@ -65,7 +66,7 @@ if ($stmt->execute()) {
         $slug = 'site-' . $project_id;
     }
 
-    $public_url  = "/projects/" . $slug . "/";
+    $public_url  = $draft_only ? "" : "/projects/" . $slug . "/";
     $folder_path = "/public/projects/" . $slug;
 
     $projectPath = $sitesBasePath . DIRECTORY_SEPARATOR . $slug;

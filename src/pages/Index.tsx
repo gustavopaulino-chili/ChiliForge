@@ -258,13 +258,19 @@ const Index = () => {
   const { user, signOut: authSignOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const routeState = location.state as { formData?: BusinessFormData; currentStep?: number; generatedHtml?: string; savedProjectId?: number; generatedLandingUrl?: string; folderPath?: string } | null;
+  const routeState = location.state as { formData?: BusinessFormData; currentStep?: number; generatedHtml?: string; savedProjectId?: number; projectOwnerId?: number; generatedLandingUrl?: string; folderPath?: string } | null;
+  const restoreProjectId = useMemo(() => {
+    const raw = new URLSearchParams(location.search).get('restoreProjectId');
+    const parsed = raw ? Number(raw) : 0;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }, [location.search]);
   const [currentProjectFolderPath, setCurrentProjectFolderPath] = useState<string>(() => routeState?.folderPath || deriveFolderPathFromPublicUrl(routeState?.generatedLandingUrl));
   const progressStorageKey = useMemo(
     () => buildProgressStorageKey(user?.id, currentProjectFolderPath),
     [user?.id, currentProjectFolderPath],
   );
   const [savedProjectId, setSavedProjectId] = useState<number | null>(routeState?.savedProjectId ?? null);
+  const [projectOwnerId, setProjectOwnerId] = useState<number | null>(routeState?.projectOwnerId ?? null);
   const [copied, setCopied] = useState(false);
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
@@ -286,9 +292,10 @@ const Index = () => {
   const [generatedSite, setGeneratedSite] = useState<ParsedGeneratedSite | null>(null);
   const [generationCheckpoints, setGenerationCheckpoints] = useState<GenerationCheckpoint[]>(createInitialGenerationCheckpoints());
   const [generationMessages, setGenerationMessages] = useState<string[]>([]);
-  const [showLanding, setShowLanding] = useState(!(routeState?.formData || routeState?.generatedHtml));
+  const [showLanding, setShowLanding] = useState(!(routeState?.formData || routeState?.generatedHtml || restoreProjectId));
   const [showRestoreDialog, setShowRestoreDialog] = useState(false);
   const [pendingRestore, setPendingRestore] = useState<SavedProgress | null>(null);
+  const [isLoadingRestoredProject, setIsLoadingRestoredProject] = useState(Boolean(restoreProjectId));
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [currentStep, setCurrentStep] = useState(routeState?.currentStep ?? 0);
   const [maxVisitedStep, setMaxVisitedStep] = useState(0);
@@ -296,6 +303,8 @@ const Index = () => {
   const [showResults, setShowResults] = useState(Boolean(routeState?.generatedHtml));
 
   useEffect(() => {
+    if (!routeState) return;
+
     if (routeState?.formData) {
       setFormData(normalizeFormData(routeState.formData));
       setCurrentStep(routeState.currentStep ?? 0);
@@ -315,6 +324,8 @@ const Index = () => {
       setSavedProjectId(routeState.savedProjectId);
     }
 
+    setProjectOwnerId(routeState?.projectOwnerId ?? null);
+
     if (routeState?.generatedLandingUrl) {
       setGeneratedLandingUrl(routeState.generatedLandingUrl);
       if (!routeState?.folderPath) {
@@ -328,6 +339,59 @@ const Index = () => {
     }
   }, [routeState]);
 
+  useEffect(() => {
+    if (!restoreProjectId || !user?.id) return;
+
+    let cancelled = false;
+    setIsLoadingRestoredProject(true);
+
+    const loadRestoredProject = async () => {
+      try {
+        const project = await getProjectById(restoreProjectId, user.id, user.email);
+        if (cancelled || !project?.form_data) return;
+
+        const ownerId = project.user_id ?? user.id;
+        const restoredFormData = typeof project.form_data === 'string'
+          ? JSON.parse(project.form_data)
+          : project.form_data;
+        const restoredStep = project.currentStep ?? project.current_step ?? 0;
+
+        setSavedProjectId(project.id);
+        setProjectOwnerId(ownerId);
+        setCurrentProjectFolderPath(project.folder_path || '');
+        setFormData(normalizeFormData(restoredFormData));
+        setCurrentStep(restoredStep);
+        setMaxVisitedStep(restoredStep);
+        setGeneratedSite(null);
+        setGeneratedHtml('');
+        setGeneratedLandingUrl(project.public_url || '');
+        setShowResults(false);
+        setShowLanding(false);
+        setShowRestoreDialog(false);
+        setPendingRestore(null);
+
+        try {
+          localStorage.setItem('lastEditedProjectId', String(project.id));
+        } catch {}
+
+        setIsLoadingRestoredProject(false);
+        navigate('/', { replace: true, state: null });
+      } catch (error) {
+        console.error('Failed to restore project by ID:', error);
+        toast.error('Could not restore this project. Please try again from History.');
+        setShowLanding(true);
+      } finally {
+        if (!cancelled) setIsLoadingRestoredProject(false);
+      }
+    };
+
+    loadRestoredProject();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [restoreProjectId, user?.id, user?.email, navigate]);
+
   // Note: When restoring from History, the new project ID is passed via routeState.savedProjectId
   // (History.tsx creates the draft before navigating). No auto-draft needed here.
 
@@ -339,7 +403,7 @@ const Index = () => {
       try {
         await updateProjectContent({
           id: savedProjectId,
-          user_id: user.id,
+          user_id: projectOwnerId ?? user.id,
           generated_html: generatedHtml,
         });
       } catch (error) {
@@ -350,7 +414,7 @@ const Index = () => {
     }, 700);
 
     return () => window.clearTimeout(timeout);
-  }, [generatedHtml, savedProjectId, user?.id]);
+  }, [generatedHtml, savedProjectId, projectOwnerId, user?.id]);
 
   const [isGeneratingLanding, setIsGeneratingLanding] = useState(false);
 
@@ -431,6 +495,7 @@ const Index = () => {
       const saved = await response.json();
       if (saved?.success && saved?.id) {
         setSavedProjectId(saved.id);
+        setProjectOwnerId(user.id);
         if (saved?.folder_path) {
           setCurrentProjectFolderPath(String(saved.folder_path));
         }
@@ -450,18 +515,18 @@ const Index = () => {
 
   // Check for saved progress on mount and prompt user
   useEffect(() => {
-    if (routeState?.formData || routeState?.generatedHtml) return;
+    if (restoreProjectId || routeState?.formData || routeState?.generatedHtml) return;
     const progress = loadSavedProgress(progressStorageKey);
     if (!progress) return;
     if (hasMeaningfulProgress(progress)) {
       setPendingRestore(progress);
       setShowRestoreDialog(true);
     }
-  }, [routeState?.formData, routeState?.generatedHtml, progressStorageKey]);
+  }, [restoreProjectId, routeState?.formData, routeState?.generatedHtml, progressStorageKey]);
 
   // Try to load from database if no localStorage and user is logged in
   useEffect(() => {
-    if (routeState?.formData || routeState?.generatedHtml || !user?.id) return;
+    if (restoreProjectId || routeState?.formData || routeState?.generatedHtml || !user?.id) return;
     if (showRestoreDialog || pendingRestore) return; // Already showing restore dialog
     
     const lastProjectId = (() => {
@@ -477,19 +542,21 @@ const Index = () => {
 
     const loadProject = async () => {
       try {
-        const project = await getProjectById(lastProjectId, user.id);
+        const project = await getProjectById(lastProjectId, user.id, user.email);
         if (!project || !project.form_data) return;
+        const ownerId = project.user_id ?? user.id;
 
         const projectData: SavedProgress = {
-          currentStep: project.current_step ?? 0,
-          maxVisitedStep: project.current_step ?? 0,
+          currentStep: project.currentStep ?? project.current_step ?? 0,
+          maxVisitedStep: project.currentStep ?? project.current_step ?? 0,
           formData: typeof project.form_data === 'string' ? JSON.parse(project.form_data) : project.form_data,
-          user_id: user.id,
+          user_id: ownerId,
           folder_path: project.folder_path || undefined,
         };
 
         if (hasMeaningfulProgress(projectData)) {
           setSavedProjectId(lastProjectId);
+          setProjectOwnerId(ownerId);
           setCurrentProjectFolderPath(project.folder_path || '');
           setPendingRestore(projectData);
           setShowRestoreDialog(true);
@@ -500,13 +567,14 @@ const Index = () => {
     };
 
     loadProject();
-  }, [user?.id, routeState?.formData, routeState?.generatedHtml, showRestoreDialog, pendingRestore]);
+  }, [restoreProjectId, user?.id, user?.email, routeState?.formData, routeState?.generatedHtml, showRestoreDialog, pendingRestore]);
 
   const handleRestoreSession = () => {
     if (!pendingRestore) return;
     setFormData(normalizeFormData(pendingRestore.formData));
     setCurrentStep(pendingRestore.currentStep ?? 0);
     setMaxVisitedStep(pendingRestore.maxVisitedStep ?? 0);
+    setProjectOwnerId(pendingRestore.user_id ?? null);
     setShowRestoreDialog(false);
     setPendingRestore(null);
     setIsTransitioning(true);
@@ -535,7 +603,7 @@ const Index = () => {
       currentStep,
       formData,
       maxVisitedStep,
-      user_id: user?.id,
+      user_id: projectOwnerId ?? user?.id,
       folder_path: currentProjectFolderPath || undefined,
     };
 
@@ -544,7 +612,7 @@ const Index = () => {
     } else {
       safeRemove(progressStorageKey);
     }
-  }, [currentStep, formData, maxVisitedStep, user?.id, currentProjectFolderPath, progressStorageKey]);
+  }, [currentStep, formData, maxVisitedStep, projectOwnerId, user?.id, currentProjectFolderPath, progressStorageKey]);
 
   const steps = STEPS;
 
@@ -887,6 +955,7 @@ const Index = () => {
     if (!savedProjectId || !user?.id) {
       return formData;
     }
+    const ownerId = projectOwnerId ?? user.id;
 
     let nextImages: BusinessFormData['images'] = {
       ...formData.images,
@@ -928,7 +997,7 @@ const Index = () => {
       // Skip data URIs and URLs already saved inside this project's assets folder
       if (!source || /^data:image\//i.test(source) || /\/projects\/[^/]+\/assets\//.test(source)) continue;
       try {
-        const result = await uploadProjectAssetsFromUrls(savedProjectId, user.id, [source], [field.fileStem], { overwriteExisting: true });
+        const result = await uploadProjectAssetsFromUrls(savedProjectId, ownerId, [source], [field.fileStem], { overwriteExisting: true });
         const uploaded = result.uploaded?.[0];
         if (uploaded?.url) {
           nextImages[field.key] = toAbsoluteUrl(uploaded.url);
@@ -946,7 +1015,7 @@ const Index = () => {
         continue;
       }
       try {
-        const result = await uploadProjectAssetsFromUrls(savedProjectId, user.id, [source], [`product-image-${index + 1}`], { overwriteExisting: true });
+        const result = await uploadProjectAssetsFromUrls(savedProjectId, ownerId, [source], [`product-image-${index + 1}`], { overwriteExisting: true });
         const uploaded = result.uploaded?.[0];
         nextProductImages.push(uploaded?.url ? toAbsoluteUrl(uploaded.url) : source);
       } catch (error) {
@@ -964,7 +1033,7 @@ const Index = () => {
     setFormData(nextFormData);
     await updateProjectFormState({
       id: savedProjectId,
-      user_id: user.id,
+      user_id: ownerId,
       current_step: currentStep,
       form_data: nextFormData,
     });
@@ -989,6 +1058,7 @@ const Index = () => {
     setStepImagesAiGenerating(true);
     setStepImagesAiPercent(0);
     setStepImagesAiLog(initialLog);
+    const ownerId = projectOwnerId ?? user.id;
 
     const updateLog = (index: number, status: 'active'|'done'|'error') => {
       setStepImagesAiLog(prev => prev.map((e, i) => i === index ? { ...e, status } : e));
@@ -1066,7 +1136,7 @@ const Index = () => {
         const src = (field.source || '').trim();
         if (!src || /^data:image\//i.test(src) || /\/projects\/[^/]+\/assets\//.test(src)) continue;
         try {
-          const result = await uploadProjectAssetsFromUrls(savedProjectId, user.id, [src], [field.fileStem], { overwriteExisting: true });
+          const result = await uploadProjectAssetsFromUrls(savedProjectId, ownerId, [src], [field.fileStem], { overwriteExisting: true });
           const uploaded = result.uploaded?.[0];
           if (uploaded?.url) {
             (nextImages as any)[field.key] = toAbsoluteUrl(uploaded.url);
@@ -1098,7 +1168,7 @@ const Index = () => {
       setFormData(nextFormData);
       await updateProjectFormState({
         id: savedProjectId,
-        user_id: user.id,
+        user_id: ownerId,
         current_step: currentStep,
         form_data: nextFormData,
       });
@@ -1117,7 +1187,7 @@ const Index = () => {
       return [];
     }
     try {
-      const result = await uploadProjectAssets(savedProjectId, user.id, files);
+      const result = await uploadProjectAssets(savedProjectId, projectOwnerId ?? user.id, files);
       return (result.uploaded || []).map((a: any) => ({ name: a.name, url: toAbsoluteUrl(a.url) }));
     } catch {
       toast.error('Failed to upload images to assets.');
@@ -1527,7 +1597,7 @@ const Index = () => {
           const requestedSlug = resolveProjectSlug(generationFormData);
           const basePayload = {
             project_id: savedProjectId,
-            user_id: user.id,
+            user_id: projectOwnerId ?? user.id,
             name: generationFormData.businessName || 'Projeto',
             slug: requestedSlug,
             form_data: generationFormData,
@@ -1631,6 +1701,7 @@ const Index = () => {
           if (saved?.success && saved?.id) {
             const publishedHtml = saved.html || previewDocument;
             setSavedProjectId(saved.id);
+            setProjectOwnerId(basePayload.user_id);
             setGeneratedLandingUrl(saved.url || '');
             if (saved?.folder_path) {
               setCurrentProjectFolderPath(String(saved.folder_path));
@@ -1712,6 +1783,7 @@ const Index = () => {
       const saved = await response.json();
       if (saved?.success && saved?.id) {
         setSavedProjectId(saved.id);
+        setProjectOwnerId(user.id);
         if (saved?.folder_path) {
           setCurrentProjectFolderPath(String(saved.folder_path));
         }
@@ -1730,6 +1802,7 @@ const Index = () => {
     setCurrentStep(0);
     setMaxVisitedStep(0);
     setSavedProjectId(null);
+    setProjectOwnerId(null);
     setCurrentProjectFolderPath('');
     setAiImagesGenerated(false);
     setAiGeneratedImageUrls([]);
@@ -1752,7 +1825,7 @@ const Index = () => {
       try {
         await updateProjectFormState({
           id: savedProjectId,
-          user_id: user.id,
+          user_id: projectOwnerId ?? user.id,
           current_step: currentStep,
           form_data: formData,
         });
@@ -1762,7 +1835,7 @@ const Index = () => {
     }, 500);
 
     return () => window.clearTimeout(timeout);
-  }, [savedProjectId, user?.id, currentStep, formData]);
+  }, [savedProjectId, projectOwnerId, user?.id, currentStep, formData]);
 
   // Save last edited project ID to localStorage for recovery on re-open
   useEffect(() => {
@@ -1792,7 +1865,7 @@ const Index = () => {
 
     try {
       setIsDownloadingZip(true);
-      await downloadProjectZip(savedProjectId, user.id, resolveProjectSlug(formData));
+      await downloadProjectZip(savedProjectId, projectOwnerId ?? user.id, resolveProjectSlug(formData));
       toast.success('Project ZIP download started.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to download project ZIP.');
@@ -1800,6 +1873,17 @@ const Index = () => {
       setIsDownloadingZip(false);
     }
   };
+
+  if (isLoadingRestoredProject) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>Restoring form...</span>
+        </div>
+      </div>
+    );
+  }
 
   // Landing page
   if (showLanding) {
@@ -2027,8 +2111,15 @@ const Index = () => {
                 onChange={setGeneratedHtml}
                 saving={isEditorSaving}
                 projectId={savedProjectId}
-                userId={user?.id}
+                userId={projectOwnerId ?? user?.id}
                 projectPublicUrl={hostedPreviewUrl}
+                brandColors={{
+                  primary: formData.primaryColor,
+                  secondary: formData.secondaryColor,
+                  accent: formData.accentColor,
+                  text: formData.textColor,
+                  background: formData.backgroundColor,
+                }}
               />
             ) : hostedPreviewUrl ? (
               <div className="rounded-xl border border-border overflow-hidden bg-white shadow-lg">

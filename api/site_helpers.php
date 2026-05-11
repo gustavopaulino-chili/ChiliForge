@@ -191,8 +191,8 @@ function extract_extension_from_url($url, $contentType = null) {
         'image/x-bmp' => 'bmp',
         'image/tiff' => 'tiff',
         'image/x-tiff' => 'tiff',
-        'image/heic' => 'jpg',
-        'image/heif' => 'jpg',
+        'image/heic' => 'heic',
+        'image/heif' => 'heif',
         'image/x-icon' => 'ico',
         'image/vnd.microsoft.icon' => 'ico',
         'video/mp4' => 'mp4',
@@ -229,6 +229,65 @@ function extract_extension_from_url($url, $contentType = null) {
     }
 
     return $ctExt ?? 'bin';
+}
+
+function detect_asset_content_type($body, $fallbackContentType = null) {
+    $fallback = '';
+    if (is_string($fallbackContentType) && trim($fallbackContentType) !== '') {
+        $fallback = strtolower(trim(explode(';', $fallbackContentType)[0]));
+    }
+
+    if (is_string($body) && trim(substr($body, 0, 512)) !== '') {
+        $prefix = ltrim(substr($body, 0, 512));
+        if (preg_match('/^<svg[\s>]/i', $prefix)) {
+            return 'image/svg+xml';
+        }
+        if (preg_match('/^<(?:!doctype\s+html|html|head|body)\b/i', $prefix)) {
+            return 'text/html';
+        }
+    }
+
+    if (function_exists('finfo_open') && is_string($body) && $body !== '') {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo) {
+            $detected = finfo_buffer($finfo, $body);
+            finfo_close($finfo);
+            if (is_string($detected) && $detected !== '' && $detected !== 'application/octet-stream') {
+                return strtolower($detected);
+            }
+        }
+    }
+
+    return $fallback ?: 'application/octet-stream';
+}
+
+function is_safe_asset_content_type($contentType) {
+    $normalized = strtolower(trim(explode(';', (string)$contentType)[0]));
+    if ($normalized === '') {
+        return false;
+    }
+
+    if (str_starts_with($normalized, 'image/')) {
+        return true;
+    }
+
+    return in_array($normalized, [
+        'application/pdf',
+        'font/woff',
+        'font/woff2',
+        'font/ttf',
+        'font/otf',
+        'application/font-woff',
+        'application/font-woff2',
+        'application/vnd.ms-fontobject',
+        'video/mp4',
+        'video/webm',
+        'video/ogg',
+        'audio/mpeg',
+        'audio/mp3',
+        'audio/wav',
+        'audio/ogg',
+    ], true);
 }
 
 function download_remote_asset($url) {
@@ -308,7 +367,7 @@ function download_remote_asset($url) {
         }
     }
 
-    $contentType = $headers['content-type'] ?? null;
+    $contentType = detect_asset_content_type($body, $headers['content-type'] ?? null);
 
     return [
         'body' => $body,

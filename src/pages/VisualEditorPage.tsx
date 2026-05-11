@@ -13,11 +13,12 @@ import {
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 import { VisualEditor, stripEditorBridge } from '@/components/editor/VisualEditor';
-import { getProjects, updateProjectContent } from '@/services/api';
+import { getProjectById, updateProjectContent } from '@/services/api';
 import { toast } from 'sonner';
 
 type Project = {
   id: number;
+  user_id?: number;
   name: string;
   public_url?: string;
   folder_path?: string;
@@ -29,6 +30,25 @@ type Project = {
     textColor?: string;
     backgroundColor?: string;
   } | null;
+};
+
+type EditorBrandColors = {
+  primary?: string;
+  secondary?: string;
+  accent?: string;
+  text?: string;
+  background?: string;
+};
+
+const normalizeHexColor = (value?: string) => {
+  const raw = (value || '').trim();
+  const match = raw.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!match) return '';
+  const body = match[1];
+  const full = body.length === 3
+    ? body.split('').map((char) => char + char).join('')
+    : body;
+  return `#${full.toLowerCase()}`;
 };
 
 const toAbsoluteUrl = (value: string) => {
@@ -103,10 +123,7 @@ export default function VisualEditorPage() {
       }
 
       try {
-        const raw = await getProjects(user.id, user.email);
-        // getProjects returns an array; guard against error-object responses
-        const list: Project[] = Array.isArray(raw) ? raw : [];
-        const found = list.find((item) => Number(item.id) === projectId);
+        const found = await getProjectById(projectId, user.id, user.email) as Project | null;
         if (!mounted) return;
 
         if (!found) {
@@ -117,9 +134,9 @@ export default function VisualEditorPage() {
 
         setProject(found);
 
-        // Try to load HTML: prefer the live published file, fall back to DB column
-        const mergedHtml = await loadPublishedDocument(found.public_url, found.generated_html || '');
-        const finalHtml = mergedHtml || stripEditorBridge(found.generated_html || '');
+        // Load from the published project folder. getProjects no longer ships
+        // the full generated_html payload during normal reads.
+        const finalHtml = await loadPublishedDocument(found.public_url, '');
 
         if (!mounted) return;
 
@@ -145,7 +162,7 @@ export default function VisualEditorPage() {
 
     run();
     return () => { mounted = false; };
-  }, [projectId, user?.id]);
+  }, [projectId, user?.id, user?.email]);
 
   // Track unsaved changes
   useEffect(() => {
@@ -191,17 +208,17 @@ export default function VisualEditorPage() {
     );
   }
 
-  const editorPalette = [
-    project?.form_data?.primaryColor,
-    project?.form_data?.secondaryColor,
-    project?.form_data?.accentColor,
-    project?.form_data?.textColor,
-    project?.form_data?.backgroundColor,
-  ].filter((value, index, list): value is string => {
-    if (typeof value !== 'string') return false;
-    const color = value.trim();
-    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color)) return false;
-    return list.findIndex((v) => (v || '').toLowerCase() === color.toLowerCase()) === index;
+  const editorBrandColors: EditorBrandColors = {
+    primary: normalizeHexColor(project?.form_data?.primaryColor),
+    secondary: normalizeHexColor(project?.form_data?.secondaryColor),
+    accent: normalizeHexColor(project?.form_data?.accentColor),
+    text: normalizeHexColor(project?.form_data?.textColor),
+    background: normalizeHexColor(project?.form_data?.backgroundColor),
+  };
+
+  const editorPalette = Object.values(editorBrandColors).filter((value, index, list): value is string => {
+    if (!value) return false;
+    return list.findIndex((candidate) => candidate === value) === index;
   });
 
   return (
@@ -240,7 +257,7 @@ export default function VisualEditorPage() {
                   try {
                     await updateProjectContent({
                       id: project.id,
-                      user_id: user.id,
+                      user_id: project.user_id ?? user.id,
                       generated_html: html,
                     });
                     originalHtmlRef.current = stripEditorBridge(html);
@@ -270,9 +287,10 @@ export default function VisualEditorPage() {
             onChange={setHtml}
             saving={saving}
             projectId={project.id}
-            userId={user?.id}
+            userId={project.user_id ?? user?.id}
             projectPublicUrl={project.public_url || ''}
             brandPalette={editorPalette}
+            brandColors={editorBrandColors}
             layout="overlay"
           />
         </main>
@@ -301,7 +319,7 @@ export default function VisualEditorPage() {
               try {
                 await updateProjectContent({
                   id: project.id,
-                  user_id: user.id,
+                  user_id: project.user_id ?? user.id,
                   generated_html: html,
                 });
                 originalHtmlRef.current = stripEditorBridge(html);

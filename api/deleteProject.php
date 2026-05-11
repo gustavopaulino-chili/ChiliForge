@@ -12,18 +12,18 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'site_helpers.php';
 
 $data = json_decode(file_get_contents("php://input"), true);
 
-if (!$data || !isset($data["id"])) {
+if (!$data || !isset($data["id"]) || !isset($data["user_id"])) {
     http_response_code(400);
-    echo json_encode(["error" => "Project ID is required"]);
+    echo json_encode(["error" => "Project ID and user_id are required"]);
     exit;
 }
 
 $id     = (int)$data["id"];
 $userId = isset($data["user_id"]) ? (int)$data["user_id"] : 0;
 
-if ($id <= 0) {
+if ($id <= 0 || $userId <= 0) {
     http_response_code(400);
-    echo json_encode(["error" => "Invalid project ID"]);
+    echo json_encode(["error" => "Invalid project/user ID"]);
     exit;
 }
 
@@ -33,47 +33,18 @@ include "db.php";
 $folderPath      = '';
 $effectiveUserId = 0;
 
-if ($userId > 0) {
-    // When user_id is provided, verify ownership (with email fallback for migrated accounts).
-    $row = find_project_for_user($conn, $id, $userId, 'p.folder_path');
-    if (!$row) {
-        http_response_code(404);
-        echo json_encode(["error" => "Project not found"]);
-        $conn->close();
-        exit;
-    }
-    $folderPath      = (string)($row['folder_path']      ?? '');
-    $effectiveUserId = (int)($row['actual_user_id'] ?? $userId);
-} else {
-    // Legacy path: no user_id supplied (e.g. old API clients). Fetch folder only.
-    $sel = $conn->prepare("SELECT folder_path FROM projects WHERE id = ? LIMIT 1");
-    if (!$sel) {
-        http_response_code(500);
-        echo json_encode(["error" => "Query preparation failed"]);
-        $conn->close();
-        exit;
-    }
-    $sel->bind_param("i", $id);
-    $sel->execute();
-    $sel->bind_result($folderPath);
-    $fetchOk = $sel->fetch();
-    $sel->close();
-    if (!$fetchOk) {
-        http_response_code(404);
-        echo json_encode(["error" => "Project not found"]);
-        $conn->close();
-        exit;
-    }
+$row = find_project_for_user($conn, $id, $userId, 'p.folder_path');
+if (!$row) {
+    http_response_code(404);
+    echo json_encode(["error" => "Project not found"]);
+    $conn->close();
+    exit;
 }
+$folderPath      = (string)($row['folder_path'] ?? '');
+$effectiveUserId = (int)($row['actual_user_id'] ?? $userId);
 
-// Delete the database row (use ownership filter when available).
-if ($effectiveUserId > 0) {
-    $stmt = $conn->prepare("DELETE FROM projects WHERE id = ? AND user_id = ?");
-    $stmt->bind_param("ii", $id, $effectiveUserId);
-} else {
-    $stmt = $conn->prepare("DELETE FROM projects WHERE id = ?");
-    $stmt->bind_param("i", $id);
-}
+$stmt = $conn->prepare("DELETE FROM projects WHERE id = ? AND user_id = ?");
+$stmt->bind_param("ii", $id, $effectiveUserId);
 
 if (!$stmt->execute()) {
     http_response_code(500);

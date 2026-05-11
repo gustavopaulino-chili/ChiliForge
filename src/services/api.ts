@@ -106,11 +106,14 @@ export const getProjects = (user_id: number, user_email?: string) => {
   }).then(res => res.json());
 };
 
-export const getProjectById = async (projectId: number, userId: number) => {
+export const getProjectById = async (projectId: number, userId: number, userEmail?: string) => {
   const params = new URLSearchParams({
     user_id: String(userId),
     id: String(projectId),
   });
+  if (userEmail?.trim()) {
+    params.set('user_email', userEmail.trim());
+  }
 
   const response = await fetch(`${API}/getProjects.php?${params.toString()}`, {
     cache: 'no-store',
@@ -123,7 +126,18 @@ export const getProjectById = async (projectId: number, userId: number) => {
 
   const data = await response.json();
   // When fetching by ID, getProjects returns an array with one item
-  return Array.isArray(data) && data.length > 0 ? data[0] : null;
+  return (Array.isArray(data) && data.length > 0 ? data[0] : null) as ({
+    id: number;
+    user_id?: number;
+    name?: string;
+    public_url?: string;
+    folder_path?: string;
+    form_data?: any;
+    generated_html?: string;
+    has_generated_html?: boolean;
+    current_step?: number;
+    currentStep?: number;
+  } | null);
 };
 
 export const getProjectEditorContent = async (projectId: number, userId: number) => {
