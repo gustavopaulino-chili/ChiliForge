@@ -29,27 +29,27 @@ if ($projectId <= 0 || $userId <= 0) {
 
 include "db.php";
 
-$select = $conn->prepare("SELECT folder_path, public_url FROM projects WHERE id = ? AND user_id = ? LIMIT 1");
-$select->bind_param("ii", $projectId, $userId);
-$select->execute();
-$select->store_result();
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.folder_path, p.public_url');
 
-if ($select->num_rows === 0) {
+if (!$projectRow) {
     http_response_code(404);
     echo json_encode(["error" => "Project not found"]);
-    $select->close();
     $conn->close();
     exit;
 }
 
-$folderPath = '';
-$publicUrl = '';
-$select->bind_result($folderPath, $publicUrl);
-$select->fetch();
-$select->close();
+$folderPath = (string)($projectRow['folder_path'] ?? '');
+$publicUrl  = (string)($projectRow['public_url']  ?? '');
+$effectiveUserId = (int)($projectRow['actual_user_id'] ?? $userId);
 
 $update = $conn->prepare("UPDATE projects SET generated_html = ? WHERE id = ? AND user_id = ?");
-$update->bind_param("sii", $generatedHtml, $projectId, $userId);
+if (!$update) {
+    http_response_code(500);
+    echo json_encode(["error" => "Query preparation failed", "details" => $conn->error]);
+    $conn->close();
+    exit;
+}
+$update->bind_param("sii", $generatedHtml, $projectId, $effectiveUserId);
 
 if (!$update->execute()) {
     http_response_code(500);

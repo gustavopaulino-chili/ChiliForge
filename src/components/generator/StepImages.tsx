@@ -1,7 +1,7 @@
 import { useRef, useState, DragEvent } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { BusinessFormData, ImageUrls } from '@/types/businessForm';
-import { Image, Sparkles, Plus, X, CheckCircle2, AlertCircle, Loader2, Wand2, Upload, FolderOpen } from 'lucide-react';
+import { Image, Sparkles, Plus, X, CheckCircle2, AlertCircle, Loader2, Wand2, Upload, FolderOpen, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FieldLabel } from './FieldLabel';
 import { ImageUploadField } from './ImageUploadField';
@@ -25,9 +25,11 @@ interface Props {
   aiPercent?: number;
   aiLog?: AiLogEntry[];
   onUploadImages?: (files: File[]) => Promise<UploadedAsset[]>;
+  aiImagesGenerated?: boolean;
+  generatedImageUrls?: string[];
 }
 
-export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiImages, aiPercent = 0, aiLog = [], onUploadImages }: Props) {
+export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiImages, aiPercent = 0, aiLog = [], onUploadImages, aiImagesGenerated = false, generatedImageUrls = [] }: Props) {
   const dropRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -98,14 +100,20 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               </p>
             </div>
           </div>
-          <Switch
-            checked={data.generateAiImages}
-            onCheckedChange={v => onChange({ generateAiImages: v })}
-            disabled={isGeneratingAiImages}
-          />
+          {aiImagesGenerated ? (
+            <span className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
+              <CheckCircle2 className="h-4 w-4" /> Generated
+            </span>
+          ) : (
+            <Switch
+              checked={data.generateAiImages}
+              onCheckedChange={v => onChange({ generateAiImages: v })}
+              disabled={isGeneratingAiImages}
+            />
+          )}
         </div>
 
-        {data.generateAiImages && (
+        {(data.generateAiImages || aiImagesGenerated) && (
           <div className="space-y-3">
             {/* Progress panel — inline, never replaces the form */}
             {showProgressPanel && (
@@ -162,17 +170,35 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               </div>
             )}
 
-            {/* Generate button */}
+            {/* Generated images preview */}
+            {aiImagesGenerated && !isGeneratingAiImages && generatedImageUrls.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground pl-2">Generated images saved to assets:</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {generatedImageUrls.map((url, i) => (
+                    <img
+                      key={i}
+                      src={url}
+                      alt={`Generated image ${i + 1}`}
+                      className="rounded-md w-full h-20 object-cover border border-border/40"
+                      onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Generate / Regenerate button */}
             {onGenerateAiImages && (
               <div className="pl-2 space-y-1.5">
-                {!showProgressPanel && (
+                {!showProgressPanel && !aiImagesGenerated && (
                   <p className="text-xs text-muted-foreground">
                     Images will be named after your configured sections (e.g.{' '}
                     <span className="font-mono">benefits-image.jpg</span>) and saved to the project assets folder.
                   </p>
                 )}
                 <Button
-                  variant="default"
+                  variant={aiImagesGenerated ? 'outline' : 'default'}
                   size="sm"
                   className="gap-2"
                   onClick={onGenerateAiImages}
@@ -180,10 +206,12 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
                 >
                   {isGeneratingAiImages ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : aiImagesGenerated ? (
+                    <RefreshCw className="h-4 w-4" />
                   ) : (
                     <Wand2 className="h-4 w-4" />
                   )}
-                  {isGeneratingAiImages ? 'Generating…' : isDone ? 'Regenerate AI Images' : 'Generate & Save AI Images Now'}
+                  {isGeneratingAiImages ? 'Generating…' : aiImagesGenerated ? 'Regenerate AI Images' : 'Generate & Save AI Images Now'}
                 </Button>
               </div>
             )}

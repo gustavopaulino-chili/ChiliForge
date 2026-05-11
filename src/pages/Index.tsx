@@ -273,6 +273,8 @@ const Index = () => {
   const [stepImagesAiGenerating, setStepImagesAiGenerating] = useState(false);
   const [stepImagesAiPercent, setStepImagesAiPercent] = useState(0);
   const [stepImagesAiLog, setStepImagesAiLog] = useState<{label: string; status: 'pending'|'active'|'done'|'error'}[]>([]);
+  const [aiImagesGenerated, setAiImagesGenerated] = useState(false);
+  const [aiGeneratedImageUrls, setAiGeneratedImageUrls] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [showFtpDeploy, setShowFtpDeploy] = useState(false);
@@ -439,13 +441,11 @@ const Index = () => {
     }
   };
 
-  const handleStartGenerator = () => {
+  const handleStartGenerator = async () => {
     setIsTransitioning(true);
-    createDraftProject();
-    setTimeout(() => {
-      setShowLanding(false);
-      setIsTransitioning(false);
-    }, 500);
+    await Promise.all([createDraftProject(), new Promise(r => setTimeout(r, 500))]);
+    setShowLanding(false);
+    setIsTransitioning(false);
   };
 
   // Check for saved progress on mount and prompt user
@@ -1079,6 +1079,15 @@ const Index = () => {
       updateLog(uploadLogIdx, 'done');
       setStepImagesAiPercent(100);
 
+      const previewUrls = [
+        nextImages.heroImage1,
+        nextImages.sectionImage1,
+        nextImages.sectionImage2,
+        nextImages.sectionImage3,
+      ].filter(Boolean) as string[];
+      setAiImagesGenerated(true);
+      setAiGeneratedImageUrls(previewUrls);
+
       // Disable AI generation after running StepImages so LP generation doesn't
       // redundantly invoke AI for the same slots (LP still fills empty slots via Pexels).
       const nextFormData: BusinessFormData = {
@@ -1607,7 +1616,7 @@ const Index = () => {
               ]));
 
               pushGenerationMessage(`Asset mirror fallback activated: substituting ${unresolved.length} unresolved asset(s) and retrying publish.`);
-              toast.warning(`Alguns assets remotos falharam no espelhamento. Substituindo ${unresolved.length} item(ns) e continuando...`);
+              toast.warning(`Some remote assets failed to mirror. Substituting ${unresolved.length} item(s) and continuing...`);
 
               saved = await publishAttempt({
                 ...basePayload,
@@ -1633,7 +1642,7 @@ const Index = () => {
             setGenerationProgress(95);
             pushGenerationMessage('Publishing completed successfully.');
             if (saved?.warning_logo_blocked) {
-              toast.warning(saved.warning_message || 'A logo nao pode ser salva localmente porque o site de origem bloqueia esse arquivo.');
+              toast.warning(saved.warning_message || 'The logo could not be saved locally because the origin site blocks this file.');
             }
             if (saved?.slug && saved.slug !== requestedSlug) {
               toast.warning(`Slug already in use. Forge published this project as "${saved.slug}".`);
@@ -1643,7 +1652,7 @@ const Index = () => {
           }
         } catch (saveErr) {
           console.error('Error saving project:', saveErr);
-          toast.warning('Nao foi possivel publicar no servidor, mas a geracao foi concluida com preview local.');
+          toast.warning('Could not publish to the server, but generation completed with a local preview.');
           pushGenerationMessage('Publish failed, but generation will continue with local preview and assets fallback.');
           setGeneratedHtml(previewDocument);
           setGeneratedLandingUrl('');
@@ -1722,6 +1731,10 @@ const Index = () => {
     setMaxVisitedStep(0);
     setSavedProjectId(null);
     setCurrentProjectFolderPath('');
+    setAiImagesGenerated(false);
+    setAiGeneratedImageUrls([]);
+    setStepImagesAiPercent(0);
+    setStepImagesAiLog([]);
     safeRemove(progressStorageKey);
     safeRemove(LEGACY_STORAGE_KEY);
     try { localStorage.removeItem('lastEditedProjectId'); } catch {}
@@ -2117,7 +2130,7 @@ const Index = () => {
           {currentStepId === 'services' && <StepServices data={formData} onChange={updateForm} />}
           {currentStepId === 'brand' && <StepBrand data={formData} onChange={updateForm} />}
           {currentStepId === 'pages' && <StepPages data={formData} onChange={updateForm} />}
-          {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} onGenerateAiImages={handleAiImagesGenerate} isGeneratingAiImages={stepImagesAiGenerating} aiPercent={stepImagesAiPercent} aiLog={stepImagesAiLog} onUploadImages={handleUploadImagesForStep} />}
+          {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} onGenerateAiImages={handleAiImagesGenerate} isGeneratingAiImages={stepImagesAiGenerating} aiPercent={stepImagesAiPercent} aiLog={stepImagesAiLog} onUploadImages={handleUploadImagesForStep} aiImagesGenerated={aiImagesGenerated} generatedImageUrls={aiGeneratedImageUrls} />}
           {currentStepId === 'contact' && <StepContact data={formData} onChange={updateForm} />}
           {/* Files step removed: download files will be created automatically from AI references to ./files/ in generated content. */}
           {currentStepId === 'review' && <StepReview data={formData} />}
@@ -2756,7 +2769,7 @@ DESIGN CONTRAST:
 }
 
 function slugifyImageName(name: string): string {
-  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'image';
+  return (name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 28).replace(/-+$/, '')) || 'image';
 }
 
 // Maps each of the 3 section image slots to the corresponding enabled section name/fileStem.
