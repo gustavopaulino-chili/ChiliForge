@@ -55,13 +55,9 @@ try {
     $existingProject = null;
     $effectiveUserId = $user_id;
     if ($project_id > 0) {
-        $projectLookup = $conn->prepare("SELECT id, public_url, folder_path FROM projects WHERE id = ? AND user_id = ? LIMIT 1");
-        if ($projectLookup) {
-            $projectLookup->bind_param("ii", $project_id, $user_id);
-            $projectLookup->execute();
-            $projectResult = $projectLookup->get_result();
-            $existingProject = $projectResult ? $projectResult->fetch_assoc() : null;
-            $projectLookup->close();
+        $existingProject = find_project_for_user($conn, $project_id, $user_id, 'p.id, p.public_url, p.folder_path');
+        if ($existingProject) {
+            $effectiveUserId = (int)($existingProject['actual_user_id'] ?? $user_id);
         }
     }
 
@@ -437,7 +433,7 @@ try {
     if ($existingProject) {
         $project_id = (int)$existingProject['id'];
         $update = $conn->prepare("UPDATE projects SET name = ?, public_url = ?, folder_path = ?, form_data = ?, generated_html = ?, current_step = ? WHERE id = ? AND user_id = ?");
-        $update->bind_param("sssssiii", $name, $public_url, $folder_path, $form_data, $hostedHtml, $current_step, $project_id, $user_id);
+        $update->bind_param("sssssiii", $name, $public_url, $folder_path, $form_data, $hostedHtml, $current_step, $project_id, $effectiveUserId);
         if (!$update->execute()) {
             throw new RuntimeException('Erro ao atualizar projeto: ' . $update->error);
         }

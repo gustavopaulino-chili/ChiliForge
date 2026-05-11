@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { ChevronDown, ChevronRight, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Monitor, Redo2, Smartphone, Tablet, Undo2, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Monitor, Palette, Redo2, Smartphone, Tablet, Undo2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -96,6 +96,13 @@ type VisualEditorProps = {
   userId?: number | null;
   projectPublicUrl?: string;
   brandPalette?: string[];
+  brandColors?: {
+    primary?: string;
+    secondary?: string;
+    accent?: string;
+    text?: string;
+    background?: string;
+  };
   /** 'split' = iframe left + panel right (default); 'overlay' = iframe full-screen + floating toggle panel */
   layout?: 'split' | 'overlay';
 };
@@ -217,6 +224,17 @@ const rgbToHex = (value: string) => {
   return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
 };
 
+const normalizeHexColor = (value: string) => {
+  const raw = (value || '').trim();
+  const match = raw.match(/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+  if (!match) return '';
+  const body = match[1].slice(0, 6);
+  const full = body.length === 3
+    ? body.split('').map((char) => char + char).join('')
+    : body.padEnd(6, '0').slice(0, 6);
+  return `#${full.toLowerCase()}`;
+};
+
 const parseColorWithAlpha = (value: string) => {
   if (!value) return { hex: '#ffffff', alpha: 100 };
   if (value.startsWith('#')) return { hex: value, alpha: 100 };
@@ -226,6 +244,14 @@ const parseColorWithAlpha = (value: string) => {
   const a = Math.max(0, Math.min(1, Number(match[4] ?? '1')));
   const hex = `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
   return { hex, alpha: Math.round(a * 100) };
+};
+
+const cssColorToComparableHex = (value: string) => {
+  const raw = (value || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('#')) return normalizeHexColor(raw);
+  if (/^rgba?\(/i.test(raw)) return normalizeHexColor(rgbToHex(raw));
+  return '';
 };
 
 const hexToRgba = (hex: string, alphaPercent: number) => {
@@ -238,6 +264,30 @@ const hexToRgba = (hex: string, alphaPercent: number) => {
   const b = Number.parseInt(full.slice(4, 6), 16);
   const a = Math.max(0, Math.min(100, alphaPercent)) / 100;
   return `rgba(${r}, ${g}, ${b}, ${a})`;
+};
+
+const replaceGlobalColorInHtml = (sourceHtml: string, fromColor: string, toColor: string) => {
+  const from = normalizeHexColor(fromColor);
+  const to = normalizeHexColor(toColor);
+  if (!sourceHtml || !from || !to || from === to) return sourceHtml;
+
+  let next = sourceHtml.replace(/#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})\b/gi, (match) => (
+    normalizeHexColor(match) === from ? to : match
+  ));
+
+  next = next.replace(/rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)/gi, (match) => {
+    if (cssColorToComparableHex(match) !== from) return match;
+    const alpha = match.match(/rgba\([^,]+,[^,]+,[^,]+,\s*([^)]+)\)/i)?.[1]?.trim();
+    if (!alpha) return to;
+
+    const full = to.replace('#', '');
+    const r = Number.parseInt(full.slice(0, 2), 16);
+    const g = Number.parseInt(full.slice(2, 4), 16);
+    const b = Number.parseInt(full.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  });
+
+  return next;
 };
 
 const normalizePublicBaseUrl = (value?: string) => {
@@ -485,6 +535,7 @@ export function VisualEditor({
   userId,
   projectPublicUrl,
   brandPalette = [],
+  brandColors,
   layout = 'split',
 }: VisualEditorProps) {
   // ...existing code...
@@ -901,6 +952,15 @@ export function VisualEditor({
   const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [snapshots, setSnapshots] = useState<EditorSnapshot[]>([]);
   const [, setHistoryVersion] = useState(0);
+  const brandPaletteKey = brandPalette.map((value) => normalizeHexColor(value || '')).filter(Boolean).join('|');
+  const initialBrandColors = useMemo(() => ({
+    primary: normalizeHexColor(brandColors?.primary || brandPalette[0] || ''),
+    secondary: normalizeHexColor(brandColors?.secondary || brandPalette[1] || ''),
+    accent: normalizeHexColor(brandColors?.accent || brandPalette[2] || ''),
+    text: normalizeHexColor(brandColors?.text || brandPalette[3] || ''),
+    background: normalizeHexColor(brandColors?.background || brandPalette[4] || ''),
+  }), [brandColors?.primary, brandColors?.secondary, brandColors?.accent, brandColors?.text, brandColors?.background, brandPaletteKey]);
+  const [globalBrandColors, setGlobalBrandColors] = useState(initialBrandColors);
   const nextGeneratedImageIdRef = useRef(1);
   const nextSnapshotIdRef = useRef(1);
   const historyPastRef = useRef<string[]>([]);
@@ -918,6 +978,23 @@ export function VisualEditor({
 
   const canUndo = historyPastRef.current.length > 0;
   const canRedo = historyFutureRef.current.length > 0;
+
+  useEffect(() => {
+    setGlobalBrandColors(initialBrandColors);
+  }, [initialBrandColors]);
+
+  const activeBrandPalette = useMemo(() => {
+    const values = [
+      globalBrandColors.primary,
+      globalBrandColors.secondary,
+      globalBrandColors.accent,
+      globalBrandColors.text,
+      globalBrandColors.background,
+      ...brandPalette,
+    ].map((value) => normalizeHexColor(value || '')).filter(Boolean);
+
+    return values.filter((value, index) => values.indexOf(value) === index);
+  }, [globalBrandColors, brandPaletteKey]);
 
   const snapshotsStorageKey = useMemo(() => {
     if (!projectId || !userId) return '';
@@ -2595,16 +2672,57 @@ export function VisualEditor({
     applyColorsLive({ nextTextColor: next });
   };
 
+  const writeHtmlToIframe = (nextHtml: string) => {
+    setTimeout(() => {
+      const doc = iframeRef.current?.contentDocument;
+      if (!doc) return;
+      doc.open();
+      doc.write(nextHtml);
+      doc.close();
+      injectBridgeIntoDocument(doc);
+    }, 0);
+  };
+
+  const applyGlobalBrandColor = (
+    key: keyof typeof globalBrandColors,
+    label: string,
+    nextColor: string,
+  ) => {
+    const previous = normalizeHexColor(globalBrandColors[key] || '');
+    const next = normalizeHexColor(nextColor);
+    if (!next) return;
+
+    setGlobalBrandColors((current) => ({
+      ...current,
+      [key]: next,
+    }));
+
+    if (!previous || previous === next) {
+      return;
+    }
+
+    const updatedHtml = replaceGlobalColorInHtml(stripEditorBridge(html), previous, next);
+    if (updatedHtml === stripEditorBridge(html)) {
+      toast.message(`${label} updated. No matching color was found on the page.`);
+      return;
+    }
+
+    setSelected(null);
+    emitChange(updatedHtml);
+    writeHtmlToIframe(updatedHtml);
+    toast.success(`${label} updated globally.`);
+  };
+
   const renderBrandPaletteSwatches = (
     keyPrefix: string,
     onApply: (color: string) => void,
     titleBuilder?: (color: string) => string,
   ) => {
-    if (brandPalette.length === 0) return null;
+    if (activeBrandPalette.length === 0) return null;
 
     return (
       <div className="mb-1 flex flex-wrap gap-1">
-        {brandPalette.map((color) => (
+        {activeBrandPalette.map((color) => (
           <button
             key={`${keyPrefix}-${color}`}
             type="button"
@@ -3320,6 +3438,41 @@ export function VisualEditor({
         >
           Sections
         </button>
+      </div>
+
+      <div className="space-y-3 rounded-md border border-border/60 bg-muted/20 p-3">
+        <div className="flex items-center gap-2">
+          <Palette className="h-4 w-4 text-primary" />
+          <p className="text-sm font-medium">Brand Colors</p>
+        </div>
+        <div className="grid grid-cols-1 gap-2">
+          {([
+            ['primary', 'Primary'],
+            ['secondary', 'Secondary'],
+            ['accent', 'Accent'],
+            ['text', 'Text'],
+            ['background', 'Background'],
+          ] as Array<[keyof typeof globalBrandColors, string]>).map(([key, label]) => {
+            const value = globalBrandColors[key] || '#000000';
+            return (
+              <div key={key} className="grid grid-cols-[88px_40px_minmax(0,1fr)] items-center gap-2">
+                <Label htmlFor={`cf-global-${key}`} className="text-xs text-muted-foreground">{label}</Label>
+                <Input
+                  id={`cf-global-${key}`}
+                  type="color"
+                  value={value}
+                  className="h-9 w-10 p-1"
+                  onChange={(event) => applyGlobalBrandColor(key, label, event.target.value)}
+                />
+                <Input
+                  value={value}
+                  className="h-9 font-mono text-xs"
+                  onChange={(event) => applyGlobalBrandColor(key, label, event.target.value)}
+                />
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {editorTab === 'sections' ? (

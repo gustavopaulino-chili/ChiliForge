@@ -29,10 +29,20 @@ if ($currentStep < 0) {
     $currentStep = 0;
 }
 
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'site_helpers.php';
 include "db.php";
 
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.id');
+if (!$projectRow) {
+    http_response_code(404);
+    echo json_encode(["error" => "Project not found"]);
+    $conn->close();
+    exit;
+}
+$effectiveUserId = (int)($projectRow['actual_user_id'] ?? $userId);
+
 $update = $conn->prepare("UPDATE projects SET current_step = ? WHERE id = ? AND user_id = ?");
-$update->bind_param("iii", $currentStep, $projectId, $userId);
+$update->bind_param("iii", $currentStep, $projectId, $effectiveUserId);
 
 if (!$update->execute()) {
     http_response_code(500);

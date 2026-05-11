@@ -22,24 +22,16 @@ if ($projectId <= 0 || $userId <= 0) {
     exit;
 }
 
-$stmt = $conn->prepare("SELECT folder_path, public_url FROM projects WHERE id = ? AND user_id = ? LIMIT 1");
-$stmt->bind_param("ii", $projectId, $userId);
-$stmt->execute();
-$stmt->store_result();
-
-if ($stmt->num_rows === 0) {
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.folder_path, p.public_url');
+if (!$projectRow) {
     http_response_code(404);
     echo json_encode(["error" => "Project not found"]);
-    $stmt->close();
     $conn->close();
     exit;
 }
 
-$folderPath = '';
-$publicUrl = '';
-$stmt->bind_result($folderPath, $publicUrl);
-$stmt->fetch();
-$stmt->close();
+$folderPath = (string)($projectRow['folder_path'] ?? '');
+$publicUrl = (string)($projectRow['public_url'] ?? '');
 
 if (!isset($_FILES['files'])) {
     // Allow source URLs for server-side downloads (useful when browser CORS blocks direct fetch)
@@ -145,13 +137,19 @@ try {
         $ext = isset($pathInfo['extension']) && $pathInfo['extension'] !== ''
             ? preg_replace('/[^a-z0-9]+/i', '', (string)$pathInfo['extension'])
             : '';
+        $detectedExt = extract_extension_from_url($sourceUrl, $contentType);
 
         if (strlen($base) > 80) {
             $base = substr($base, 0, 80);
         }
 
         if ($ext === '') {
-            $ext = extract_extension_from_url($sourceUrl, $contentType);
+            $ext = $detectedExt;
+        } elseif ($detectedExt !== '' && $detectedExt !== 'bin') {
+            $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'bmp', 'tif', 'tiff', 'heic', 'heif', 'ico'];
+            if (in_array(strtolower($ext), $imageExts, true) && in_array(strtolower($detectedExt), $imageExts, true) && strtolower($ext) !== strtolower($detectedExt)) {
+                $ext = $detectedExt;
+            }
         }
 
         if ($ext === '') {
@@ -163,6 +161,15 @@ try {
         }
 
         return $base . '.' . strtolower($ext);
+    };
+
+    $detectUploadedFileType = function (string $path, ?string $fallbackType = null): string {
+        $body = @file_get_contents($path);
+        if (is_string($body) && $body !== '') {
+            return detect_asset_content_type($body, $fallbackType);
+        }
+
+        return strtolower(trim(explode(';', (string)$fallbackType)[0])) ?: 'application/octet-stream';
     };
 
     $removeStemVariants = function (string $fileName) use ($assetsDir): void {
@@ -219,7 +226,17 @@ try {
             continue;
         }
 
-        $candidate = $reserveCandidateName((string)$originalName);
+        $detectedType = $detectUploadedFileType($tmpName, (string)($files['type'][$i] ?? ''));
+        if (!is_safe_asset_content_type($detectedType)) {
+            $skipped[] = [
+                'name' => $originalName,
+                'reason' => 'Uploaded file is not a supported image/media asset.',
+            ];
+            continue;
+        }
+
+        $candidateBaseName = $sanitizeProvidedName((string)$originalName, $detectedType, '');
+        $candidate = $reserveCandidateName($candidateBaseName);
 
         $targetPath = $assetsDir . DIRECTORY_SEPARATOR . $candidate;
         if (!move_uploaded_file($tmpName, $targetPath)) {
@@ -263,14 +280,23 @@ try {
             continue;
         }
 
+        $detectedType = detect_asset_content_type((string)$downloaded['body'], $downloaded['content_type'] ?? null);
+        if (!is_safe_asset_content_type($detectedType)) {
+            $skipped[] = [
+                'url' => (string)$rawUrl,
+                'reason' => 'Source did not return a supported image/media file.',
+            ];
+            continue;
+        }
+
         $providedName = isset($sourceNames[$index]) ? (string)$sourceNames[$index] : '';
         if ($replaceExisting && trim($providedName) !== '') {
-            $candidate = $sanitizeProvidedName($providedName, $downloaded['content_type'] ?? null, $normalizedUrl);
+            $candidate = $sanitizeProvidedName($providedName, $detectedType, $normalizedUrl);
             $removeStemVariants($candidate);
         } else {
             $candidateBaseName = trim($providedName) !== ''
-                ? $sanitizeProvidedName($providedName, $downloaded['content_type'] ?? null, $normalizedUrl)
-                : ('generated-' . date('Ymd-His') . '-' . ($index + 1) . '.' . extract_extension_from_url($normalizedUrl, $downloaded['content_type'] ?? null));
+                ? $sanitizeProvidedName($providedName, $detectedType, $normalizedUrl)
+                : ('generated-' . date('Ymd-His') . '-' . ($index + 1) . '.' . extract_extension_from_url($normalizedUrl, $detectedType));
             $candidate = $reserveCandidateName($candidateBaseName);
         }
         $targetPath = $assetsDir . DIRECTORY_SEPARATOR . $candidate;

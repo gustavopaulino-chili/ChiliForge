@@ -93,21 +93,18 @@ if ($targetDir === '/') {
     $targetDir = '/';
 }
 
-// ── Verify project ownership ───────────────────────────────────────────────────
-
-$stmt = $conn->prepare("SELECT folder_path, public_url FROM projects WHERE id = ? AND user_id = ? LIMIT 1");
-$stmt->bind_param("ii", $projectId, $userId);
-$stmt->execute();
-$stmt->bind_result($folderPath, $publicUrl);
-$found = $stmt->fetch();
-$stmt->close();
+// Resolve project, including legacy rows whose original users entry was reset.
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.folder_path, p.public_url');
 $conn->close();
 
-if (!$found) {
+if (!$projectRow) {
     http_response_code(404);
     echo json_encode(["error" => "Project not found"]);
     exit;
 }
+
+$folderPath = (string)($projectRow['folder_path'] ?? '');
+$publicUrl = (string)($projectRow['public_url'] ?? '');
 
 // ── Resolve local project path ────────────────────────────────────────────────
 

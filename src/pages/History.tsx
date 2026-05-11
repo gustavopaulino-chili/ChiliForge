@@ -18,19 +18,42 @@ import { useAuth } from "@/contexts/AuthContext";
 
 type Project = {
   id: number;
+  user_id?: number;
   name: string;
   public_url?: string;
   folder_path?: string;
   form_data: any;
   generated_html?: string;
+  has_generated_html?: boolean;
   currentStep?: number;
   created_at: string;
 };
 
-function formatProjectDate(dateStr: string): string {
-  if (!dateStr) return "—";
+const toAbsoluteUrl = (value: string) => {
   try {
-    // MySQL returns "YYYY-MM-DD HH:MM:SS" — replace space with T for ISO 8601
+    return new URL(value, window.location.origin).toString();
+  } catch {
+    return value;
+  }
+};
+
+const loadPublishedHtml = async (publicUrl?: string) => {
+  const base = (publicUrl || "").trim();
+  if (!base) return "";
+
+  const normalizedBase = base.replace(/\/index\.html$/i, "/").replace(/\/?$/, "/");
+  const url = toAbsoluteUrl(`${normalizedBase}index.html?cf_history_ts=${Date.now()}`);
+  const response = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Could not load published HTML (${response.status})`);
+  }
+  return await response.text();
+};
+
+function formatProjectDate(dateStr: string): string {
+  if (!dateStr) return "-";
+  try {
+    // MySQL returns "YYYY-MM-DD HH:MM:SS"; replace space with T for ISO 8601
     // so Safari parses it correctly alongside Chrome/Firefox.
     const date = new Date(dateStr.includes("T") ? dateStr : dateStr.replace(" ", "T"));
     if (isNaN(date.getTime())) return dateStr;
@@ -94,7 +117,7 @@ export default function History() {
       const response = await fetch("/api/deleteProject.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: target.id, user_id: user.id }),
+        body: JSON.stringify({ id: target.id, user_id: target.user_id ?? user.id }),
       });
 
       const data = await response.json().catch(() => ({}));
@@ -132,17 +155,23 @@ export default function History() {
           form_data: project.form_data || {},
           generated_html: "",
           current_step: project.currentStep ?? 0,
+          draft_only: true,
         }),
       });
 
       const saved = await response.json().catch(() => ({}));
 
       if (saved?.success && saved?.id) {
-        navigate("/", {
+        try {
+          localStorage.setItem("lastEditedProjectId", String(saved.id));
+        } catch {}
+
+        navigate(`/?restoreProjectId=${encodeURIComponent(String(saved.id))}`, {
           state: {
             formData: project.form_data,
             currentStep: project.currentStep ?? 0,
             savedProjectId: saved.id,
+            projectOwnerId: user.id,
             folderPath: saved.folder_path || "",
           },
         });
@@ -165,7 +194,32 @@ export default function History() {
   const isBusy = (id: number) => restoringId === id || deletingId === id;
 
   const hasContent = (project: Project) =>
-    Boolean(project.generated_html || project.public_url);
+    Boolean((project.public_url || "").trim());
+
+  const handleViewProject = async (project: Project) => {
+    const publishedUrl = (project.public_url || "").trim();
+    if (!publishedUrl) {
+      toast.error("This project does not have a published folder yet.");
+      return;
+    }
+
+    try {
+      const publishedHtml = await loadPublishedHtml(publishedUrl);
+      navigate("/", {
+        state: {
+          formData: project.form_data,
+          currentStep: project.currentStep ?? 0,
+          generatedHtml: publishedHtml,
+          savedProjectId: project.id,
+          projectOwnerId: project.user_id,
+          generatedLandingUrl: project.public_url ?? "",
+          folderPath: project.folder_path ?? "",
+        },
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not open published project.");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -181,7 +235,7 @@ export default function History() {
         {loading ? (
           <div className="flex items-center gap-2 text-muted-foreground py-8">
             <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Loading projects…</span>
+            <span>Loading projects...</span>
           </div>
         ) : projects.length === 0 ? (
           <p className="text-muted-foreground py-8">No projects found.</p>
@@ -201,7 +255,7 @@ export default function History() {
                       <h2 className="font-semibold truncate">
                         {project.name || "Untitled Project"}
                       </h2>
-                      {project.generated_html ? (
+                      {project.public_url || project.has_generated_html || project.generated_html ? (
                         <span className="text-xs font-medium text-green-600 bg-green-50 border border-green-200 rounded px-1.5 py-0.5 shrink-0">
                           Published
                         </span>
@@ -237,18 +291,7 @@ export default function History() {
                       size="sm"
                       disabled={busy || !canView}
                       title={canView ? "Open generated site" : "No generated site yet"}
-                      onClick={() => {
-                        navigate("/", {
-                          state: {
-                            formData: project.form_data,
-                            currentStep: project.currentStep ?? 0,
-                            generatedHtml: project.generated_html ?? "",
-                            savedProjectId: project.id,
-                            generatedLandingUrl: project.public_url ?? "",
-                            folderPath: project.folder_path ?? "",
-                          },
-                        });
-                      }}
+                      onClick={() => handleViewProject(project)}
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
