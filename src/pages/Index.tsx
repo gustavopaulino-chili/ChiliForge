@@ -1072,79 +1072,93 @@ const Index = () => {
     try {
       // Step 0: folder already exists (created on project save)
       updateLog(0, 'done');
-      setStepImagesAiPercent(10);
+      setStepImagesAiPercent(5);
 
       const referenceUrl = nextImages.heroImage1 || nextImages.brandImage || nextImages.sectionImage1 || undefined;
-      const totalSteps = 2 + slots.length; // hero + slots + upload
-      let stepsDone = 1;
-
-      // Hero image
-      if (!nextImages.heroImage1 && !nextImages.heroImage2) {
-        updateLog(1, 'active');
-        const heroAi = await invokeWithRetry('hero banner', referenceUrl);
-        if (heroAi) {
-          nextImages.heroImage1 = heroAi;
-          updateLog(1, 'done');
-        } else {
-          updateLog(1, 'error');
-        }
-      } else {
-        updateLog(1, 'done');
-      }
-      stepsDone++;
-      setStepImagesAiPercent(Math.round((stepsDone / totalSteps) * 75));
-
-      // Section images
       const sectionKeys = ['sectionImage1', 'sectionImage2', 'sectionImage3'] as const;
-      for (let i = 0; i < sectionKeys.length; i++) {
-        const key = sectionKeys[i];
-        const logIdx = 2 + i;
-        if (nextImages[key]) {
-          updateLog(logIdx, 'done');
-        } else {
-          updateLog(logIdx, 'active');
-          const aiImg = await invokeWithRetry(slots[i].name, referenceUrl);
-          if (aiImg) {
-            nextImages[key] = aiImg;
-            updateLog(logIdx, 'done');
-          } else {
-            updateLog(logIdx, 'error');
-          }
-        }
-        stepsDone++;
-        setStepImagesAiPercent(Math.round((stepsDone / totalSteps) * 75));
-      }
 
-      // Upload to assets
+      // Generate all images in parallel — each slot updates its own log entry as it completes
+      const needsHero = !nextImages.heroImage1 && !nextImages.heroImage2;
+      const slotsToGenerate = sectionKeys.map((key, i) => ({
+        key,
+        logIdx: 2 + i,
+        name: slots[i]?.name ?? `section ${i + 1}`,
+        skip: !!nextImages[key],
+      }));
+
+      // Mark all active immediately so user sees parallel activity
+      if (needsHero) updateLog(1, 'active');
+      slotsToGenerate.forEach(s => updateLog(s.logIdx, s.skip ? 'done' : 'active'));
+
+      let doneCount = 1;
+      const totalGen = 1 + slotsToGenerate.filter(s => !s.skip).length;
+      const bumpProgress = () => {
+        doneCount++;
+        setStepImagesAiPercent(Math.round((doneCount / (totalGen + 1)) * 75));
+      };
+
+      const [heroResult, ...sectionResults] = await Promise.all([
+        needsHero
+          ? invokeWithRetry('hero banner', referenceUrl).then(url => { updateLog(1, url ? 'done' : 'error'); bumpProgress(); return url; })
+          : Promise.resolve(null).then(() => { updateLog(1, 'done'); return null; }),
+        ...slotsToGenerate.map(s =>
+          s.skip
+            ? Promise.resolve(null)
+            : invokeWithRetry(s.name, referenceUrl).then(url => { updateLog(s.logIdx, url ? 'done' : 'error'); bumpProgress(); return url; })
+        ),
+      ]);
+
+      if (heroResult) nextImages.heroImage1 = heroResult;
+      slotsToGenerate.forEach((s, i) => {
+        const url = sectionResults[i];
+        if (url) nextImages[s.key] = url;
+      });
+
+      // Upload all to assets in parallel
       const uploadLogIdx = 2 + slots.length;
       updateLog(uploadLogIdx, 'active');
       setStepImagesAiPercent(80);
 
-      const fieldSourcesToUpload: Array<{ key: typeof sectionKeys[number] | 'logoUrl' | 'heroImage1' | 'heroImage2' | 'brandImage' | 'aboutImage' | 'teamImage'; source: string; fileStem: string }> = [
+      type UploadField = { key: typeof sectionKeys[number] | 'logoUrl' | 'heroImage1' | 'heroImage2' | 'brandImage' | 'aboutImage' | 'teamImage'; source: string; fileStem: string };
+      const fieldSourcesToUpload: UploadField[] = [
         { key: 'logoUrl', source: nextImages.logoUrl, fileStem: 'logo' },
         { key: 'heroImage1', source: nextImages.heroImage1, fileStem: 'hero-image' },
         { key: 'heroImage2', source: nextImages.heroImage2, fileStem: 'hero-image-2' },
         { key: 'brandImage', source: nextImages.brandImage, fileStem: 'brand-image' },
-        { key: 'sectionImage1', source: nextImages.sectionImage1, fileStem: slots[0].fileStem },
-        { key: 'sectionImage2', source: nextImages.sectionImage2, fileStem: slots[1].fileStem },
-        { key: 'sectionImage3', source: nextImages.sectionImage3, fileStem: slots[2].fileStem },
+        { key: 'sectionImage1', source: nextImages.sectionImage1, fileStem: slots[0]?.fileStem ?? 'section-1' },
+        { key: 'sectionImage2', source: nextImages.sectionImage2, fileStem: slots[1]?.fileStem ?? 'section-2' },
+        { key: 'sectionImage3', source: nextImages.sectionImage3, fileStem: slots[2]?.fileStem ?? 'section-3' },
         { key: 'aboutImage', source: nextImages.aboutImage, fileStem: 'about-image' },
         { key: 'teamImage', source: nextImages.teamImage, fileStem: 'team-image' },
       ];
 
-      for (const field of fieldSourcesToUpload) {
+      const uploadOneField = async (field: UploadField) => {
         const src = (field.source || '').trim();
-        if (!src || /^data:image\//i.test(src) || /\/projects\/[^/]+\/assets\//.test(src)) continue;
+        if (!src || /\/projects\/[^/]+\/assets\//.test(src)) return;
         try {
-          const result = await uploadProjectAssetsFromUrls(savedProjectId, ownerId, [src], [field.fileStem], { overwriteExisting: true });
-          const uploaded = result.uploaded?.[0];
+          let uploaded: { url?: string } | undefined;
+          if (/^data:image\//i.test(src)) {
+            const mimeMatch = src.match(/^data:(image\/[^;]+);base64,/);
+            const mime = mimeMatch?.[1] ?? 'image/jpeg';
+            const ext = mime.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg';
+            const base64 = src.split(',')[1];
+            const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+            const file = new File([bytes], `${field.fileStem}.${ext}`, { type: mime });
+            const result = await uploadProjectAssets(savedProjectId, ownerId, [file]);
+            uploaded = result.uploaded?.[0];
+          } else {
+            const result = await uploadProjectAssetsFromUrls(savedProjectId, ownerId, [src], [field.fileStem], { overwriteExisting: true });
+            uploaded = result.uploaded?.[0];
+          }
           if (uploaded?.url) {
             (nextImages as any)[field.key] = toAbsoluteUrl(uploaded.url);
           }
         } catch (err) {
           console.error(`AI gen upload failed for ${field.fileStem}:`, err);
         }
-      }
+      };
+
+      await Promise.all(fieldSourcesToUpload.map(uploadOneField));
 
       updateLog(uploadLogIdx, 'done');
       setStepImagesAiPercent(100);

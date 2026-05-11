@@ -3820,8 +3820,6 @@ CONTENT RULES:
 - Never generate image carousels/sliders (no swiper/splide/glide/custom carousel)
 - BRAND FIDELITY: study every detail — colors, tone, audience — and reflect it throughout`;
 
-    // Testing now uses the same high-quality system prompt as admin for generation parity.
-
     const buildUserPrompt = async (compact = false): Promise<string> => {
       const compactNote = compact
         ? "\n\nOUTPUT RECOVERY: Previous response was cut off. Regenerate the SAME page, keeping all sections but with more concise copy to fit. Do NOT drop nav, faq, footer, or JS."
