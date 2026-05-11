@@ -290,6 +290,31 @@ const replaceGlobalColorInHtml = (sourceHtml: string, fromColor: string, toColor
   return next;
 };
 
+// Extracts the hex value of a CSS custom property from a :root block in the HTML string.
+// Used to read the actual current color values from the page rather than relying on stale state.
+const extractCssVarColorFromHtml = (sourceHtml: string, varName: string): string => {
+  const match = sourceHtml.match(new RegExp(`--${varName}\\s*:\\s*(#[0-9a-fA-F]{3,8})`, 'i'));
+  return match ? normalizeHexColor(match[1]) : '';
+};
+
+// Maps brand color keys to their corresponding CSS custom property names in the generated HTML.
+const BRAND_COLOR_CSS_VAR: Record<string, string> = {
+  primary: 'primary',
+  secondary: 'secondary',
+  accent: 'accent',
+  text: 'text',
+  background: 'bg',
+};
+
+// Replaces the value of a CSS custom property directly in the HTML string, regardless of format
+// (hex, rgb, named color). Targets the declaration inside any :root or selector block.
+const updateCssVarInHtml = (sourceHtml: string, varName: string, newValue: string): string => {
+  return sourceHtml.replace(
+    new RegExp(`(--${varName}\\s*:\\s*)[^;\\}]+`, 'gi'),
+    `$1${newValue}`,
+  );
+};
+
 const normalizePublicBaseUrl = (value?: string) => {
   const raw = (value || '').trim();
   if (!raw) return '';
@@ -953,16 +978,20 @@ export function VisualEditor({
   const [snapshots, setSnapshots] = useState<EditorSnapshot[]>([]);
   const [, setHistoryVersion] = useState(0);
   const brandPaletteKey = brandPalette.map((value) => normalizeHexColor(value || '')).filter(Boolean).join('|');
+  // Capture the HTML at first mount so we can extract actual CSS variable colors once, without
+  // making 'html' a reactive dep of initialBrandColors (which would reset brand colors on every edit).
+  const initialHtmlForColorsRef = useRef(html);
   const initialBrandColors = useMemo(() => ({
-    primary: normalizeHexColor(brandColors?.primary || brandPalette[0] || ''),
-    secondary: normalizeHexColor(brandColors?.secondary || brandPalette[1] || ''),
-    accent: normalizeHexColor(brandColors?.accent || brandPalette[2] || ''),
-    text: normalizeHexColor(brandColors?.text || brandPalette[3] || ''),
-    background: normalizeHexColor(brandColors?.background || brandPalette[4] || ''),
+    primary: extractCssVarColorFromHtml(initialHtmlForColorsRef.current, 'primary') || normalizeHexColor(brandColors?.primary || brandPalette[0] || ''),
+    secondary: extractCssVarColorFromHtml(initialHtmlForColorsRef.current, 'secondary') || normalizeHexColor(brandColors?.secondary || brandPalette[1] || ''),
+    accent: extractCssVarColorFromHtml(initialHtmlForColorsRef.current, 'accent') || normalizeHexColor(brandColors?.accent || brandPalette[2] || ''),
+    text: extractCssVarColorFromHtml(initialHtmlForColorsRef.current, 'text') || normalizeHexColor(brandColors?.text || brandPalette[3] || ''),
+    background: extractCssVarColorFromHtml(initialHtmlForColorsRef.current, 'bg') || normalizeHexColor(brandColors?.background || brandPalette[4] || ''),
   }), [brandColors?.primary, brandColors?.secondary, brandColors?.accent, brandColors?.text, brandColors?.background, brandPaletteKey]);
   const [globalBrandColors, setGlobalBrandColors] = useState(initialBrandColors);
   const nextGeneratedImageIdRef = useRef(1);
   const nextSnapshotIdRef = useRef(1);
+  const brandColorMatchRef = useRef<Record<string, boolean>>({});
   const historyPastRef = useRef<string[]>([]);
   const historyFutureRef = useRef<string[]>([]);
   const lastHtmlRef = useRef('');
@@ -2688,29 +2717,46 @@ export function VisualEditor({
     label: string,
     nextColor: string,
   ) => {
-    const previous = normalizeHexColor(globalBrandColors[key] || '');
+    const currentHtml = stripEditorBridge(html);
+    const cssVarName = BRAND_COLOR_CSS_VAR[key];
+    // Read the actual previous color from the CSS variable in the HTML (for hardcoded hex replacement).
+    const previousFromHtml = cssVarName ? extractCssVarColorFromHtml(currentHtml, cssVarName) : '';
+    const previous = previousFromHtml || normalizeHexColor(globalBrandColors[key] || '');
     const next = normalizeHexColor(nextColor);
     if (!next) return;
 
-    setGlobalBrandColors((current) => ({
-      ...current,
-      [key]: next,
-    }));
+    setGlobalBrandColors((current) => ({ ...current, [key]: next }));
 
-    if (!previous || previous === next) {
-      return;
+    if (!previous || previous === next) return;
+
+    // 1. Update the CSS variable definition directly — format-agnostic (hex, rgb, named colors).
+    let updatedHtml = cssVarName
+      ? updateCssVarInHtml(currentHtml, cssVarName, next)
+      : currentHtml;
+
+    // 2. Replace any hardcoded hex occurrences of the old color (inline styles, gradients, etc.).
+    if (previous) {
+      updatedHtml = replaceGlobalColorInHtml(updatedHtml, previous, next);
     }
 
-    const updatedHtml = replaceGlobalColorInHtml(stripEditorBridge(html), previous, next);
-    if (updatedHtml === stripEditorBridge(html)) {
-      toast.message(`${label} updated. No matching color was found on the page.`);
-      return;
+    // 3. Immediately update the live iframe CSS variable — instant visual feedback without page reload.
+    const iframeDoc = iframeRef.current?.contentDocument;
+    if (iframeDoc && cssVarName) {
+      try {
+        iframeDoc.documentElement.style.setProperty(`--${cssVarName}`, next);
+      } catch {
+        // Cross-origin or detached — writeHtmlToIframe below handles the fallback.
+      }
     }
+
+    const didChange = updatedHtml !== currentHtml;
+    brandColorMatchRef.current[key] = didChange;
+
+    if (!didChange) return;
 
     setSelected(null);
     emitChange(updatedHtml);
     writeHtmlToIframe(updatedHtml);
-    toast.success(`${label} updated globally.`);
   };
 
   const renderBrandPaletteSwatches = (
@@ -3463,11 +3509,27 @@ export function VisualEditor({
                   value={value}
                   className="h-9 w-10 p-1"
                   onChange={(event) => applyGlobalBrandColor(key, label, event.target.value)}
+                  onBlur={() => {
+                    if (brandColorMatchRef.current[key] === false) {
+                      toast.message(`${label} updated. No matching color was found on the page.`);
+                    } else if (brandColorMatchRef.current[key] === true) {
+                      toast.success(`${label} updated globally.`);
+                    }
+                    delete brandColorMatchRef.current[key];
+                  }}
                 />
                 <Input
                   value={value}
                   className="h-9 font-mono text-xs"
                   onChange={(event) => applyGlobalBrandColor(key, label, event.target.value)}
+                  onBlur={() => {
+                    if (brandColorMatchRef.current[key] === false) {
+                      toast.message(`${label} updated. No matching color was found on the page.`);
+                    } else if (brandColorMatchRef.current[key] === true) {
+                      toast.success(`${label} updated globally.`);
+                    }
+                    delete brandColorMatchRef.current[key];
+                  }}
                 />
               </div>
             );

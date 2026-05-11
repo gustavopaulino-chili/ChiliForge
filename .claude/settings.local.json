@@ -5,7 +5,10 @@
       "Bash(supabase projects *)",
       "PowerShell(\\(Get-Content \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\supabase\\\\functions\\\\generate-landing\\\\index.ts\"\\).Count)",
       "Bash(npx tsc *)",
-      "Bash(dir)"
+      "Bash(dir)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(grep -n \"skeleton\\\\|theme\\\\\\\\.primary\\\\|theme\\\\\\\\.secondary\\\\|CSS with colors\" src/pages/Index.tsx)"
     ]
   }
 }
