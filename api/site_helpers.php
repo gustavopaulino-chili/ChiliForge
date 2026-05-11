@@ -46,6 +46,9 @@ function strip_editor_bridge_artifacts($html) {
     $clean = preg_replace('/<script[^>]*id=["\']cf-editor-bridge-script["\'][^>]*>[\s\S]*?<\/script>/i', '', $clean);
     $clean = preg_replace('/<base[^>]*id=["\']cf-editor-base["\'][^>]*>/i', '', $clean);
 
+    // Remove editor element-marker attributes.
+    $clean = preg_replace('/\s+data-cf-editor-id=["\'][^"\']*["\']/i', '', $clean);
+
     // Remove temporary selection classes from elements.
     $clean = preg_replace_callback('/\bclass=("|\')([^"\']*)(\1)/i', function ($matches) {
         $raw = trim((string)$matches[2]);
@@ -176,12 +179,6 @@ function extract_extension_from_url($url, $contentType = null) {
         $contentType = $matches[1];
     }
 
-    $path = parse_url($normalizedUrl, PHP_URL_PATH) ?: '';
-    $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-    if ($extension !== '') {
-        return preg_replace('/[^a-z0-9]+/', '', $extension);
-    }
-
     $map = [
         'image/jpeg' => 'jpg',
         'image/jpg' => 'jpg',
@@ -210,7 +207,28 @@ function extract_extension_from_url($url, $contentType = null) {
         'text/css' => 'css',
     ];
 
-    return $map[strtolower((string)$contentType)] ?? 'bin';
+    // Determine extension from Content-Type first if provided.
+    $ctExt = null;
+    if ($contentType !== null && $contentType !== '') {
+        $ctNorm = strtolower(trim(explode(';', (string)$contentType)[0]));
+        $ctExt = $map[$ctNorm] ?? null;
+    }
+
+    // Determine extension from the URL path.
+    $path = parse_url($normalizedUrl, PHP_URL_PATH) ?: '';
+    $urlExt = preg_replace('/[^a-z0-9]+/', '', strtolower(pathinfo($path, PATHINFO_EXTENSION)));
+
+    if ($urlExt !== '') {
+        // CDNs commonly serve WebP/AVIF via format negotiation: the URL says .jpg but
+        // Content-Type says image/webp. Trust Content-Type for these modern formats so
+        // the file is saved with the correct extension and browsers can decode it.
+        if ($ctExt !== null && $urlExt !== $ctExt && in_array($ctExt, ['webp', 'avif'], true)) {
+            return $ctExt;
+        }
+        return $urlExt;
+    }
+
+    return $ctExt ?? 'bin';
 }
 
 function download_remote_asset($url) {
@@ -785,4 +803,61 @@ function build_project_zip_archive($projectPath, $projectName) {
         'path' => $zipPath,
         'filename' => $safeName . '.zip',
     ];
+}
+
+/**
+ * Find a project by ID for a given user.
+ *
+ * First tries exact user_id match (fast path). If that returns nothing, falls
+ * back to an email-based join so that accounts whose numeric IDs drifted after
+ * a database migration can still access their projects.
+ *
+ * Returns an associative array of the requested project columns plus
+ * 'actual_user_id' (the real owner's user_id from the DB), or null when no
+ * matching project exists.
+ *
+ * @param mysqli  $conn
+ * @param int     $projectId
+ * @param int     $userId     The user_id from the current session (may differ from DB after migration)
+ * @param string  $columns    Comma-separated list of columns to SELECT (prefixed with p. as needed)
+ */
+function find_project_for_user(mysqli $conn, int $projectId, int $userId, string $columns = 'p.folder_path, p.public_url'): ?array {
+    if ($projectId <= 0 || $userId <= 0) {
+        return null;
+    }
+
+    // Fast path: exact user_id match
+    $stmt = $conn->prepare("SELECT {$columns}, p.user_id AS actual_user_id FROM projects p WHERE p.id = ? AND p.user_id = ? LIMIT 1");
+    if (!$stmt) {
+        return null;
+    }
+    $stmt->bind_param("ii", $projectId, $userId);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = ($result !== false) ? $result->fetch_assoc() : null;
+    $stmt->close();
+    if ($row) {
+        return $row;
+    }
+
+    // Email-based fallback: the session user_id doesn't match the stored owner,
+    // but if they share the same email address we treat them as the same person.
+    // This handles accounts whose numeric IDs drifted after a database migration.
+    $stmt2 = $conn->prepare(
+        "SELECT {$columns}, p.user_id AS actual_user_id " .
+        "FROM projects p " .
+        "JOIN users pu ON pu.id = p.user_id " .
+        "JOIN users cu ON cu.id = ? " .
+        "WHERE p.id = ? AND LOWER(pu.email) = LOWER(cu.email) " .
+        "LIMIT 1"
+    );
+    if (!$stmt2) {
+        return null;
+    }
+    $stmt2->bind_param("ii", $userId, $projectId);
+    $stmt2->execute();
+    $result2 = $stmt2->get_result();
+    $row2 = ($result2 !== false) ? $result2->fetch_assoc() : null;
+    $stmt2->close();
+    return $row2 ?: null;
 }

@@ -1,3 +1,9 @@
+# MIME types for modern image formats (some Apache versions omit these)
+<IfModule mod_mime.c>
+  AddType image/webp .webp
+  AddType image/avif .avif
+</IfModule>
+
 # Configurações para Hostinger + PHP API
 <IfModule mod_rewrite.c>
   RewriteEngine On

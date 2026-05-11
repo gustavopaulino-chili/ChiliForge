@@ -21,26 +21,20 @@ if ($projectId <= 0 || $userId <= 0) {
 
 include "db.php";
 
-$stmt = $conn->prepare("SELECT id, name, public_url, folder_path, generated_html FROM projects WHERE id = ? AND user_id = ? LIMIT 1");
-$stmt->bind_param("ii", $projectId, $userId);
-$stmt->execute();
-$stmt->store_result();
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.id, p.name, p.public_url, p.folder_path, p.generated_html');
 
-if ($stmt->num_rows === 0) {
+if (!$projectRow) {
     http_response_code(404);
     echo json_encode(["error" => "Project not found"]);
-    $stmt->close();
     $conn->close();
     exit;
 }
 
-$name = '';
-$publicUrl = '';
-$folderPath = '';
-$generatedHtml = '';
-$stmt->bind_result($id, $name, $publicUrl, $folderPath, $generatedHtml);
-$stmt->fetch();
-$stmt->close();
+$id           = (int)($projectRow['id']             ?? $projectId);
+$name         = (string)($projectRow['name']         ?? '');
+$publicUrl    = (string)($projectRow['public_url']   ?? '');
+$folderPath   = (string)($projectRow['folder_path']  ?? '');
+$generatedHtml = (string)($projectRow['generated_html'] ?? '');
 
 $html = (string)$generatedHtml;
 $source = 'database';

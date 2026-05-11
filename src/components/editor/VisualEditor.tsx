@@ -441,6 +441,9 @@ const cleanBridgeFromDocument = (doc: Document) => {
   doc.querySelectorAll('.cf-editor-hover, .cf-editor-selected').forEach((node) => {
     node.classList.remove('cf-editor-hover', 'cf-editor-selected');
   });
+  doc.querySelectorAll('[data-cf-editor-id]').forEach((node) => {
+    node.removeAttribute('data-cf-editor-id');
+  });
 };
 
 const serializeWithoutBridge = (doc: Document) => {
@@ -1614,7 +1617,6 @@ export function VisualEditor({
   const applyImageLive = (nextSrc: string) => {
     const targetPath = selectedImagePath || selected?.path;
     if (!targetPath) return;
-    // try to apply to img if the target is an img
     try {
       const doc = iframeRef.current?.contentDocument;
       if (!doc) return;
@@ -1627,9 +1629,27 @@ export function VisualEditor({
         });
         return;
       }
-      // otherwise apply as background-image
-      applyMutation(targetPath, (el) => {
-        (el as HTMLElement).style.backgroundImage = `url('${nextSrc}')`;
+      // For background-image elements: capture the current URL before mutating
+      const frameWindow = doc.defaultView;
+      const oldBgUrl = (() => {
+        const inlineMatch = (targetEl as HTMLElement).style.backgroundImage.match(/url\(["']?(.*?)["']?\)/i);
+        if (inlineMatch?.[1]) return inlineMatch[1];
+        const computed = frameWindow?.getComputedStyle(targetEl as Element);
+        const compMatch = (computed?.backgroundImage || '').match(/url\(["']?(.*?)["']?\)/i);
+        return compMatch?.[1] || '';
+      })();
+      applyMutation(targetPath, (el, mutDoc) => {
+        (el as HTMLElement).style.setProperty('background-image', `url('${nextSrc}')`, 'important');
+        // Also patch every <style> block so the CSS rule agrees with the new URL.
+        // This prevents CSS !important rules from fighting the inline !important on reload.
+        if (oldBgUrl && oldBgUrl !== nextSrc) {
+          const escaped = oldBgUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          mutDoc.querySelectorAll('style').forEach((styleEl) => {
+            if (styleEl.textContent?.includes(oldBgUrl)) {
+              styleEl.textContent = styleEl.textContent.replace(new RegExp(escaped, 'g'), nextSrc);
+            }
+          });
+        }
       });
     } catch (e) {
       // ignore
@@ -1827,7 +1847,7 @@ export function VisualEditor({
           return match ? match[1] : '';
         })();
         if (currentBgUrl) {
-          target.style.backgroundImage = composeBackgroundImageWithOverlay({
+          target.style.setProperty('background-image', composeBackgroundImageWithOverlay({
             imageUrl: currentBgUrl,
             overlayMode: nextOverlayMode,
             overlayColor: nextOverlayColor,
@@ -1836,7 +1856,7 @@ export function VisualEditor({
             overlayGrad2: nextOverlayGrad2,
             overlayAngle: nextOverlayAngle,
             darkOpacity: nextDarkOverlayStrength,
-          });
+          }), 'important');
         }
       });
     } catch (e) {
@@ -2376,7 +2396,7 @@ export function VisualEditor({
       if (!doc || !selected?.path) return false;
       const el = doc.querySelector(selected.path) as HTMLElement | null;
       if (!el) return false;
-      return Boolean(el.closest('#top, #hero, .hero-section, .hero-carousel, header[id*="hero"], section[id*="hero"]'));
+      return Boolean(el.closest('#top, #hero, #hero-section, #banner, #main-hero, .hero-section, .hero-carousel, .hero, .hero-area, .hero-wrapper, .hero-banner, .banner-section, .main-hero, .landing-hero, header.hero, section.hero, div.hero, header[id*="hero"], section[id*="hero"], [class*="hero-section"], [class*="hero-banner"]'));
     } catch {
       return false;
     }
@@ -2387,16 +2407,34 @@ export function VisualEditor({
       const doc = iframeRef.current?.contentDocument;
       if (!doc) return null;
 
-      const heroSelectors = ['#top', '#hero', '.hero-section', '.hero-carousel', 'header[id*="hero"]', 'section[id*="hero"]'];
+      const heroSelectors = [
+        '#top', '#hero', '#hero-section', '#banner', '#main-hero',
+        '.hero-section', '.hero-carousel', '.hero', '.hero-area', '.hero-wrapper',
+        '.hero-banner', '.banner-section', '.main-hero', '.landing-hero',
+        'header.hero', 'section.hero', 'div.hero',
+        'header[id*="hero"]', 'section[id*="hero"]',
+        '[class*="hero-section"]', '[class*="hero-banner"]',
+      ];
+      const heroClosestStr = heroSelectors.join(', ');
       let heroEl: Element | null = null;
       for (const selector of heroSelectors) {
-        heroEl = doc.querySelector(selector);
+        try { heroEl = doc.querySelector(selector); } catch { continue; }
         if (heroEl) break;
       }
 
       if (!heroEl && selected?.path) {
         const selectedEl = doc.querySelector(selected.path) as HTMLElement | null;
-        heroEl = selectedEl?.closest('#top, #hero, .hero-section, .hero-carousel, header[id*="hero"], section[id*="hero"]') as Element | null;
+        heroEl = selectedEl?.closest(heroClosestStr) as Element | null ?? null;
+      }
+
+      // Last resort: first body child that has a computed background-image
+      if (!heroEl) {
+        const topLevelEls = Array.from(doc.querySelectorAll('body > section, body > header, body > div'));
+        for (const el of topLevelEls.slice(0, 3)) {
+          const cs = doc.defaultView?.getComputedStyle(el as Element);
+          if (cs?.backgroundImage && cs.backgroundImage !== 'none') { heroEl = el; break; }
+          if ((el as HTMLElement).style?.backgroundImage) { heroEl = el; break; }
+        }
       }
 
       if (!heroEl) return null;
@@ -2905,7 +2943,7 @@ export function VisualEditor({
       const fileBase = promptToFileNameBase(item.prompt);
       const uploadResult = item.imageUrl.startsWith('data:image/')
         ? await uploadProjectAssets(projectId, userId, [dataUrlToFile(item.imageUrl, fileBase)])
-        : await uploadProjectAssetsFromUrls(projectId, userId, [item.imageUrl], [`${fileBase}-${Date.now()}.png`]);
+        : await uploadProjectAssetsFromUrls(projectId, userId, [item.imageUrl], [`${fileBase}-${Date.now()}`]);
       const uploadedAsset = uploadResult.uploaded?.[0];
       if (!uploadedAsset?.url) {
         throw new Error('Upload to assets returned no file.');
@@ -3441,7 +3479,8 @@ export function VisualEditor({
                   'bg-color',
                   (color) => {
                     setBgColor(color);
-                    applyColorsLive({ nextBgColor: color });
+                    setSectionBgMode('solid');
+                    applyColorsLive({ nextMode: 'solid', nextBgColor: color });
                   },
                   (color) => `Apply ${color} as background color`,
                 )}
@@ -4821,7 +4860,7 @@ export function VisualEditor({
                     const raw = e.target.value;
                     const next = normalizeSizeWithFallback(raw, containerWidth);
                     setContainerWidth(next);
-                    if (!isCssSize(next)) { setCwError(true); toast.error('Width inválido'); return; }
+                    if (!isCssSize(next)) { setCwError(true); toast.error('Invalid width'); return; }
                     setCwError(false);
                     applyContainerSizingLive({ nextWidth: next });
                   }}
@@ -4838,7 +4877,7 @@ export function VisualEditor({
                     const raw = e.target.value;
                     const next = normalizeSizeWithFallback(raw, containerMinWidth || containerWidth);
                     setContainerMinWidth(next);
-                    if (!isCssSize(next)) { setCmwError(true); toast.error('Min width inválido'); return; }
+                    if (!isCssSize(next)) { setCmwError(true); toast.error('Invalid min width'); return; }
                     setCmwError(false);
                     applyContainerSizingLive({ nextMinWidth: next });
                   }}
@@ -4855,9 +4894,12 @@ export function VisualEditor({
                         const raw = e.target.value;
                         const next = normalizeSizeWithFallback(raw, containerPaddingLeft || '16px');
                         setContainerPaddingLeft(next);
-                        if (!isCssSize(next)) { setCpadLError(true); toast.error('Padding inválido'); return; }
+                        if (!isCssSize(next)) { setCpadLError(true); toast.error('Invalid padding'); return; }
                         setCpadLError(false);
                         applyContainerSizingLive({ nextPaddingLeft: next });
+                      }}
+                      onBlur={() => {
+                        if (isCssSize(containerPaddingLeft)) applyContainerSizingLive({ nextPaddingLeft: containerPaddingLeft });
                       }}
                   />
                 </div>
@@ -4872,9 +4914,12 @@ export function VisualEditor({
                         const raw = e.target.value;
                         const next = normalizeSizeWithFallback(raw, containerPaddingTop || '16px');
                         setContainerPaddingTop(next);
-                        if (!isCssSize(next)) { setCpadTError(true); toast.error('Padding inválido'); return; }
+                        if (!isCssSize(next)) { setCpadTError(true); toast.error('Invalid padding'); return; }
                         setCpadTError(false);
                         applyContainerSizingLive({ nextPaddingTop: next });
+                      }}
+                      onBlur={() => {
+                        if (isCssSize(containerPaddingTop)) applyContainerSizingLive({ nextPaddingTop: containerPaddingTop });
                       }}
                   />
                 </div>
@@ -4889,9 +4934,12 @@ export function VisualEditor({
                         const raw = e.target.value;
                         const next = normalizeSizeWithFallback(raw, containerPaddingBottom || containerPaddingTop || '16px');
                         setContainerPaddingBottom(next);
-                        if (!isCssSize(next)) { setCpadBError(true); toast.error('Padding inválido'); return; }
+                        if (!isCssSize(next)) { setCpadBError(true); toast.error('Invalid padding'); return; }
                         setCpadBError(false);
                         applyContainerSizingLive({ nextPaddingBottom: next });
+                      }}
+                      onBlur={() => {
+                        if (isCssSize(containerPaddingBottom)) applyContainerSizingLive({ nextPaddingBottom: containerPaddingBottom });
                       }}
                   />
                 </div>
@@ -4906,9 +4954,12 @@ export function VisualEditor({
                         const raw = e.target.value;
                         const next = normalizeSizeWithFallback(raw, containerPaddingRight || containerPaddingLeft || '16px');
                         setContainerPaddingRight(next);
-                        if (!isCssSize(next)) { setCpadRError(true); toast.error('Padding inválido'); return; }
+                        if (!isCssSize(next)) { setCpadRError(true); toast.error('Invalid padding'); return; }
                         setCpadRError(false);
                         applyContainerSizingLive({ nextPaddingRight: next });
+                      }}
+                      onBlur={() => {
+                        if (isCssSize(containerPaddingRight)) applyContainerSizingLive({ nextPaddingRight: containerPaddingRight });
                       }}
                   />
                 </div>
@@ -4923,7 +4974,7 @@ export function VisualEditor({
                     const raw = e.target.value;
                     const next = normalizeSizeWithFallback(raw, containerHeight);
                     setContainerHeight(next);
-                    if (!isCssSize(next)) { setChError(true); toast.error('Height inválido'); return; }
+                    if (!isCssSize(next)) { setChError(true); toast.error('Invalid height'); return; }
                     setChError(false);
                     applyContainerSizingLive({ nextHeight: next });
                   }}
@@ -4940,7 +4991,7 @@ export function VisualEditor({
                     const raw = e.target.value;
                     const next = normalizeSizeWithFallback(raw, containerMinHeight || containerHeight);
                     setContainerMinHeight(next);
-                    if (!isCssSize(next)) { setCmhError(true); toast.error('Min height inválido'); return; }
+                    if (!isCssSize(next)) { setCmhError(true); toast.error('Invalid min height'); return; }
                     setCmhError(false);
                     applyContainerSizingLive({ nextMinHeight: next });
                   }}
@@ -4957,7 +5008,7 @@ export function VisualEditor({
                     const raw = e.target.value;
                     const next = normalizeSizeWithFallback(raw, containerMaxWidth || containerWidth);
                     setContainerMaxWidth(next);
-                    if (!isCssSize(next)) { setCmaxwError(true); toast.error('Max width inválido'); return; }
+                    if (!isCssSize(next)) { setCmaxwError(true); toast.error('Invalid max width'); return; }
                     setCmaxwError(false);
                     applyContainerSizingLive({ nextMaxWidth: next });
                   }}
@@ -4975,7 +5026,7 @@ export function VisualEditor({
                       const raw = e.target.value;
                       const next = normalizeSizeWithFallback(raw, containerBorderWidth || '1px');
                       setContainerBorderWidth(next);
-                      if (!isCssSize(next)) { setCbwError(true); toast.error('Border width inválido'); return; }
+                      if (!isCssSize(next)) { setCbwError(true); toast.error('Invalid border width'); return; }
                       setCbwError(false);
                       applyContainerSizingLive({ nextBorderWidth: next });
                     }}
@@ -5016,7 +5067,7 @@ export function VisualEditor({
                     const raw = e.target.value;
                     const next = normalizeSizeWithFallback(raw, containerBorderRadius || '0px');
                     setContainerBorderRadius(next);
-                    if (!isCssSize(next)) { setCbrError(true); toast.error('Border radius inválido'); return; }
+                    if (!isCssSize(next)) { setCbrError(true); toast.error('Invalid border radius'); return; }
                     setCbrError(false);
                     applyContainerSizingLive({ nextBorderRadius: next });
                   }}
@@ -5148,7 +5199,7 @@ export function VisualEditor({
                   const raw = e.target.value;
                   const next = normalizeSizeWithFallback(raw, containerGap || '8px');
                   setContainerGap(next);
-                  if (!isGap(next)) { setCgapError(true); toast.error('Gap inválido. Use valores como 8px, 1rem ou vazio'); return; }
+                  if (!isGap(next)) { setCgapError(true); toast.error('Invalid gap. Use values like 8px or 1rem'); return; }
                   setCgapError(false);
                   applyContainerSizingLive({ nextGap: next });
                 }} />
@@ -5166,7 +5217,7 @@ export function VisualEditor({
                         const raw = e.target.value;
                         const next = raw.trim();
                         setContainerGridTemplateColumns(next);
-                        if (!isGridTemplate(next)) { setCgridColsError(true); toast.error('grid-template-columns inválido'); return; }
+                        if (!isGridTemplate(next)) { setCgridColsError(true); toast.error('Invalid grid-template-columns'); return; }
                         setCgridColsError(false);
                         applyContainerSizingLive({ nextGridTemplateColumns: next });
                       }} />
@@ -5193,7 +5244,7 @@ export function VisualEditor({
                       const raw = e.target.value;
                       const next = normalizeSizeWithFallback(raw, containerGridGap || containerGap || '8px');
                       setContainerGridGap(next);
-                      if (!isGap(next)) { setCgridGapError(true); toast.error('Grid gap inválido.'); return; }
+                      if (!isGap(next)) { setCgridGapError(true); toast.error('Invalid grid gap'); return; }
                       setCgridGapError(false);
                       applyContainerSizingLive({ nextGridGap: next });
                     }} />
@@ -5213,7 +5264,7 @@ export function VisualEditor({
                       const raw = e.target.value;
                       const next = normalizeSizeWithFallback(raw, containerMarginTop || '0px');
                       setContainerMarginTop(next);
-                      if (!isCssSize(next)) { setCmTError(true); toast.error('Margin top inválido'); return; }
+                      if (!isCssSize(next)) { setCmTError(true); toast.error('Invalid margin top'); return; }
                       setCmTError(false);
                       applyContainerSizingLive({ nextMarginTop: next });
                     }}
@@ -5232,7 +5283,7 @@ export function VisualEditor({
                       const raw = e.target.value;
                       const next = normalizeSizeWithFallback(raw, containerMarginBottom || '0px');
                       setContainerMarginBottom(next);
-                      if (!isCssSize(next)) { setCmBError(true); toast.error('Margin bottom inválido'); return; }
+                      if (!isCssSize(next)) { setCmBError(true); toast.error('Invalid margin bottom'); return; }
                       setCmBError(false);
                       applyContainerSizingLive({ nextMarginBottom: next });
                     }}
@@ -5252,7 +5303,7 @@ export function VisualEditor({
                         const raw = e.target.value;
                         const next = normalizeSizeWithFallback(raw, containerMarginLeft || '0px');
                         setContainerMarginLeft(next);
-                        if (!isCssSize(next)) { setCmLError(true); toast.error('Margin left inválido'); return; }
+                        if (!isCssSize(next)) { setCmLError(true); toast.error('Invalid margin left'); return; }
                         setCmLError(false);
                         applyContainerSizingLive({ nextMarginLeft: next });
                       }}
@@ -5271,7 +5322,7 @@ export function VisualEditor({
                         const raw = e.target.value;
                         const next = normalizeSizeWithFallback(raw, containerMarginRight || containerMarginLeft || '0px');
                         setContainerMarginRight(next);
-                        if (!isCssSize(next)) { setCmRError(true); toast.error('Margin right inválido'); return; }
+                        if (!isCssSize(next)) { setCmRError(true); toast.error('Invalid margin right'); return; }
                         setCmRError(false);
                         applyContainerSizingLive({ nextMarginRight: next });
                       }}
@@ -5305,7 +5356,7 @@ export function VisualEditor({
                     const raw = e.target.value;
                     const next = normalizeSizeWithFallback(raw, containerMaxHeight || containerHeight || '800px');
                     setContainerMaxHeight(next);
-                    if (!isCssSize(next)) { setCmaxhError(true); toast.error('Max height inválido'); return; }
+                    if (!isCssSize(next)) { setCmaxhError(true); toast.error('Invalid max height'); return; }
                     setCmaxhError(false);
                     applyContainerSizingLive({ nextMaxHeight: next });
                   }}
@@ -5786,7 +5837,8 @@ export function VisualEditor({
                     'section-solid-color',
                     (color) => {
                       setBgColor(color);
-                      applySectionBackgroundLive({ nextBgColor: color });
+                      setSectionBgMode('solid');
+                      applySectionBackgroundLive({ nextMode: 'solid', nextBgColor: color });
                     },
                     (color) => `Apply ${color} as solid background color`,
                   )}

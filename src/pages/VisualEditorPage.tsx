@@ -72,6 +72,7 @@ export default function VisualEditorPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [html, setHtml] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [unsaved, setUnsaved] = useState(false);
@@ -87,41 +88,64 @@ export default function VisualEditorPage() {
 
   useEffect(() => {
     let mounted = true;
+    setLoadError(null);
 
     const run = async () => {
-      if (!user?.id || !projectId) {
+      if (!projectId) {
+        setLoadError('No project ID specified.');
         setLoading(false);
         return;
       }
+      if (!user?.id) {
+        setLoadError('You must be logged in to edit a project.');
+        setLoading(false);
+        return;
+      }
+
       try {
-        const projects = await getProjects(user.id, user.email);
-        const found = (projects || []).find((item: any) => Number(item.id) === projectId) as Project | undefined;
+        const raw = await getProjects(user.id, user.email);
+        // getProjects returns an array; guard against error-object responses
+        const list: Project[] = Array.isArray(raw) ? raw : [];
+        const found = list.find((item) => Number(item.id) === projectId);
         if (!mounted) return;
+
         if (!found) {
-          throw new Error('Project not found.');
+          setLoadError('Project not found. It may have been deleted or belong to a different account.');
+          setLoading(false);
+          return;
         }
 
         setProject(found);
 
+        // Try to load HTML: prefer the live published file, fall back to DB column
         const mergedHtml = await loadPublishedDocument(found.public_url, found.generated_html || '');
+        const finalHtml = mergedHtml || stripEditorBridge(found.generated_html || '');
+
         if (!mounted) return;
-        setHtml(mergedHtml || stripEditorBridge(found.generated_html || ''));
-        originalHtmlRef.current = mergedHtml || stripEditorBridge(found.generated_html || '');
+
+        if (!finalHtml) {
+          setLoadError('This project has no generated HTML yet. Generate the landing page first.');
+          setLoading(false);
+          return;
+        }
+
+        setHtml(finalHtml);
+        originalHtmlRef.current = finalHtml;
         setUnsaved(false);
-      } catch {
-        if (mounted) toast.error('Failed to load project.');
+      } catch (err) {
+        if (mounted) {
+          const msg = err instanceof Error ? err.message : 'Unknown error';
+          setLoadError(`Failed to load project: ${msg}`);
+          toast.error('Failed to load project.');
+        }
       } finally {
         if (mounted) setLoading(false);
       }
     };
 
     run();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [projectId, user?.id]);
-
-  // Remove autosave to backend. Only save on explicit action.
 
   // Track unsaved changes
   useEffect(() => {
@@ -143,16 +167,26 @@ export default function VisualEditorPage() {
   }, [unsaved]);
 
   if (loading) {
-    return <div className="min-h-screen bg-background p-6">Loading visual editor...</div>;
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center gap-3 text-muted-foreground">
+        <span className="h-5 w-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+        Loading editor…
+      </div>
+    );
   }
 
-  if (!project || !html) {
+  if (loadError || !project || !html) {
     return (
       <div className="min-h-screen bg-background p-6">
         <Button variant="ghost" onClick={() => navigate('/history')}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back to History
         </Button>
-        <p className="mt-4 text-sm text-muted-foreground">This project does not have generated HTML yet.</p>
+        <div className="mt-6 max-w-md">
+          <p className="text-sm font-medium text-destructive mb-1">Could not open editor</p>
+          <p className="text-sm text-muted-foreground">
+            {loadError || 'This project does not have generated HTML yet.'}
+          </p>
+        </div>
       </div>
     );
   }

@@ -53,13 +53,16 @@ try {
     ensure_directory($sitesBasePath);
 
     $existingProject = null;
+    $effectiveUserId = $user_id;
     if ($project_id > 0) {
         $projectLookup = $conn->prepare("SELECT id, public_url, folder_path FROM projects WHERE id = ? AND user_id = ? LIMIT 1");
-        $projectLookup->bind_param("ii", $project_id, $user_id);
-        $projectLookup->execute();
-        $projectResult = $projectLookup->get_result();
-        $existingProject = $projectResult ? $projectResult->fetch_assoc() : null;
-        $projectLookup->close();
+        if ($projectLookup) {
+            $projectLookup->bind_param("ii", $project_id, $user_id);
+            $projectLookup->execute();
+            $projectResult = $projectLookup->get_result();
+            $existingProject = $projectResult ? $projectResult->fetch_assoc() : null;
+            $projectLookup->close();
+        }
     }
 
     if ($existingProject) {

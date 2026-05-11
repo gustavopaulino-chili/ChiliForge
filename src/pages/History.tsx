@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Eye, Trash2, RotateCcw, Edit3, Loader2 } from "lucide-react";
+import { ArrowLeft, Eye, Trash2, RotateCcw, Edit3, Loader2, ExternalLink } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,6 +27,25 @@ type Project = {
   created_at: string;
 };
 
+function formatProjectDate(dateStr: string): string {
+  if (!dateStr) return "—";
+  try {
+    // MySQL returns "YYYY-MM-DD HH:MM:SS" — replace space with T for ISO 8601
+    // so Safari parses it correctly alongside Chrome/Firefox.
+    const date = new Date(dateStr.includes("T") ? dateStr : dateStr.replace(" ", "T"));
+    if (isNaN(date.getTime())) return dateStr;
+    return date.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
 export default function History() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
@@ -34,10 +53,12 @@ export default function History() {
   const [loading, setLoading] = useState(true);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [restoringId, setRestoringId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const fetchProjects = async () => {
     const resolvedUserId = Number(user?.id);
-    const resolvedUserEmail = typeof user?.email === 'string' ? user.email.trim().toLowerCase() : '';
+    const resolvedUserEmail =
+      typeof user?.email === "string" ? user.email.trim().toLowerCase() : "";
 
     if (!user || !Number.isFinite(resolvedUserId) || resolvedUserId <= 0) {
       setProjects([]);
@@ -62,24 +83,35 @@ export default function History() {
     fetchProjects();
   }, [authLoading, user?.id, user?.email]);
 
-  const deleteProject = async (id: number) => {
+  const confirmDelete = async () => {
+    if (!projectToDelete || !user?.id) return;
+
+    const target = projectToDelete;
+    setProjectToDelete(null);
+    setDeletingId(target.id);
+
     try {
-      await fetch("/api/deleteProject.php", {
+      const response = await fetch("/api/deleteProject.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id: target.id, user_id: user.id }),
       });
-      setProjects(prev => prev.filter(p => p.id !== id));
-      setProjectToDelete(null);
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data?.error) {
+        throw new Error(data?.error || `Delete failed (${response.status})`);
+      }
+
+      setProjects((prev) => prev.filter((p) => p.id !== target.id));
       toast.success("Project deleted");
-    } catch {
-      toast.error("Failed to delete project");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete project");
+    } finally {
+      setDeletingId(null);
     }
   };
 
-  // Creates a brand-new draft project in the DB, then navigates to the wizard
-  // pre-filled with the original project's form data. The original project is
-  // never touched because the new project has its own ID and folder.
   const handleRestoreForm = async (project: Project) => {
     if (!user?.id) {
       toast.error("You must be logged in to restore a project.");
@@ -103,10 +135,9 @@ export default function History() {
         }),
       });
 
-      const saved = await response.json();
+      const saved = await response.json().catch(() => ({}));
 
       if (saved?.success && saved?.id) {
-        // Navigate with the NEW project ID — the original is untouched.
         navigate("/", {
           state: {
             formData: project.form_data,
@@ -116,8 +147,6 @@ export default function History() {
           },
         });
       } else {
-        // API returned an error — still navigate but without a project ID so
-        // the wizard will create a fresh draft automatically on load.
         toast.warning("Could not pre-create project. A new one will be created when you generate.");
         navigate("/", {
           state: {
@@ -133,6 +162,11 @@ export default function History() {
     }
   };
 
+  const isBusy = (id: number) => restoringId === id || deletingId === id;
+
+  const hasContent = (project: Project) =>
+    Boolean(project.generated_html || project.public_url);
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b px-6 py-4 flex items-center justify-between">
@@ -145,105 +179,149 @@ export default function History() {
 
       <main className="max-w-4xl mx-auto p-6">
         {loading ? (
-          <p>Loading…</p>
+          <div className="flex items-center gap-2 text-muted-foreground py-8">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Loading projects…</span>
+          </div>
         ) : projects.length === 0 ? (
-          <p className="text-muted-foreground">No projects found.</p>
+          <p className="text-muted-foreground py-8">No projects found.</p>
         ) : (
           <div className="grid gap-4">
-            {projects.map(project => (
-              <div
-                key={project.id}
-                className="border rounded-lg p-4 flex items-center justify-between gap-4"
-              >
-                <div className="min-w-0">
-                  <h2 className="font-semibold truncate">{project.name}</h2>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(project.created_at).toLocaleString()}
-                  </p>
-                  {project.generated_html && (
-                    <p className="text-xs text-green-600 mt-1">✓ Generated site saved</p>
-                  )}
-                </div>
+            {projects.map((project) => {
+              const busy = isBusy(project.id);
+              const canView = hasContent(project);
 
-                <div className="flex gap-2 shrink-0">
-                  {/* View generated site */}
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => {
-                      navigate("/", {
-                        state: {
-                          formData: project.form_data,
-                          currentStep: project.currentStep ?? 0,
-                          generatedHtml: project.generated_html ?? "",
-                          savedProjectId: project.id,
-                          generatedLandingUrl: project.public_url ?? "",
-                          folderPath: project.folder_path ?? "",
-                        },
-                      });
-                    }}
-                    title="Open generated site"
-                  >
-                    <Eye className="h-4 w-4" />
-                  </Button>
+              return (
+                <div
+                  key={project.id}
+                  className="border rounded-lg p-4 flex items-center justify-between gap-4"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="font-semibold truncate">
+                        {project.name || "Untitled Project"}
+                      </h2>
+                      {project.generated_html ? (
+                        <span className="text-xs font-medium text-green-600 bg-green-50 border border-green-200 rounded px-1.5 py-0.5 shrink-0">
+                          Published
+                        </span>
+                      ) : project.form_data && Object.keys(project.form_data).length > 0 ? (
+                        <span className="text-xs font-medium text-muted-foreground bg-muted border border-border/60 rounded px-1.5 py-0.5 shrink-0">
+                          Draft
+                        </span>
+                      ) : null}
+                    </div>
 
-                  {/* Open Visual Editor */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigate(`/visual-editor?projectId=${project.id}`)}
-                    title="Open visual editor"
-                    disabled={!project.generated_html && !project.public_url}
-                  >
-                    <Edit3 className="h-4 w-4" />
-                  </Button>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {formatProjectDate(project.created_at)}
+                    </p>
 
-                  {/* Restore form as NEW project */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={restoringId === project.id}
-                    onClick={() => handleRestoreForm(project)}
-                    title="Restore form as a new project (original is kept)"
-                  >
-                    {restoringId === project.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <RotateCcw className="h-4 w-4" />
+                    {project.public_url && (
+                      <a
+                        href={project.public_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline flex items-center gap-1 mt-1 w-fit"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        {project.public_url}
+                      </a>
                     )}
-                  </Button>
+                  </div>
 
-                  {/* Delete */}
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => setProjectToDelete(project)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex gap-2 shrink-0">
+                    {/* View generated site in wizard */}
+                    <Button
+                      variant="default"
+                      size="sm"
+                      disabled={busy || !canView}
+                      title={canView ? "Open generated site" : "No generated site yet"}
+                      onClick={() => {
+                        navigate("/", {
+                          state: {
+                            formData: project.form_data,
+                            currentStep: project.currentStep ?? 0,
+                            generatedHtml: project.generated_html ?? "",
+                            savedProjectId: project.id,
+                            generatedLandingUrl: project.public_url ?? "",
+                            folderPath: project.folder_path ?? "",
+                          },
+                        });
+                      }}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+
+                    {/* Open Visual Editor */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy || !canView}
+                      title={canView ? "Open visual editor" : "No generated site yet"}
+                      onClick={() => navigate(`/visual-editor?projectId=${project.id}`)}
+                    >
+                      <Edit3 className="h-4 w-4" />
+                    </Button>
+
+                    {/* Restore form as NEW project */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      title="Restore form as a new project (original is kept)"
+                      onClick={() => handleRestoreForm(project)}
+                    >
+                      {restoringId === project.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4" />
+                      )}
+                    </Button>
+
+                    {/* Delete */}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => setProjectToDelete(project)}
+                    >
+                      {deletingId === project.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
 
-      <AlertDialog open={Boolean(projectToDelete)} onOpenChange={(open) => !open && setProjectToDelete(null)}>
+      <AlertDialog
+        open={Boolean(projectToDelete)}
+        onOpenChange={(open) => !open && setProjectToDelete(null)}
+      >
         <AlertDialogContent className="border-border/60 bg-background/95 backdrop-blur-sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Project</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove <strong>{projectToDelete?.name}</strong>, including the hosted Forge site and saved history.
+              This will permanently remove{" "}
+              <strong>{projectToDelete?.name}</strong>, including the hosted
+              Forge site and saved history.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="rounded-lg border border-border/60 bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-            Forge will remove the published files and this action cannot be undone.
+            Forge will remove the published files and this action cannot be
+            undone.
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep Project</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => projectToDelete && deleteProject(projectToDelete.id)}
+              onClick={confirmDelete}
             >
               Delete from Forge
             </AlertDialogAction>
