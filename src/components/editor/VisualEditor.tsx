@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { AlignCenter, AlignLeft, AlignRight, ChevronDown, ChevronRight, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Monitor, Palette, Pencil, Redo2, Smartphone, Tablet, Undo2, Upload, X } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, ChevronDown, ChevronRight, Code2, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Monitor, Palette, Pencil, Redo2, Settings2, Smartphone, Tablet, Undo2, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,12 +9,11 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { deleteProjectAssetFile, generateImages, getProjectAssets, ProjectAsset, uploadProjectAssets, uploadProjectAssetsFromUrls, getProjectFiles, uploadProjectFiles, deleteProjectFile } from '@/services/api';
 import { downloadFileFromUrl } from '@/lib/downloadFile';
-import { safeGetJSON, safeSetJSON } from '@/lib/safeStorage';
 import { toast } from 'sonner';
 
 
 const HISTORY_LIMIT = 60;
-const SNAPSHOT_LIMIT = 12;
+const FLOATING_TOOLBAR_MIN_TOP = 72;
 const TEXT_EDITABLE_TAGS = new Set([
   'p',
   'span',
@@ -44,8 +43,11 @@ const PREDEFINED_SECTIONS = [
   { name: 'CTA', label: 'CTA', icon: <Plus size={16} /> },
   { name: 'Form', label: 'Form', icon: <FileText size={16} /> },
   { name: 'Download', label: 'Download', icon: <Download size={16} /> },
-  { name: 'Embedded', label: 'Embedded', icon: <FileText size={16} /> },
+  { name: 'Embedded Form', label: 'Embedded Form', icon: <FileText size={16} /> },
+  { name: 'Embedded', label: 'Embedded', icon: <Code2 size={14} /> },
 ];
+
+const EMBEDDED_SECTION_TYPES = new Set(['Embedded', 'Embedded Form', 'Forms Embedded']);
 
 type SelectedNode = {
   path: string;
@@ -110,13 +112,6 @@ type VisualEditorProps = {
 };
 
 type OverlayMode = 'none' | 'color' | 'gradient' | 'dark' | 'mask';
-
-type EditorSnapshot = {
-  id: number;
-  label: string;
-  html: string;
-  createdAt: number;
-};
 
 const EDITOR_MESSAGE_SOURCE = 'chiliforge-visual-editor';
 
@@ -675,18 +670,19 @@ export function VisualEditor({
   const [showEmbedModal, setShowEmbedModal] = useState(false);
   const [embedCode, setEmbedCode] = useState('');
   const [pendingSectionType, setPendingSectionType] = useState<string | null>(null);
+  const [pendingEmbedMode, setPendingEmbedMode] = useState<'section' | 'element' | null>(null);
 
   // Adiciona uma nova sessão predefinida ao final do body, com embed opcional
   const addPredefinedSection = (type: string) => {
-    setPendingSectionType(type);
-    // Only open embed modal for Embedded type. For other types, insert immediately.
-    if (type === 'Embedded') {
+    // Only open embed modal for embedded section types. For other types, insert immediately.
+    if (EMBEDDED_SECTION_TYPES.has(type)) {
+      setPendingSectionType(type);
+      setPendingEmbedMode('section');
       setEmbedCode('');
       setShowEmbedModal(true);
       return;
     }
-    // insert immediately for non-embedded predefined sections
-    setTimeout(() => confirmAddSectionWithEmbed(), 0);
+    insertPredefinedSection(type);
   };
 
   // Confirma a adição da sessão com embed
@@ -776,6 +772,28 @@ export function VisualEditor({
         </div>
       </section>
     `,
+    'Embedded Form': `
+      <section class="w-full py-16 md:py-24 bg-background">
+        <div class="container mx-auto px-4">
+          <div class="mx-auto text-center" style="width:50%;max-width:880px;margin-left:auto;margin-right:auto;">
+            <h1 class="text-2xl md:text-3xl font-bold mb-2" contenteditable="true">Embedded Form</h1>
+            <p class="text-muted-foreground mb-4" contenteditable="true">Embedded Form</p>
+            <div class="cf-embed-placeholder mx-auto" style="min-height:160px">EMBEDDED APLICADO NA PAGINA</div>
+          </div>
+        </div>
+      </section>
+    `,
+    'Forms Embedded': `
+      <section class="w-full py-16 md:py-24 bg-background">
+        <div class="container mx-auto px-4">
+          <div class="mx-auto text-center" style="width:50%;max-width:880px;margin-left:auto;margin-right:auto;">
+            <h1 class="text-2xl md:text-3xl font-bold mb-2" contenteditable="true">Embedded Form</h1>
+            <p class="text-muted-foreground mb-4" contenteditable="true">Embedded Form</p>
+            <div class="cf-embed-placeholder mx-auto" style="min-height:160px">EMBEDDED APLICADO NA PAGINA</div>
+          </div>
+        </div>
+      </section>
+    `,
     Embedded: `
       <section class="w-full py-16 md:py-24 bg-background">
         <div class="container mx-auto px-4">
@@ -825,12 +843,77 @@ export function VisualEditor({
       icon: '□',
       html: '<div style="padding:1rem;border:1px dashed #d1d5db;border-radius:6px;margin:0.5rem 0;min-height:3rem;"></div>',
     },
+    Embedded: {
+      label: 'Embedded',
+      icon: '</>',
+      html: '',
+    },
   };
 
-  const confirmAddSectionWithEmbed = () => {
-    if (!pendingSectionType) return;
+  const normalizeEmbedSnippet = (doc: Document, rawCode: string) => {
+    let raw = rawCode && rawCode.trim() ? rawCode.trim() : '<div>EMBEDDED APLICADO NA PAGINA</div>';
+    raw = raw.replace(/^```(?:html|javascript|js)?\s*/i, '').replace(/```$/i, '').trim();
+
+    for (let i = 0; i < 3 && /&(?:lt|gt|amp|quot|#39);/i.test(raw); i += 1) {
+      const textarea = doc.createElement('textarea');
+      textarea.innerHTML = raw;
+      const decoded = textarea.value.trim();
+      if (!decoded || decoded === raw) break;
+      raw = decoded;
+    }
+
+    if (
+      ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'")))
+      && raw.slice(1, -1).includes('<')
+    ) {
+      raw = raw.slice(1, -1).trim();
+    }
+
+    return raw;
+  };
+
+  const appendEmbedCode = (doc: Document, targetParent: Element, rawCode: string) => {
+    const raw = normalizeEmbedSnippet(doc, rawCode);
+
+    // Clear the target container
+    while (targetParent.firstChild) {
+      targetParent.removeChild(targetParent.firstChild);
+    }
+
+    const embedWrapper = doc.createElement('div');
+    embedWrapper.className = 'cf-embed-container';
+    embedWrapper.style.width = '100%';
+    embedWrapper.style.minHeight = '200px';
+
+    // Set innerHTML so the browser parses iframes, forms, divs, etc. as real HTML nodes.
+    // Scripts parsed via innerHTML are inert — we must recreate them via createElement so they execute.
+    embedWrapper.innerHTML = raw;
+
+    const inertScripts = Array.from(embedWrapper.querySelectorAll('script'));
+    inertScripts.forEach((oldScript) => {
+      const newScript = doc.createElement('script');
+      Array.from(oldScript.attributes).forEach((attr) => newScript.setAttribute(attr.name, attr.value));
+      const src = oldScript.getAttribute('src');
+      if (src) {
+        newScript.src = src;
+      } else {
+        newScript.textContent = oldScript.textContent || '';
+      }
+      oldScript.parentNode?.replaceChild(newScript, oldScript);
+    });
+
+    // Ensure iframes without explicit width/height get sensible defaults
+    embedWrapper.querySelectorAll('iframe').forEach((iframe) => {
+      if (!iframe.style.width && !iframe.getAttribute('width')) iframe.style.width = '100%';
+      if (!iframe.style.height && !iframe.getAttribute('height')) iframe.style.minHeight = '200px';
+    });
+
+    targetParent.appendChild(embedWrapper);
+  };
+
+  const insertPredefinedSection = (type: string, code = '') => {
     applyMutation('body', (el, doc) => {
-      let sectionHtml = SECTION_HTML_TEMPLATES[pendingSectionType] || `<section class="cf-section cf-section-${pendingSectionType.toLowerCase().replace(/\s+/g, '-')}"><h2>${pendingSectionType}</h2><p>Section content: ${pendingSectionType}</p></section>`;
+      let sectionHtml = SECTION_HTML_TEMPLATES[type] || `<section class="cf-section cf-section-${type.toLowerCase().replace(/\s+/g, '-')}"><h2>${type}</h2><p>Section content: ${type}</p></section>`;
       const placeNode = (node: Node) => {
         const footer = doc.querySelector('footer');
         const sectionsContainer = doc.querySelector('#sections');
@@ -843,59 +926,18 @@ export function VisualEditor({
         }
       };
 
-      if (pendingSectionType === 'Embedded') {
-        // Inserir embed HTML preservando <script> execution e <iframe> rendering
-        const raw = embedCode && embedCode.trim() ? embedCode.trim() : '<div>EMBEDDED APLICADO NA PAGINA</div>';
-        // use the Embedded template from SECTION_HTML_TEMPLATES so formatting is consistent
-        const templateHtml = SECTION_HTML_TEMPLATES['Embedded'] || `<section class="cf-section cf-section-embedded"><h2>Embedded</h2><p>Embedded</p><div class="cf-embed-placeholder"></div></section>`;
+      if (EMBEDDED_SECTION_TYPES.has(type)) {
+        const templateHtml = SECTION_HTML_TEMPLATES[type] || SECTION_HTML_TEMPLATES['Embedded'] || `<section class="cf-section cf-section-embedded"><h2>Embedded</h2><p>Embedded</p><div class="cf-embed-placeholder"></div></section>`;
         const wrapperForSection = doc.createElement('div');
         wrapperForSection.innerHTML = templateHtml.trim();
         const sectionNode = wrapperForSection.firstElementChild as HTMLElement;
         if (!sectionNode) return;
         placeNode(sectionNode);
-        // find the placeholder inside the inserted section specifically
         const placedSection = doc.querySelectorAll('.cf-embed-placeholder');
-        let lastPlaced: Element | null = null;
-        if (placedSection && placedSection.length) {
-          // prefer the placeholder within the section we just placed
-          lastPlaced = Array.from(placedSection).reverse().find(p => sectionNode.contains(p));
-        }
-        const targetParent = lastPlaced || sectionNode;
-        // parse raw embed html into nodes and insert, handling scripts specially so they execute
-        const parser = doc.createElement('div');
-        parser.innerHTML = raw;
-        // create an editable wrapper so users can style/size the embed
-        const embedWrapper = doc.createElement('div');
-        embedWrapper.className = 'cf-embed-container';
-        // sensible defaults for editability
-        embedWrapper.style.width = '100%';
-        embedWrapper.style.minHeight = '200px';
-        Array.from(parser.childNodes).forEach((node) => {
-          if (node.nodeType === 1 && (node as Element).tagName.toLowerCase() === 'script') {
-            const src = (node as HTMLScriptElement).getAttribute('src');
-            const newScript = doc.createElement('script');
-            Array.from((node as Element).attributes || []).forEach(attr => newScript.setAttribute(attr.name, attr.value));
-            if (src) {
-              newScript.src = src!;
-            } else {
-              newScript.textContent = (node as HTMLScriptElement).textContent || '';
-            }
-            embedWrapper.appendChild(newScript);
-          } else if (node.nodeType === 1 && (node as Element).tagName.toLowerCase() === 'iframe') {
-            const src = (node as HTMLIFrameElement).getAttribute('src') || '';
-            const newIframe = doc.createElement('iframe');
-            Array.from((node as Element).attributes || []).forEach(attr => newIframe.setAttribute(attr.name, attr.value));
-            if (src) newIframe.src = src;
-            embedWrapper.appendChild(newIframe);
-          } else {
-            const imported = doc.importNode(node, true);
-            embedWrapper.appendChild(imported);
-          }
-        });
-        targetParent.appendChild(embedWrapper);
-      } else if (embedCode && embedCode.trim()) {
-        // Remove o fechamento </section> para inserir embed antes
-        sectionHtml = sectionHtml.replace(/<\/section>\s*$/, `${embedCode}\n</section>`);
+        const targetParent = Array.from(placedSection).reverse().find(p => sectionNode.contains(p)) || sectionNode;
+        appendEmbedCode(doc, targetParent, code);
+      } else if (code && code.trim()) {
+        sectionHtml = sectionHtml.replace(/<\/section>\s*$/, `${code}\n</section>`);
         const wrapper = doc.createElement('div');
         wrapper.innerHTML = sectionHtml.trim();
         const section = wrapper.firstElementChild as HTMLElement;
@@ -907,9 +949,19 @@ export function VisualEditor({
         if (section) placeNode(section);
       }
     });
+  };
+
+  const closeEmbedModal = () => {
     setShowEmbedModal(false);
     setEmbedCode('');
     setPendingSectionType(null);
+    setPendingEmbedMode(null);
+  };
+
+  const confirmAddSectionWithEmbed = () => {
+    if (!pendingSectionType) return;
+    insertPredefinedSection(pendingSectionType, embedCode);
+    closeEmbedModal();
   };
 
   // Move uma sessão para cima/baixo
@@ -1120,8 +1172,8 @@ export function VisualEditor({
   const [iframeReady, setIframeReady] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [editorTab, setEditorTab] = useState<'element' | 'sections'>('element');
+  const [editorPanelTab, setEditorPanelTab] = useState<'content' | 'style' | 'advanced'>('content');
   const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
-  const [snapshots, setSnapshots] = useState<EditorSnapshot[]>([]);
   const [, setHistoryVersion] = useState(0);
   const brandPaletteKey = brandPalette.map((value) => normalizeHexColor(value || '')).filter(Boolean).join('|');
   const initialBrandColors = useMemo(() => ({
@@ -1134,11 +1186,15 @@ export function VisualEditor({
   const [globalBrandColors, setGlobalBrandColors] = useState(initialBrandColors);
   const brandColorMatchRef = useRef<Record<string, boolean>>({});
   const [brandColorsOpen, setBrandColorsOpen] = useState(false);
+  const [geminiChatOpen, setGeminiChatOpen] = useState(true);
   const [isPanMode, setIsPanMode] = useState(false);
-  const [addElOpen, setAddElOpen] = useState(false);
-  const addElPopoverRef = useRef<HTMLDivElement | null>(null);
+  const [floatingAddElOpen, setFloatingAddElOpen] = useState(false);
+  const [toolbarAddElOpen, setToolbarAddElOpen] = useState(false);
+  const [floatingAddTab, setFloatingAddTab] = useState<'element' | 'sections'>('element');
+  const [toolbarAddTab, setToolbarAddTab] = useState<'element' | 'sections'>('element');
+  const floatingAddElPopoverRef = useRef<HTMLDivElement | null>(null);
+  const toolbarAddElPopoverRef = useRef<HTMLDivElement | null>(null);
   const nextGeneratedImageIdRef = useRef(1);
-  const nextSnapshotIdRef = useRef(1);
   const historyPastRef = useRef<string[]>([]);
   const historyFutureRef = useRef<string[]>([]);
   const lastHtmlRef = useRef('');
@@ -1171,11 +1227,6 @@ export function VisualEditor({
 
     return values.filter((value, index) => values.indexOf(value) === index);
   }, [globalBrandColors, brandPaletteKey]);
-
-  const snapshotsStorageKey = useMemo(() => {
-    if (!projectId || !userId) return '';
-    return `chiliforge-editor-snapshots:${userId}:${projectId}`;
-  }, [projectId, userId]);
 
   const livePreviewUrl = useMemo(() => {
     const base = (projectPublicUrl || '').trim();
@@ -1317,52 +1368,6 @@ export function VisualEditor({
   }, [projectId, userId]);
 
   useEffect(() => {
-    setSnapshots([]);
-
-    if (!snapshotsStorageKey) {
-      nextSnapshotIdRef.current = 1;
-      return;
-    }
-
-    try {
-      const parsed = safeGetJSON(snapshotsStorageKey) as unknown;
-      if (!parsed || !Array.isArray(parsed)) {
-        nextSnapshotIdRef.current = 1;
-        return;
-      }
-
-      const sanitized = parsed
-        .filter((item): item is EditorSnapshot => {
-          if (!item || typeof item !== 'object') return false;
-          const maybe = item as Partial<EditorSnapshot>;
-          return typeof maybe.id === 'number'
-            && typeof maybe.label === 'string'
-            && typeof maybe.html === 'string'
-            && typeof maybe.createdAt === 'number';
-        })
-        .slice(0, SNAPSHOT_LIMIT);
-
-      setSnapshots(sanitized);
-      const maxId = sanitized.reduce((acc, item) => Math.max(acc, item.id), 0);
-      nextSnapshotIdRef.current = maxId + 1;
-    } catch {
-      nextSnapshotIdRef.current = 1;
-      setSnapshots([]);
-    }
-  }, [snapshotsStorageKey]);
-
-  useEffect(() => {
-    if (!snapshotsStorageKey) return;
-
-    try {
-      safeSetJSON(snapshotsStorageKey, snapshots.slice(0, SNAPSHOT_LIMIT));
-    } catch {
-      // Ignore storage errors — safeSetJSON handles trimming/clearing.
-    }
-  }, [snapshots, snapshotsStorageKey]);
-
-
-  useEffect(() => {
     if (skipHistoryRecordRef.current) {
       lastHtmlRef.current = html;
       skipHistoryRecordRef.current = false;
@@ -1382,26 +1387,6 @@ export function VisualEditor({
       historyFutureRef.current = [];
       lastHtmlRef.current = html;
       setHistoryVersion((value) => value + 1);
-
-      // Salvar snapshot automático
-      const cleanHtml = stripEditorBridge(html);
-      const now = new Date();
-      const label = `Snapshot ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-      setSnapshots((prev) => {
-        // Evita snapshot duplicado se o último já for igual
-        if (prev[0] && prev[0].html.trim() === cleanHtml.trim()) return prev;
-        const next = [
-          {
-            id: nextSnapshotIdRef.current,
-            label,
-            html: cleanHtml,
-            createdAt: Date.now(),
-          },
-          ...prev,
-        ].slice(0, SNAPSHOT_LIMIT);
-        nextSnapshotIdRef.current += 1;
-        return next;
-      });
     }
   }, [html]);
 
@@ -1453,46 +1438,6 @@ export function VisualEditor({
       }
     }, 0);
   }, [html, emitChange]);
-
-  const saveSnapshot = useCallback(() => {
-    const cleanHtml = stripEditorBridge(html);
-    const now = new Date();
-    const label = `Snapshot ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-
-    setSnapshots((prev) => {
-      const next: EditorSnapshot[] = [
-        {
-          id: nextSnapshotIdRef.current,
-          label,
-          html: cleanHtml,
-          createdAt: Date.now(),
-        },
-        ...prev,
-      ].slice(0, SNAPSHOT_LIMIT);
-
-      nextSnapshotIdRef.current += 1;
-      return next;
-    });
-
-    toast.success('Snapshot saved.');
-  }, [html]);
-
-  const restoreSnapshot = useCallback((snapshot: EditorSnapshot) => {
-    const cleanCurrent = stripEditorBridge(html);
-    if (cleanCurrent.trim() === snapshot.html.trim()) {
-      toast.message('Snapshot already matches current version.');
-      return;
-    }
-
-    skipHistoryRecordRef.current = false;
-    setSelected(null);
-    onChange(snapshot.html);
-    toast.success(`Restored: ${snapshot.label}`);
-  }, [html, onChange]);
-
-  const deleteSnapshot = useCallback((snapshotId: number) => {
-    setSnapshots((prev) => prev.filter((item) => item.id !== snapshotId));
-  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1552,20 +1497,96 @@ export function VisualEditor({
     if (!selected) {
       setToolbarPos(null);
       setSelectedAncestors([]);
-      setAddElOpen(false);
+      setFloatingAddElOpen(false);
+      setToolbarAddElOpen(false);
     }
   }, [selected]);
 
   useEffect(() => {
-    if (!addElOpen) return;
+    if (!floatingAddElOpen) return;
     const handler = (e: MouseEvent) => {
-      if (addElPopoverRef.current && !addElPopoverRef.current.contains(e.target as Node)) {
-        setAddElOpen(false);
+      if (floatingAddElPopoverRef.current && !floatingAddElPopoverRef.current.contains(e.target as Node)) {
+        setFloatingAddElOpen(false);
       }
     };
+    const frameHandler = () => setFloatingAddElOpen(false);
+    const frameDoc = iframeRef.current?.contentDocument;
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [addElOpen]);
+    frameDoc?.addEventListener('mousedown', frameHandler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      frameDoc?.removeEventListener('mousedown', frameHandler);
+    };
+  }, [floatingAddElOpen]);
+
+  useEffect(() => {
+    if (!toolbarAddElOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (toolbarAddElPopoverRef.current && !toolbarAddElPopoverRef.current.contains(e.target as Node)) {
+        setToolbarAddElOpen(false);
+      }
+    };
+    const frameHandler = () => setToolbarAddElOpen(false);
+    const frameDoc = iframeRef.current?.contentDocument;
+    document.addEventListener('mousedown', handler);
+    frameDoc?.addEventListener('mousedown', frameHandler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      frameDoc?.removeEventListener('mousedown', frameHandler);
+    };
+  }, [toolbarAddElOpen]);
+
+  const updateToolbarPositionForSelection = useCallback(() => {
+    if (!selected?.path) {
+      setToolbarPos(null);
+      return;
+    }
+
+    try {
+      const iframeRect = iframeRef.current?.getBoundingClientRect();
+      const doc = iframeRef.current?.contentDocument;
+      const target = doc?.querySelector(selected.path) as HTMLElement | null;
+      if (!iframeRect || !target) return;
+
+      const rect = target.getBoundingClientRect();
+      setToolbarPos({
+        x: iframeRect.left + rect.left,
+        y: iframeRect.top + rect.top - 48,
+        width: rect.width,
+      });
+    } catch {
+      // Keep the last known toolbar position if the selected element is briefly unavailable.
+    }
+  }, [selected?.path]);
+
+  useEffect(() => {
+    if (!selected?.path || !iframeReady) return;
+
+    let frame = 0;
+    const scheduleUpdate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        updateToolbarPositionForSelection();
+      });
+    };
+
+    scheduleUpdate();
+
+    const frameWindow = iframeRef.current?.contentWindow;
+    frameWindow?.addEventListener('scroll', scheduleUpdate, { passive: true });
+    frameWindow?.addEventListener('resize', scheduleUpdate);
+    window.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', scheduleUpdate);
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frameWindow?.removeEventListener('scroll', scheduleUpdate);
+      frameWindow?.removeEventListener('resize', scheduleUpdate);
+      window.removeEventListener('scroll', scheduleUpdate);
+      window.removeEventListener('resize', scheduleUpdate);
+    };
+  }, [iframeReady, selected?.path, updateToolbarPositionForSelection]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -1734,7 +1755,7 @@ export function VisualEditor({
             if (clickedEl) {
               let node: Element | null = clickedEl;
               while (node && node !== doc2.body) {
-                if (node.classList && (node.classList.contains('cf-embed-container') || node.classList.contains('cf-embed-placeholder') || node.classList.contains('cf-section-embedded'))) {
+                if (node.classList && (node.classList.contains('cf-embed-element') || node.classList.contains('cf-embed-container') || node.classList.contains('cf-embed-placeholder') || node.classList.contains('cf-section-embedded'))) {
                   // compute css path for wrapper
                   const computeCssPathWrapper = (el: Element | null) => {
                     if (!el || el === doc2.documentElement) return 'html';
@@ -2386,8 +2407,7 @@ export function VisualEditor({
     });
   };
 
-  const duplicateSection = () => {
-    const sectionPath = selected?.sectionPath;
+  const duplicateSectionByPath = (sectionPath: string) => {
     if (!sectionPath) return;
 
     applyMutation(sectionPath, (el) => {
@@ -2396,7 +2416,21 @@ export function VisualEditor({
     });
   };
 
+  const duplicateSection = () => {
+    const sectionPath = selected?.sectionPath;
+    if (!sectionPath) return;
+    duplicateSectionByPath(sectionPath);
+  };
+
   const insertElement = (type: string) => {
+    if (type === 'Embedded') {
+      setPendingSectionType(null);
+      setPendingEmbedMode('element');
+      setEmbedCode('');
+      setShowEmbedModal(true);
+      return;
+    }
+
     const template = ELEMENT_TEMPLATES[type];
     if (!template) return;
 
@@ -2435,7 +2469,57 @@ export function VisualEditor({
       }
     });
 
-    setAddElOpen(false);
+    setFloatingAddElOpen(false);
+    setToolbarAddElOpen(false);
+  };
+
+  const insertEmbeddedElement = (code: string) => {
+    const iframeDoc = iframeRef.current?.contentDocument;
+    if (!iframeDoc) return;
+
+    const sectionPath = selected?.sectionPath ?? (selected?.tag === 'section' ? selected.path : null);
+    if (!sectionPath) return;
+
+    applyMutation(sectionPath, (sectionEl, doc) => {
+      const embedHost = doc.createElement('div');
+      embedHost.className = 'cf-embed-element';
+      embedHost.style.width = '100%';
+      embedHost.style.height = 'auto';
+      embedHost.style.minHeight = '200px';
+      embedHost.style.margin = '0.75rem 0';
+      appendEmbedCode(doc, embedHost, code);
+
+      const selectedEl = selected?.path ? iframeDoc.querySelector(selected.path) : null;
+      let insertAfter: Element | null = null;
+      if (selectedEl && selectedEl !== sectionEl) {
+        let candidate: Element | null = selectedEl as Element;
+        while (candidate && candidate.parentElement !== sectionEl) {
+          candidate = candidate.parentElement;
+        }
+        if (candidate && candidate.parentElement === sectionEl) {
+          insertAfter = candidate;
+        }
+      }
+
+      if (insertAfter) {
+        insertAfter.insertAdjacentElement('afterend', embedHost);
+      } else {
+        sectionEl.appendChild(embedHost);
+      }
+    });
+
+    setFloatingAddElOpen(false);
+    setToolbarAddElOpen(false);
+  };
+
+  const confirmAddEmbed = () => {
+    if (pendingEmbedMode === 'element') {
+      insertEmbeddedElement(embedCode);
+      closeEmbedModal();
+      return;
+    }
+
+    confirmAddSectionWithEmbed();
   };
 
   const moveSectionUp = () => {
@@ -2459,6 +2543,36 @@ export function VisualEditor({
       if (next) {
         next.after(el);
       }
+    });
+  };
+
+  const duplicateSelectedElement = () => {
+    const elementPath = selected?.path;
+    if (!elementPath) return;
+
+    applyMutation(elementPath, (el) => {
+      const copy = el.cloneNode(true) as Element;
+      el.insertAdjacentElement('afterend', copy);
+    });
+  };
+
+  const moveSelectedElementUp = () => {
+    const elementPath = selected?.path;
+    if (!elementPath) return;
+
+    applyMutation(elementPath, (el) => {
+      const previous = el.previousElementSibling;
+      if (previous) previous.before(el);
+    });
+  };
+
+  const moveSelectedElementDown = () => {
+    const elementPath = selected?.path;
+    if (!elementPath) return;
+
+    applyMutation(elementPath, (el) => {
+      const next = el.nextElementSibling;
+      if (next) next.after(el);
     });
   };
 
@@ -3432,14 +3546,53 @@ export function VisualEditor({
         <Button size="sm" variant={previewMode === 'mobile' ? 'default' : 'ghost'} className="h-8 px-2" onClick={() => setPreviewMode('mobile')}>
           <Smartphone className="h-4 w-4" />
         </Button>
-        {layout !== 'overlay' && !panelOpen && (
+        {!panelOpen && (
           <>
             <div className="w-px h-5 bg-border mx-0.5" />
-            <Button size="sm" variant="ghost" className="h-8 px-2" title="Open editor panel" onClick={() => setPanelOpen(true)}>
+            <Button
+              size="sm"
+              variant={layout === 'overlay' ? 'default' : 'ghost'}
+              className="h-8 gap-1.5 px-2"
+              title="Open editor panel"
+              onClick={() => {
+                setToolbarPos(null);
+                setToolbarAddElOpen(false);
+                setPanelOpen(true);
+              }}
+            >
               <Pencil className="h-4 w-4" />
+              {layout === 'overlay' && <span className="text-xs">Edit</span>}
             </Button>
           </>
         )}
+      </div>
+
+      <div className="absolute bottom-3 left-3 z-30" ref={floatingAddElPopoverRef}>
+        {(() => {
+          const canAddElement = Boolean(selected?.sectionPath || selected?.tag === 'section');
+          return (
+            <>
+          <Button
+            size="sm"
+            className="h-10 gap-2 rounded-md shadow-lg"
+            onClick={() => {
+              setToolbarPos(null);
+              setToolbarAddElOpen(false);
+              setFloatingAddElOpen((v) => !v);
+            }}
+            title={canAddElement ? 'Add elements or sections' : 'Add sections, or select a section to add elements'}
+          >
+            <Plus className="h-4 w-4" />
+            Add element
+          </Button>
+          {floatingAddElOpen && (
+            <div className="absolute bottom-12 left-0 rounded-md border border-border bg-background p-2 shadow-xl">
+              {renderAddMenu(floatingAddTab, setFloatingAddTab, () => setFloatingAddElOpen(false), false, canAddElement)}
+            </div>
+          )}
+            </>
+          );
+        })()}
       </div>
 
       <div className={`relative mx-auto h-full transition-all duration-300 ${previewWidthClass}`}>
@@ -3482,7 +3635,7 @@ export function VisualEditor({
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
-      const nodes = Array.from(doc.querySelectorAll('section'));
+      const nodes = Array.from(doc.querySelectorAll('header, section'));
       return nodes.map((el, idx) => ({
         path: (() => {
           let node: HTMLElement | null = el as HTMLElement, parts: string[] = [];
@@ -3648,47 +3801,98 @@ export function VisualEditor({
     setDraggedSectionIdx(null);
   };
 
+  const isEmbeddedFormModal = pendingEmbedMode === 'section' && (pendingSectionType === 'Embedded Form' || pendingSectionType === 'Forms Embedded');
+  const embedModalTitle = pendingEmbedMode === 'element'
+    ? 'Add Embedded Code Element'
+    : isEmbeddedFormModal
+      ? 'Add Embedded Form'
+      : 'Add Embedded Code to Section';
+  const embedModalDescription = pendingEmbedMode === 'element'
+    ? 'Paste any HTML, iframe, widget, map, calendar, video, script, or third-party embed. It will be inserted inside the selected section.'
+    : isEmbeddedFormModal
+      ? 'Paste your form embed code below. HubSpot forms work well here, and other form providers can also be used if they provide an embed snippet.'
+      : 'Paste any HTML, iframe, widget, map, calendar, video, script, or third-party embed. It will be inserted inside the new section.';
+
+  const embedModal = showEmbedModal ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-background rounded-lg shadow-lg p-6 w-full max-w-lg border border-border">
+        <h3 className="text-lg font-semibold mb-2">
+          {embedModalTitle}
+        </h3>
+        <p className="text-xs text-muted-foreground mb-2">
+          {embedModalDescription}
+        </p>
+        {isEmbeddedFormModal ? (
+          <div className="mb-3 rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+            <p className="mb-2 font-medium text-foreground">HubSpot example</p>
+            <ol className="list-decimal space-y-1 pl-4">
+              <li>In HubSpot, open Marketing &gt; Forms and choose the form.</li>
+              <li>Click Share or Embed.</li>
+              <li>Copy the embed code, usually a script snippet from HubSpot.</li>
+              <li>Paste the full code here and click Add Section.</li>
+            </ol>
+          </div>
+        ) : (
+          <div className="mb-3 rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+            This accepts common embed formats such as iframes, scripts, widgets, videos, maps, calendars, forms, and custom HTML snippets.
+          </div>
+        )}
+        <textarea
+          className="w-full min-h-[100px] rounded border border-border bg-muted/10 p-2 text-sm font-mono mb-4"
+          placeholder={isEmbeddedFormModal ? "&lt;script charset=&quot;utf-8&quot; type=&quot;text/javascript&quot; src=&quot;//js.hsforms.net/forms/embed/v2.js&quot;&gt;&lt;/script&gt;..." : "&lt;iframe ...&gt;&lt;/iframe&gt; or any HTML..."}
+          value={embedCode}
+          onChange={e => setEmbedCode(e.target.value)}
+          autoFocus
+        />
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={closeEmbedModal}>Cancel</Button>
+          <Button
+            variant="default"
+            onClick={confirmAddEmbed}
+            disabled={pendingEmbedMode === 'section' && !pendingSectionType}
+          >
+            {pendingEmbedMode === 'element' ? 'Add Element' : 'Add Section'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   const sectionsPanel = (
-    <div className="mb-4 rounded border border-border/60 bg-background">
-      <button className="flex w-full items-center gap-2 px-3 py-2 text-left font-semibold" onClick={() => setSectionsPanelOpen(v => !v)}>
-        {sectionsPanelOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-        Site Sections
+    <div className="mb-4 overflow-hidden rounded-lg border border-border/70 bg-background shadow-sm">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3 border-b border-border/60 px-3 py-3 text-left hover:bg-muted/30"
+        onClick={() => setSectionsPanelOpen(v => !v)}
+      >
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            {sectionsPanelOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <p className="text-sm font-semibold">Site Sections</p>
+            <Badge variant="secondary" className="text-[10px]">{sectionsList.length}</Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">Add, select, reorder, duplicate, and remove sections.</p>
+        </div>
       </button>
       {sectionsPanelOpen && (
-        <>
-          <div className="flex flex-wrap gap-2 px-3 py-2 border-b border-border/40 mb-2">
+        <div className="space-y-4 p-3">
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Add Section</p>
+            <div className="grid grid-cols-2 gap-2">
             {PREDEFINED_SECTIONS.map((s) => (
-              <Button
+              <button
                 key={s.name}
-                variant="ghost"
-                size="sm"
-                className="h-8 px-3 text-sm justify-start gap-2"
+                type="button"
+                className="flex min-h-12 items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 text-left text-xs transition-colors hover:border-primary/50 hover:bg-muted/50"
                 onClick={() => addPredefinedSection(s.name)}
+                title={`Add ${s.label} section`}
               >
-                <span className="opacity-80">{s.icon}</span>
-                <span className="ml-2">{s.label}</span>
-              </Button>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground shadow-sm">{s.icon}</span>
+                <span className="min-w-0 truncate font-medium">{s.label}</span>
+              </button>
             ))}
+            </div>
                 {/* Modal para código embed ao adicionar sessão */}
-                {showEmbedModal && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-                    <div className="bg-background rounded-lg shadow-lg p-6 w-full max-w-md border border-border">
-                      <h3 className="text-lg font-semibold mb-2">Add Embedded Code to Section</h3>
-                      <p className="text-xs text-muted-foreground mb-2">Paste any HTML, iframe, widget, or embed code below. It will be inserted inside the new section.</p>
-                      <textarea
-                        className="w-full min-h-[100px] rounded border border-border bg-muted/10 p-2 text-sm font-mono mb-4"
-                        placeholder="&lt;iframe ...&gt;&lt;/iframe&gt; or any HTML..."
-                        value={embedCode}
-                        onChange={e => setEmbedCode(e.target.value)}
-                        autoFocus
-                      />
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" onClick={() => { setShowEmbedModal(false); setEmbedCode(''); setPendingSectionType(null); }}>Cancel</Button>
-                        <Button variant="default" onClick={confirmAddSectionWithEmbed} disabled={!pendingSectionType}>Add Section</Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
                 {showFilesFolder && (
                   <div className="fixed inset-0 flex items-center justify-center bg-black/40" style={{ zIndex: 99999 }}>
                     <div className="bg-background rounded-lg shadow-lg p-4 w-full max-w-2xl border border-primary/60">
@@ -3741,51 +3945,229 @@ export function VisualEditor({
                   </div>
                 )}
           </div>
-          <ul className="divide-y divide-border/40">
-            {sectionsList.length === 0 && <li className="px-3 py-2 text-xs text-muted-foreground">No sections found</li>}
-            {sectionsList.map((s, idx) => (
-              <li
-                key={s.path}
-                className={`flex items-center gap-2 px-3 py-2 group hover:bg-muted/40 ${draggedSectionIdx === idx ? 'opacity-50' : ''}`}
-                draggable
-                onDragStart={() => handleDragStart(idx)}
-                onDragEnd={handleDragEnd}
-                onDragOver={e => handleDragOver(e, idx)}
-                onDrop={e => handleDrop(e, idx)}
-              >
-                <button className="flex-1 text-left truncate" style={{fontWeight: selected?.sectionPath === s.path ? 600 : 400}} onClick={() => selectSection(s.path)}>{s.title}</button>
-                <Button size="icon" variant="ghost" className="opacity-60 group-hover:opacity-100" onClick={() => moveSection(s.path, 'up')} title="Move up"><ArrowUp size={16} /></Button>
-                <Button size="icon" variant="ghost" className="opacity-60 group-hover:opacity-100" onClick={() => moveSection(s.path, 'down')} title="Move down"><ArrowDown size={16} /></Button>
-                <Button size="icon" variant="ghost" className="opacity-60 group-hover:opacity-100" onClick={() => { applyMutation(s.path, el => el.remove()); }} title="Remove"><Trash2 size={16} /></Button>
-              </li>
-            ))}
-          </ul>
-        </>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current Sections</p>
+              {sectionsList.length > 0 && <span className="text-[11px] text-muted-foreground">Drag to reorder</span>}
+            </div>
+
+            {sectionsList.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border/70 bg-muted/20 p-4 text-center">
+                <p className="text-sm font-medium">No sections found</p>
+                <p className="mt-1 text-xs text-muted-foreground">Start with a hero section, then add the rest of the page structure.</p>
+                <Button size="sm" className="mt-3" onClick={() => addPredefinedSection('Hero')}>
+                  <Plus className="mr-2 h-4 w-4" /> Add Hero Section
+                </Button>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {sectionsList.map((s, idx) => {
+                  const isActive = selected?.sectionPath === s.path;
+                  const title = s.title.toLowerCase();
+                  const isHeaderNode = /(^|>\s*)header:nth-of-type\(/.test(s.path);
+                  const sectionType = isHeaderNode || title.includes('hero')
+                    ? 'Hero'
+                    : title.includes('embed')
+                    ? 'Embedded'
+                    : title.includes('form') || title.includes('contact')
+                      ? 'Form'
+                      : title.includes('proof') || title.includes('trusted') || title.includes('testimonial')
+                          ? 'Social Proof'
+                          : title.includes('download')
+                            ? 'Download'
+                            : title.includes('cta') || title.includes('ready')
+                              ? 'CTA'
+                              : title.includes('benefit') || title.includes('why')
+                                ? 'Benefits'
+                                : 'Section';
+
+                  return (
+                    <li
+                      key={s.path}
+                      className={`group rounded-md border bg-background transition-colors ${
+                        isActive ? 'border-primary/70 bg-primary/5' : 'border-border/60 hover:border-border'
+                      } ${draggedSectionIdx === idx ? 'opacity-50' : ''}`}
+                      draggable
+                      onDragStart={() => handleDragStart(idx)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={e => handleDragOver(e, idx)}
+                      onDrop={e => handleDrop(e, idx)}
+                    >
+                      <div className="flex items-center gap-2 p-2">
+                        <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          onClick={() => selectSection(s.path)}
+                          title="Select section"
+                        >
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                            {idx + 1}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">{s.title}</span>
+                            <span className="mt-0.5 inline-flex rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {sectionType}
+                            </span>
+                          </span>
+                        </button>
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => duplicateSectionByPath(s.path)} title="Duplicate section">
+                            <Copy size={15} />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => moveSection(s.path, 'up')} title="Move up">
+                            <ArrowUp size={15} />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => moveSection(s.path, 'down')} title="Move down">
+                            <ArrowDown size={15} />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => { applyMutation(s.path, el => el.remove()); }} title="Remove section">
+                            <Trash2 size={15} />
+                          </Button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
       )}
+    </div>
+  );
+
+  function renderAddMenu(
+    activeTab: 'element' | 'sections',
+    setActiveTab: (tab: 'element' | 'sections') => void,
+    closeMenu: () => void,
+    compact = false,
+    canInsertElement = Boolean(selected?.sectionPath || selected?.tag === 'section'),
+  ) {
+    return (
+      <div className={compact ? 'w-56' : 'w-72'}>
+      <div className="mb-2 grid grid-cols-2 rounded-md border border-border/60 bg-muted/30 p-1">
+        <button
+          type="button"
+          className={`rounded px-2 py-1.5 text-xs font-medium ${activeTab === 'element' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          onClick={() => setActiveTab('element')}
+        >
+          Element
+        </button>
+        <button
+          type="button"
+          className={`rounded px-2 py-1.5 text-xs font-medium ${activeTab === 'sections' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          onClick={() => setActiveTab('sections')}
+        >
+          Sections
+        </button>
+      </div>
+
+      {activeTab === 'element' ? (
+        <div className="grid grid-cols-2 gap-1.5">
+          {!canInsertElement && (
+            <p className="col-span-2 rounded border border-border/60 bg-muted/20 px-2 py-2 text-xs text-muted-foreground">
+              Select a section or an element inside a section to add elements.
+            </p>
+          )}
+          {Object.entries(ELEMENT_TEMPLATES).map(([type, tmpl]) => (
+            <button
+              key={type}
+              title={`Insert ${tmpl.label}`}
+              disabled={!canInsertElement}
+              className={`flex items-center gap-2 rounded border border-border/60 bg-muted/40 px-2 py-2 text-left text-xs transition-colors ${
+                canInsertElement ? 'hover:bg-muted' : 'cursor-not-allowed opacity-45'
+              }`}
+              onClick={() => {
+                if (!canInsertElement) return;
+                insertElement(type);
+                closeMenu();
+              }}
+            >
+              <span className={`w-4 text-center leading-none ${type === 'Embedded' ? 'text-[10px] font-semibold' : 'text-base'}`}>{tmpl.icon}</span>
+              <span className="min-w-0 truncate">{tmpl.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-1.5">
+          {PREDEFINED_SECTIONS.map((section) => (
+            <button
+              key={section.name}
+              title={`Add ${section.label} section`}
+              className="flex items-center gap-2 rounded border border-border/60 bg-muted/40 px-2 py-2 text-left text-xs hover:bg-muted transition-colors"
+              onClick={() => {
+                addPredefinedSection(section.name);
+                closeMenu();
+              }}
+            >
+              <span className="flex w-5 justify-center text-muted-foreground">{section.icon}</span>
+              <span className="min-w-0 truncate">{section.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+    );
+  }
+
+  const elementFormattingTabs = (
+    <div className="grid grid-cols-3 overflow-hidden rounded-md border border-border/70 bg-[#15181d] text-[11px] text-slate-300 shadow-sm">
+      {([
+        { id: 'content', label: 'Content', icon: <Pencil className="h-4 w-4" /> },
+        { id: 'style', label: 'Style', icon: <Palette className="h-4 w-4" /> },
+        { id: 'advanced', label: 'Advanced', icon: <Settings2 className="h-4 w-4" /> },
+      ] as const).map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          className={`flex h-14 flex-col items-center justify-center gap-1 border-b-2 transition-colors hover:bg-white/5 ${
+            editorPanelTab === tab.id
+              ? 'border-primary text-white'
+              : 'border-transparent text-slate-400'
+          }`}
+          onClick={() => {
+            setToolbarPos(null);
+            setToolbarAddElOpen(false);
+            setEditorPanelTab(tab.id);
+          }}
+        >
+          {tab.icon}
+          <span className="leading-none">{tab.label}</span>
+        </button>
+      ))}
     </div>
   );
 
   const panelContent = (
     <div className="text-sm space-y-3">
       <div className="mb-3 flex items-center gap-2">
-        <button
-          className={`px-3 py-1 rounded-md text-sm font-medium ${editorTab === 'element' ? 'bg-muted text-primary' : 'text-muted-foreground'}`}
-          onClick={() => setEditorTab('element')}
-        >
-          Element
-        </button>
-        <button
-          className={`px-3 py-1 rounded-md text-sm font-medium ${editorTab === 'sections' ? 'bg-muted text-primary' : 'text-muted-foreground'}`}
-          onClick={() => setEditorTab('sections')}
-        >
-          Sections
-        </button>
+        {([
+          ['element', 'Element'],
+          ['sections', 'Sections'],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            className={`px-3 py-1 rounded-md text-sm font-medium ${editorTab === id ? 'bg-muted text-primary' : 'text-muted-foreground'}`}
+            onClick={() => {
+              setToolbarPos(null);
+              setToolbarAddElOpen(false);
+              setEditorTab(id);
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="rounded-md border border-border/60 bg-muted/20">
         <button
           className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
-          onClick={() => setBrandColorsOpen((v) => !v)}
+          onClick={() => {
+            setToolbarPos(null);
+            setToolbarAddElOpen(false);
+            setBrandColorsOpen((v) => !v);
+          }}
         >
           <div className="flex items-center gap-2">
             <Palette className="h-4 w-4 text-primary" />
@@ -3934,9 +4316,10 @@ export function VisualEditor({
             )}
           </>
         ) : (
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4">
+          {elementFormattingTabs}
           {(selected?.sectionPath || selected?.tag === 'section') && (
-            <div className="rounded-md border border-border/60 p-3 space-y-2">
+            <div className="hidden">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Add element</p>
               <div className="grid grid-cols-4 gap-1.5">
                 {Object.entries(ELEMENT_TEMPLATES).map(([type, tmpl]) => (
@@ -3946,15 +4329,19 @@ export function VisualEditor({
                     className="flex flex-col items-center gap-1 rounded border border-border/60 bg-muted/40 py-2 px-1 text-center hover:bg-muted transition-colors"
                     onClick={() => insertElement(type)}
                   >
-                    <span className="text-base leading-none">{tmpl.icon}</span>
+                    <span className={`leading-none ${type === 'Embedded' ? 'text-[10px] font-semibold' : 'text-base'}`}>{tmpl.icon}</span>
                     <span className="text-[10px] leading-none text-muted-foreground">{tmpl.label}</span>
                   </button>
                 ))}
               </div>
             </div>
           )}
-          <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Selection Context</p>
+          <details open className="order-last rounded-md border border-border/60 bg-muted/20">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground [&::-webkit-details-marker]:hidden">
+              Selection Context
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </summary>
+            <div className="p-3 pt-0">
             <div className="mt-2 flex items-center gap-2">
               <Badge variant="secondary" className="font-mono text-xs">{selected.tag}</Badge>
               {selected.sectionPath && <Badge variant="outline" className="text-xs">in section</Badge>}
@@ -3983,11 +4370,16 @@ export function VisualEditor({
                 <span className="font-mono text-foreground font-medium">{selected.tag}</span>
               </div>
             )}
-          </div>
+            </div>
+          </details>
 
           {isTextElementSelected && (
-            <div className="space-y-2 rounded-md border border-border/60 p-3">
-              <p className="text-sm font-medium">Quick Edit</p>
+            <details open className={`order-10 rounded-md border border-border/60 ${editorPanelTab === 'content' ? '' : 'hidden'}`}>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                Quick Edit
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </summary>
+              <div className="space-y-2 p-3 pt-0">
               <Label htmlFor="cf-edit-text" className="text-xs text-muted-foreground">Text</Label>
               <Textarea
                 id="cf-edit-text"
@@ -3999,11 +4391,16 @@ export function VisualEditor({
                 }}
                 rows={3}
               />
-            </div>
+              </div>
+            </details>
           )}
 
-          <div className="space-y-2 rounded-md border border-border/60 p-3">
-            <p className="text-sm font-medium">Appearance</p>
+          <details className={`order-20 rounded-md border border-border/60 ${editorPanelTab === 'style' ? '' : 'hidden'}`}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+              Appearance
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </summary>
+            <div className="space-y-2 p-3 pt-0">
             <Label className="text-xs text-muted-foreground">Colors</Label>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
@@ -4557,13 +4954,16 @@ export function VisualEditor({
               </div>
             )}
           </div>
+          </details>
 
-          {isHeroSelected() && (
-            <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3">
-              <div>
-                <p className="text-sm font-medium">Hero Section</p>
+          {isHeroSelected() && (selectedBackground || selected.tag === 'img' || ['section', 'header', 'div'].includes(selected.tag)) && !isTextElementSelected && selected.tag !== 'a' && selected.tag !== 'button' && (
+            <details open className={`order-20 rounded-md border border-primary/30 bg-primary/5 ${editorPanelTab === 'content' ? '' : 'hidden'}`}>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                Hero Section
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </summary>
+              <div className="space-y-2 p-3 pt-0">
                 <p className="text-xs text-muted-foreground mt-0.5">Quickly replace the main hero image from your uploaded assets.</p>
-              </div>
               <Button
                 className="w-full"
                 size="sm"
@@ -4573,16 +4973,19 @@ export function VisualEditor({
               >
                 <ImagePlus className="mr-2 h-4 w-4" /> Replace Hero Image
               </Button>
-            </div>
+              </div>
+            </details>
           )}
 
           {(selected.tag === 'img' || selectedBackground) && (
-            <div className="flex flex-col gap-2">
-              <div className="rounded-md border border-border/60 p-3 space-y-2">
-                <div>
-                  <p className="text-sm font-medium">Image</p>
+            <div className={`order-10 flex flex-col gap-2 ${editorPanelTab === 'content' ? '' : 'hidden'}`}>
+              <details open className={`rounded-md border border-border/60 ${editorPanelTab === 'content' ? '' : 'hidden'}`}>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                  Image
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </summary>
+                <div className="space-y-2 p-3 pt-0">
                   <p className="text-xs text-muted-foreground mt-0.5">Paste a URL or pick from your uploaded assets.</p>
-                </div>
                 <Label htmlFor="cf-image-src" className="text-xs text-muted-foreground">Image URL</Label>
                 <Input
                   id="cf-image-src"
@@ -4603,11 +5006,16 @@ export function VisualEditor({
                 >
                   <FolderOpen className="mr-2 h-4 w-4" /> Pick from Assets Folder
                 </Button>
-              </div>
+                </div>
+              </details>
 
 
-              <div className="order-3 space-y-2 rounded-md border border-border/60 p-3">
-                <p className="text-sm font-medium">Image Formatting</p>
+              <details open className="order-3 rounded-md border border-border/60">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                  Image Formatting
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </summary>
+                <div className="space-y-2 p-3 pt-0">
                 <div>
                   <Label htmlFor="cf-image-fit" className="text-xs text-muted-foreground">Fit</Label>
                   <select
@@ -4941,33 +5349,42 @@ export function VisualEditor({
                   </div>
                 </div>
               </div>
+              </details>
 
-              <div className="order-2 space-y-3 rounded-md border border-border/60 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium">Gemini Image Chat</p>
-                  <Badge variant="secondary">AI</Badge>
-                </div>
+              <div className="order-2 rounded-md border border-border/60">
+                <button
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+                  onClick={() => setGeminiChatOpen((v) => !v)}
+                >
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium">Gemini Image Chat</p>
+                    <Badge variant="secondary">AI</Badge>
+                  </div>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${geminiChatOpen ? 'rotate-180' : ''}`} />
+                </button>
 
-                <p className="text-xs text-muted-foreground">
-                  Describe the image you want. Click Add to download and save it into assets.
-                </p>
+                {geminiChatOpen && (
+                  <div className="space-y-3 border-t border-border/60 p-3">
+                    <p className="text-xs text-muted-foreground">
+                      Describe the image you want. Click Add to download and save it into assets.
+                    </p>
 
-                <Textarea
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="Example: Minimal hero image of a modern architecture studio, neutral palette, clean lighting"
-                  rows={3}
-                />
+                    <Textarea
+                      value={aiPrompt}
+                      onChange={(e) => setAiPrompt(e.target.value)}
+                      placeholder="Example: Minimal hero image of a modern architecture studio, neutral palette, clean lighting"
+                      rows={3}
+                    />
 
-                <Button className="w-full" size="sm" onClick={handleGenerateImage} disabled={aiGenerating}>
-                  {aiGenerating ? 'Generating...' : 'Generate with Gemini'}
-                </Button>
+                    <Button className="w-full" size="sm" onClick={handleGenerateImage} disabled={aiGenerating}>
+                      {aiGenerating ? 'Generating...' : 'Generate with Gemini'}
+                    </Button>
 
-                {aiGeneratingError && (
-                  <p className="text-xs text-destructive">{aiGeneratingError}</p>
-                )}
+                    {aiGeneratingError && (
+                      <p className="text-xs text-destructive">{aiGeneratingError}</p>
+                    )}
 
-                <div className="max-h-72 space-y-2 overflow-auto">
+                    <div className="max-h-72 space-y-2 overflow-auto">
                   {aiGeneratedImages.length === 0 ? (
                     <p className="text-xs text-muted-foreground">No generated images yet.</p>
                   ) : aiGeneratedImages.map((item) => (
@@ -4988,15 +5405,21 @@ export function VisualEditor({
                       </Button>
                     </div>
                   ))}
-                </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {showAssetManager && (
-                <div className="order-1 space-y-3 rounded-md border border-border/60 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium">Project Assets Folder</p>
-                    <Button size="sm" variant="ghost" onClick={() => setShowAssetManager(false)}>Close</Button>
-                  </div>
+                <details open className="order-1 rounded-md border border-border/60">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                    <span>Project Assets Folder</span>
+                    <span className="flex items-center gap-1">
+                      <Button size="sm" variant="ghost" onClick={(event) => { event.preventDefault(); setShowAssetManager(false); }}>Close</Button>
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    </span>
+                  </summary>
+                  <div className="space-y-3 p-3 pt-0">
 
                   <p className="text-xs text-muted-foreground">
                     Upload, remove, and select files from this project's assets folder.
@@ -5103,7 +5526,8 @@ export function VisualEditor({
                       </div>
                     ))}
                   </div>
-                </div>
+                  </div>
+                </details>
               )}
               {showFilesFolder && (
                 <div ref={filesPanelRef} className="space-y-3 rounded-md border border-border/60 p-3">
@@ -5191,8 +5615,12 @@ export function VisualEditor({
             </div>
           )}
 
-          <div className="space-y-2 rounded-md border border-border/60 p-3">
-            <p className="text-sm font-medium">Typography & Element Formatting</p>
+          <details className={`order-10 rounded-md border border-border/60 ${editorPanelTab === 'style' ? '' : 'hidden'}`}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+              Typography & Element Formatting
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </summary>
+            <div className="space-y-2 p-3 pt-0">
             <div className="grid grid-cols-2 gap-2">
               {isTextElementSelected && (
                 <div className="col-span-2 space-y-2">
@@ -5395,12 +5823,15 @@ export function VisualEditor({
               )}
             </div>
           </div>
+          </details>
 
           {/** Container / Div sizing controls — visible when an element is selected */}
-          <div className="space-y-3 rounded-md border border-border/60 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium">Container / Div Sizing</p>
-            </div>
+          <details className={`order-10 rounded-md border border-border/60 ${editorPanelTab === 'advanced' ? '' : 'hidden'}`}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+              Container / Div Sizing
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </summary>
+            <div className="space-y-3 p-3 pt-0">
 
               <div className="grid grid-cols-2 gap-2">
               <div>
@@ -5918,10 +6349,15 @@ export function VisualEditor({
               </div>
             </div>
           </div>
+          </details>
 
           {selected.sectionPath && (
-            <div className="space-y-2 rounded-md border border-border/60 p-3">
-              <Label>Section Spacing & Style</Label>
+            <details className={`order-30 rounded-md border border-border/60 ${editorPanelTab === 'style' ? '' : 'hidden'}`}>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                Section Spacing & Style
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </summary>
+              <div className="space-y-2 p-3 pt-0">
               <div className="grid grid-cols-3 gap-2">
                 <Button size="sm" variant="outline" onClick={duplicateSection}>
                   <Copy className="mr-2 h-4 w-4" /> Duplicate
@@ -6409,10 +6845,16 @@ export function VisualEditor({
                 </div>
               )}
             </div>
+            </details>
           )}
 
           {selected.tag === 'a' && (
-            <div className="space-y-2">
+            <details open className={`order-0 rounded-md border border-border/60 ${editorPanelTab === 'content' ? '' : 'hidden'}`}>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                Link Settings
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </summary>
+              <div className="space-y-2 p-3 pt-0">
               <Label htmlFor="cf-link-href">Link URL</Label>
               <Input
                 id="cf-link-href"
@@ -6485,12 +6927,13 @@ export function VisualEditor({
                   <FolderOpen className="mr-2 h-4 w-4" /> Open Files Folder
                 </Button>
               </div>
-            </div>
+              </div>
+            </details>
           )}
 
-          <Separator />
+          <Separator className={`order-40 ${editorPanelTab === 'advanced' ? '' : 'hidden'}`} />
 
-          <div className="space-y-2">
+          <div className="order-[999] space-y-2">
             {isSelectedSection() ? (
               <Button className="w-full" size="sm" variant="destructive" onClick={removeSection} disabled={!selected?.sectionPath}>
                 <Trash2 className="mr-2 h-4 w-4" /> Remove Section
@@ -6509,42 +6952,12 @@ export function VisualEditor({
     </div>
   );
 
-  // Snapshots popover for header
-  const snapshotsContent = (
-    <div className="space-y-2 min-w-[260px] max-w-[340px]">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium">Snapshots</p>
-        <Button size="sm" variant="outline" onClick={saveSnapshot}>Save Snapshot</Button>
-      </div>
-      {snapshots.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No snapshots yet.</p>
-      ) : (
-        <div className="max-h-40 space-y-2 overflow-auto">
-          {snapshots.map((snapshot) => (
-            <div key={snapshot.id} className="rounded border border-border/60 p-2">
-              <p className="truncate text-xs font-medium">{snapshot.label}</p>
-              <p className="text-[11px] text-muted-foreground">{new Date(snapshot.createdAt).toLocaleString()}</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <Button size="sm" variant="outline" onClick={() => restoreSnapshot(snapshot)}>
-                  Restore
-                </Button>
-                <Button size="sm" variant="destructive" onClick={() => deleteSnapshot(snapshot.id)}>
-                  Delete
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
   const floatingToolbarEl = toolbarPos && selected ? (
     <div
       style={{
         position: 'fixed',
         left: Math.max(8, Math.min(toolbarPos.x, window.innerWidth - 280)),
-        top: Math.max(8, toolbarPos.y),
+        top: Math.max(FLOATING_TOOLBAR_MIN_TOP, toolbarPos.y),
         zIndex: 99999,
       }}
       className="flex items-center gap-0.5 rounded-lg border border-border bg-background shadow-lg px-1 py-1"
@@ -6609,16 +7022,16 @@ export function VisualEditor({
         </>
       )}
 
-      {/* Section controls */}
-      {selected.sectionPath && (
+      {/* Element controls */}
+      {selected.path && (
         <>
-          <button title="Duplicate section" className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={duplicateSection}>
+          <button title={isSelectedSection() ? 'Duplicate section' : 'Duplicate element'} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={duplicateSelectedElement}>
             <Copy className="h-3.5 w-3.5" />
           </button>
-          <button title="Move section up" className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={moveSectionUp}>
+          <button title={isSelectedSection() ? 'Move section up' : 'Move element up'} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={moveSelectedElementUp}>
             <ArrowUp className="h-3.5 w-3.5" />
           </button>
-          <button title="Move section down" className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={moveSectionDown}>
+          <button title={isSelectedSection() ? 'Move section down' : 'Move element down'} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={moveSelectedElementDown}>
             <ArrowDown className="h-3.5 w-3.5" />
           </button>
           <div className="w-px h-5 bg-border mx-0.5" />
@@ -6629,29 +7042,32 @@ export function VisualEditor({
       {(selected?.sectionPath || selected?.tag === 'section') && (
         <>
           <div className="w-px h-5 bg-border mx-0.5" />
-          <div className="relative" ref={addElPopoverRef}>
+          <div className="relative" ref={toolbarAddElPopoverRef}>
             <button
               title="Add element after this"
-              className={`h-7 px-2 flex items-center justify-center rounded hover:bg-muted text-sm font-bold leading-none ${addElOpen ? 'bg-muted' : ''}`}
-              onClick={() => setAddElOpen(v => !v)}
+              className={`h-7 px-2 flex items-center justify-center rounded hover:bg-muted text-sm font-bold leading-none ${toolbarAddElOpen ? 'bg-muted' : ''}`}
+              onClick={() => {
+                setFloatingAddElOpen(false);
+                setToolbarAddElOpen(v => !v);
+              }}
             >+</button>
-            {addElOpen && (
-              <div className="absolute top-full left-0 mt-1 z-[100000] bg-background border border-border rounded-lg shadow-xl p-2 grid grid-cols-2 gap-1 w-44">
-                {Object.entries(ELEMENT_TEMPLATES).map(([type, tmpl]) => (
-                  <button
-                    key={type}
-                    className="flex items-center gap-1.5 rounded px-2 py-1.5 text-xs hover:bg-muted text-left"
-                    onClick={() => insertElement(type)}
-                  >
-                    <span className="w-4 text-center">{tmpl.icon}</span>
-                    <span>{tmpl.label}</span>
-                  </button>
-                ))}
+            {toolbarAddElOpen && (
+              <div className="absolute top-full left-0 mt-1 z-[100000] rounded-lg border border-border bg-background p-2 shadow-xl">
+                {renderAddMenu(toolbarAddTab, setToolbarAddTab, () => setToolbarAddElOpen(false), true)}
               </div>
             )}
           </div>
         </>
       )}
+
+      {/* Remove selected */}
+      <button
+        title={isSelectedSection() ? 'Remove section' : 'Remove element'}
+        className="h-7 w-7 flex items-center justify-center rounded text-destructive hover:bg-destructive/10"
+        onClick={isSelectedSection() ? removeSection : removeElement}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
 
       {/* Dismiss */}
       <button
@@ -6665,27 +7081,36 @@ export function VisualEditor({
   if (layout === 'overlay') {
     return (
       <>
-      <div className="grid h-full w-full grid-cols-[minmax(0,1fr)_56px] gap-3 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <div
+        className="relative grid h-full w-full gap-3"
+        style={panelOpen ? { gridTemplateColumns: 'minmax(0,1fr) 380px' } : undefined}
+      >
         <div className="overflow-hidden rounded-xl border border-border bg-white shadow-lg">
           {iframeEl}
         </div>
 
-        <aside className="h-full overflow-y-auto rounded-xl border border-border bg-gradient-to-b from-background via-background to-muted/40 shadow-xl">
-          <div className="sticky top-0 z-10 border-b border-border/60 bg-background/95 px-3 py-3 backdrop-blur">
-            <div className="flex items-center justify-between gap-2">
-              <button
-                onClick={() => setPanelOpen(p => !p)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background hover:bg-muted"
-                title={panelOpen ? 'Hide editor panel' : 'Show editor panel'}
-              >
-                {panelOpen ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                )}
-              </button>
-              {panelOpen && <h3 className="text-sm font-semibold tracking-wide">Visual Editor</h3>}
-              {panelOpen ? (
+        {panelOpen ? (
+          <aside
+            className="h-full overflow-y-auto rounded-xl border border-border bg-gradient-to-b from-background via-background to-muted/40 shadow-xl"
+            onMouseDownCapture={() => {
+              setToolbarPos(null);
+              setToolbarAddElOpen(false);
+            }}
+          >
+            <div className="sticky top-0 z-10 border-b border-border/60 bg-background/95 px-3 py-3 backdrop-blur">
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  onClick={() => {
+                    setToolbarPos(null);
+                    setToolbarAddElOpen(false);
+                    setPanelOpen(false);
+                  }}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background hover:bg-muted"
+                  title="Hide editor panel"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <h3 className="text-sm font-semibold tracking-wide">Visual Editor</h3>
                 <div className="flex items-center gap-1">
                   <Button size="sm" variant="ghost" className="h-8 px-2" onClick={undo} disabled={!canUndo}>
                     <Undo2 className="h-4 w-4" />
@@ -6695,11 +7120,11 @@ export function VisualEditor({
                   </Button>
                   <Badge variant={saving ? 'default' : 'secondary'}>{saving ? 'Saving...' : 'Saved'}</Badge>
                 </div>
-              ) : <div />}
+              </div>
             </div>
-          </div>
-          {panelOpen ? <div className="space-y-3 p-4">{panelContent}</div> : <div className="p-3 text-center text-xs text-muted-foreground">Edit</div>}
-            </aside>
+            <div className="space-y-3 p-4">{panelContent}</div>
+          </aside>
+        ) : null}
             {showFilesFolder && (
               <div style={{position: 'fixed', right: 18, top: 72, zIndex: 9999}}>
                 <div className="rounded bg-yellow-300 text-black px-3 py-1 text-xs font-semibold shadow">FILES PANEL OPEN (debug)</div>
@@ -6755,12 +7180,12 @@ export function VisualEditor({
               </div>
             )}
           </div>
+      {embedModal}
       {floatingToolbarEl}
       </>
     );
   }
 
-  // Snapshots popover in header
   return (
     <>
     <div
@@ -6768,18 +7193,10 @@ export function VisualEditor({
       style={panelOpen ? { gridTemplateColumns: 'minmax(0, 1fr) 360px' } : undefined}
     >
       <div className="min-h-[500px] overflow-hidden rounded-xl border border-border bg-white shadow-lg" style={{ minHeight: '70vh', position: 'relative' }}>
-        {/* Header with Open Raw Site, Snapshots, Undo/Redo, Save Changes */}
+        {/* Header with Open Raw Site, Undo/Redo, Save Changes */}
         <div className="flex items-center gap-2 px-4 py-2 border-b border-border/60 bg-background/95 sticky top-0 z-40">
           {/* Open Raw Site */}
           <Button size="sm" variant="outline" onClick={() => window.open(livePreviewUrl, '_blank')}>Open Raw Site</Button>
-
-          {/* Snapshots dropdown (popover) */}
-          <div className="relative group">
-            <Button size="sm" variant="outline" className="snapshots-dropdown-btn">Snapshots</Button>
-            <div className="absolute left-0 mt-2 hidden group-hover:block bg-background border border-border/60 rounded shadow-lg z-50 min-w-[260px]">
-              {snapshotsContent}
-            </div>
-          </div>
 
           {/* Undo/Redo */}
           <Button size="sm" variant="ghost" className="h-8 px-2 ml-2" onClick={undo} disabled={!canUndo}>
@@ -6810,7 +7227,13 @@ export function VisualEditor({
       </div>
 
       {panelOpen && (
-        <aside className="rounded-xl border border-border bg-background/95 p-4 overflow-y-auto">
+        <aside
+          className="rounded-xl border border-border bg-background/95 p-4 overflow-y-auto"
+          onMouseDownCapture={() => {
+            setToolbarPos(null);
+            setToolbarAddElOpen(false);
+          }}
+        >
           <div className="mb-4 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">Visual Editor</h3>
             <div className="flex items-center gap-1">
@@ -6821,7 +7244,11 @@ export function VisualEditor({
                 <Redo2 className="h-4 w-4" />
               </Button>
               <Badge variant={saving ? 'default' : 'secondary'}>{saving ? 'Saving...' : 'Saved'}</Badge>
-              <Button size="sm" variant="ghost" className="h-8 w-8 p-0 ml-1" title="Close editor panel" onClick={() => setPanelOpen(false)}>
+              <Button size="sm" variant="ghost" className="h-8 w-8 p-0 ml-1" title="Close editor panel" onClick={() => {
+                setToolbarPos(null);
+                setToolbarAddElOpen(false);
+                setPanelOpen(false);
+              }}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -6880,6 +7307,7 @@ export function VisualEditor({
         </div>
       )}
     </div>
+    {embedModal}
     {floatingToolbarEl}
     </>
   );
