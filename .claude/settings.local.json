@@ -6,7 +6,8 @@
       "PowerShell(\\(Get-Content \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\supabase\\\\functions\\\\generate-landing\\\\index.ts\"\\).Count)",
       "Bash(npx tsc *)",
       "Bash(dir)",
-      "Bash(grep -n \"^const\\\\|^function\\\\|^export const\\\\|^export function\\\\|//\" \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\src\\\\components\\\\editor\\\\VisualEditor.tsx\")"
+      "Bash(grep -n \"^const\\\\|^function\\\\|^export const\\\\|^export function\\\\|//\" \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\src\\\\components\\\\editor\\\\VisualEditor.tsx\")",
+      "Bash(npm run *)"
     ]
   }
 }
