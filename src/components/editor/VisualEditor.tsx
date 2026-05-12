@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { ChevronDown, ChevronRight, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Monitor, Palette, Redo2, Smartphone, Tablet, Undo2, Upload } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, ChevronDown, ChevronRight, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Monitor, Palette, Pencil, Redo2, Smartphone, Tablet, Undo2, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -86,6 +86,8 @@ type SelectedNode = {
   textAlign: string;
   borderRadius: string;
   isButtonLike: boolean;
+  ancestors?: Array<{ tag: string; path: string }>;
+  boundingRect?: { top: number; left: number; width: number; height: number };
 };
 
 type VisualEditorProps = {
@@ -118,10 +120,17 @@ type EditorSnapshot = {
 
 const EDITOR_MESSAGE_SOURCE = 'chiliforge-visual-editor';
 
-const BRIDGE_STYLE_CONTENT = '.cf-editor-hover{outline:2px dashed #f97316 !important; outline-offset:2px !important; cursor:pointer !important;}\n.cf-editor-selected{outline:3px solid #ea580c !important; outline-offset:2px !important;}';
+const BRIDGE_STYLE_CONTENT = '.cf-editor-hover{outline:2px dashed #f97316 !important; outline-offset:2px !important; cursor:pointer !important;}\n.cf-editor-selected{outline:3px solid #ea580c !important; outline-offset:2px !important;}\n.cf-editor-editing{outline:2px solid #3b82f6 !important; outline-offset:2px !important; cursor:text !important; background:rgba(59,130,246,0.04) !important;}';
 
 const BRIDGE_SCRIPT_CONTENT = `(function(){
   var SOURCE='${EDITOR_MESSAGE_SOURCE}';
+  var TEXT_EDIT_TAGS=new Set(['p','span','h1','h2','h3','h4','h5','h6','a','label','strong','em','small','li','blockquote','button','figcaption','td','th']);
+  var isEditing=false;
+  var editingEl=null;
+  var editingOriginal='';
+  var lastClickTarget=null;
+  var lastClickTime=0;
+
   function indexInType(el){
     var i=1; var p=el;
     while((p=p.previousElementSibling)){ if(p.tagName===el.tagName){ i++; } }
@@ -143,13 +152,25 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     var section = el.closest('section');
     return section ? cssPath(section) : null;
   }
+  function getAncestors(el){
+    var result=[];
+    var node=el.parentElement;
+    while(node && node!==document.body){
+      result.unshift({ tag: node.tagName.toLowerCase(), path: cssPath(node) });
+      node=node.parentElement;
+    }
+    return result;
+  }
   function getInfo(el){
     var cs=window.getComputedStyle(el);
+    var rect=el.getBoundingClientRect();
     return {
       path: cssPath(el),
       sectionPath: closestSectionPath(el),
       tag: el.tagName.toLowerCase(),
       text: (el.textContent || '').trim().slice(0, 500),
+      ancestors: getAncestors(el),
+      boundingRect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
       fontFamily: cs.fontFamily || '',
       lineHeight: cs.lineHeight || '',
       whiteSpace: cs.whiteSpace || '',
@@ -163,10 +184,10 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
       minWidth: cs.minWidth || '',
       height: cs.height || '',
       minHeight: cs.minHeight || '',
-        maxWidth: cs.maxWidth || '',
-        maxHeight: cs.maxHeight || '',
-        aspectRatio: cs.aspectRatio || '',
-        href: el.getAttribute('href') || '',
+      maxWidth: cs.maxWidth || '',
+      maxHeight: cs.maxHeight || '',
+      aspectRatio: cs.aspectRatio || '',
+      href: el.getAttribute('href') || '',
       target: el.getAttribute('target') || '',
       rel: el.getAttribute('rel') || '',
       color: cs.color || '',
@@ -191,28 +212,98 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
       window.parent.postMessage({ source: SOURCE, type: 'select', payload: getInfo(el) }, '*');
     } catch (e) {}
   }
+  function finishEditing(cancel){
+    if(!editingEl || !isEditing) return;
+    var el=editingEl;
+    if(!cancel){
+      var path=cssPath(el);
+      var innerHTML=el.innerHTML;
+      try {
+        window.parent.postMessage({ source: SOURCE, type: 'inline-text-save', payload: { path: path, innerHTML: innerHTML } }, '*');
+      } catch(e){}
+    } else {
+      el.innerHTML=editingOriginal;
+    }
+    el.removeAttribute('contenteditable');
+    el.classList.remove('cf-editor-editing');
+    isEditing=false;
+    editingEl=null;
+    editingOriginal='';
+  }
   var lastHover = null;
   var lastSelected = null;
   document.addEventListener('mouseover', function(ev){
+    if(isEditing) return;
     var t=ev.target;
     if(!(t instanceof Element)) return;
     if(lastHover && lastHover!==lastSelected){ lastHover.classList.remove('cf-editor-hover'); }
     if(t !== lastSelected){ t.classList.add('cf-editor-hover'); lastHover=t; }
   }, true);
   document.addEventListener('mouseout', function(){
+    if(isEditing) return;
     if(lastHover && lastHover!==lastSelected){ lastHover.classList.remove('cf-editor-hover'); }
   }, true);
   document.addEventListener('click', function(ev){
+    if(isEditing) return;
     var t=ev.target;
     if(!(t instanceof Element)) return;
     ev.preventDefault();
     ev.stopPropagation();
+    var now=Date.now();
+    var isRepeat=(now-lastClickTime<400) && (t===lastClickTarget || (lastClickTarget && lastClickTarget.contains(t)));
+    if(isRepeat && lastClickTarget && lastClickTarget.parentElement && lastClickTarget.parentElement!==document.body){
+      t=lastClickTarget.parentElement;
+    }
+    lastClickTarget=t;
+    lastClickTime=now;
     if(lastSelected){ lastSelected.classList.remove('cf-editor-selected'); }
     if(lastHover){ lastHover.classList.remove('cf-editor-hover'); }
     lastSelected=t;
     t.classList.add('cf-editor-selected');
     postSelect(t);
   }, true);
+  document.addEventListener('dblclick', function(ev){
+    if(isEditing) return;
+    var t=ev.target;
+    if(!(t instanceof Element)) return;
+    var tag=t.tagName.toLowerCase();
+    if(!TEXT_EDIT_TAGS.has(tag)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    editingEl=t;
+    editingOriginal=t.innerHTML;
+    isEditing=true;
+    t.setAttribute('contenteditable','true');
+    t.classList.remove('cf-editor-selected');
+    t.classList.add('cf-editor-editing');
+    t.focus();
+    try {
+      var range=document.createRange();
+      range.selectNodeContents(t);
+      range.collapse(false);
+      var sel=window.getSelection();
+      if(sel){ sel.removeAllRanges(); sel.addRange(range); }
+    } catch(e){}
+  }, true);
+  document.addEventListener('keydown', function(ev){
+    if(!isEditing) return;
+    if(ev.key==='Escape'){ ev.preventDefault(); ev.stopPropagation(); finishEditing(true); return; }
+    var tag=editingEl ? editingEl.tagName.toLowerCase() : '';
+    var isBlock=(tag==='h1'||tag==='h2'||tag==='h3'||tag==='h4'||tag==='h5'||tag==='h6'||tag==='button');
+    if(ev.key==='Enter' && isBlock && !ev.shiftKey){ ev.preventDefault(); finishEditing(false); }
+  }, true);
+  document.addEventListener('blur', function(ev){
+    if(!isEditing) return;
+    var t=ev.relatedTarget;
+    if(t && editingEl && editingEl.contains(t)) return;
+    if(ev.target===editingEl){ finishEditing(false); }
+  }, true);
+  window.__cfSelectByPath=function(path){
+    try {
+      var el=document.querySelector(path);
+      if(el){ postSelect(el); }
+    } catch(e){}
+  };
 })();`;
 
 const rgbToHex = (value: string) => {
@@ -288,6 +379,31 @@ const replaceGlobalColorInHtml = (sourceHtml: string, fromColor: string, toColor
   });
 
   return next;
+};
+
+const extractCssVarColorFromHtml = (sourceHtml: string, varName: string): string => {
+  const match = sourceHtml.match(new RegExp(`--${varName}\\s*:\\s*(#[0-9a-fA-F]{3,8})`, 'i'));
+  return match ? normalizeHexColor(match[1]) : '';
+};
+
+const extractCssVarValueFromHtml = (sourceHtml: string, varName: string): string => {
+  const match = sourceHtml.match(new RegExp(`--${varName}\\s*:\\s*([^;\\}\\n]+)`, 'i'));
+  return match ? match[1].trim() : '';
+};
+
+const BRAND_COLOR_CSS_VAR: Record<string, string> = {
+  primary: 'primary',
+  secondary: 'secondary',
+  accent: 'accent',
+  text: 'text',
+  background: 'bg',
+};
+
+const updateCssVarInHtml = (sourceHtml: string, varName: string, newValue: string): string => {
+  return sourceHtml.replace(
+    new RegExp(`(--${varName}\\s*:\\s*)[^;\\}]+`, 'gi'),
+    `$1${newValue}`,
+  );
 };
 
 const normalizePublicBaseUrl = (value?: string) => {
@@ -484,26 +600,41 @@ const updateNodeFromPath = (html: string, path: string, updater: (el: Element, d
   return serializeDocument(doc);
 };
 
-const cleanBridgeFromDocument = (doc: Document) => {
+const cleanBridgeFromDocument = (doc: Document, preserveSelectionMarker = false) => {
   doc.querySelector('#cf-editor-base')?.remove();
   doc.querySelector('#cf-editor-bridge-style')?.remove();
   doc.querySelector('#cf-editor-bridge-script')?.remove();
   doc.querySelectorAll('.cf-editor-hover, .cf-editor-selected').forEach((node) => {
     node.classList.remove('cf-editor-hover', 'cf-editor-selected');
   });
-  doc.querySelectorAll('[data-cf-editor-id]').forEach((node) => {
-    node.removeAttribute('data-cf-editor-id');
-  });
+  if (!preserveSelectionMarker) {
+    doc.querySelectorAll('[data-cf-editor-id]').forEach((node) => {
+      node.removeAttribute('data-cf-editor-id');
+    });
+  }
 };
 
-const serializeWithoutBridge = (doc: Document) => {
-  const cloned = doc.cloneNode(true) as Document;
-  cleanBridgeFromDocument(cloned);
-  return serializeDocument(cloned);
+const serializeWithoutBridge = (doc: Document): string => {
+  // Serialize to string first (outerHTML is fast), then strip bridge artifacts with regex.
+  // This avoids an O(n) cloneNode(true) on the full document for every single mutation.
+  let html = serializeDocument(doc);
+  // Remove bridge script and style tags entirely
+  html = html.replace(/<script\b[^>]*\bid="cf-editor-bridge-script"[^>]*>[\s\S]*?<\/script>/i, '');
+  html = html.replace(/<style\b[^>]*\bid="cf-editor-bridge-style"[^>]*>[\s\S]*?<\/style>/i, '');
+  html = html.replace(/<base\b[^>]*\bid="cf-editor-base"[^>]*\/?>/gi, '');
+  // Strip bridge CSS class names, then normalize class attribute whitespace
+  html = html.replace(/\bcf-editor-(?:hover|selected|editing)\b/g, '');
+  html = html.replace(/class="([^"]*)"/g, (_, cls) => {
+    const cleaned = cls.replace(/\s+/g, ' ').trim();
+    return cleaned ? `class="${cleaned}"` : '';
+  });
+  // Remove selection marker attributes
+  html = html.replace(/\s+data-cf-editor-id="[^"]*"/g, '');
+  return html;
 };
 
 const injectBridgeIntoDocument = (doc: Document) => {
-  cleanBridgeFromDocument(doc);
+  cleanBridgeFromDocument(doc, true);
 
   const style = doc.createElement('style');
   style.id = 'cf-editor-bridge-style';
@@ -658,6 +789,44 @@ export function VisualEditor({
     `,
   };
 
+  const ELEMENT_TEMPLATES: Record<string, { label: string; icon: string; html: string }> = {
+    Paragraph: {
+      label: 'Paragraph',
+      icon: '¶',
+      html: '<p style="margin:0.75rem 0;">New text paragraph.</p>',
+    },
+    Heading: {
+      label: 'Heading',
+      icon: 'H',
+      html: '<h2 style="margin:0.75rem 0;">New Heading</h2>',
+    },
+    Button: {
+      label: 'Button',
+      icon: '▬',
+      html: '<a href="#" style="display:inline-block;padding:0.6rem 1.4rem;border-radius:6px;background:#000;color:#fff;text-decoration:none;font-weight:600;">Button</a>',
+    },
+    Image: {
+      label: 'Image',
+      icon: '⬚',
+      html: '<img src="https://placehold.co/600x300" alt="Image" style="max-width:100%;height:auto;display:block;margin:0.5rem 0;" />',
+    },
+    Divider: {
+      label: 'Divider',
+      icon: '—',
+      html: '<hr style="border:none;border-top:1px solid #e5e7eb;margin:1.5rem 0;" />',
+    },
+    List: {
+      label: 'List',
+      icon: '≡',
+      html: '<ul style="padding-left:1.5rem;margin:0.75rem 0;"><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul>',
+    },
+    Container: {
+      label: 'Container',
+      icon: '□',
+      html: '<div style="padding:1rem;border:1px dashed #d1d5db;border-radius:6px;margin:0.5rem 0;min-height:3rem;"></div>',
+    },
+  };
+
   const confirmAddSectionWithEmbed = () => {
     if (!pendingSectionType) return;
     applyMutation('body', (el, doc) => {
@@ -770,6 +939,8 @@ export function VisualEditor({
   const [addingGeneratedImageId, setAddingGeneratedImageId] = useState<number | null>(null);
   const [selected, setSelected] = useState<SelectedNode | null>(null);
   const selectedRef = useRef<SelectedNode | null>(null);
+  const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number; width: number } | null>(null);
+  const [selectedAncestors, setSelectedAncestors] = useState<Array<{ tag: string; path: string }>>([]);
   const [textValue, setTextValue] = useState('');
   const [hrefValue, setHrefValue] = useState('');
   const [linkTarget, setLinkTarget] = useState('_self');
@@ -961,6 +1132,11 @@ export function VisualEditor({
     background: normalizeHexColor(brandColors?.background || brandPalette[4] || ''),
   }), [brandColors?.primary, brandColors?.secondary, brandColors?.accent, brandColors?.text, brandColors?.background, brandPaletteKey]);
   const [globalBrandColors, setGlobalBrandColors] = useState(initialBrandColors);
+  const brandColorMatchRef = useRef<Record<string, boolean>>({});
+  const [brandColorsOpen, setBrandColorsOpen] = useState(false);
+  const [isPanMode, setIsPanMode] = useState(false);
+  const [addElOpen, setAddElOpen] = useState(false);
+  const addElPopoverRef = useRef<HTMLDivElement | null>(null);
   const nextGeneratedImageIdRef = useRef(1);
   const nextSnapshotIdRef = useRef(1);
   const historyPastRef = useRef<string[]>([]);
@@ -1363,15 +1539,66 @@ export function VisualEditor({
     }
 
     updater(target, doc);
-    injectBridgeIntoDocument(doc);
+    // Do NOT re-inject the bridge here. The bridge script uses event delegation on
+    // document and remains valid across DOM mutations. Re-injecting after every
+    // applyMutation re-executes the IIFE and accumulates duplicate event listeners.
     emitChange(serializeWithoutBridge(doc));
   }, [emitChange]);
+
+  const applyMutationRef = useRef(applyMutation);
+  applyMutationRef.current = applyMutation;
+
+  useEffect(() => {
+    if (!selected) {
+      setToolbarPos(null);
+      setSelectedAncestors([]);
+      setAddElOpen(false);
+    }
+  }, [selected]);
+
+  useEffect(() => {
+    if (!addElOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (addElPopoverRef.current && !addElPopoverRef.current.contains(e.target as Node)) {
+        setAddElOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [addElOpen]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const data = event.data;
-      if (!data || data.source !== EDITOR_MESSAGE_SOURCE || data.type !== 'select') return;
+      if (!data || data.source !== EDITOR_MESSAGE_SOURCE) return;
+
+      if (data.type === 'inline-text-save') {
+        const p = data.payload as { path: string; innerHTML: string };
+        if (p?.path) {
+          applyMutationRef.current(p.path, (el) => {
+            el.innerHTML = p.innerHTML || '';
+          });
+        }
+        return;
+      }
+
+      if (data.type !== 'select') return;
       const payload = data.payload as SelectedNode;
+
+      // Only update toolbar position and ancestors when the bridge provides boundingRect.
+      // parentSelectionHandler fires a second 'select' without boundingRect — skip it so the
+      // toolbar is not immediately destroyed after the bridge sets it.
+      if (payload.boundingRect) {
+        try {
+          const iframeRect = iframeRef.current?.getBoundingClientRect();
+          if (iframeRect) {
+            const x = iframeRect.left + payload.boundingRect.left;
+            const y = iframeRect.top + payload.boundingRect.top - 48;
+            setToolbarPos({ x, y, width: payload.boundingRect.width });
+          }
+        } catch {}
+        setSelectedAncestors(payload.ancestors || []);
+      }
       setSelected(payload);
       setTextValue(payload.text || '');
       setHrefValue(payload.href || '');
@@ -2169,6 +2396,48 @@ export function VisualEditor({
     });
   };
 
+  const insertElement = (type: string) => {
+    const template = ELEMENT_TEMPLATES[type];
+    if (!template) return;
+
+    const parser = new DOMParser();
+    const parsed = parser.parseFromString(template.html, 'text/html');
+    const newNode = parsed.body.firstChild;
+    if (!newNode) return;
+
+    const iframeDoc = iframeRef.current?.contentDocument;
+    if (!iframeDoc) return;
+
+    const sectionPath = selected?.sectionPath ?? (selected?.tag === 'section' ? selected.path : null);
+    if (!sectionPath) return;
+
+    applyMutation(sectionPath, (sectionEl, doc) => {
+      const cloned = doc.importNode(newNode, true);
+
+      // Find the top-level child of sectionEl that wraps the currently selected element,
+      // then insert the new element right after it.
+      const selectedEl = selected?.path ? iframeDoc.querySelector(selected.path) : null;
+      let insertAfter: Element | null = null;
+      if (selectedEl && selectedEl !== sectionEl) {
+        let candidate: Element | null = selectedEl as Element;
+        while (candidate && candidate.parentElement !== sectionEl) {
+          candidate = candidate.parentElement;
+        }
+        if (candidate && candidate.parentElement === sectionEl) {
+          insertAfter = candidate;
+        }
+      }
+
+      if (insertAfter) {
+        insertAfter.insertAdjacentElement('afterend', cloned as Element);
+      } else {
+        sectionEl.appendChild(cloned);
+      }
+    });
+
+    setAddElOpen(false);
+  };
+
   const moveSectionUp = () => {
     const sectionPath = selected?.sectionPath;
     if (!sectionPath) return;
@@ -2688,29 +2957,93 @@ export function VisualEditor({
     label: string,
     nextColor: string,
   ) => {
-    const previous = normalizeHexColor(globalBrandColors[key] || '');
+    const currentHtml = stripEditorBridge(html);
+    const cssVarName = BRAND_COLOR_CSS_VAR[key];
+    const previousFromHtml = cssVarName ? extractCssVarColorFromHtml(currentHtml, cssVarName) : '';
+    const previous = previousFromHtml || normalizeHexColor(globalBrandColors[key] || '');
     const next = normalizeHexColor(nextColor);
     if (!next) return;
 
-    setGlobalBrandColors((current) => ({
-      ...current,
-      [key]: next,
-    }));
+    setGlobalBrandColors((current) => ({ ...current, [key]: next }));
+    if (!previous || previous === next) return;
 
-    if (!previous || previous === next) {
-      return;
+    // 1. Replace CSS variable definition (format-agnostic)
+    let updatedHtml = cssVarName ? updateCssVarInHtml(currentHtml, cssVarName, next) : currentHtml;
+    // 2. Replace any hardcoded hex occurrences
+    if (previous) updatedHtml = replaceGlobalColorInHtml(updatedHtml, previous, next);
+    // 3. Instant DOM update in iframe
+    const iframeDoc = iframeRef.current?.contentDocument;
+    if (iframeDoc && cssVarName) {
+      try { iframeDoc.documentElement.style.setProperty(`--${cssVarName}`, next); } catch {}
     }
 
-    const updatedHtml = replaceGlobalColorInHtml(stripEditorBridge(html), previous, next);
-    if (updatedHtml === stripEditorBridge(html)) {
-      toast.message(`${label} updated. No matching color was found on the page.`);
-      return;
-    }
+    const didChange = updatedHtml !== currentHtml;
+    brandColorMatchRef.current[key] = didChange;
+    if (!didChange) return;
 
     setSelected(null);
     emitChange(updatedHtml);
     writeHtmlToIframe(updatedHtml);
-    toast.success(`${label} updated globally.`);
+  };
+
+  const applyGlobalCssVar = (varName: string, newValue: string) => {
+    const currentHtml = stripEditorBridge(html);
+    const updatedHtml = updateCssVarInHtml(currentHtml, varName, newValue);
+    const iframeDoc = iframeRef.current?.contentDocument;
+    if (iframeDoc) {
+      try { iframeDoc.documentElement.style.setProperty(`--${varName}`, newValue); } catch {}
+    }
+    if (updatedHtml !== currentHtml) emitChange(updatedHtml);
+  };
+
+  const startImagePan = () => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc || !selected?.path) return;
+    const capturedPath = selected.path;
+    const img = doc.querySelector(capturedPath) as HTMLImageElement | null;
+    if (!img) return;
+    const parent = img.parentElement as HTMLElement | null;
+    if (!parent) return;
+    if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+
+    const overlay = doc.createElement('div');
+    overlay.id = 'cf-pan-overlay';
+    overlay.style.cssText = 'position:absolute;inset:0;cursor:crosshair;z-index:999;background:transparent;';
+    parent.appendChild(overlay);
+    setIsPanMode(true);
+
+    let panRafId: number | null = null;
+    const handleMove = (e: MouseEvent) => {
+      const rect = parent.getBoundingClientRect();
+      const x = Math.max(0, Math.min(100, Math.round(((e.clientX - rect.left) / rect.width) * 100)));
+      const y = Math.max(0, Math.min(100, Math.round(((e.clientY - rect.top) / rect.height) * 100)));
+      // Apply to DOM immediately for smooth visual feedback
+      img.style.objectPosition = `${x}% ${y}%`;
+      // Throttle React state updates to one per animation frame to avoid 3×setState at 60fps
+      if (panRafId !== null) return;
+      panRafId = requestAnimationFrame(() => {
+        panRafId = null;
+        setImagePosition(`${x}% ${y}%`);
+        setImagePositionX(x);
+        setImagePositionY(y);
+      });
+    };
+    const handleUp = () => {
+      if (panRafId !== null) { cancelAnimationFrame(panRafId); panRafId = null; }
+      overlay.remove();
+      doc.removeEventListener('mousemove', handleMove, true);
+      doc.removeEventListener('mouseup', handleUp, true);
+      document.removeEventListener('mousemove', handleMove, true);
+      document.removeEventListener('mouseup', handleUp, true);
+      const finalPos = img.style.objectPosition || '50% 50%';
+      applyMutation(capturedPath, (el) => { (el as HTMLImageElement).style.objectPosition = finalPos; });
+      setIsPanMode(false);
+    };
+    doc.addEventListener('mousemove', handleMove, true);
+    doc.addEventListener('mouseup', handleUp, true);
+    // Also listen on the parent window so dragging outside the iframe still works
+    document.addEventListener('mousemove', handleMove, true);
+    document.addEventListener('mouseup', handleUp, true);
   };
 
   const renderBrandPaletteSwatches = (
@@ -3099,6 +3432,14 @@ export function VisualEditor({
         <Button size="sm" variant={previewMode === 'mobile' ? 'default' : 'ghost'} className="h-8 px-2" onClick={() => setPreviewMode('mobile')}>
           <Smartphone className="h-4 w-4" />
         </Button>
+        {layout !== 'overlay' && !panelOpen && (
+          <>
+            <div className="w-px h-5 bg-border mx-0.5" />
+            <Button size="sm" variant="ghost" className="h-8 px-2" title="Open editor panel" onClick={() => setPanelOpen(true)}>
+              <Pencil className="h-4 w-4" />
+            </Button>
+          </>
+        )}
       </div>
 
       <div className={`relative mx-auto h-full transition-all duration-300 ${previewWidthClass}`}>
@@ -3135,17 +3476,16 @@ export function VisualEditor({
 
   // Painel de sessões do site (sections)
   const [sectionsPanelOpen, setSectionsPanelOpen] = useState(true);
-  const [sectionsList, setSectionsList] = useState<Array<{path: string, title: string}>>([]);
 
-  // Atualiza lista de sections sempre que html muda
-  useEffect(() => {
+  // useMemo avoids the extra re-render cycle that useState+useEffect caused on every html change
+  const sectionsList = useMemo<Array<{path: string, title: string}>>(() => {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
       const nodes = Array.from(doc.querySelectorAll('section'));
-      setSectionsList(nodes.map((el, idx) => ({
+      return nodes.map((el, idx) => ({
         path: (() => {
-          let node: HTMLElement | null = el as HTMLElement, parts = [];
+          let node: HTMLElement | null = el as HTMLElement, parts: string[] = [];
           while (node && node.nodeType === 1 && node !== doc.body) {
             const tag = node.tagName.toLowerCase();
             let i = 1, p: HTMLElement | null = node;
@@ -3155,9 +3495,11 @@ export function VisualEditor({
           }
           return 'body > ' + parts.join(' > ');
         })(),
-        title: el.querySelector('h2,h1')?.textContent?.trim() || `Sessão ${idx+1}`
-      })));
-    } catch { setSectionsList([]); }
+        title: el.querySelector('h2,h1')?.textContent?.trim() || `Sessão ${idx+1}`,
+      }));
+    } catch {
+      return [];
+    }
   }, [html]);
 
   // Selecionar sessão no painel lateral: não deve preencher campo de texto
@@ -3440,39 +3782,57 @@ export function VisualEditor({
         </button>
       </div>
 
-      <div className="space-y-3 rounded-md border border-border/60 bg-muted/20 p-3">
-        <div className="flex items-center gap-2">
-          <Palette className="h-4 w-4 text-primary" />
-          <p className="text-sm font-medium">Brand Colors</p>
-        </div>
-        <div className="grid grid-cols-1 gap-2">
-          {([
-            ['primary', 'Primary'],
-            ['secondary', 'Secondary'],
-            ['accent', 'Accent'],
-            ['text', 'Text'],
-            ['background', 'Background'],
-          ] as Array<[keyof typeof globalBrandColors, string]>).map(([key, label]) => {
-            const value = globalBrandColors[key] || '#000000';
-            return (
-              <div key={key} className="grid grid-cols-[88px_40px_minmax(0,1fr)] items-center gap-2">
-                <Label htmlFor={`cf-global-${key}`} className="text-xs text-muted-foreground">{label}</Label>
-                <Input
-                  id={`cf-global-${key}`}
-                  type="color"
-                  value={value}
-                  className="h-9 w-10 p-1"
-                  onChange={(event) => applyGlobalBrandColor(key, label, event.target.value)}
-                />
-                <Input
-                  value={value}
-                  className="h-9 font-mono text-xs"
-                  onChange={(event) => applyGlobalBrandColor(key, label, event.target.value)}
-                />
-              </div>
-            );
-          })}
-        </div>
+      <div className="rounded-md border border-border/60 bg-muted/20">
+        <button
+          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+          onClick={() => setBrandColorsOpen((v) => !v)}
+        >
+          <div className="flex items-center gap-2">
+            <Palette className="h-4 w-4 text-primary" />
+            <p className="text-sm font-medium">Brand Colors</p>
+          </div>
+          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${brandColorsOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {brandColorsOpen && (
+          <div className="grid grid-cols-1 gap-2 border-t border-border/60 px-3 pb-3 pt-2">
+            {([
+              ['primary', 'Primary'],
+              ['secondary', 'Secondary'],
+              ['accent', 'Accent'],
+              ['text', 'Text'],
+              ['background', 'Background'],
+            ] as Array<[keyof typeof globalBrandColors, string]>).map(([key, label]) => {
+              const value = globalBrandColors[key] || '#000000';
+              const onBlurToast = () => {
+                if (brandColorMatchRef.current[key] === false) {
+                  toast.message(`${label} updated. No matching color was found on the page.`);
+                } else if (brandColorMatchRef.current[key] === true) {
+                  toast.success(`${label} updated globally.`);
+                }
+                delete brandColorMatchRef.current[key];
+              };
+              return (
+                <div key={key} className="grid grid-cols-[88px_40px_minmax(0,1fr)] items-center gap-2">
+                  <Label htmlFor={`cf-global-${key}`} className="text-xs text-muted-foreground">{label}</Label>
+                  <Input
+                    id={`cf-global-${key}`}
+                    type="color"
+                    value={value}
+                    className="h-9 w-10 p-1"
+                    onChange={(event) => applyGlobalBrandColor(key, label, event.target.value)}
+                    onBlur={onBlurToast}
+                  />
+                  <Input
+                    value={value}
+                    className="h-9 font-mono text-xs"
+                    onChange={(event) => applyGlobalBrandColor(key, label, event.target.value)}
+                    onBlur={onBlurToast}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {editorTab === 'sections' ? (
@@ -3575,6 +3935,24 @@ export function VisualEditor({
           </>
         ) : (
           <div className="space-y-4">
+          {(selected?.sectionPath || selected?.tag === 'section') && (
+            <div className="rounded-md border border-border/60 p-3 space-y-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Add element</p>
+              <div className="grid grid-cols-4 gap-1.5">
+                {Object.entries(ELEMENT_TEMPLATES).map(([type, tmpl]) => (
+                  <button
+                    key={type}
+                    title={`Insert ${tmpl.label}`}
+                    className="flex flex-col items-center gap-1 rounded border border-border/60 bg-muted/40 py-2 px-1 text-center hover:bg-muted transition-colors"
+                    onClick={() => insertElement(type)}
+                  >
+                    <span className="text-base leading-none">{tmpl.icon}</span>
+                    <span className="text-[10px] leading-none text-muted-foreground">{tmpl.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="rounded-md border border-border/60 bg-muted/20 p-3">
             <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Selection Context</p>
             <div className="mt-2 flex items-center gap-2">
@@ -3582,6 +3960,29 @@ export function VisualEditor({
               {selected.sectionPath && <Badge variant="outline" className="text-xs">in section</Badge>}
               {sectionBgMode === 'image' && <Badge variant="outline" className="text-xs">background image mode</Badge>}
             </div>
+            {selectedAncestors.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-0.5 text-[11px] text-muted-foreground">
+                <button
+                  className="hover:text-foreground transition-colors"
+                  onClick={() => {
+                    try { (iframeRef.current?.contentWindow as any)?.__cfSelectByPath?.('body'); } catch {}
+                  }}
+                >body</button>
+                {selectedAncestors.map((a, i) => (
+                  <span key={i} className="flex items-center gap-0.5">
+                    <span className="opacity-40">›</span>
+                    <button
+                      className="hover:text-foreground transition-colors font-mono"
+                      onClick={() => {
+                        try { (iframeRef.current?.contentWindow as any)?.__cfSelectByPath?.(a.path); } catch {}
+                      }}
+                    >{a.tag}</button>
+                  </span>
+                ))}
+                <span className="opacity-40">›</span>
+                <span className="font-mono text-foreground font-medium">{selected.tag}</span>
+              </div>
+            )}
           </div>
 
           {isTextElementSelected && (
@@ -6138,8 +6539,132 @@ export function VisualEditor({
     </div>
   );
 
+  const floatingToolbarEl = toolbarPos && selected ? (
+    <div
+      style={{
+        position: 'fixed',
+        left: Math.max(8, Math.min(toolbarPos.x, window.innerWidth - 280)),
+        top: Math.max(8, toolbarPos.y),
+        zIndex: 99999,
+      }}
+      className="flex items-center gap-0.5 rounded-lg border border-border bg-background shadow-lg px-1 py-1"
+    >
+      {/* Text / heading formatting */}
+      {isTextElementSelected && (
+        <>
+          <button
+            title="Bold"
+            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-xs font-bold ${fontWeight >= 700 ? 'bg-muted' : ''}`}
+            onClick={() => { const next = fontWeight >= 700 ? 400 : 700; setFontWeight(next); applyElementFormattingLive({ nextFontWeight: next }); }}
+          >B</button>
+          <button
+            title="Align Left"
+            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-muted ${textAlign === 'left' ? 'bg-muted' : ''}`}
+            onClick={() => { setTextAlign('left'); applyElementFormattingLive({ nextTextAlign: 'left' }); }}
+          ><AlignLeft className="h-3.5 w-3.5" /></button>
+          <button
+            title="Align Center"
+            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-muted ${textAlign === 'center' ? 'bg-muted' : ''}`}
+            onClick={() => { setTextAlign('center'); applyElementFormattingLive({ nextTextAlign: 'center' }); }}
+          ><AlignCenter className="h-3.5 w-3.5" /></button>
+          <button
+            title="Align Right"
+            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-muted ${textAlign === 'right' ? 'bg-muted' : ''}`}
+            onClick={() => { setTextAlign('right'); applyElementFormattingLive({ nextTextAlign: 'right' }); }}
+          ><AlignRight className="h-3.5 w-3.5" /></button>
+          <button
+            title="Decrease font size"
+            className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-[10px] font-semibold"
+            onClick={() => { const next = Math.max(8, fontSize - 2); setFontSize(next); applyElementFormattingLive({ nextFontSize: next }); }}
+          >A-</button>
+          <button
+            title="Increase font size"
+            className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-[10px] font-semibold"
+            onClick={() => { const next = fontSize + 2; setFontSize(next); applyElementFormattingLive({ nextFontSize: next }); }}
+          >A+</button>
+          <label title="Text color" className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted cursor-pointer relative overflow-hidden">
+            <span className="text-[11px] font-bold leading-none" style={{ borderBottom: `2px solid ${textColor || '#000'}` }}>A</span>
+            <input
+              type="color"
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              value={textColor || '#000000'}
+              onChange={(e) => { const c = e.target.value; setTextColor(c); applyColorsLive({ nextTextColor: c }); }}
+            />
+          </label>
+          <div className="w-px h-5 bg-border mx-0.5" />
+        </>
+      )}
+
+      {/* Image pan mode — only for cover images */}
+      {selected.tag === 'img' && imageFit === 'cover' && (
+        <>
+          <button
+            title={isPanMode ? 'Exit Pan Mode' : 'Pan image position (drag to reposition)'}
+            className={`h-7 px-2 flex items-center justify-center rounded hover:bg-muted text-[10px] font-semibold gap-1 ${isPanMode ? 'bg-blue-100 text-blue-700' : ''}`}
+            onClick={() => { if (!isPanMode) startImagePan(); }}
+          >
+            {isPanMode ? 'Panning…' : 'Pan'}
+          </button>
+          <div className="w-px h-5 bg-border mx-0.5" />
+        </>
+      )}
+
+      {/* Section controls */}
+      {selected.sectionPath && (
+        <>
+          <button title="Duplicate section" className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={duplicateSection}>
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+          <button title="Move section up" className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={moveSectionUp}>
+            <ArrowUp className="h-3.5 w-3.5" />
+          </button>
+          <button title="Move section down" className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={moveSectionDown}>
+            <ArrowDown className="h-3.5 w-3.5" />
+          </button>
+          <div className="w-px h-5 bg-border mx-0.5" />
+        </>
+      )}
+
+      {/* Insert element */}
+      {(selected?.sectionPath || selected?.tag === 'section') && (
+        <>
+          <div className="w-px h-5 bg-border mx-0.5" />
+          <div className="relative" ref={addElPopoverRef}>
+            <button
+              title="Add element after this"
+              className={`h-7 px-2 flex items-center justify-center rounded hover:bg-muted text-sm font-bold leading-none ${addElOpen ? 'bg-muted' : ''}`}
+              onClick={() => setAddElOpen(v => !v)}
+            >+</button>
+            {addElOpen && (
+              <div className="absolute top-full left-0 mt-1 z-[100000] bg-background border border-border rounded-lg shadow-xl p-2 grid grid-cols-2 gap-1 w-44">
+                {Object.entries(ELEMENT_TEMPLATES).map(([type, tmpl]) => (
+                  <button
+                    key={type}
+                    className="flex items-center gap-1.5 rounded px-2 py-1.5 text-xs hover:bg-muted text-left"
+                    onClick={() => insertElement(type)}
+                  >
+                    <span className="w-4 text-center">{tmpl.icon}</span>
+                    <span>{tmpl.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Dismiss */}
+      <button
+        title="Dismiss toolbar"
+        className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground text-base leading-none"
+        onClick={() => setToolbarPos(null)}
+      >×</button>
+    </div>
+  ) : null;
+
   if (layout === 'overlay') {
     return (
+      <>
       <div className="grid h-full w-full grid-cols-[minmax(0,1fr)_56px] gap-3 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="overflow-hidden rounded-xl border border-border bg-white shadow-lg">
           {iframeEl}
@@ -6230,12 +6755,18 @@ export function VisualEditor({
               </div>
             )}
           </div>
+      {floatingToolbarEl}
+      </>
     );
   }
 
   // Snapshots popover in header
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <>
+    <div
+      className="grid grid-cols-1 gap-4"
+      style={panelOpen ? { gridTemplateColumns: 'minmax(0, 1fr) 360px' } : undefined}
+    >
       <div className="min-h-[500px] overflow-hidden rounded-xl border border-border bg-white shadow-lg" style={{ minHeight: '70vh', position: 'relative' }}>
         {/* Header with Open Raw Site, Snapshots, Undo/Redo, Save Changes */}
         <div className="flex items-center gap-2 px-4 py-2 border-b border-border/60 bg-background/95 sticky top-0 z-40">
@@ -6278,23 +6809,29 @@ export function VisualEditor({
         )}
       </div>
 
-      <aside className="rounded-xl border border-border bg-background/95 p-4 overflow-y-auto">
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">Visual Editor</h3>
-          <div className="flex items-center gap-1">
-            <Button size="sm" variant="ghost" className="h-8 px-2" onClick={undo} disabled={!canUndo}>
-              <Undo2 className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="ghost" className="h-8 px-2" onClick={redo} disabled={!canRedo}>
-              <Redo2 className="h-4 w-4" />
-            </Button>
-            <Badge variant={saving ? 'default' : 'secondary'}>{saving ? 'Saving...' : 'Saved'}</Badge>
+      {panelOpen && (
+        <aside className="rounded-xl border border-border bg-background/95 p-4 overflow-y-auto">
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold">Visual Editor</h3>
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant="ghost" className="h-8 px-2" onClick={undo} disabled={!canUndo}>
+                <Undo2 className="h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="ghost" className="h-8 px-2" onClick={redo} disabled={!canRedo}>
+                <Redo2 className="h-4 w-4" />
+              </Button>
+              <Badge variant={saving ? 'default' : 'secondary'}>{saving ? 'Saving...' : 'Saved'}</Badge>
+              <Button size="sm" variant="ghost" className="h-8 w-8 p-0 ml-1" title="Close editor panel" onClick={() => setPanelOpen(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
-        </div>
-        <div className="space-y-3">
-          {panelContent}
-        </div>
-      </aside>
+          <div className="space-y-3">
+            {panelContent}
+          </div>
+        </aside>
+      )}
+
 
       {/* Global files modal (overlay) - ensure visibility even when sidebar has selection */}
       {showFilesFolder && (
@@ -6343,5 +6880,7 @@ export function VisualEditor({
         </div>
       )}
     </div>
+    {floatingToolbarEl}
+    </>
   );
 }
