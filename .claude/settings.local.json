@@ -9,7 +9,8 @@
       "Bash(grep -n \"^const\\\\|^function\\\\|^export const\\\\|^export function\\\\|//\" \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\src\\\\components\\\\editor\\\\VisualEditor.tsx\")",
       "Bash(npm run *)",
       "Bash(git checkout *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
