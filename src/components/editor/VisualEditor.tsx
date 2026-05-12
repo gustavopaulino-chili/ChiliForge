@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { ChevronDown, ChevronRight, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Monitor, Palette, Redo2, Smartphone, Tablet, Undo2, Upload } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, ChevronDown, ChevronRight, Code2, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Monitor, Palette, Pencil, Redo2, Settings2, Smartphone, Tablet, Undo2, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,12 +9,11 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { deleteProjectAssetFile, generateImages, getProjectAssets, ProjectAsset, uploadProjectAssets, uploadProjectAssetsFromUrls, getProjectFiles, uploadProjectFiles, deleteProjectFile } from '@/services/api';
 import { downloadFileFromUrl } from '@/lib/downloadFile';
-import { safeGetJSON, safeSetJSON } from '@/lib/safeStorage';
 import { toast } from 'sonner';
 
 
 const HISTORY_LIMIT = 60;
-const SNAPSHOT_LIMIT = 12;
+const FLOATING_TOOLBAR_MIN_TOP = 72;
 const TEXT_EDITABLE_TAGS = new Set([
   'p',
   'span',
@@ -44,8 +43,11 @@ const PREDEFINED_SECTIONS = [
   { name: 'CTA', label: 'CTA', icon: <Plus size={16} /> },
   { name: 'Form', label: 'Form', icon: <FileText size={16} /> },
   { name: 'Download', label: 'Download', icon: <Download size={16} /> },
-  { name: 'Embedded', label: 'Embedded', icon: <FileText size={16} /> },
+  { name: 'Embedded Form', label: 'Embedded Form', icon: <FileText size={16} /> },
+  { name: 'Embedded', label: 'Embedded', icon: <Code2 size={14} /> },
 ];
+
+const EMBEDDED_SECTION_TYPES = new Set(['Embedded', 'Embedded Form', 'Forms Embedded']);
 
 type SelectedNode = {
   path: string;
@@ -86,6 +88,8 @@ type SelectedNode = {
   textAlign: string;
   borderRadius: string;
   isButtonLike: boolean;
+  ancestors?: Array<{ tag: string; path: string }>;
+  boundingRect?: { top: number; left: number; width: number; height: number };
 };
 
 type VisualEditorProps = {
@@ -109,19 +113,19 @@ type VisualEditorProps = {
 
 type OverlayMode = 'none' | 'color' | 'gradient' | 'dark' | 'mask';
 
-type EditorSnapshot = {
-  id: number;
-  label: string;
-  html: string;
-  createdAt: number;
-};
-
 const EDITOR_MESSAGE_SOURCE = 'chiliforge-visual-editor';
 
-const BRIDGE_STYLE_CONTENT = '.cf-editor-hover{outline:2px dashed #f97316 !important; outline-offset:2px !important; cursor:pointer !important;}\n.cf-editor-selected{outline:3px solid #ea580c !important; outline-offset:2px !important;}';
+const BRIDGE_STYLE_CONTENT = '.cf-editor-hover{outline:2px dashed #f97316 !important; outline-offset:2px !important; cursor:pointer !important;}\n.cf-editor-selected{outline:3px solid #ea580c !important; outline-offset:2px !important;}\n.cf-editor-editing{outline:2px solid #3b82f6 !important; outline-offset:2px !important; cursor:text !important; background:rgba(59,130,246,0.04) !important;}';
 
 const BRIDGE_SCRIPT_CONTENT = `(function(){
   var SOURCE='${EDITOR_MESSAGE_SOURCE}';
+  var TEXT_EDIT_TAGS=new Set(['p','span','h1','h2','h3','h4','h5','h6','a','label','strong','em','small','li','blockquote','button','figcaption','td','th']);
+  var isEditing=false;
+  var editingEl=null;
+  var editingOriginal='';
+  var lastClickTarget=null;
+  var lastClickTime=0;
+
   function indexInType(el){
     var i=1; var p=el;
     while((p=p.previousElementSibling)){ if(p.tagName===el.tagName){ i++; } }
@@ -143,13 +147,25 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     var section = el.closest('section');
     return section ? cssPath(section) : null;
   }
+  function getAncestors(el){
+    var result=[];
+    var node=el.parentElement;
+    while(node && node!==document.body){
+      result.unshift({ tag: node.tagName.toLowerCase(), path: cssPath(node) });
+      node=node.parentElement;
+    }
+    return result;
+  }
   function getInfo(el){
     var cs=window.getComputedStyle(el);
+    var rect=el.getBoundingClientRect();
     return {
       path: cssPath(el),
       sectionPath: closestSectionPath(el),
       tag: el.tagName.toLowerCase(),
       text: (el.textContent || '').trim().slice(0, 500),
+      ancestors: getAncestors(el),
+      boundingRect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
       fontFamily: cs.fontFamily || '',
       lineHeight: cs.lineHeight || '',
       whiteSpace: cs.whiteSpace || '',
@@ -163,10 +179,10 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
       minWidth: cs.minWidth || '',
       height: cs.height || '',
       minHeight: cs.minHeight || '',
-        maxWidth: cs.maxWidth || '',
-        maxHeight: cs.maxHeight || '',
-        aspectRatio: cs.aspectRatio || '',
-        href: el.getAttribute('href') || '',
+      maxWidth: cs.maxWidth || '',
+      maxHeight: cs.maxHeight || '',
+      aspectRatio: cs.aspectRatio || '',
+      href: el.getAttribute('href') || '',
       target: el.getAttribute('target') || '',
       rel: el.getAttribute('rel') || '',
       color: cs.color || '',
@@ -191,28 +207,98 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
       window.parent.postMessage({ source: SOURCE, type: 'select', payload: getInfo(el) }, '*');
     } catch (e) {}
   }
+  function finishEditing(cancel){
+    if(!editingEl || !isEditing) return;
+    var el=editingEl;
+    if(!cancel){
+      var path=cssPath(el);
+      var innerHTML=el.innerHTML;
+      try {
+        window.parent.postMessage({ source: SOURCE, type: 'inline-text-save', payload: { path: path, innerHTML: innerHTML } }, '*');
+      } catch(e){}
+    } else {
+      el.innerHTML=editingOriginal;
+    }
+    el.removeAttribute('contenteditable');
+    el.classList.remove('cf-editor-editing');
+    isEditing=false;
+    editingEl=null;
+    editingOriginal='';
+  }
   var lastHover = null;
   var lastSelected = null;
   document.addEventListener('mouseover', function(ev){
+    if(isEditing) return;
     var t=ev.target;
     if(!(t instanceof Element)) return;
     if(lastHover && lastHover!==lastSelected){ lastHover.classList.remove('cf-editor-hover'); }
     if(t !== lastSelected){ t.classList.add('cf-editor-hover'); lastHover=t; }
   }, true);
   document.addEventListener('mouseout', function(){
+    if(isEditing) return;
     if(lastHover && lastHover!==lastSelected){ lastHover.classList.remove('cf-editor-hover'); }
   }, true);
   document.addEventListener('click', function(ev){
+    if(isEditing) return;
     var t=ev.target;
     if(!(t instanceof Element)) return;
     ev.preventDefault();
     ev.stopPropagation();
+    var now=Date.now();
+    var isRepeat=(now-lastClickTime<400) && (t===lastClickTarget || (lastClickTarget && lastClickTarget.contains(t)));
+    if(isRepeat && lastClickTarget && lastClickTarget.parentElement && lastClickTarget.parentElement!==document.body){
+      t=lastClickTarget.parentElement;
+    }
+    lastClickTarget=t;
+    lastClickTime=now;
     if(lastSelected){ lastSelected.classList.remove('cf-editor-selected'); }
     if(lastHover){ lastHover.classList.remove('cf-editor-hover'); }
     lastSelected=t;
     t.classList.add('cf-editor-selected');
     postSelect(t);
   }, true);
+  document.addEventListener('dblclick', function(ev){
+    if(isEditing) return;
+    var t=ev.target;
+    if(!(t instanceof Element)) return;
+    var tag=t.tagName.toLowerCase();
+    if(!TEXT_EDIT_TAGS.has(tag)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    editingEl=t;
+    editingOriginal=t.innerHTML;
+    isEditing=true;
+    t.setAttribute('contenteditable','true');
+    t.classList.remove('cf-editor-selected');
+    t.classList.add('cf-editor-editing');
+    t.focus();
+    try {
+      var range=document.createRange();
+      range.selectNodeContents(t);
+      range.collapse(false);
+      var sel=window.getSelection();
+      if(sel){ sel.removeAllRanges(); sel.addRange(range); }
+    } catch(e){}
+  }, true);
+  document.addEventListener('keydown', function(ev){
+    if(!isEditing) return;
+    if(ev.key==='Escape'){ ev.preventDefault(); ev.stopPropagation(); finishEditing(true); return; }
+    var tag=editingEl ? editingEl.tagName.toLowerCase() : '';
+    var isBlock=(tag==='h1'||tag==='h2'||tag==='h3'||tag==='h4'||tag==='h5'||tag==='h6'||tag==='button');
+    if(ev.key==='Enter' && isBlock && !ev.shiftKey){ ev.preventDefault(); finishEditing(false); }
+  }, true);
+  document.addEventListener('blur', function(ev){
+    if(!isEditing) return;
+    var t=ev.relatedTarget;
+    if(t && editingEl && editingEl.contains(t)) return;
+    if(ev.target===editingEl){ finishEditing(false); }
+  }, true);
+  window.__cfSelectByPath=function(path){
+    try {
+      var el=document.querySelector(path);
+      if(el){ postSelect(el); }
+    } catch(e){}
+  };
 })();`;
 
 const rgbToHex = (value: string) => {
@@ -290,14 +376,16 @@ const replaceGlobalColorInHtml = (sourceHtml: string, fromColor: string, toColor
   return next;
 };
 
-// Extracts the hex value of a CSS custom property from a :root block in the HTML string.
-// Used to read the actual current color values from the page rather than relying on stale state.
 const extractCssVarColorFromHtml = (sourceHtml: string, varName: string): string => {
   const match = sourceHtml.match(new RegExp(`--${varName}\\s*:\\s*(#[0-9a-fA-F]{3,8})`, 'i'));
   return match ? normalizeHexColor(match[1]) : '';
 };
 
-// Maps brand color keys to their corresponding CSS custom property names in the generated HTML.
+const extractCssVarValueFromHtml = (sourceHtml: string, varName: string): string => {
+  const match = sourceHtml.match(new RegExp(`--${varName}\\s*:\\s*([^;\\}\\n]+)`, 'i'));
+  return match ? match[1].trim() : '';
+};
+
 const BRAND_COLOR_CSS_VAR: Record<string, string> = {
   primary: 'primary',
   secondary: 'secondary',
@@ -306,8 +394,6 @@ const BRAND_COLOR_CSS_VAR: Record<string, string> = {
   background: 'bg',
 };
 
-// Replaces the value of a CSS custom property directly in the HTML string, regardless of format
-// (hex, rgb, named color). Targets the declaration inside any :root or selector block.
 const updateCssVarInHtml = (sourceHtml: string, varName: string, newValue: string): string => {
   return sourceHtml.replace(
     new RegExp(`(--${varName}\\s*:\\s*)[^;\\}]+`, 'gi'),
@@ -509,26 +595,41 @@ const updateNodeFromPath = (html: string, path: string, updater: (el: Element, d
   return serializeDocument(doc);
 };
 
-const cleanBridgeFromDocument = (doc: Document) => {
+const cleanBridgeFromDocument = (doc: Document, preserveSelectionMarker = false) => {
   doc.querySelector('#cf-editor-base')?.remove();
   doc.querySelector('#cf-editor-bridge-style')?.remove();
   doc.querySelector('#cf-editor-bridge-script')?.remove();
   doc.querySelectorAll('.cf-editor-hover, .cf-editor-selected').forEach((node) => {
     node.classList.remove('cf-editor-hover', 'cf-editor-selected');
   });
-  doc.querySelectorAll('[data-cf-editor-id]').forEach((node) => {
-    node.removeAttribute('data-cf-editor-id');
-  });
+  if (!preserveSelectionMarker) {
+    doc.querySelectorAll('[data-cf-editor-id]').forEach((node) => {
+      node.removeAttribute('data-cf-editor-id');
+    });
+  }
 };
 
-const serializeWithoutBridge = (doc: Document) => {
-  const cloned = doc.cloneNode(true) as Document;
-  cleanBridgeFromDocument(cloned);
-  return serializeDocument(cloned);
+const serializeWithoutBridge = (doc: Document): string => {
+  // Serialize to string first (outerHTML is fast), then strip bridge artifacts with regex.
+  // This avoids an O(n) cloneNode(true) on the full document for every single mutation.
+  let html = serializeDocument(doc);
+  // Remove bridge script and style tags entirely
+  html = html.replace(/<script\b[^>]*\bid="cf-editor-bridge-script"[^>]*>[\s\S]*?<\/script>/i, '');
+  html = html.replace(/<style\b[^>]*\bid="cf-editor-bridge-style"[^>]*>[\s\S]*?<\/style>/i, '');
+  html = html.replace(/<base\b[^>]*\bid="cf-editor-base"[^>]*\/?>/gi, '');
+  // Strip bridge CSS class names, then normalize class attribute whitespace
+  html = html.replace(/\bcf-editor-(?:hover|selected|editing)\b/g, '');
+  html = html.replace(/class="([^"]*)"/g, (_, cls) => {
+    const cleaned = cls.replace(/\s+/g, ' ').trim();
+    return cleaned ? `class="${cleaned}"` : '';
+  });
+  // Remove selection marker attributes
+  html = html.replace(/\s+data-cf-editor-id="[^"]*"/g, '');
+  return html;
 };
 
 const injectBridgeIntoDocument = (doc: Document) => {
-  cleanBridgeFromDocument(doc);
+  cleanBridgeFromDocument(doc, true);
 
   const style = doc.createElement('style');
   style.id = 'cf-editor-bridge-style';
@@ -569,18 +670,19 @@ export function VisualEditor({
   const [showEmbedModal, setShowEmbedModal] = useState(false);
   const [embedCode, setEmbedCode] = useState('');
   const [pendingSectionType, setPendingSectionType] = useState<string | null>(null);
+  const [pendingEmbedMode, setPendingEmbedMode] = useState<'section' | 'element' | null>(null);
 
   // Adiciona uma nova sessão predefinida ao final do body, com embed opcional
   const addPredefinedSection = (type: string) => {
-    setPendingSectionType(type);
-    // Only open embed modal for Embedded type. For other types, insert immediately.
-    if (type === 'Embedded') {
+    // Only open embed modal for embedded section types. For other types, insert immediately.
+    if (EMBEDDED_SECTION_TYPES.has(type)) {
+      setPendingSectionType(type);
+      setPendingEmbedMode('section');
       setEmbedCode('');
       setShowEmbedModal(true);
       return;
     }
-    // insert immediately for non-embedded predefined sections
-    setTimeout(() => confirmAddSectionWithEmbed(), 0);
+    insertPredefinedSection(type);
   };
 
   // Confirma a adição da sessão com embed
@@ -670,6 +772,28 @@ export function VisualEditor({
         </div>
       </section>
     `,
+    'Embedded Form': `
+      <section class="w-full py-16 md:py-24 bg-background">
+        <div class="container mx-auto px-4">
+          <div class="mx-auto text-center" style="width:50%;max-width:880px;margin-left:auto;margin-right:auto;">
+            <h1 class="text-2xl md:text-3xl font-bold mb-2" contenteditable="true">Embedded Form</h1>
+            <p class="text-muted-foreground mb-4" contenteditable="true">Embedded Form</p>
+            <div class="cf-embed-placeholder mx-auto" style="min-height:160px">EMBEDDED APLICADO NA PAGINA</div>
+          </div>
+        </div>
+      </section>
+    `,
+    'Forms Embedded': `
+      <section class="w-full py-16 md:py-24 bg-background">
+        <div class="container mx-auto px-4">
+          <div class="mx-auto text-center" style="width:50%;max-width:880px;margin-left:auto;margin-right:auto;">
+            <h1 class="text-2xl md:text-3xl font-bold mb-2" contenteditable="true">Embedded Form</h1>
+            <p class="text-muted-foreground mb-4" contenteditable="true">Embedded Form</p>
+            <div class="cf-embed-placeholder mx-auto" style="min-height:160px">EMBEDDED APLICADO NA PAGINA</div>
+          </div>
+        </div>
+      </section>
+    `,
     Embedded: `
       <section class="w-full py-16 md:py-24 bg-background">
         <div class="container mx-auto px-4">
@@ -683,10 +807,113 @@ export function VisualEditor({
     `,
   };
 
-  const confirmAddSectionWithEmbed = () => {
-    if (!pendingSectionType) return;
+  const ELEMENT_TEMPLATES: Record<string, { label: string; icon: string; html: string }> = {
+    Paragraph: {
+      label: 'Paragraph',
+      icon: '¶',
+      html: '<p style="margin:0.75rem 0;">New text paragraph.</p>',
+    },
+    Heading: {
+      label: 'Heading',
+      icon: 'H',
+      html: '<h2 style="margin:0.75rem 0;">New Heading</h2>',
+    },
+    Button: {
+      label: 'Button',
+      icon: '▬',
+      html: '<a href="#" style="display:inline-block;padding:0.6rem 1.4rem;border-radius:6px;background:#000;color:#fff;text-decoration:none;font-weight:600;">Button</a>',
+    },
+    Image: {
+      label: 'Image',
+      icon: '⬚',
+      html: '<img src="https://placehold.co/600x300" alt="Image" style="max-width:100%;height:auto;display:block;margin:0.5rem 0;" />',
+    },
+    Divider: {
+      label: 'Divider',
+      icon: '—',
+      html: '<hr style="border:none;border-top:1px solid #e5e7eb;margin:1.5rem 0;" />',
+    },
+    List: {
+      label: 'List',
+      icon: '≡',
+      html: '<ul style="padding-left:1.5rem;margin:0.75rem 0;"><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul>',
+    },
+    Container: {
+      label: 'Container',
+      icon: '□',
+      html: '<div style="padding:1rem;border:1px dashed #d1d5db;border-radius:6px;margin:0.5rem 0;min-height:3rem;"></div>',
+    },
+    Embedded: {
+      label: 'Embedded',
+      icon: '</>',
+      html: '',
+    },
+  };
+
+  const normalizeEmbedSnippet = (doc: Document, rawCode: string) => {
+    let raw = rawCode && rawCode.trim() ? rawCode.trim() : '<div>EMBEDDED APLICADO NA PAGINA</div>';
+    raw = raw.replace(/^```(?:html|javascript|js)?\s*/i, '').replace(/```$/i, '').trim();
+
+    for (let i = 0; i < 3 && /&(?:lt|gt|amp|quot|#39);/i.test(raw); i += 1) {
+      const textarea = doc.createElement('textarea');
+      textarea.innerHTML = raw;
+      const decoded = textarea.value.trim();
+      if (!decoded || decoded === raw) break;
+      raw = decoded;
+    }
+
+    if (
+      ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'")))
+      && raw.slice(1, -1).includes('<')
+    ) {
+      raw = raw.slice(1, -1).trim();
+    }
+
+    return raw;
+  };
+
+  const appendEmbedCode = (doc: Document, targetParent: Element, rawCode: string) => {
+    const raw = normalizeEmbedSnippet(doc, rawCode);
+
+    // Clear the target container
+    while (targetParent.firstChild) {
+      targetParent.removeChild(targetParent.firstChild);
+    }
+
+    const embedWrapper = doc.createElement('div');
+    embedWrapper.className = 'cf-embed-container';
+    embedWrapper.style.width = '100%';
+    embedWrapper.style.minHeight = '200px';
+
+    // Set innerHTML so the browser parses iframes, forms, divs, etc. as real HTML nodes.
+    // Scripts parsed via innerHTML are inert — we must recreate them via createElement so they execute.
+    embedWrapper.innerHTML = raw;
+
+    const inertScripts = Array.from(embedWrapper.querySelectorAll('script'));
+    inertScripts.forEach((oldScript) => {
+      const newScript = doc.createElement('script');
+      Array.from(oldScript.attributes).forEach((attr) => newScript.setAttribute(attr.name, attr.value));
+      const src = oldScript.getAttribute('src');
+      if (src) {
+        newScript.src = src;
+      } else {
+        newScript.textContent = oldScript.textContent || '';
+      }
+      oldScript.parentNode?.replaceChild(newScript, oldScript);
+    });
+
+    // Ensure iframes without explicit width/height get sensible defaults
+    embedWrapper.querySelectorAll('iframe').forEach((iframe) => {
+      if (!iframe.style.width && !iframe.getAttribute('width')) iframe.style.width = '100%';
+      if (!iframe.style.height && !iframe.getAttribute('height')) iframe.style.minHeight = '200px';
+    });
+
+    targetParent.appendChild(embedWrapper);
+  };
+
+  const insertPredefinedSection = (type: string, code = '') => {
     applyMutation('body', (el, doc) => {
-      let sectionHtml = SECTION_HTML_TEMPLATES[pendingSectionType] || `<section class="cf-section cf-section-${pendingSectionType.toLowerCase().replace(/\s+/g, '-')}"><h2>${pendingSectionType}</h2><p>Section content: ${pendingSectionType}</p></section>`;
+      let sectionHtml = SECTION_HTML_TEMPLATES[type] || `<section class="cf-section cf-section-${type.toLowerCase().replace(/\s+/g, '-')}"><h2>${type}</h2><p>Section content: ${type}</p></section>`;
       const placeNode = (node: Node) => {
         const footer = doc.querySelector('footer');
         const sectionsContainer = doc.querySelector('#sections');
@@ -699,59 +926,18 @@ export function VisualEditor({
         }
       };
 
-      if (pendingSectionType === 'Embedded') {
-        // Inserir embed HTML preservando <script> execution e <iframe> rendering
-        const raw = embedCode && embedCode.trim() ? embedCode.trim() : '<div>EMBEDDED APLICADO NA PAGINA</div>';
-        // use the Embedded template from SECTION_HTML_TEMPLATES so formatting is consistent
-        const templateHtml = SECTION_HTML_TEMPLATES['Embedded'] || `<section class="cf-section cf-section-embedded"><h2>Embedded</h2><p>Embedded</p><div class="cf-embed-placeholder"></div></section>`;
+      if (EMBEDDED_SECTION_TYPES.has(type)) {
+        const templateHtml = SECTION_HTML_TEMPLATES[type] || SECTION_HTML_TEMPLATES['Embedded'] || `<section class="cf-section cf-section-embedded"><h2>Embedded</h2><p>Embedded</p><div class="cf-embed-placeholder"></div></section>`;
         const wrapperForSection = doc.createElement('div');
         wrapperForSection.innerHTML = templateHtml.trim();
         const sectionNode = wrapperForSection.firstElementChild as HTMLElement;
         if (!sectionNode) return;
         placeNode(sectionNode);
-        // find the placeholder inside the inserted section specifically
         const placedSection = doc.querySelectorAll('.cf-embed-placeholder');
-        let lastPlaced: Element | null = null;
-        if (placedSection && placedSection.length) {
-          // prefer the placeholder within the section we just placed
-          lastPlaced = Array.from(placedSection).reverse().find(p => sectionNode.contains(p));
-        }
-        const targetParent = lastPlaced || sectionNode;
-        // parse raw embed html into nodes and insert, handling scripts specially so they execute
-        const parser = doc.createElement('div');
-        parser.innerHTML = raw;
-        // create an editable wrapper so users can style/size the embed
-        const embedWrapper = doc.createElement('div');
-        embedWrapper.className = 'cf-embed-container';
-        // sensible defaults for editability
-        embedWrapper.style.width = '100%';
-        embedWrapper.style.minHeight = '200px';
-        Array.from(parser.childNodes).forEach((node) => {
-          if (node.nodeType === 1 && (node as Element).tagName.toLowerCase() === 'script') {
-            const src = (node as HTMLScriptElement).getAttribute('src');
-            const newScript = doc.createElement('script');
-            Array.from((node as Element).attributes || []).forEach(attr => newScript.setAttribute(attr.name, attr.value));
-            if (src) {
-              newScript.src = src!;
-            } else {
-              newScript.textContent = (node as HTMLScriptElement).textContent || '';
-            }
-            embedWrapper.appendChild(newScript);
-          } else if (node.nodeType === 1 && (node as Element).tagName.toLowerCase() === 'iframe') {
-            const src = (node as HTMLIFrameElement).getAttribute('src') || '';
-            const newIframe = doc.createElement('iframe');
-            Array.from((node as Element).attributes || []).forEach(attr => newIframe.setAttribute(attr.name, attr.value));
-            if (src) newIframe.src = src;
-            embedWrapper.appendChild(newIframe);
-          } else {
-            const imported = doc.importNode(node, true);
-            embedWrapper.appendChild(imported);
-          }
-        });
-        targetParent.appendChild(embedWrapper);
-      } else if (embedCode && embedCode.trim()) {
-        // Remove o fechamento </section> para inserir embed antes
-        sectionHtml = sectionHtml.replace(/<\/section>\s*$/, `${embedCode}\n</section>`);
+        const targetParent = Array.from(placedSection).reverse().find(p => sectionNode.contains(p)) || sectionNode;
+        appendEmbedCode(doc, targetParent, code);
+      } else if (code && code.trim()) {
+        sectionHtml = sectionHtml.replace(/<\/section>\s*$/, `${code}\n</section>`);
         const wrapper = doc.createElement('div');
         wrapper.innerHTML = sectionHtml.trim();
         const section = wrapper.firstElementChild as HTMLElement;
@@ -763,9 +949,19 @@ export function VisualEditor({
         if (section) placeNode(section);
       }
     });
+  };
+
+  const closeEmbedModal = () => {
     setShowEmbedModal(false);
     setEmbedCode('');
     setPendingSectionType(null);
+    setPendingEmbedMode(null);
+  };
+
+  const confirmAddSectionWithEmbed = () => {
+    if (!pendingSectionType) return;
+    insertPredefinedSection(pendingSectionType, embedCode);
+    closeEmbedModal();
   };
 
   // Move uma sessão para cima/baixo
@@ -795,6 +991,8 @@ export function VisualEditor({
   const [addingGeneratedImageId, setAddingGeneratedImageId] = useState<number | null>(null);
   const [selected, setSelected] = useState<SelectedNode | null>(null);
   const selectedRef = useRef<SelectedNode | null>(null);
+  const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number; width: number } | null>(null);
+  const [selectedAncestors, setSelectedAncestors] = useState<Array<{ tag: string; path: string }>>([]);
   const [textValue, setTextValue] = useState('');
   const [hrefValue, setHrefValue] = useState('');
   const [linkTarget, setLinkTarget] = useState('_self');
@@ -974,24 +1172,29 @@ export function VisualEditor({
   const [iframeReady, setIframeReady] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [editorTab, setEditorTab] = useState<'element' | 'sections'>('element');
+  const [editorPanelTab, setEditorPanelTab] = useState<'content' | 'style' | 'advanced'>('content');
   const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
-  const [snapshots, setSnapshots] = useState<EditorSnapshot[]>([]);
   const [, setHistoryVersion] = useState(0);
   const brandPaletteKey = brandPalette.map((value) => normalizeHexColor(value || '')).filter(Boolean).join('|');
-  // Capture the HTML at first mount so we can extract actual CSS variable colors once, without
-  // making 'html' a reactive dep of initialBrandColors (which would reset brand colors on every edit).
-  const initialHtmlForColorsRef = useRef(html);
   const initialBrandColors = useMemo(() => ({
-    primary: extractCssVarColorFromHtml(initialHtmlForColorsRef.current, 'primary') || normalizeHexColor(brandColors?.primary || brandPalette[0] || ''),
-    secondary: extractCssVarColorFromHtml(initialHtmlForColorsRef.current, 'secondary') || normalizeHexColor(brandColors?.secondary || brandPalette[1] || ''),
-    accent: extractCssVarColorFromHtml(initialHtmlForColorsRef.current, 'accent') || normalizeHexColor(brandColors?.accent || brandPalette[2] || ''),
-    text: extractCssVarColorFromHtml(initialHtmlForColorsRef.current, 'text') || normalizeHexColor(brandColors?.text || brandPalette[3] || ''),
-    background: extractCssVarColorFromHtml(initialHtmlForColorsRef.current, 'bg') || normalizeHexColor(brandColors?.background || brandPalette[4] || ''),
+    primary: normalizeHexColor(brandColors?.primary || brandPalette[0] || ''),
+    secondary: normalizeHexColor(brandColors?.secondary || brandPalette[1] || ''),
+    accent: normalizeHexColor(brandColors?.accent || brandPalette[2] || ''),
+    text: normalizeHexColor(brandColors?.text || brandPalette[3] || ''),
+    background: normalizeHexColor(brandColors?.background || brandPalette[4] || ''),
   }), [brandColors?.primary, brandColors?.secondary, brandColors?.accent, brandColors?.text, brandColors?.background, brandPaletteKey]);
   const [globalBrandColors, setGlobalBrandColors] = useState(initialBrandColors);
-  const nextGeneratedImageIdRef = useRef(1);
-  const nextSnapshotIdRef = useRef(1);
   const brandColorMatchRef = useRef<Record<string, boolean>>({});
+  const [brandColorsOpen, setBrandColorsOpen] = useState(false);
+  const [geminiChatOpen, setGeminiChatOpen] = useState(true);
+  const [isPanMode, setIsPanMode] = useState(false);
+  const [floatingAddElOpen, setFloatingAddElOpen] = useState(false);
+  const [toolbarAddElOpen, setToolbarAddElOpen] = useState(false);
+  const [floatingAddTab, setFloatingAddTab] = useState<'element' | 'sections'>('element');
+  const [toolbarAddTab, setToolbarAddTab] = useState<'element' | 'sections'>('element');
+  const floatingAddElPopoverRef = useRef<HTMLDivElement | null>(null);
+  const toolbarAddElPopoverRef = useRef<HTMLDivElement | null>(null);
+  const nextGeneratedImageIdRef = useRef(1);
   const historyPastRef = useRef<string[]>([]);
   const historyFutureRef = useRef<string[]>([]);
   const lastHtmlRef = useRef('');
@@ -1024,11 +1227,6 @@ export function VisualEditor({
 
     return values.filter((value, index) => values.indexOf(value) === index);
   }, [globalBrandColors, brandPaletteKey]);
-
-  const snapshotsStorageKey = useMemo(() => {
-    if (!projectId || !userId) return '';
-    return `chiliforge-editor-snapshots:${userId}:${projectId}`;
-  }, [projectId, userId]);
 
   const livePreviewUrl = useMemo(() => {
     const base = (projectPublicUrl || '').trim();
@@ -1170,52 +1368,6 @@ export function VisualEditor({
   }, [projectId, userId]);
 
   useEffect(() => {
-    setSnapshots([]);
-
-    if (!snapshotsStorageKey) {
-      nextSnapshotIdRef.current = 1;
-      return;
-    }
-
-    try {
-      const parsed = safeGetJSON(snapshotsStorageKey) as unknown;
-      if (!parsed || !Array.isArray(parsed)) {
-        nextSnapshotIdRef.current = 1;
-        return;
-      }
-
-      const sanitized = parsed
-        .filter((item): item is EditorSnapshot => {
-          if (!item || typeof item !== 'object') return false;
-          const maybe = item as Partial<EditorSnapshot>;
-          return typeof maybe.id === 'number'
-            && typeof maybe.label === 'string'
-            && typeof maybe.html === 'string'
-            && typeof maybe.createdAt === 'number';
-        })
-        .slice(0, SNAPSHOT_LIMIT);
-
-      setSnapshots(sanitized);
-      const maxId = sanitized.reduce((acc, item) => Math.max(acc, item.id), 0);
-      nextSnapshotIdRef.current = maxId + 1;
-    } catch {
-      nextSnapshotIdRef.current = 1;
-      setSnapshots([]);
-    }
-  }, [snapshotsStorageKey]);
-
-  useEffect(() => {
-    if (!snapshotsStorageKey) return;
-
-    try {
-      safeSetJSON(snapshotsStorageKey, snapshots.slice(0, SNAPSHOT_LIMIT));
-    } catch {
-      // Ignore storage errors — safeSetJSON handles trimming/clearing.
-    }
-  }, [snapshots, snapshotsStorageKey]);
-
-
-  useEffect(() => {
     if (skipHistoryRecordRef.current) {
       lastHtmlRef.current = html;
       skipHistoryRecordRef.current = false;
@@ -1235,26 +1387,6 @@ export function VisualEditor({
       historyFutureRef.current = [];
       lastHtmlRef.current = html;
       setHistoryVersion((value) => value + 1);
-
-      // Salvar snapshot automático
-      const cleanHtml = stripEditorBridge(html);
-      const now = new Date();
-      const label = `Snapshot ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-      setSnapshots((prev) => {
-        // Evita snapshot duplicado se o último já for igual
-        if (prev[0] && prev[0].html.trim() === cleanHtml.trim()) return prev;
-        const next = [
-          {
-            id: nextSnapshotIdRef.current,
-            label,
-            html: cleanHtml,
-            createdAt: Date.now(),
-          },
-          ...prev,
-        ].slice(0, SNAPSHOT_LIMIT);
-        nextSnapshotIdRef.current += 1;
-        return next;
-      });
     }
   }, [html]);
 
@@ -1307,46 +1439,6 @@ export function VisualEditor({
     }, 0);
   }, [html, emitChange]);
 
-  const saveSnapshot = useCallback(() => {
-    const cleanHtml = stripEditorBridge(html);
-    const now = new Date();
-    const label = `Snapshot ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-
-    setSnapshots((prev) => {
-      const next: EditorSnapshot[] = [
-        {
-          id: nextSnapshotIdRef.current,
-          label,
-          html: cleanHtml,
-          createdAt: Date.now(),
-        },
-        ...prev,
-      ].slice(0, SNAPSHOT_LIMIT);
-
-      nextSnapshotIdRef.current += 1;
-      return next;
-    });
-
-    toast.success('Snapshot saved.');
-  }, [html]);
-
-  const restoreSnapshot = useCallback((snapshot: EditorSnapshot) => {
-    const cleanCurrent = stripEditorBridge(html);
-    if (cleanCurrent.trim() === snapshot.html.trim()) {
-      toast.message('Snapshot already matches current version.');
-      return;
-    }
-
-    skipHistoryRecordRef.current = false;
-    setSelected(null);
-    onChange(snapshot.html);
-    toast.success(`Restored: ${snapshot.label}`);
-  }, [html, onChange]);
-
-  const deleteSnapshot = useCallback((snapshotId: number) => {
-    setSnapshots((prev) => prev.filter((item) => item.id !== snapshotId));
-  }, []);
-
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -1392,15 +1484,142 @@ export function VisualEditor({
     }
 
     updater(target, doc);
-    injectBridgeIntoDocument(doc);
+    // Do NOT re-inject the bridge here. The bridge script uses event delegation on
+    // document and remains valid across DOM mutations. Re-injecting after every
+    // applyMutation re-executes the IIFE and accumulates duplicate event listeners.
     emitChange(serializeWithoutBridge(doc));
   }, [emitChange]);
+
+  const applyMutationRef = useRef(applyMutation);
+  applyMutationRef.current = applyMutation;
+
+  useEffect(() => {
+    if (!selected) {
+      setToolbarPos(null);
+      setSelectedAncestors([]);
+      setFloatingAddElOpen(false);
+      setToolbarAddElOpen(false);
+    }
+  }, [selected]);
+
+  useEffect(() => {
+    if (!floatingAddElOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (floatingAddElPopoverRef.current && !floatingAddElPopoverRef.current.contains(e.target as Node)) {
+        setFloatingAddElOpen(false);
+      }
+    };
+    const frameHandler = () => setFloatingAddElOpen(false);
+    const frameDoc = iframeRef.current?.contentDocument;
+    document.addEventListener('mousedown', handler);
+    frameDoc?.addEventListener('mousedown', frameHandler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      frameDoc?.removeEventListener('mousedown', frameHandler);
+    };
+  }, [floatingAddElOpen]);
+
+  useEffect(() => {
+    if (!toolbarAddElOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (toolbarAddElPopoverRef.current && !toolbarAddElPopoverRef.current.contains(e.target as Node)) {
+        setToolbarAddElOpen(false);
+      }
+    };
+    const frameHandler = () => setToolbarAddElOpen(false);
+    const frameDoc = iframeRef.current?.contentDocument;
+    document.addEventListener('mousedown', handler);
+    frameDoc?.addEventListener('mousedown', frameHandler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      frameDoc?.removeEventListener('mousedown', frameHandler);
+    };
+  }, [toolbarAddElOpen]);
+
+  const updateToolbarPositionForSelection = useCallback(() => {
+    if (!selected?.path) {
+      setToolbarPos(null);
+      return;
+    }
+
+    try {
+      const iframeRect = iframeRef.current?.getBoundingClientRect();
+      const doc = iframeRef.current?.contentDocument;
+      const target = doc?.querySelector(selected.path) as HTMLElement | null;
+      if (!iframeRect || !target) return;
+
+      const rect = target.getBoundingClientRect();
+      setToolbarPos({
+        x: iframeRect.left + rect.left,
+        y: iframeRect.top + rect.top - 48,
+        width: rect.width,
+      });
+    } catch {
+      // Keep the last known toolbar position if the selected element is briefly unavailable.
+    }
+  }, [selected?.path]);
+
+  useEffect(() => {
+    if (!selected?.path || !iframeReady) return;
+
+    let frame = 0;
+    const scheduleUpdate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        updateToolbarPositionForSelection();
+      });
+    };
+
+    scheduleUpdate();
+
+    const frameWindow = iframeRef.current?.contentWindow;
+    frameWindow?.addEventListener('scroll', scheduleUpdate, { passive: true });
+    frameWindow?.addEventListener('resize', scheduleUpdate);
+    window.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', scheduleUpdate);
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frameWindow?.removeEventListener('scroll', scheduleUpdate);
+      frameWindow?.removeEventListener('resize', scheduleUpdate);
+      window.removeEventListener('scroll', scheduleUpdate);
+      window.removeEventListener('resize', scheduleUpdate);
+    };
+  }, [iframeReady, selected?.path, updateToolbarPositionForSelection]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const data = event.data;
-      if (!data || data.source !== EDITOR_MESSAGE_SOURCE || data.type !== 'select') return;
+      if (!data || data.source !== EDITOR_MESSAGE_SOURCE) return;
+
+      if (data.type === 'inline-text-save') {
+        const p = data.payload as { path: string; innerHTML: string };
+        if (p?.path) {
+          applyMutationRef.current(p.path, (el) => {
+            el.innerHTML = p.innerHTML || '';
+          });
+        }
+        return;
+      }
+
+      if (data.type !== 'select') return;
       const payload = data.payload as SelectedNode;
+
+      // Only update toolbar position and ancestors when the bridge provides boundingRect.
+      // parentSelectionHandler fires a second 'select' without boundingRect — skip it so the
+      // toolbar is not immediately destroyed after the bridge sets it.
+      if (payload.boundingRect) {
+        try {
+          const iframeRect = iframeRef.current?.getBoundingClientRect();
+          if (iframeRect) {
+            const x = iframeRect.left + payload.boundingRect.left;
+            const y = iframeRect.top + payload.boundingRect.top - 48;
+            setToolbarPos({ x, y, width: payload.boundingRect.width });
+          }
+        } catch {}
+        setSelectedAncestors(payload.ancestors || []);
+      }
       setSelected(payload);
       setTextValue(payload.text || '');
       setHrefValue(payload.href || '');
@@ -1536,7 +1755,7 @@ export function VisualEditor({
             if (clickedEl) {
               let node: Element | null = clickedEl;
               while (node && node !== doc2.body) {
-                if (node.classList && (node.classList.contains('cf-embed-container') || node.classList.contains('cf-embed-placeholder') || node.classList.contains('cf-section-embedded'))) {
+                if (node.classList && (node.classList.contains('cf-embed-element') || node.classList.contains('cf-embed-container') || node.classList.contains('cf-embed-placeholder') || node.classList.contains('cf-section-embedded'))) {
                   // compute css path for wrapper
                   const computeCssPathWrapper = (el: Element | null) => {
                     if (!el || el === doc2.documentElement) return 'html';
@@ -2188,14 +2407,119 @@ export function VisualEditor({
     });
   };
 
-  const duplicateSection = () => {
-    const sectionPath = selected?.sectionPath;
+  const duplicateSectionByPath = (sectionPath: string) => {
     if (!sectionPath) return;
 
     applyMutation(sectionPath, (el) => {
       const copy = el.cloneNode(true) as Element;
       el.insertAdjacentElement('afterend', copy);
     });
+  };
+
+  const duplicateSection = () => {
+    const sectionPath = selected?.sectionPath;
+    if (!sectionPath) return;
+    duplicateSectionByPath(sectionPath);
+  };
+
+  const insertElement = (type: string) => {
+    if (type === 'Embedded') {
+      setPendingSectionType(null);
+      setPendingEmbedMode('element');
+      setEmbedCode('');
+      setShowEmbedModal(true);
+      return;
+    }
+
+    const template = ELEMENT_TEMPLATES[type];
+    if (!template) return;
+
+    const parser = new DOMParser();
+    const parsed = parser.parseFromString(template.html, 'text/html');
+    const newNode = parsed.body.firstChild;
+    if (!newNode) return;
+
+    const iframeDoc = iframeRef.current?.contentDocument;
+    if (!iframeDoc) return;
+
+    const sectionPath = selected?.sectionPath ?? (selected?.tag === 'section' ? selected.path : null);
+    if (!sectionPath) return;
+
+    applyMutation(sectionPath, (sectionEl, doc) => {
+      const cloned = doc.importNode(newNode, true);
+
+      // Find the top-level child of sectionEl that wraps the currently selected element,
+      // then insert the new element right after it.
+      const selectedEl = selected?.path ? iframeDoc.querySelector(selected.path) : null;
+      let insertAfter: Element | null = null;
+      if (selectedEl && selectedEl !== sectionEl) {
+        let candidate: Element | null = selectedEl as Element;
+        while (candidate && candidate.parentElement !== sectionEl) {
+          candidate = candidate.parentElement;
+        }
+        if (candidate && candidate.parentElement === sectionEl) {
+          insertAfter = candidate;
+        }
+      }
+
+      if (insertAfter) {
+        insertAfter.insertAdjacentElement('afterend', cloned as Element);
+      } else {
+        sectionEl.appendChild(cloned);
+      }
+    });
+
+    setFloatingAddElOpen(false);
+    setToolbarAddElOpen(false);
+  };
+
+  const insertEmbeddedElement = (code: string) => {
+    const iframeDoc = iframeRef.current?.contentDocument;
+    if (!iframeDoc) return;
+
+    const sectionPath = selected?.sectionPath ?? (selected?.tag === 'section' ? selected.path : null);
+    if (!sectionPath) return;
+
+    applyMutation(sectionPath, (sectionEl, doc) => {
+      const embedHost = doc.createElement('div');
+      embedHost.className = 'cf-embed-element';
+      embedHost.style.width = '100%';
+      embedHost.style.height = 'auto';
+      embedHost.style.minHeight = '200px';
+      embedHost.style.margin = '0.75rem 0';
+      appendEmbedCode(doc, embedHost, code);
+
+      const selectedEl = selected?.path ? iframeDoc.querySelector(selected.path) : null;
+      let insertAfter: Element | null = null;
+      if (selectedEl && selectedEl !== sectionEl) {
+        let candidate: Element | null = selectedEl as Element;
+        while (candidate && candidate.parentElement !== sectionEl) {
+          candidate = candidate.parentElement;
+        }
+        if (candidate && candidate.parentElement === sectionEl) {
+          insertAfter = candidate;
+        }
+      }
+
+      if (insertAfter) {
+        insertAfter.insertAdjacentElement('afterend', embedHost);
+      } else {
+        sectionEl.appendChild(embedHost);
+      }
+    });
+
+    setFloatingAddElOpen(false);
+    setToolbarAddElOpen(false);
+  };
+
+  const confirmAddEmbed = () => {
+    if (pendingEmbedMode === 'element') {
+      insertEmbeddedElement(embedCode);
+      closeEmbedModal();
+      return;
+    }
+
+    confirmAddSectionWithEmbed();
   };
 
   const moveSectionUp = () => {
@@ -2219,6 +2543,36 @@ export function VisualEditor({
       if (next) {
         next.after(el);
       }
+    });
+  };
+
+  const duplicateSelectedElement = () => {
+    const elementPath = selected?.path;
+    if (!elementPath) return;
+
+    applyMutation(elementPath, (el) => {
+      const copy = el.cloneNode(true) as Element;
+      el.insertAdjacentElement('afterend', copy);
+    });
+  };
+
+  const moveSelectedElementUp = () => {
+    const elementPath = selected?.path;
+    if (!elementPath) return;
+
+    applyMutation(elementPath, (el) => {
+      const previous = el.previousElementSibling;
+      if (previous) previous.before(el);
+    });
+  };
+
+  const moveSelectedElementDown = () => {
+    const elementPath = selected?.path;
+    if (!elementPath) return;
+
+    applyMutation(elementPath, (el) => {
+      const next = el.nextElementSibling;
+      if (next) next.after(el);
     });
   };
 
@@ -2719,44 +3073,91 @@ export function VisualEditor({
   ) => {
     const currentHtml = stripEditorBridge(html);
     const cssVarName = BRAND_COLOR_CSS_VAR[key];
-    // Read the actual previous color from the CSS variable in the HTML (for hardcoded hex replacement).
     const previousFromHtml = cssVarName ? extractCssVarColorFromHtml(currentHtml, cssVarName) : '';
     const previous = previousFromHtml || normalizeHexColor(globalBrandColors[key] || '');
     const next = normalizeHexColor(nextColor);
     if (!next) return;
 
     setGlobalBrandColors((current) => ({ ...current, [key]: next }));
-
     if (!previous || previous === next) return;
 
-    // 1. Update the CSS variable definition directly — format-agnostic (hex, rgb, named colors).
-    let updatedHtml = cssVarName
-      ? updateCssVarInHtml(currentHtml, cssVarName, next)
-      : currentHtml;
-
-    // 2. Replace any hardcoded hex occurrences of the old color (inline styles, gradients, etc.).
-    if (previous) {
-      updatedHtml = replaceGlobalColorInHtml(updatedHtml, previous, next);
-    }
-
-    // 3. Immediately update the live iframe CSS variable — instant visual feedback without page reload.
+    // 1. Replace CSS variable definition (format-agnostic)
+    let updatedHtml = cssVarName ? updateCssVarInHtml(currentHtml, cssVarName, next) : currentHtml;
+    // 2. Replace any hardcoded hex occurrences
+    if (previous) updatedHtml = replaceGlobalColorInHtml(updatedHtml, previous, next);
+    // 3. Instant DOM update in iframe
     const iframeDoc = iframeRef.current?.contentDocument;
     if (iframeDoc && cssVarName) {
-      try {
-        iframeDoc.documentElement.style.setProperty(`--${cssVarName}`, next);
-      } catch {
-        // Cross-origin or detached — writeHtmlToIframe below handles the fallback.
-      }
+      try { iframeDoc.documentElement.style.setProperty(`--${cssVarName}`, next); } catch {}
     }
 
     const didChange = updatedHtml !== currentHtml;
     brandColorMatchRef.current[key] = didChange;
-
     if (!didChange) return;
 
     setSelected(null);
     emitChange(updatedHtml);
     writeHtmlToIframe(updatedHtml);
+  };
+
+  const applyGlobalCssVar = (varName: string, newValue: string) => {
+    const currentHtml = stripEditorBridge(html);
+    const updatedHtml = updateCssVarInHtml(currentHtml, varName, newValue);
+    const iframeDoc = iframeRef.current?.contentDocument;
+    if (iframeDoc) {
+      try { iframeDoc.documentElement.style.setProperty(`--${varName}`, newValue); } catch {}
+    }
+    if (updatedHtml !== currentHtml) emitChange(updatedHtml);
+  };
+
+  const startImagePan = () => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc || !selected?.path) return;
+    const capturedPath = selected.path;
+    const img = doc.querySelector(capturedPath) as HTMLImageElement | null;
+    if (!img) return;
+    const parent = img.parentElement as HTMLElement | null;
+    if (!parent) return;
+    if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+
+    const overlay = doc.createElement('div');
+    overlay.id = 'cf-pan-overlay';
+    overlay.style.cssText = 'position:absolute;inset:0;cursor:crosshair;z-index:999;background:transparent;';
+    parent.appendChild(overlay);
+    setIsPanMode(true);
+
+    let panRafId: number | null = null;
+    const handleMove = (e: MouseEvent) => {
+      const rect = parent.getBoundingClientRect();
+      const x = Math.max(0, Math.min(100, Math.round(((e.clientX - rect.left) / rect.width) * 100)));
+      const y = Math.max(0, Math.min(100, Math.round(((e.clientY - rect.top) / rect.height) * 100)));
+      // Apply to DOM immediately for smooth visual feedback
+      img.style.objectPosition = `${x}% ${y}%`;
+      // Throttle React state updates to one per animation frame to avoid 3×setState at 60fps
+      if (panRafId !== null) return;
+      panRafId = requestAnimationFrame(() => {
+        panRafId = null;
+        setImagePosition(`${x}% ${y}%`);
+        setImagePositionX(x);
+        setImagePositionY(y);
+      });
+    };
+    const handleUp = () => {
+      if (panRafId !== null) { cancelAnimationFrame(panRafId); panRafId = null; }
+      overlay.remove();
+      doc.removeEventListener('mousemove', handleMove, true);
+      doc.removeEventListener('mouseup', handleUp, true);
+      document.removeEventListener('mousemove', handleMove, true);
+      document.removeEventListener('mouseup', handleUp, true);
+      const finalPos = img.style.objectPosition || '50% 50%';
+      applyMutation(capturedPath, (el) => { (el as HTMLImageElement).style.objectPosition = finalPos; });
+      setIsPanMode(false);
+    };
+    doc.addEventListener('mousemove', handleMove, true);
+    doc.addEventListener('mouseup', handleUp, true);
+    // Also listen on the parent window so dragging outside the iframe still works
+    document.addEventListener('mousemove', handleMove, true);
+    document.addEventListener('mouseup', handleUp, true);
   };
 
   const renderBrandPaletteSwatches = (
@@ -3145,6 +3546,53 @@ export function VisualEditor({
         <Button size="sm" variant={previewMode === 'mobile' ? 'default' : 'ghost'} className="h-8 px-2" onClick={() => setPreviewMode('mobile')}>
           <Smartphone className="h-4 w-4" />
         </Button>
+        {!panelOpen && (
+          <>
+            <div className="w-px h-5 bg-border mx-0.5" />
+            <Button
+              size="sm"
+              variant={layout === 'overlay' ? 'default' : 'ghost'}
+              className="h-8 gap-1.5 px-2"
+              title="Open editor panel"
+              onClick={() => {
+                setToolbarPos(null);
+                setToolbarAddElOpen(false);
+                setPanelOpen(true);
+              }}
+            >
+              <Pencil className="h-4 w-4" />
+              {layout === 'overlay' && <span className="text-xs">Edit</span>}
+            </Button>
+          </>
+        )}
+      </div>
+
+      <div className="absolute bottom-3 left-3 z-30" ref={floatingAddElPopoverRef}>
+        {(() => {
+          const canAddElement = Boolean(selected?.sectionPath || selected?.tag === 'section');
+          return (
+            <>
+          <Button
+            size="sm"
+            className="h-10 gap-2 rounded-md shadow-lg"
+            onClick={() => {
+              setToolbarPos(null);
+              setToolbarAddElOpen(false);
+              setFloatingAddElOpen((v) => !v);
+            }}
+            title={canAddElement ? 'Add elements or sections' : 'Add sections, or select a section to add elements'}
+          >
+            <Plus className="h-4 w-4" />
+            Add element
+          </Button>
+          {floatingAddElOpen && (
+            <div className="absolute bottom-12 left-0 rounded-md border border-border bg-background p-2 shadow-xl">
+              {renderAddMenu(floatingAddTab, setFloatingAddTab, () => setFloatingAddElOpen(false), false, canAddElement)}
+            </div>
+          )}
+            </>
+          );
+        })()}
       </div>
 
       <div className={`relative mx-auto h-full transition-all duration-300 ${previewWidthClass}`}>
@@ -3181,17 +3629,16 @@ export function VisualEditor({
 
   // Painel de sessões do site (sections)
   const [sectionsPanelOpen, setSectionsPanelOpen] = useState(true);
-  const [sectionsList, setSectionsList] = useState<Array<{path: string, title: string}>>([]);
 
-  // Atualiza lista de sections sempre que html muda
-  useEffect(() => {
+  // useMemo avoids the extra re-render cycle that useState+useEffect caused on every html change
+  const sectionsList = useMemo<Array<{path: string, title: string}>>(() => {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
-      const nodes = Array.from(doc.querySelectorAll('section'));
-      setSectionsList(nodes.map((el, idx) => ({
+      const nodes = Array.from(doc.querySelectorAll('header, section'));
+      return nodes.map((el, idx) => ({
         path: (() => {
-          let node: HTMLElement | null = el as HTMLElement, parts = [];
+          let node: HTMLElement | null = el as HTMLElement, parts: string[] = [];
           while (node && node.nodeType === 1 && node !== doc.body) {
             const tag = node.tagName.toLowerCase();
             let i = 1, p: HTMLElement | null = node;
@@ -3201,9 +3648,11 @@ export function VisualEditor({
           }
           return 'body > ' + parts.join(' > ');
         })(),
-        title: el.querySelector('h2,h1')?.textContent?.trim() || `Sessão ${idx+1}`
-      })));
-    } catch { setSectionsList([]); }
+        title: el.querySelector('h2,h1')?.textContent?.trim() || `Sessão ${idx+1}`,
+      }));
+    } catch {
+      return [];
+    }
   }, [html]);
 
   // Selecionar sessão no painel lateral: não deve preencher campo de texto
@@ -3352,47 +3801,98 @@ export function VisualEditor({
     setDraggedSectionIdx(null);
   };
 
+  const isEmbeddedFormModal = pendingEmbedMode === 'section' && (pendingSectionType === 'Embedded Form' || pendingSectionType === 'Forms Embedded');
+  const embedModalTitle = pendingEmbedMode === 'element'
+    ? 'Add Embedded Code Element'
+    : isEmbeddedFormModal
+      ? 'Add Embedded Form'
+      : 'Add Embedded Code to Section';
+  const embedModalDescription = pendingEmbedMode === 'element'
+    ? 'Paste any HTML, iframe, widget, map, calendar, video, script, or third-party embed. It will be inserted inside the selected section.'
+    : isEmbeddedFormModal
+      ? 'Paste your form embed code below. HubSpot forms work well here, and other form providers can also be used if they provide an embed snippet.'
+      : 'Paste any HTML, iframe, widget, map, calendar, video, script, or third-party embed. It will be inserted inside the new section.';
+
+  const embedModal = showEmbedModal ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-background rounded-lg shadow-lg p-6 w-full max-w-lg border border-border">
+        <h3 className="text-lg font-semibold mb-2">
+          {embedModalTitle}
+        </h3>
+        <p className="text-xs text-muted-foreground mb-2">
+          {embedModalDescription}
+        </p>
+        {isEmbeddedFormModal ? (
+          <div className="mb-3 rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+            <p className="mb-2 font-medium text-foreground">HubSpot example</p>
+            <ol className="list-decimal space-y-1 pl-4">
+              <li>In HubSpot, open Marketing &gt; Forms and choose the form.</li>
+              <li>Click Share or Embed.</li>
+              <li>Copy the embed code, usually a script snippet from HubSpot.</li>
+              <li>Paste the full code here and click Add Section.</li>
+            </ol>
+          </div>
+        ) : (
+          <div className="mb-3 rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+            This accepts common embed formats such as iframes, scripts, widgets, videos, maps, calendars, forms, and custom HTML snippets.
+          </div>
+        )}
+        <textarea
+          className="w-full min-h-[100px] rounded border border-border bg-muted/10 p-2 text-sm font-mono mb-4"
+          placeholder={isEmbeddedFormModal ? "&lt;script charset=&quot;utf-8&quot; type=&quot;text/javascript&quot; src=&quot;//js.hsforms.net/forms/embed/v2.js&quot;&gt;&lt;/script&gt;..." : "&lt;iframe ...&gt;&lt;/iframe&gt; or any HTML..."}
+          value={embedCode}
+          onChange={e => setEmbedCode(e.target.value)}
+          autoFocus
+        />
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={closeEmbedModal}>Cancel</Button>
+          <Button
+            variant="default"
+            onClick={confirmAddEmbed}
+            disabled={pendingEmbedMode === 'section' && !pendingSectionType}
+          >
+            {pendingEmbedMode === 'element' ? 'Add Element' : 'Add Section'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   const sectionsPanel = (
-    <div className="mb-4 rounded border border-border/60 bg-background">
-      <button className="flex w-full items-center gap-2 px-3 py-2 text-left font-semibold" onClick={() => setSectionsPanelOpen(v => !v)}>
-        {sectionsPanelOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-        Site Sections
+    <div className="mb-4 overflow-hidden rounded-lg border border-border/70 bg-background shadow-sm">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3 border-b border-border/60 px-3 py-3 text-left hover:bg-muted/30"
+        onClick={() => setSectionsPanelOpen(v => !v)}
+      >
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            {sectionsPanelOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <p className="text-sm font-semibold">Site Sections</p>
+            <Badge variant="secondary" className="text-[10px]">{sectionsList.length}</Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">Add, select, reorder, duplicate, and remove sections.</p>
+        </div>
       </button>
       {sectionsPanelOpen && (
-        <>
-          <div className="flex flex-wrap gap-2 px-3 py-2 border-b border-border/40 mb-2">
+        <div className="space-y-4 p-3">
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Add Section</p>
+            <div className="grid grid-cols-2 gap-2">
             {PREDEFINED_SECTIONS.map((s) => (
-              <Button
+              <button
                 key={s.name}
-                variant="ghost"
-                size="sm"
-                className="h-8 px-3 text-sm justify-start gap-2"
+                type="button"
+                className="flex min-h-12 items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 text-left text-xs transition-colors hover:border-primary/50 hover:bg-muted/50"
                 onClick={() => addPredefinedSection(s.name)}
+                title={`Add ${s.label} section`}
               >
-                <span className="opacity-80">{s.icon}</span>
-                <span className="ml-2">{s.label}</span>
-              </Button>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground shadow-sm">{s.icon}</span>
+                <span className="min-w-0 truncate font-medium">{s.label}</span>
+              </button>
             ))}
+            </div>
                 {/* Modal para código embed ao adicionar sessão */}
-                {showEmbedModal && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-                    <div className="bg-background rounded-lg shadow-lg p-6 w-full max-w-md border border-border">
-                      <h3 className="text-lg font-semibold mb-2">Add Embedded Code to Section</h3>
-                      <p className="text-xs text-muted-foreground mb-2">Paste any HTML, iframe, widget, or embed code below. It will be inserted inside the new section.</p>
-                      <textarea
-                        className="w-full min-h-[100px] rounded border border-border bg-muted/10 p-2 text-sm font-mono mb-4"
-                        placeholder="&lt;iframe ...&gt;&lt;/iframe&gt; or any HTML..."
-                        value={embedCode}
-                        onChange={e => setEmbedCode(e.target.value)}
-                        autoFocus
-                      />
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" onClick={() => { setShowEmbedModal(false); setEmbedCode(''); setPendingSectionType(null); }}>Cancel</Button>
-                        <Button variant="default" onClick={confirmAddSectionWithEmbed} disabled={!pendingSectionType}>Add Section</Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
                 {showFilesFolder && (
                   <div className="fixed inset-0 flex items-center justify-center bg-black/40" style={{ zIndex: 99999 }}>
                     <div className="bg-background rounded-lg shadow-lg p-4 w-full max-w-2xl border border-primary/60">
@@ -3445,96 +3945,276 @@ export function VisualEditor({
                   </div>
                 )}
           </div>
-          <ul className="divide-y divide-border/40">
-            {sectionsList.length === 0 && <li className="px-3 py-2 text-xs text-muted-foreground">No sections found</li>}
-            {sectionsList.map((s, idx) => (
-              <li
-                key={s.path}
-                className={`flex items-center gap-2 px-3 py-2 group hover:bg-muted/40 ${draggedSectionIdx === idx ? 'opacity-50' : ''}`}
-                draggable
-                onDragStart={() => handleDragStart(idx)}
-                onDragEnd={handleDragEnd}
-                onDragOver={e => handleDragOver(e, idx)}
-                onDrop={e => handleDrop(e, idx)}
-              >
-                <button className="flex-1 text-left truncate" style={{fontWeight: selected?.sectionPath === s.path ? 600 : 400}} onClick={() => selectSection(s.path)}>{s.title}</button>
-                <Button size="icon" variant="ghost" className="opacity-60 group-hover:opacity-100" onClick={() => moveSection(s.path, 'up')} title="Move up"><ArrowUp size={16} /></Button>
-                <Button size="icon" variant="ghost" className="opacity-60 group-hover:opacity-100" onClick={() => moveSection(s.path, 'down')} title="Move down"><ArrowDown size={16} /></Button>
-                <Button size="icon" variant="ghost" className="opacity-60 group-hover:opacity-100" onClick={() => { applyMutation(s.path, el => el.remove()); }} title="Remove"><Trash2 size={16} /></Button>
-              </li>
-            ))}
-          </ul>
-        </>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current Sections</p>
+              {sectionsList.length > 0 && <span className="text-[11px] text-muted-foreground">Drag to reorder</span>}
+            </div>
+
+            {sectionsList.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border/70 bg-muted/20 p-4 text-center">
+                <p className="text-sm font-medium">No sections found</p>
+                <p className="mt-1 text-xs text-muted-foreground">Start with a hero section, then add the rest of the page structure.</p>
+                <Button size="sm" className="mt-3" onClick={() => addPredefinedSection('Hero')}>
+                  <Plus className="mr-2 h-4 w-4" /> Add Hero Section
+                </Button>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {sectionsList.map((s, idx) => {
+                  const isActive = selected?.sectionPath === s.path;
+                  const title = s.title.toLowerCase();
+                  const isHeaderNode = /(^|>\s*)header:nth-of-type\(/.test(s.path);
+                  const sectionType = isHeaderNode || title.includes('hero')
+                    ? 'Hero'
+                    : title.includes('embed')
+                    ? 'Embedded'
+                    : title.includes('form') || title.includes('contact')
+                      ? 'Form'
+                      : title.includes('proof') || title.includes('trusted') || title.includes('testimonial')
+                          ? 'Social Proof'
+                          : title.includes('download')
+                            ? 'Download'
+                            : title.includes('cta') || title.includes('ready')
+                              ? 'CTA'
+                              : title.includes('benefit') || title.includes('why')
+                                ? 'Benefits'
+                                : 'Section';
+
+                  return (
+                    <li
+                      key={s.path}
+                      className={`group rounded-md border bg-background transition-colors ${
+                        isActive ? 'border-primary/70 bg-primary/5' : 'border-border/60 hover:border-border'
+                      } ${draggedSectionIdx === idx ? 'opacity-50' : ''}`}
+                      draggable
+                      onDragStart={() => handleDragStart(idx)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={e => handleDragOver(e, idx)}
+                      onDrop={e => handleDrop(e, idx)}
+                    >
+                      <div className="flex items-center gap-2 p-2">
+                        <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          onClick={() => selectSection(s.path)}
+                          title="Select section"
+                        >
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                            {idx + 1}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">{s.title}</span>
+                            <span className="mt-0.5 inline-flex rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {sectionType}
+                            </span>
+                          </span>
+                        </button>
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => duplicateSectionByPath(s.path)} title="Duplicate section">
+                            <Copy size={15} />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => moveSection(s.path, 'up')} title="Move up">
+                            <ArrowUp size={15} />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => moveSection(s.path, 'down')} title="Move down">
+                            <ArrowDown size={15} />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => { applyMutation(s.path, el => el.remove()); }} title="Remove section">
+                            <Trash2 size={15} />
+                          </Button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
       )}
+    </div>
+  );
+
+  function renderAddMenu(
+    activeTab: 'element' | 'sections',
+    setActiveTab: (tab: 'element' | 'sections') => void,
+    closeMenu: () => void,
+    compact = false,
+    canInsertElement = Boolean(selected?.sectionPath || selected?.tag === 'section'),
+  ) {
+    return (
+      <div className={compact ? 'w-56' : 'w-72'}>
+      <div className="mb-2 grid grid-cols-2 rounded-md border border-border/60 bg-muted/30 p-1">
+        <button
+          type="button"
+          className={`rounded px-2 py-1.5 text-xs font-medium ${activeTab === 'element' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          onClick={() => setActiveTab('element')}
+        >
+          Element
+        </button>
+        <button
+          type="button"
+          className={`rounded px-2 py-1.5 text-xs font-medium ${activeTab === 'sections' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          onClick={() => setActiveTab('sections')}
+        >
+          Sections
+        </button>
+      </div>
+
+      {activeTab === 'element' ? (
+        <div className="grid grid-cols-2 gap-1.5">
+          {!canInsertElement && (
+            <p className="col-span-2 rounded border border-border/60 bg-muted/20 px-2 py-2 text-xs text-muted-foreground">
+              Select a section or an element inside a section to add elements.
+            </p>
+          )}
+          {Object.entries(ELEMENT_TEMPLATES).map(([type, tmpl]) => (
+            <button
+              key={type}
+              title={`Insert ${tmpl.label}`}
+              disabled={!canInsertElement}
+              className={`flex items-center gap-2 rounded border border-border/60 bg-muted/40 px-2 py-2 text-left text-xs transition-colors ${
+                canInsertElement ? 'hover:bg-muted' : 'cursor-not-allowed opacity-45'
+              }`}
+              onClick={() => {
+                if (!canInsertElement) return;
+                insertElement(type);
+                closeMenu();
+              }}
+            >
+              <span className={`w-4 text-center leading-none ${type === 'Embedded' ? 'text-[10px] font-semibold' : 'text-base'}`}>{tmpl.icon}</span>
+              <span className="min-w-0 truncate">{tmpl.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-1.5">
+          {PREDEFINED_SECTIONS.map((section) => (
+            <button
+              key={section.name}
+              title={`Add ${section.label} section`}
+              className="flex items-center gap-2 rounded border border-border/60 bg-muted/40 px-2 py-2 text-left text-xs hover:bg-muted transition-colors"
+              onClick={() => {
+                addPredefinedSection(section.name);
+                closeMenu();
+              }}
+            >
+              <span className="flex w-5 justify-center text-muted-foreground">{section.icon}</span>
+              <span className="min-w-0 truncate">{section.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+    );
+  }
+
+  const elementFormattingTabs = (
+    <div className="grid grid-cols-3 overflow-hidden rounded-md border border-border/70 bg-[#15181d] text-[11px] text-slate-300 shadow-sm">
+      {([
+        { id: 'content', label: 'Content', icon: <Pencil className="h-4 w-4" /> },
+        { id: 'style', label: 'Style', icon: <Palette className="h-4 w-4" /> },
+        { id: 'advanced', label: 'Advanced', icon: <Settings2 className="h-4 w-4" /> },
+      ] as const).map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          className={`flex h-14 flex-col items-center justify-center gap-1 border-b-2 transition-colors hover:bg-white/5 ${
+            editorPanelTab === tab.id
+              ? 'border-primary text-white'
+              : 'border-transparent text-slate-400'
+          }`}
+          onClick={() => {
+            setToolbarPos(null);
+            setToolbarAddElOpen(false);
+            setEditorPanelTab(tab.id);
+          }}
+        >
+          {tab.icon}
+          <span className="leading-none">{tab.label}</span>
+        </button>
+      ))}
     </div>
   );
 
   const panelContent = (
     <div className="text-sm space-y-3">
       <div className="mb-3 flex items-center gap-2">
-        <button
-          className={`px-3 py-1 rounded-md text-sm font-medium ${editorTab === 'element' ? 'bg-muted text-primary' : 'text-muted-foreground'}`}
-          onClick={() => setEditorTab('element')}
-        >
-          Element
-        </button>
-        <button
-          className={`px-3 py-1 rounded-md text-sm font-medium ${editorTab === 'sections' ? 'bg-muted text-primary' : 'text-muted-foreground'}`}
-          onClick={() => setEditorTab('sections')}
-        >
-          Sections
-        </button>
+        {([
+          ['element', 'Element'],
+          ['sections', 'Sections'],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            className={`px-3 py-1 rounded-md text-sm font-medium ${editorTab === id ? 'bg-muted text-primary' : 'text-muted-foreground'}`}
+            onClick={() => {
+              setToolbarPos(null);
+              setToolbarAddElOpen(false);
+              setEditorTab(id);
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      <div className="space-y-3 rounded-md border border-border/60 bg-muted/20 p-3">
-        <div className="flex items-center gap-2">
-          <Palette className="h-4 w-4 text-primary" />
-          <p className="text-sm font-medium">Brand Colors</p>
-        </div>
-        <div className="grid grid-cols-1 gap-2">
-          {([
-            ['primary', 'Primary'],
-            ['secondary', 'Secondary'],
-            ['accent', 'Accent'],
-            ['text', 'Text'],
-            ['background', 'Background'],
-          ] as Array<[keyof typeof globalBrandColors, string]>).map(([key, label]) => {
-            const value = globalBrandColors[key] || '#000000';
-            return (
-              <div key={key} className="grid grid-cols-[88px_40px_minmax(0,1fr)] items-center gap-2">
-                <Label htmlFor={`cf-global-${key}`} className="text-xs text-muted-foreground">{label}</Label>
-                <Input
-                  id={`cf-global-${key}`}
-                  type="color"
-                  value={value}
-                  className="h-9 w-10 p-1"
-                  onChange={(event) => applyGlobalBrandColor(key, label, event.target.value)}
-                  onBlur={() => {
-                    if (brandColorMatchRef.current[key] === false) {
-                      toast.message(`${label} updated. No matching color was found on the page.`);
-                    } else if (brandColorMatchRef.current[key] === true) {
-                      toast.success(`${label} updated globally.`);
-                    }
-                    delete brandColorMatchRef.current[key];
-                  }}
-                />
-                <Input
-                  value={value}
-                  className="h-9 font-mono text-xs"
-                  onChange={(event) => applyGlobalBrandColor(key, label, event.target.value)}
-                  onBlur={() => {
-                    if (brandColorMatchRef.current[key] === false) {
-                      toast.message(`${label} updated. No matching color was found on the page.`);
-                    } else if (brandColorMatchRef.current[key] === true) {
-                      toast.success(`${label} updated globally.`);
-                    }
-                    delete brandColorMatchRef.current[key];
-                  }}
-                />
-              </div>
-            );
-          })}
-        </div>
+      <div className="rounded-md border border-border/60 bg-muted/20">
+        <button
+          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+          onClick={() => {
+            setToolbarPos(null);
+            setToolbarAddElOpen(false);
+            setBrandColorsOpen((v) => !v);
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <Palette className="h-4 w-4 text-primary" />
+            <p className="text-sm font-medium">Brand Colors</p>
+          </div>
+          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${brandColorsOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {brandColorsOpen && (
+          <div className="grid grid-cols-1 gap-2 border-t border-border/60 px-3 pb-3 pt-2">
+            {([
+              ['primary', 'Primary'],
+              ['secondary', 'Secondary'],
+              ['accent', 'Accent'],
+              ['text', 'Text'],
+              ['background', 'Background'],
+            ] as Array<[keyof typeof globalBrandColors, string]>).map(([key, label]) => {
+              const value = globalBrandColors[key] || '#000000';
+              const onBlurToast = () => {
+                if (brandColorMatchRef.current[key] === false) {
+                  toast.message(`${label} updated. No matching color was found on the page.`);
+                } else if (brandColorMatchRef.current[key] === true) {
+                  toast.success(`${label} updated globally.`);
+                }
+                delete brandColorMatchRef.current[key];
+              };
+              return (
+                <div key={key} className="grid grid-cols-[88px_40px_minmax(0,1fr)] items-center gap-2">
+                  <Label htmlFor={`cf-global-${key}`} className="text-xs text-muted-foreground">{label}</Label>
+                  <Input
+                    id={`cf-global-${key}`}
+                    type="color"
+                    value={value}
+                    className="h-9 w-10 p-1"
+                    onChange={(event) => applyGlobalBrandColor(key, label, event.target.value)}
+                    onBlur={onBlurToast}
+                  />
+                  <Input
+                    value={value}
+                    className="h-9 font-mono text-xs"
+                    onChange={(event) => applyGlobalBrandColor(key, label, event.target.value)}
+                    onBlur={onBlurToast}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {editorTab === 'sections' ? (
@@ -3636,19 +4316,70 @@ export function VisualEditor({
             )}
           </>
         ) : (
-          <div className="space-y-4">
-          <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Selection Context</p>
+          <div className="flex flex-col gap-4">
+          {elementFormattingTabs}
+          {(selected?.sectionPath || selected?.tag === 'section') && (
+            <div className="hidden">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Add element</p>
+              <div className="grid grid-cols-4 gap-1.5">
+                {Object.entries(ELEMENT_TEMPLATES).map(([type, tmpl]) => (
+                  <button
+                    key={type}
+                    title={`Insert ${tmpl.label}`}
+                    className="flex flex-col items-center gap-1 rounded border border-border/60 bg-muted/40 py-2 px-1 text-center hover:bg-muted transition-colors"
+                    onClick={() => insertElement(type)}
+                  >
+                    <span className={`leading-none ${type === 'Embedded' ? 'text-[10px] font-semibold' : 'text-base'}`}>{tmpl.icon}</span>
+                    <span className="text-[10px] leading-none text-muted-foreground">{tmpl.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <details open className="order-last rounded-md border border-border/60 bg-muted/20">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground [&::-webkit-details-marker]:hidden">
+              Selection Context
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </summary>
+            <div className="p-3 pt-0">
             <div className="mt-2 flex items-center gap-2">
               <Badge variant="secondary" className="font-mono text-xs">{selected.tag}</Badge>
               {selected.sectionPath && <Badge variant="outline" className="text-xs">in section</Badge>}
               {sectionBgMode === 'image' && <Badge variant="outline" className="text-xs">background image mode</Badge>}
             </div>
-          </div>
+            {selectedAncestors.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-0.5 text-[11px] text-muted-foreground">
+                <button
+                  className="hover:text-foreground transition-colors"
+                  onClick={() => {
+                    try { (iframeRef.current?.contentWindow as any)?.__cfSelectByPath?.('body'); } catch {}
+                  }}
+                >body</button>
+                {selectedAncestors.map((a, i) => (
+                  <span key={i} className="flex items-center gap-0.5">
+                    <span className="opacity-40">›</span>
+                    <button
+                      className="hover:text-foreground transition-colors font-mono"
+                      onClick={() => {
+                        try { (iframeRef.current?.contentWindow as any)?.__cfSelectByPath?.(a.path); } catch {}
+                      }}
+                    >{a.tag}</button>
+                  </span>
+                ))}
+                <span className="opacity-40">›</span>
+                <span className="font-mono text-foreground font-medium">{selected.tag}</span>
+              </div>
+            )}
+            </div>
+          </details>
 
           {isTextElementSelected && (
-            <div className="space-y-2 rounded-md border border-border/60 p-3">
-              <p className="text-sm font-medium">Quick Edit</p>
+            <details open className={`order-10 rounded-md border border-border/60 ${editorPanelTab === 'content' ? '' : 'hidden'}`}>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                Quick Edit
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </summary>
+              <div className="space-y-2 p-3 pt-0">
               <Label htmlFor="cf-edit-text" className="text-xs text-muted-foreground">Text</Label>
               <Textarea
                 id="cf-edit-text"
@@ -3660,11 +4391,16 @@ export function VisualEditor({
                 }}
                 rows={3}
               />
-            </div>
+              </div>
+            </details>
           )}
 
-          <div className="space-y-2 rounded-md border border-border/60 p-3">
-            <p className="text-sm font-medium">Appearance</p>
+          <details className={`order-20 rounded-md border border-border/60 ${editorPanelTab === 'style' ? '' : 'hidden'}`}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+              Appearance
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </summary>
+            <div className="space-y-2 p-3 pt-0">
             <Label className="text-xs text-muted-foreground">Colors</Label>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
@@ -4218,13 +4954,16 @@ export function VisualEditor({
               </div>
             )}
           </div>
+          </details>
 
-          {isHeroSelected() && (
-            <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3">
-              <div>
-                <p className="text-sm font-medium">Hero Section</p>
+          {isHeroSelected() && (selectedBackground || selected.tag === 'img' || ['section', 'header', 'div'].includes(selected.tag)) && !isTextElementSelected && selected.tag !== 'a' && selected.tag !== 'button' && (
+            <details open className={`order-20 rounded-md border border-primary/30 bg-primary/5 ${editorPanelTab === 'content' ? '' : 'hidden'}`}>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                Hero Section
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </summary>
+              <div className="space-y-2 p-3 pt-0">
                 <p className="text-xs text-muted-foreground mt-0.5">Quickly replace the main hero image from your uploaded assets.</p>
-              </div>
               <Button
                 className="w-full"
                 size="sm"
@@ -4234,16 +4973,19 @@ export function VisualEditor({
               >
                 <ImagePlus className="mr-2 h-4 w-4" /> Replace Hero Image
               </Button>
-            </div>
+              </div>
+            </details>
           )}
 
           {(selected.tag === 'img' || selectedBackground) && (
-            <div className="flex flex-col gap-2">
-              <div className="rounded-md border border-border/60 p-3 space-y-2">
-                <div>
-                  <p className="text-sm font-medium">Image</p>
+            <div className={`order-10 flex flex-col gap-2 ${editorPanelTab === 'content' ? '' : 'hidden'}`}>
+              <details open className={`rounded-md border border-border/60 ${editorPanelTab === 'content' ? '' : 'hidden'}`}>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                  Image
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </summary>
+                <div className="space-y-2 p-3 pt-0">
                   <p className="text-xs text-muted-foreground mt-0.5">Paste a URL or pick from your uploaded assets.</p>
-                </div>
                 <Label htmlFor="cf-image-src" className="text-xs text-muted-foreground">Image URL</Label>
                 <Input
                   id="cf-image-src"
@@ -4264,11 +5006,16 @@ export function VisualEditor({
                 >
                   <FolderOpen className="mr-2 h-4 w-4" /> Pick from Assets Folder
                 </Button>
-              </div>
+                </div>
+              </details>
 
 
-              <div className="order-3 space-y-2 rounded-md border border-border/60 p-3">
-                <p className="text-sm font-medium">Image Formatting</p>
+              <details open className="order-3 rounded-md border border-border/60">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                  Image Formatting
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </summary>
+                <div className="space-y-2 p-3 pt-0">
                 <div>
                   <Label htmlFor="cf-image-fit" className="text-xs text-muted-foreground">Fit</Label>
                   <select
@@ -4602,33 +5349,42 @@ export function VisualEditor({
                   </div>
                 </div>
               </div>
+              </details>
 
-              <div className="order-2 space-y-3 rounded-md border border-border/60 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium">Gemini Image Chat</p>
-                  <Badge variant="secondary">AI</Badge>
-                </div>
+              <div className="order-2 rounded-md border border-border/60">
+                <button
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+                  onClick={() => setGeminiChatOpen((v) => !v)}
+                >
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium">Gemini Image Chat</p>
+                    <Badge variant="secondary">AI</Badge>
+                  </div>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${geminiChatOpen ? 'rotate-180' : ''}`} />
+                </button>
 
-                <p className="text-xs text-muted-foreground">
-                  Describe the image you want. Click Add to download and save it into assets.
-                </p>
+                {geminiChatOpen && (
+                  <div className="space-y-3 border-t border-border/60 p-3">
+                    <p className="text-xs text-muted-foreground">
+                      Describe the image you want. Click Add to download and save it into assets.
+                    </p>
 
-                <Textarea
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="Example: Minimal hero image of a modern architecture studio, neutral palette, clean lighting"
-                  rows={3}
-                />
+                    <Textarea
+                      value={aiPrompt}
+                      onChange={(e) => setAiPrompt(e.target.value)}
+                      placeholder="Example: Minimal hero image of a modern architecture studio, neutral palette, clean lighting"
+                      rows={3}
+                    />
 
-                <Button className="w-full" size="sm" onClick={handleGenerateImage} disabled={aiGenerating}>
-                  {aiGenerating ? 'Generating...' : 'Generate with Gemini'}
-                </Button>
+                    <Button className="w-full" size="sm" onClick={handleGenerateImage} disabled={aiGenerating}>
+                      {aiGenerating ? 'Generating...' : 'Generate with Gemini'}
+                    </Button>
 
-                {aiGeneratingError && (
-                  <p className="text-xs text-destructive">{aiGeneratingError}</p>
-                )}
+                    {aiGeneratingError && (
+                      <p className="text-xs text-destructive">{aiGeneratingError}</p>
+                    )}
 
-                <div className="max-h-72 space-y-2 overflow-auto">
+                    <div className="max-h-72 space-y-2 overflow-auto">
                   {aiGeneratedImages.length === 0 ? (
                     <p className="text-xs text-muted-foreground">No generated images yet.</p>
                   ) : aiGeneratedImages.map((item) => (
@@ -4649,15 +5405,21 @@ export function VisualEditor({
                       </Button>
                     </div>
                   ))}
-                </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {showAssetManager && (
-                <div className="order-1 space-y-3 rounded-md border border-border/60 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium">Project Assets Folder</p>
-                    <Button size="sm" variant="ghost" onClick={() => setShowAssetManager(false)}>Close</Button>
-                  </div>
+                <details open className="order-1 rounded-md border border-border/60">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                    <span>Project Assets Folder</span>
+                    <span className="flex items-center gap-1">
+                      <Button size="sm" variant="ghost" onClick={(event) => { event.preventDefault(); setShowAssetManager(false); }}>Close</Button>
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    </span>
+                  </summary>
+                  <div className="space-y-3 p-3 pt-0">
 
                   <p className="text-xs text-muted-foreground">
                     Upload, remove, and select files from this project's assets folder.
@@ -4764,7 +5526,8 @@ export function VisualEditor({
                       </div>
                     ))}
                   </div>
-                </div>
+                  </div>
+                </details>
               )}
               {showFilesFolder && (
                 <div ref={filesPanelRef} className="space-y-3 rounded-md border border-border/60 p-3">
@@ -4852,8 +5615,12 @@ export function VisualEditor({
             </div>
           )}
 
-          <div className="space-y-2 rounded-md border border-border/60 p-3">
-            <p className="text-sm font-medium">Typography & Element Formatting</p>
+          <details className={`order-10 rounded-md border border-border/60 ${editorPanelTab === 'style' ? '' : 'hidden'}`}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+              Typography & Element Formatting
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </summary>
+            <div className="space-y-2 p-3 pt-0">
             <div className="grid grid-cols-2 gap-2">
               {isTextElementSelected && (
                 <div className="col-span-2 space-y-2">
@@ -5056,12 +5823,15 @@ export function VisualEditor({
               )}
             </div>
           </div>
+          </details>
 
           {/** Container / Div sizing controls — visible when an element is selected */}
-          <div className="space-y-3 rounded-md border border-border/60 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium">Container / Div Sizing</p>
-            </div>
+          <details className={`order-10 rounded-md border border-border/60 ${editorPanelTab === 'advanced' ? '' : 'hidden'}`}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+              Container / Div Sizing
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </summary>
+            <div className="space-y-3 p-3 pt-0">
 
               <div className="grid grid-cols-2 gap-2">
               <div>
@@ -5579,10 +6349,15 @@ export function VisualEditor({
               </div>
             </div>
           </div>
+          </details>
 
           {selected.sectionPath && (
-            <div className="space-y-2 rounded-md border border-border/60 p-3">
-              <Label>Section Spacing & Style</Label>
+            <details className={`order-30 rounded-md border border-border/60 ${editorPanelTab === 'style' ? '' : 'hidden'}`}>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                Section Spacing & Style
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </summary>
+              <div className="space-y-2 p-3 pt-0">
               <div className="grid grid-cols-3 gap-2">
                 <Button size="sm" variant="outline" onClick={duplicateSection}>
                   <Copy className="mr-2 h-4 w-4" /> Duplicate
@@ -6070,10 +6845,16 @@ export function VisualEditor({
                 </div>
               )}
             </div>
+            </details>
           )}
 
           {selected.tag === 'a' && (
-            <div className="space-y-2">
+            <details open className={`order-0 rounded-md border border-border/60 ${editorPanelTab === 'content' ? '' : 'hidden'}`}>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                Link Settings
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </summary>
+              <div className="space-y-2 p-3 pt-0">
               <Label htmlFor="cf-link-href">Link URL</Label>
               <Input
                 id="cf-link-href"
@@ -6146,12 +6927,13 @@ export function VisualEditor({
                   <FolderOpen className="mr-2 h-4 w-4" /> Open Files Folder
                 </Button>
               </div>
-            </div>
+              </div>
+            </details>
           )}
 
-          <Separator />
+          <Separator className={`order-40 ${editorPanelTab === 'advanced' ? '' : 'hidden'}`} />
 
-          <div className="space-y-2">
+          <div className="order-[999] space-y-2">
             {isSelectedSection() ? (
               <Button className="w-full" size="sm" variant="destructive" onClick={removeSection} disabled={!selected?.sectionPath}>
                 <Trash2 className="mr-2 h-4 w-4" /> Remove Section
@@ -6170,59 +6952,165 @@ export function VisualEditor({
     </div>
   );
 
-  // Snapshots popover for header
-  const snapshotsContent = (
-    <div className="space-y-2 min-w-[260px] max-w-[340px]">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium">Snapshots</p>
-        <Button size="sm" variant="outline" onClick={saveSnapshot}>Save Snapshot</Button>
-      </div>
-      {snapshots.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No snapshots yet.</p>
-      ) : (
-        <div className="max-h-40 space-y-2 overflow-auto">
-          {snapshots.map((snapshot) => (
-            <div key={snapshot.id} className="rounded border border-border/60 p-2">
-              <p className="truncate text-xs font-medium">{snapshot.label}</p>
-              <p className="text-[11px] text-muted-foreground">{new Date(snapshot.createdAt).toLocaleString()}</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <Button size="sm" variant="outline" onClick={() => restoreSnapshot(snapshot)}>
-                  Restore
-                </Button>
-                <Button size="sm" variant="destructive" onClick={() => deleteSnapshot(snapshot.id)}>
-                  Delete
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
+  const floatingToolbarEl = toolbarPos && selected ? (
+    <div
+      style={{
+        position: 'fixed',
+        left: Math.max(8, Math.min(toolbarPos.x, window.innerWidth - 280)),
+        top: Math.max(FLOATING_TOOLBAR_MIN_TOP, toolbarPos.y),
+        zIndex: 99999,
+      }}
+      className="flex items-center gap-0.5 rounded-lg border border-border bg-background shadow-lg px-1 py-1"
+    >
+      {/* Text / heading formatting */}
+      {isTextElementSelected && (
+        <>
+          <button
+            title="Bold"
+            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-xs font-bold ${fontWeight >= 700 ? 'bg-muted' : ''}`}
+            onClick={() => { const next = fontWeight >= 700 ? 400 : 700; setFontWeight(next); applyElementFormattingLive({ nextFontWeight: next }); }}
+          >B</button>
+          <button
+            title="Align Left"
+            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-muted ${textAlign === 'left' ? 'bg-muted' : ''}`}
+            onClick={() => { setTextAlign('left'); applyElementFormattingLive({ nextTextAlign: 'left' }); }}
+          ><AlignLeft className="h-3.5 w-3.5" /></button>
+          <button
+            title="Align Center"
+            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-muted ${textAlign === 'center' ? 'bg-muted' : ''}`}
+            onClick={() => { setTextAlign('center'); applyElementFormattingLive({ nextTextAlign: 'center' }); }}
+          ><AlignCenter className="h-3.5 w-3.5" /></button>
+          <button
+            title="Align Right"
+            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-muted ${textAlign === 'right' ? 'bg-muted' : ''}`}
+            onClick={() => { setTextAlign('right'); applyElementFormattingLive({ nextTextAlign: 'right' }); }}
+          ><AlignRight className="h-3.5 w-3.5" /></button>
+          <button
+            title="Decrease font size"
+            className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-[10px] font-semibold"
+            onClick={() => { const next = Math.max(8, fontSize - 2); setFontSize(next); applyElementFormattingLive({ nextFontSize: next }); }}
+          >A-</button>
+          <button
+            title="Increase font size"
+            className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-[10px] font-semibold"
+            onClick={() => { const next = fontSize + 2; setFontSize(next); applyElementFormattingLive({ nextFontSize: next }); }}
+          >A+</button>
+          <label title="Text color" className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted cursor-pointer relative overflow-hidden">
+            <span className="text-[11px] font-bold leading-none" style={{ borderBottom: `2px solid ${textColor || '#000'}` }}>A</span>
+            <input
+              type="color"
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              value={textColor || '#000000'}
+              onChange={(e) => { const c = e.target.value; setTextColor(c); applyColorsLive({ nextTextColor: c }); }}
+            />
+          </label>
+          <div className="w-px h-5 bg-border mx-0.5" />
+        </>
       )}
+
+      {/* Image pan mode — only for cover images */}
+      {selected.tag === 'img' && imageFit === 'cover' && (
+        <>
+          <button
+            title={isPanMode ? 'Exit Pan Mode' : 'Pan image position (drag to reposition)'}
+            className={`h-7 px-2 flex items-center justify-center rounded hover:bg-muted text-[10px] font-semibold gap-1 ${isPanMode ? 'bg-blue-100 text-blue-700' : ''}`}
+            onClick={() => { if (!isPanMode) startImagePan(); }}
+          >
+            {isPanMode ? 'Panning…' : 'Pan'}
+          </button>
+          <div className="w-px h-5 bg-border mx-0.5" />
+        </>
+      )}
+
+      {/* Element controls */}
+      {selected.path && (
+        <>
+          <button title={isSelectedSection() ? 'Duplicate section' : 'Duplicate element'} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={duplicateSelectedElement}>
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+          <button title={isSelectedSection() ? 'Move section up' : 'Move element up'} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={moveSelectedElementUp}>
+            <ArrowUp className="h-3.5 w-3.5" />
+          </button>
+          <button title={isSelectedSection() ? 'Move section down' : 'Move element down'} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={moveSelectedElementDown}>
+            <ArrowDown className="h-3.5 w-3.5" />
+          </button>
+          <div className="w-px h-5 bg-border mx-0.5" />
+        </>
+      )}
+
+      {/* Insert element */}
+      {(selected?.sectionPath || selected?.tag === 'section') && (
+        <>
+          <div className="w-px h-5 bg-border mx-0.5" />
+          <div className="relative" ref={toolbarAddElPopoverRef}>
+            <button
+              title="Add element after this"
+              className={`h-7 px-2 flex items-center justify-center rounded hover:bg-muted text-sm font-bold leading-none ${toolbarAddElOpen ? 'bg-muted' : ''}`}
+              onClick={() => {
+                setFloatingAddElOpen(false);
+                setToolbarAddElOpen(v => !v);
+              }}
+            >+</button>
+            {toolbarAddElOpen && (
+              <div className="absolute top-full left-0 mt-1 z-[100000] rounded-lg border border-border bg-background p-2 shadow-xl">
+                {renderAddMenu(toolbarAddTab, setToolbarAddTab, () => setToolbarAddElOpen(false), true)}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Remove selected */}
+      <button
+        title={isSelectedSection() ? 'Remove section' : 'Remove element'}
+        className="h-7 w-7 flex items-center justify-center rounded text-destructive hover:bg-destructive/10"
+        onClick={isSelectedSection() ? removeSection : removeElement}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+
+      {/* Dismiss */}
+      <button
+        title="Dismiss toolbar"
+        className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground text-base leading-none"
+        onClick={() => setToolbarPos(null)}
+      >×</button>
     </div>
-  );
+  ) : null;
 
   if (layout === 'overlay') {
     return (
-      <div className="grid h-full w-full grid-cols-[minmax(0,1fr)_56px] gap-3 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <>
+      <div
+        className="relative grid h-full w-full gap-3"
+        style={panelOpen ? { gridTemplateColumns: 'minmax(0,1fr) 380px' } : undefined}
+      >
         <div className="overflow-hidden rounded-xl border border-border bg-white shadow-lg">
           {iframeEl}
         </div>
 
-        <aside className="h-full overflow-y-auto rounded-xl border border-border bg-gradient-to-b from-background via-background to-muted/40 shadow-xl">
-          <div className="sticky top-0 z-10 border-b border-border/60 bg-background/95 px-3 py-3 backdrop-blur">
-            <div className="flex items-center justify-between gap-2">
-              <button
-                onClick={() => setPanelOpen(p => !p)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background hover:bg-muted"
-                title={panelOpen ? 'Hide editor panel' : 'Show editor panel'}
-              >
-                {panelOpen ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                )}
-              </button>
-              {panelOpen && <h3 className="text-sm font-semibold tracking-wide">Visual Editor</h3>}
-              {panelOpen ? (
+        {panelOpen ? (
+          <aside
+            className="h-full overflow-y-auto rounded-xl border border-border bg-gradient-to-b from-background via-background to-muted/40 shadow-xl"
+            onMouseDownCapture={() => {
+              setToolbarPos(null);
+              setToolbarAddElOpen(false);
+            }}
+          >
+            <div className="sticky top-0 z-10 border-b border-border/60 bg-background/95 px-3 py-3 backdrop-blur">
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  onClick={() => {
+                    setToolbarPos(null);
+                    setToolbarAddElOpen(false);
+                    setPanelOpen(false);
+                  }}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background hover:bg-muted"
+                  title="Hide editor panel"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <h3 className="text-sm font-semibold tracking-wide">Visual Editor</h3>
                 <div className="flex items-center gap-1">
                   <Button size="sm" variant="ghost" className="h-8 px-2" onClick={undo} disabled={!canUndo}>
                     <Undo2 className="h-4 w-4" />
@@ -6232,11 +7120,11 @@ export function VisualEditor({
                   </Button>
                   <Badge variant={saving ? 'default' : 'secondary'}>{saving ? 'Saving...' : 'Saved'}</Badge>
                 </div>
-              ) : <div />}
+              </div>
             </div>
-          </div>
-          {panelOpen ? <div className="space-y-3 p-4">{panelContent}</div> : <div className="p-3 text-center text-xs text-muted-foreground">Edit</div>}
-            </aside>
+            <div className="space-y-3 p-4">{panelContent}</div>
+          </aside>
+        ) : null}
             {showFilesFolder && (
               <div style={{position: 'fixed', right: 18, top: 72, zIndex: 9999}}>
                 <div className="rounded bg-yellow-300 text-black px-3 py-1 text-xs font-semibold shadow">FILES PANEL OPEN (debug)</div>
@@ -6292,25 +7180,23 @@ export function VisualEditor({
               </div>
             )}
           </div>
+      {embedModal}
+      {floatingToolbarEl}
+      </>
     );
   }
 
-  // Snapshots popover in header
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <>
+    <div
+      className="grid grid-cols-1 gap-4"
+      style={panelOpen ? { gridTemplateColumns: 'minmax(0, 1fr) 360px' } : undefined}
+    >
       <div className="min-h-[500px] overflow-hidden rounded-xl border border-border bg-white shadow-lg" style={{ minHeight: '70vh', position: 'relative' }}>
-        {/* Header with Open Raw Site, Snapshots, Undo/Redo, Save Changes */}
+        {/* Header with Open Raw Site, Undo/Redo, Save Changes */}
         <div className="flex items-center gap-2 px-4 py-2 border-b border-border/60 bg-background/95 sticky top-0 z-40">
           {/* Open Raw Site */}
           <Button size="sm" variant="outline" onClick={() => window.open(livePreviewUrl, '_blank')}>Open Raw Site</Button>
-
-          {/* Snapshots dropdown (popover) */}
-          <div className="relative group">
-            <Button size="sm" variant="outline" className="snapshots-dropdown-btn">Snapshots</Button>
-            <div className="absolute left-0 mt-2 hidden group-hover:block bg-background border border-border/60 rounded shadow-lg z-50 min-w-[260px]">
-              {snapshotsContent}
-            </div>
-          </div>
 
           {/* Undo/Redo */}
           <Button size="sm" variant="ghost" className="h-8 px-2 ml-2" onClick={undo} disabled={!canUndo}>
@@ -6340,23 +7226,39 @@ export function VisualEditor({
         )}
       </div>
 
-      <aside className="rounded-xl border border-border bg-background/95 p-4 overflow-y-auto">
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">Visual Editor</h3>
-          <div className="flex items-center gap-1">
-            <Button size="sm" variant="ghost" className="h-8 px-2" onClick={undo} disabled={!canUndo}>
-              <Undo2 className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="ghost" className="h-8 px-2" onClick={redo} disabled={!canRedo}>
-              <Redo2 className="h-4 w-4" />
-            </Button>
-            <Badge variant={saving ? 'default' : 'secondary'}>{saving ? 'Saving...' : 'Saved'}</Badge>
+      {panelOpen && (
+        <aside
+          className="rounded-xl border border-border bg-background/95 p-4 overflow-y-auto"
+          onMouseDownCapture={() => {
+            setToolbarPos(null);
+            setToolbarAddElOpen(false);
+          }}
+        >
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold">Visual Editor</h3>
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant="ghost" className="h-8 px-2" onClick={undo} disabled={!canUndo}>
+                <Undo2 className="h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="ghost" className="h-8 px-2" onClick={redo} disabled={!canRedo}>
+                <Redo2 className="h-4 w-4" />
+              </Button>
+              <Badge variant={saving ? 'default' : 'secondary'}>{saving ? 'Saving...' : 'Saved'}</Badge>
+              <Button size="sm" variant="ghost" className="h-8 w-8 p-0 ml-1" title="Close editor panel" onClick={() => {
+                setToolbarPos(null);
+                setToolbarAddElOpen(false);
+                setPanelOpen(false);
+              }}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
-        </div>
-        <div className="space-y-3">
-          {panelContent}
-        </div>
-      </aside>
+          <div className="space-y-3">
+            {panelContent}
+          </div>
+        </aside>
+      )}
+
 
       {/* Global files modal (overlay) - ensure visibility even when sidebar has selection */}
       {showFilesFolder && (
@@ -6405,5 +7307,8 @@ export function VisualEditor({
         </div>
       )}
     </div>
+    {embedModal}
+    {floatingToolbarEl}
+    </>
   );
 }
