@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Eye, Trash2, RotateCcw, Edit3, Loader2, ExternalLink } from "lucide-react";
+import { ArrowLeft, ChevronDown, Edit3, ExternalLink, Eye, FolderOpen, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { getProjects } from "@/services/api";
+import { deleteAdCreative, getAdCreatives, getProjects } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
 
 type Project = {
@@ -27,6 +27,24 @@ type Project = {
   has_generated_html?: boolean;
   currentStep?: number;
   created_at: string;
+  project_type?: string;
+};
+
+type AdCreativeItem = {
+  id: number;
+  creative_id: number;
+  project_id: number;
+  campaign_id: number;
+  name: string;
+  public_url?: string;
+  url?: string;
+  platform?: string;
+  format?: string;
+  label?: string;
+  width?: number;
+  height?: number;
+  sort_order?: number;
+  created_at?: string;
 };
 
 const toAbsoluteUrl = (value: string) => {
@@ -77,6 +95,10 @@ export default function History() {
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [restoringId, setRestoringId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [expandedCampaigns, setExpandedCampaigns] = useState<Set<number>>(new Set());
+  const [campaignCreatives, setCampaignCreatives] = useState<Record<number, AdCreativeItem[]>>({});
+  const [loadingCreativesId, setLoadingCreativesId] = useState<number | null>(null);
+  const [deletingCreativeId, setDeletingCreativeId] = useState<number | null>(null);
 
   const fetchProjects = async () => {
     const resolvedUserId = Number(user?.id);
@@ -93,6 +115,8 @@ export default function History() {
     try {
       const data = await getProjects(resolvedUserId, resolvedUserEmail || undefined);
       setProjects(Array.isArray(data) ? data : []);
+      setExpandedCampaigns(new Set());
+      setCampaignCreatives({});
     } catch {
       toast.error("Error loading projects");
       setProjects([]);
@@ -149,13 +173,15 @@ export default function History() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           user_id: user.id,
-          name: (project.form_data?.businessName || project.name || "Draft") + " (Copy)",
+          name: (project.form_data?.brandName || project.form_data?.businessName || project.name || "Draft") + " (Copy)",
           public_url: "",
           folder_path: "",
           form_data: project.form_data || {},
           generated_html: "",
           current_step: project.currentStep ?? 0,
+          project_type: project.project_type || "landing_page",
           draft_only: true,
+          source_project_id: project.id,
         }),
       });
 
@@ -165,6 +191,21 @@ export default function History() {
         try {
           localStorage.setItem("lastEditedProjectId", String(saved.id));
         } catch {}
+
+        if (project.project_type === "ad_creative") {
+          const restoredFormData = saved.form_data || project.form_data;
+          navigate("/ad-creatives", {
+            state: {
+              formData: restoredFormData,
+              currentStep: project.currentStep ?? 0,
+              savedProjectId: saved.id,
+              projectOwnerId: user.id,
+              projectPublicUrl: saved.public_url || project.public_url || "",
+              folderPath: saved.folder_path || project.folder_path || "",
+            },
+          });
+          return;
+        }
 
         navigate(`/?restoreProjectId=${encodeURIComponent(String(saved.id))}`, {
           state: {
@@ -177,6 +218,17 @@ export default function History() {
         });
       } else {
         toast.warning("Could not pre-create project. A new one will be created when you generate.");
+        if (project.project_type === "ad_creative") {
+          navigate("/ad-creatives", {
+            state: {
+              formData: project.form_data,
+              currentStep: project.currentStep ?? 0,
+              projectPublicUrl: project.public_url || "",
+              folderPath: project.folder_path || "",
+            },
+          });
+          return;
+        }
         navigate("/", {
           state: {
             formData: project.form_data,
@@ -196,7 +248,56 @@ export default function History() {
   const hasContent = (project: Project) =>
     Boolean((project.public_url || "").trim());
 
+  const isAdCampaign = (project: Project) => project.project_type === "ad_creative";
+  const isIndividualAdCreative = (project: Project) =>
+    project.project_type === "ad_banner" || project.project_type === "ad_creative_item";
+
+  const openPublishedUrl = (url?: string) => {
+    const target = (url || "").trim();
+    if (!target) {
+      toast.error("This item does not have a published URL yet.");
+      return;
+    }
+    window.open(target, "_blank", "noopener,noreferrer");
+  };
+
   const handleViewProject = async (project: Project) => {
+    if (isAdCampaign(project)) {
+      if (!user?.id) return;
+      try {
+        const creatives = campaignCreatives[project.id] || await getAdCreatives(project.id, user.id);
+        if (!campaignCreatives[project.id]) {
+          setCampaignCreatives((prev) => ({ ...prev, [project.id]: creatives }));
+        }
+        navigate("/ad-creatives", {
+          state: {
+            formData: project.form_data,
+            currentStep: project.currentStep ?? 0,
+            savedProjectId: project.id,
+            showResults: true,
+            generatedPublicUrl: project.public_url || "",
+            projectPublicUrl: project.public_url || "",
+            folderPath: project.folder_path || "",
+            generatedBanners: creatives.map((creative) => ({
+              id: creative.id,
+              creative_id: creative.creative_id || creative.id,
+              campaign_id: creative.campaign_id,
+              project_id: creative.project_id,
+              url: creative.public_url || creative.url || "",
+              platform: creative.platform || "banner",
+              format: creative.format || "ad",
+              label: creative.label || creative.name || `Creative ${creative.id}`,
+              width: creative.width || 1080,
+              height: creative.height || 1080,
+            })),
+          },
+        });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not open campaign preview.");
+      }
+      return;
+    }
+
     const publishedUrl = (project.public_url || "").trim();
     if (!publishedUrl) {
       toast.error("This project does not have a published folder yet.");
@@ -218,6 +319,50 @@ export default function History() {
       });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not open published project.");
+    }
+  };
+
+  const toggleCampaignFolder = async (project: Project) => {
+    if (!user?.id) return;
+
+    const next = new Set(expandedCampaigns);
+    if (next.has(project.id)) {
+      next.delete(project.id);
+      setExpandedCampaigns(next);
+      return;
+    }
+
+    next.add(project.id);
+    setExpandedCampaigns(next);
+
+    if (campaignCreatives[project.id]) return;
+
+    setLoadingCreativesId(project.id);
+    try {
+      const creatives = await getAdCreatives(project.id, user.id);
+      setCampaignCreatives((prev) => ({ ...prev, [project.id]: creatives }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not load ad creatives.");
+    } finally {
+      setLoadingCreativesId(null);
+    }
+  };
+
+  const handleDeleteCreative = async (creative: AdCreativeItem) => {
+    if (!user?.id) return;
+
+    setDeletingCreativeId(creative.id);
+    try {
+      await deleteAdCreative({ id: creative.id, user_id: user.id });
+      setCampaignCreatives((prev) => ({
+        ...prev,
+        [creative.project_id]: (prev[creative.project_id] || []).filter((item) => item.id !== creative.id),
+      }));
+      toast.success("Creative deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not delete creative.");
+    } finally {
+      setDeletingCreativeId(null);
     }
   };
 
@@ -244,98 +389,189 @@ export default function History() {
             {projects.map((project) => {
               const busy = isBusy(project.id);
               const canView = hasContent(project);
+              const adCampaign = isAdCampaign(project);
+              const individualAdCreative = isIndividualAdCreative(project);
+              const expanded = expandedCampaigns.has(project.id);
+              const creatives = campaignCreatives[project.id] || [];
+              const loadingCreatives = loadingCreativesId === project.id;
 
               return (
-                <div
-                  key={project.id}
-                  className="border rounded-lg p-4 flex items-center justify-between gap-4"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="font-semibold truncate">
-                        {project.name || "Untitled Project"}
-                      </h2>
-                      {project.public_url || project.has_generated_html || project.generated_html ? (
-                        <span className="text-xs font-medium text-green-600 bg-green-50 border border-green-200 rounded px-1.5 py-0.5 shrink-0">
-                          Published
-                        </span>
-                      ) : project.form_data && Object.keys(project.form_data).length > 0 ? (
-                        <span className="text-xs font-medium text-muted-foreground bg-muted border border-border/60 rounded px-1.5 py-0.5 shrink-0">
-                          Draft
-                        </span>
-                      ) : null}
+                <div key={project.id} className="border rounded-lg overflow-hidden">
+                  <div className="p-4 flex items-center justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {adCampaign && (
+                          <FolderOpen className="h-4 w-4 text-primary shrink-0" />
+                        )}
+                        <h2 className="font-semibold truncate">
+                          {project.name || "Untitled Project"}
+                        </h2>
+                        {adCampaign ? (
+                          <span className="text-xs font-medium px-1.5 py-0.5 rounded shrink-0" style={{ background: 'hsl(265 85% 65% / 0.15)', color: 'hsl(265 85% 72%)', border: '1px solid hsl(265 85% 65% / 0.3)' }}>
+                            Ads Campaign Folder
+                          </span>
+                        ) : (
+                          <span className="text-xs font-medium px-1.5 py-0.5 rounded shrink-0" style={{ background: 'hsl(359 100% 60% / 0.12)', color: 'hsl(359 100% 68%)', border: '1px solid hsl(359 100% 60% / 0.3)' }}>
+                            Landing Page
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {adCampaign ? "Campaign board" : "Landing page"} · {formatProjectDate(project.created_at)}
+                      </p>
+
+                      {project.public_url && !adCampaign && (
+                        <a
+                          href={project.public_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-primary hover:underline flex items-center gap-1 mt-1 w-fit"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          {project.public_url}
+                        </a>
+                      )}
+
                     </div>
 
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {formatProjectDate(project.created_at)}
-                    </p>
+                    <div className="flex gap-2 shrink-0">
+                      {adCampaign && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy}
+                          title={expanded ? "Hide creatives" : "Open campaign folder"}
+                          onClick={() => toggleCampaignFolder(project)}
+                        >
+                          {loadingCreatives ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                          )}
+                        </Button>
+                      )}
 
-                    {project.public_url && (
-                      <a
-                        href={project.public_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-primary hover:underline flex items-center gap-1 mt-1 w-fit"
-                        onClick={(e) => e.stopPropagation()}
+                      <Button
+                        variant="default"
+                        size="sm"
+                        disabled={busy || !canView}
+                        title={canView ? (adCampaign ? "Open campaign board" : "Open generated landing page") : "No published board yet"}
+                        onClick={() => handleViewProject(project)}
                       >
-                        <ExternalLink className="h-3 w-3" />
-                        {project.public_url}
-                      </a>
-                    )}
+                        <Eye className="h-4 w-4" />
+                      </Button>
+
+                      {!adCampaign && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy || !canView}
+                          title={canView ? "Open visual editor" : "No generated content yet"}
+                          onClick={() => navigate(`/visual-editor?projectId=${project.id}`)}
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </Button>
+                      )}
+
+                      {!individualAdCreative && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy}
+                          title={adCampaign ? "Restore campaign form as a new draft" : "Restore form as a new project"}
+                          onClick={() => handleRestoreForm(project)}
+                        >
+                          {restoringId === project.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-4 w-4" />
+                          )}
+                        </Button>
+                      )}
+
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={busy}
+                        title={adCampaign ? "Delete campaign and creatives" : "Delete project"}
+                        onClick={() => setProjectToDelete(project)}
+                      >
+                        {deletingId === project.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
 
-                  <div className="flex gap-2 shrink-0">
-                    {/* View generated site in wizard */}
-                    <Button
-                      variant="default"
-                      size="sm"
-                      disabled={busy || !canView}
-                      title={canView ? "Open generated site" : "No generated site yet"}
-                      onClick={() => handleViewProject(project)}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-
-                    {/* Open Visual Editor */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy || !canView}
-                      title={canView ? "Open visual editor" : "No generated site yet"}
-                      onClick={() => navigate(`/visual-editor?projectId=${project.id}`)}
-                    >
-                      <Edit3 className="h-4 w-4" />
-                    </Button>
-
-                    {/* Restore form as NEW project */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      title="Restore form as a new project (original is kept)"
-                      onClick={() => handleRestoreForm(project)}
-                    >
-                      {restoringId === project.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                  {adCampaign && expanded && (
+                    <div className="border-t bg-muted/20 px-4 py-3">
+                      {loadingCreatives ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Loading creatives...
+                        </div>
+                      ) : creatives.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">No individual creatives saved for this campaign yet.</p>
                       ) : (
-                        <RotateCcw className="h-4 w-4" />
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Creatives in this campaign
+                          </p>
+                          {creatives.map((creative) => (
+                            <div key={creative.id} className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background px-3 py-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium truncate">{creative.label || creative.name || `Creative ${creative.id}`}</span>
+                                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                    Creative
+                                  </span>
+                                </div>
+                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                  {[creative.platform, creative.format].filter(Boolean).join(" / ") || "Ad creative"}
+                                  {creative.width && creative.height ? ` · ${creative.width}×${creative.height}px` : ""}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  title="Open published creative"
+                                  onClick={() => openPublishedUrl(creative.public_url || creative.url)}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  title="Edit creative"
+                                  onClick={() => navigate(`/ads-editor?creativeId=${creative.creative_id || creative.id}`)}
+                                >
+                                  <Edit3 className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  title="Delete only this creative"
+                                  disabled={deletingCreativeId === creative.id}
+                                  onClick={() => handleDeleteCreative(creative)}
+                                >
+                                  {deletingCreativeId === creative.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       )}
-                    </Button>
-
-                    {/* Delete */}
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => setProjectToDelete(project)}
-                    >
-                      {deletingId === project.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -349,16 +585,21 @@ export default function History() {
       >
         <AlertDialogContent className="border-border/60 bg-background/95 backdrop-blur-sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Project</AlertDialogTitle>
+            <AlertDialogTitle>
+              Delete {projectToDelete?.project_type === "ad_creative" ? "Campaign" : "Project"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               This will permanently remove{" "}
               <strong>{projectToDelete?.name}</strong>, including the hosted
-              Forge site and saved history.
+              {projectToDelete?.project_type === "ad_creative"
+                ? " board. All creatives inside this campaign folder will be deleted with it."
+                : " Forge site and saved history."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="rounded-lg border border-border/60 bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-            Forge will remove the published files and this action cannot be
-            undone.
+            {projectToDelete?.project_type === "ad_creative"
+              ? "Deleting this campaign also deletes every generated creative linked to it. This action cannot be undone."
+              : "Forge will remove the published files and this action cannot be undone."}
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep Project</AlertDialogCancel>

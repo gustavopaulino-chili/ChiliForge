@@ -31,6 +31,8 @@ $html = isset($data["html"]) && trim((string)$data["html"]) !== '' ? (string)$da
 $css = isset($data["css"]) && trim((string)$data["css"]) !== '' ? (string)$data["css"] : 'body { margin: 0; font-family: Arial, sans-serif; }';
 $js = isset($data["js"]) ? (string)$data["js"] : "";
 $assets = isset($data["assets"]) && is_array($data["assets"]) ? $data["assets"] : [];
+$project_type = isset($data["project_type"]) ? preg_replace('/[^a-z_]/', '', strtolower((string)$data["project_type"])) : 'landing_page';
+if ($project_type === '') $project_type = 'landing_page';
 // Inline doc: AI returned a complete <!DOCTYPE html> with embedded <style> and <script>.
 $isInlineDoc = isset($data["inline_doc"]) ? (bool)$data["inline_doc"] : preg_match('/<!DOCTYPE|<html/i', $html) === 1;
 
@@ -432,15 +434,15 @@ try {
 
     if ($existingProject) {
         $project_id = (int)$existingProject['id'];
-        $update = $conn->prepare("UPDATE projects SET name = ?, public_url = ?, folder_path = ?, form_data = ?, generated_html = ?, current_step = ? WHERE id = ? AND user_id = ?");
-        $update->bind_param("sssssiii", $name, $public_url, $folder_path, $form_data, $hostedHtml, $current_step, $project_id, $effectiveUserId);
+        $update = $conn->prepare("UPDATE projects SET name = ?, public_url = ?, folder_path = ?, form_data = ?, generated_html = ?, current_step = ?, project_type = ? WHERE id = ? AND user_id = ?");
+        $update->bind_param("sssssisii", $name, $public_url, $folder_path, $form_data, $hostedHtml, $current_step, $project_type, $project_id, $effectiveUserId);
         if (!$update->execute()) {
             throw new RuntimeException('Erro ao atualizar projeto: ' . $update->error);
         }
         $update->close();
     } else {
-        $stmt = $conn->prepare("INSERT INTO projects (user_id, name, public_url, folder_path, form_data, generated_html, current_step, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
-        $stmt->bind_param("isssssi", $user_id, $name, $public_url, $folder_path, $form_data, $hostedHtml, $current_step);
+        $stmt = $conn->prepare("INSERT INTO projects (user_id, name, public_url, folder_path, form_data, generated_html, current_step, project_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+        $stmt->bind_param("isssssiss", $user_id, $name, $public_url, $folder_path, $form_data, $hostedHtml, $current_step, $project_type);
 
         if (!$stmt->execute()) {
             throw new RuntimeException('Erro ao salvar projeto: ' . $stmt->error);
