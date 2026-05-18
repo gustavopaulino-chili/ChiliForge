@@ -127,8 +127,168 @@ if ($encoding && $encoding !== 'UTF-8') {
     $body = mb_convert_encoding($body, 'UTF-8', $encoding);
 }
 
+function cf_proxy_make_absolute_url($url, $baseUrl) {
+    $url = trim((string)$url);
+    if ($url === '' || str_starts_with($url, 'data:')) return $url;
+    if (preg_match('#^https?://#i', $url)) return $url;
+    if (str_starts_with($url, '//')) return 'https:' . $url;
+
+    $base = parse_url($baseUrl);
+    $origin = ($base['scheme'] ?? 'https') . '://' . ($base['host'] ?? '');
+    if (str_starts_with($url, '/')) return $origin . $url;
+
+    $path = $base['path'] ?? '/';
+    $dir = preg_replace('#/[^/]*$#', '/', $path);
+    return $origin . rtrim((string)$dir, '/') . '/' . ltrim($url, '/');
+}
+
+function cf_proxy_safe_public_url($url) {
+    if (!preg_match('#^https?://#i', (string)$url)) return false;
+    $host = parse_url((string)$url, PHP_URL_HOST);
+    if (!$host) return false;
+    $resolved = gethostbyname($host);
+    return filter_var($resolved, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+}
+
+function cf_proxy_extract_image_candidates_for_palette($html, $baseUrl) {
+    $candidates = [];
+    $add = function ($url, $score) use (&$candidates, $baseUrl) {
+        $absolute = cf_proxy_make_absolute_url($url, $baseUrl);
+        if (!$absolute || !cf_proxy_safe_public_url($absolute)) return;
+        if (preg_match('#\.(?:svg|ico)(?:[?#].*)?$#i', $absolute)) return;
+        $candidates[$absolute] = max($candidates[$absolute] ?? 0, $score);
+    };
+
+    foreach ([
+        'property' => ['og:image' => 42],
+        'name' => ['twitter:image' => 40],
+    ] as $attr => $items) {
+        foreach ($items as $value => $score) {
+            $escaped = preg_quote($value, '#');
+            if (preg_match('#<meta\b[^>]*\b' . $attr . '\s*=\s*["\']' . $escaped . '["\'][^>]*\bcontent\s*=\s*["\']([^"\']+)["\']#i', $html, $m)
+                || preg_match('#<meta\b[^>]*\bcontent\s*=\s*["\']([^"\']+)["\'][^>]*\b' . $attr . '\s*=\s*["\']' . $escaped . '["\']#i', $html, $m)) {
+                $add(html_entity_decode($m[1], ENT_QUOTES | ENT_HTML5), $score);
+            }
+        }
+    }
+
+    if (preg_match_all('#<link\b[^>]*rel=["\'][^"\']*(?:apple-touch-icon|icon)[^"\']*["\'][^>]*href=["\']([^"\']+)["\']#i', $html, $links)) {
+        foreach ($links[1] as $href) $add(html_entity_decode($href, ENT_QUOTES | ENT_HTML5), 44);
+    }
+
+    if (preg_match_all('#<img\b[^>]*>#i', $html, $tags)) {
+        foreach ($tags[0] as $tag) {
+            $score = preg_match('/logo|brand|marca|logotipo|custom-logo|site-logo|navbar-brand|itemprop=["\']logo["\']/i', $tag) ? 72 : 18;
+            if (!preg_match('/\b(?:src|data-src|data-lazy-src|data-original)\s*=\s*["\']([^"\']+)["\']/i', $tag, $src)) continue;
+            $add(html_entity_decode($src[1], ENT_QUOTES | ENT_HTML5), $score);
+        }
+    }
+
+    arsort($candidates);
+    return array_slice(array_keys($candidates), 0, 6);
+}
+
+function cf_proxy_fetch_binary_asset($url) {
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 4,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 ChiliForgeColorSampler/1.0',
+        CURLOPT_HTTPHEADER => ['Accept: image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8'],
+        CURLOPT_NOPROGRESS => false,
+        CURLOPT_PROGRESSFUNCTION => function($resource, $downloadSize, $downloaded) {
+            return $downloaded > 1536 * 1024 ? 1 : 0;
+        },
+    ]);
+    $body = curl_exec($ch);
+    $type = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+    $ok = $body !== false && (int)curl_getinfo($ch, CURLINFO_HTTP_CODE) < 400;
+    curl_close($ch);
+    return $ok && is_string($body) && str_starts_with(strtolower((string)$type), 'image/') ? $body : '';
+}
+
+function cf_proxy_is_neutral_rgb($r, $g, $b) {
+    if ($r > 238 && $g > 238 && $b > 238) return true;
+    if ($r < 18 && $g < 18 && $b < 18) return true;
+    $max = max($r, $g, $b);
+    $min = min($r, $g, $b);
+    return (($max - $min) / max(1, $max)) < 0.12;
+}
+
+function cf_proxy_palette_from_image_body($body) {
+    if (!function_exists('imagecreatefromstring') || !function_exists('imagecolorat')) return [];
+    $img = @imagecreatefromstring($body);
+    if (!$img) return [];
+
+    $w = imagesx($img);
+    $h = imagesy($img);
+    if ($w <= 0 || $h <= 0) {
+        imagedestroy($img);
+        return [];
+    }
+
+    $step = max(1, (int)floor(max($w, $h) / 80));
+    $buckets = [];
+    for ($y = 0; $y < $h; $y += $step) {
+        for ($x = 0; $x < $w; $x += $step) {
+            $rgb = imagecolorat($img, $x, $y);
+            if ($rgb === false) continue;
+
+            if (imageistruecolor($img)) {
+                $alpha = ($rgb & 0x7F000000) >> 24;
+                if ($alpha > 110) continue;
+                $r = ($rgb >> 16) & 0xFF;
+                $g = ($rgb >> 8) & 0xFF;
+                $b = $rgb & 0xFF;
+            } else {
+                $colors = imagecolorsforindex($img, $rgb);
+                $alpha = (int)($colors['alpha'] ?? 0);
+                if ($alpha > 110) continue;
+                $r = (int)$colors['red'];
+                $g = (int)$colors['green'];
+                $b = (int)$colors['blue'];
+            }
+
+            if (cf_proxy_is_neutral_rgb($r, $g, $b)) continue;
+
+            $qr = max(0, min(255, (int)(round($r / 24) * 24)));
+            $qg = max(0, min(255, (int)(round($g / 24) * 24)));
+            $qb = max(0, min(255, (int)(round($b / 24) * 24)));
+            $key = sprintf('#%02x%02x%02x', $qr, $qg, $qb);
+            $buckets[$key] = ($buckets[$key] ?? 0) + 1;
+        }
+    }
+
+    imagedestroy($img);
+    arsort($buckets);
+    return array_slice(array_keys($buckets), 0, 5);
+}
+
+function cf_proxy_extract_pixel_palette($html, $baseUrl) {
+    $palette = [];
+    foreach (cf_proxy_extract_image_candidates_for_palette($html, $baseUrl) as $imageUrl) {
+        $body = cf_proxy_fetch_binary_asset($imageUrl);
+        if ($body === '') continue;
+        foreach (cf_proxy_palette_from_image_body($body) as $color) {
+            $palette[$color] = ($palette[$color] ?? 0) + 1;
+        }
+        if (count($palette) >= 8) break;
+    }
+    arsort($palette);
+    return array_slice(array_keys($palette), 0, 8);
+}
+
+$pixelPalette = cf_proxy_extract_pixel_palette($body, $finalUrl ?: $targetUrl);
+
 echo json_encode([
     'html'     => $body,
     'finalUrl' => $finalUrl,
     'status'   => $httpCode,
+    'pixelPalette' => $pixelPalette,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

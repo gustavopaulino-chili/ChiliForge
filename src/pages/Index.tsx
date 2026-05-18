@@ -15,9 +15,10 @@ import { StepPages } from '@/components/generator/StepPages';
 import { NicheTemplateSelector } from '@/components/generator/NicheTemplateSelector';
 import { PromptPreview } from '@/components/generator/PromptPreview';
 import { HeroLanding } from '@/components/landing/HeroLanding';
+import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { VisualEditor } from '@/components/editor/VisualEditor';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock, LogOut, User, Server, Edit3 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock, LogOut, User, Server, Edit3, Key } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { downloadProjectZip, generateImages, generateLanding, searchImages, updateProjectContent, updateProjectFormState, getProjectById, uploadProjectAssetsFromUrls, uploadProjectAssets } from '@/services/api';
 import { isUploadedImage } from '@/services/imageUpload';
@@ -25,6 +26,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { safeGetJSON, safeSetJSON, safeRemove } from '@/lib/safeStorage';
 import { FtpDeployModal } from '@/components/generator/FtpDeployModal';
+import { ApiKeyModal } from '@/components/ApiKeyModal';
 
 type StepDef = { id: string; label: string };
 
@@ -203,7 +205,7 @@ const escapeHtmlAttr = (value: string) =>
   String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 type GenerationCheckpoint = {
-  key: 'html' | 'css' | 'js' | 'assets';
+  key: 'html' | 'css' | 'js' | 'assets' | 'created';
   label: string;
   done: boolean;
   detail: string;
@@ -214,6 +216,7 @@ const createInitialGenerationCheckpoints = (): GenerationCheckpoint[] => ([
   { key: 'css', label: 'CSS (inline)', done: false, detail: 'Waiting for AI response...' },
   { key: 'js', label: 'JS (inline)', done: false, detail: 'Waiting for AI response...' },
   { key: 'assets', label: 'Assets', done: false, detail: 'Waiting for asset mapping...' },
+  { key: 'created', label: 'Generation created', done: false, detail: 'Waiting for final confirmation...' },
 ]);
 
 const normalizeGeneratedSite = (payload: any): ParsedGeneratedSite => {
@@ -284,6 +287,7 @@ const Index = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [showFtpDeploy, setShowFtpDeploy] = useState(false);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [generatedLandingUrl, setGeneratedLandingUrl] = useState(routeState?.generatedLandingUrl ?? '');
   const [generatedHtml, setGeneratedHtml] = useState(routeState?.generatedHtml ?? '');
@@ -1756,8 +1760,9 @@ const Index = () => {
           pushGenerationMessage('Preview document assembled from generated HTML, CSS, and script.js.');
         }
         setGenerationProgress(100);
-        setGenerationStatus('Landing page generated!');
-        pushGenerationMessage('Generation finished successfully.');
+        setGenerationStatus('Generation created!');
+        markGenerationCheckpoint('created', true, 'Landing page generated with 100% progress.');
+        pushGenerationMessage('Generation created successfully.');
         toast.success('Landing page generated successfully!');
         await new Promise(r => setTimeout(r, 500));
         setIsGenerating(false);
@@ -1902,24 +1907,32 @@ const Index = () => {
   // Landing page
   if (showLanding) {
     return (
-      <div className={`transition-all duration-500 ${isTransitioning ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
-        <header className="fixed top-0 left-0 right-0 border-b border-border/50 px-6 py-[13px] z-50 bg-background/80 backdrop-blur-md">
-          <div className="mx-auto max-w-6xl flex items-center justify-between">
-            <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex items-center gap-2 cursor-pointer">
-              <img src="/images/logo-small.png" alt="Logo" className="h-8 w-auto" />
-              <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
-            </button>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => { if (!confirmLeaveGeneration()) return; navigate('/history'); }} className="gap-2 text-muted-foreground hover:text-foreground">
-                <Clock className="h-4 w-4" /> History
-              </Button>
-              <Button variant="ghost" size="sm" onClick={signOut} className="gap-2 text-muted-foreground hover:text-foreground">
-                <LogOut className="h-4 w-4" /> Log out
-              </Button>
+      <>
+        <div className={`transition-all duration-500 ${isTransitioning ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
+          <header className="fixed top-0 left-0 right-0 border-b border-border/50 px-6 py-[13px] z-50 bg-background/80 backdrop-blur-md">
+            <div className="mx-auto max-w-6xl flex items-center justify-between">
+              <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex items-center gap-2 cursor-pointer">
+                <img src="/images/logo-small.png" alt="Logo" className="h-8 w-auto" />
+                <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
+              </button>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => { if (!confirmLeaveGeneration()) return; navigate('/history'); }} className="gap-2 text-muted-foreground hover:text-foreground">
+                  <Clock className="h-4 w-4" /> History
+                </Button>
+                {user?.accountType === 'admin' && (
+                  <Button variant="ghost" size="sm" onClick={() => setShowApiKeyModal(true)} className="gap-2 text-muted-foreground hover:text-foreground">
+                    <Key className="h-4 w-4" /> API Key
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={signOut} className="gap-2 text-muted-foreground hover:text-foreground">
+                  <LogOut className="h-4 w-4" /> Log out
+                </Button>
+              </div>
             </div>
-          </div>
-        </header>
-        <HeroLanding onStartGenerator={handleStartGenerator} />
+          </header>
+          <HeroLanding onStartGenerator={handleStartGenerator} onStartAdCreatives={() => navigate('/ad-creatives')} />
+        </div>
+        <ApiKeyModal open={showApiKeyModal} onClose={() => setShowApiKeyModal(false)} />
         {showRestoreDialog && pendingRestore && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
             <div className="bg-background border border-border rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 flex flex-col gap-5">
@@ -1942,15 +1955,15 @@ const Index = () => {
             </div>
           </div>
         )}
-      </div>
+      </>
     );
   }
 
   // Generating screen
   if (isGenerating) {
     return (
-      <div className="min-h-screen bg-background relative flex flex-col">
-        <div className="reactive-bg-mouse" />
+      <div className="premium-home min-h-screen bg-background relative flex flex-col overflow-hidden">
+        <PremiumParticleBackground activeTone="primary" />
         <Header onLogoClick={() => {
           if (!confirmLeaveGeneration()) return;
           setIsGenerating(false);
@@ -2032,8 +2045,8 @@ const Index = () => {
     const hostedPreviewUrl = normalizeHostedPreviewUrl(generatedLandingUrl);
 
     return (
-      <div className="min-h-screen bg-background relative flex flex-col">
-        <div className="reactive-bg-mouse" />
+      <div className="premium-home min-h-screen bg-background relative flex flex-col overflow-hidden">
+        <PremiumParticleBackground activeTone="primary" />
         <Header onLogoClick={() => setShowLanding(true)} onSignOut={signOut} />
         <main className="flex-1 flex flex-col mx-auto max-w-6xl w-full px-6 py-6 relative z-10">
           <div className="text-center mb-6">
@@ -2202,8 +2215,8 @@ const Index = () => {
 
   // Form view
   return (
-    <div className="min-h-screen bg-background relative">
-      <div className="reactive-bg-mouse" />
+    <div className="premium-home min-h-screen bg-background relative overflow-hidden">
+      <PremiumParticleBackground activeTone="primary" />
       <Header onLogoClick={() => setShowLanding(true)} onSignOut={signOut} />
       <main className="mx-auto max-w-4xl px-6 py-8 relative z-10">
         <div className="mb-10 text-center">
@@ -2218,7 +2231,7 @@ const Index = () => {
 
         <StepIndicator steps={steps} currentStep={currentStep} maxVisitedStep={maxVisitedStep} onStepClick={setCurrentStep} />
 
-        <div className="mt-8 glass-card rounded-xl p-6 sm:p-8 animate-in-up" key={currentStepId}>
+        <div className="mt-8 glass-card rounded-xl p-6 sm:p-8" key={currentStepId}>
           {currentStepId === 'csv' && (
             <>
               <StepCsvImport data={formData} onChange={updateForm} />
@@ -2306,7 +2319,7 @@ const Index = () => {
 
 function Header({ onLogoClick, onSignOut, onHistoryClick }: { onLogoClick?: () => void; onSignOut?: () => void; onHistoryClick?: () => void; }) {
   return (
-    <header className="sticky top-0 border-b border-border/50 px-6 py-[13px] z-50 bg-background/60 backdrop-blur-md">
+    <header className="sticky top-0 border-b border-border/40 px-6 py-[13px] z-50 bg-background/25 backdrop-blur-md">
       <div className="mx-auto max-w-6xl flex items-center justify-between">
         <button onClick={onLogoClick} className="flex items-center gap-2 cursor-pointer">
           <img src="/images/logo-small.png" alt="Logo" className="h-8 w-auto" />

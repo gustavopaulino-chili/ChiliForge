@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { AlignCenter, AlignLeft, AlignRight, ChevronDown, ChevronRight, Code2, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Monitor, Palette, Pencil, Redo2, Settings2, Smartphone, Tablet, Undo2, Upload, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
+import { AlignCenter, AlignLeft, AlignRight, ChevronDown, ChevronRight, Code2, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Layers, Palette, Pencil, Redo2, Settings2, Undo2, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -111,11 +111,20 @@ type VisualEditorProps = {
   layout?: 'split' | 'overlay';
 };
 
+type AdsLayer = {
+  path: string;
+  parentPath: string;
+  tag: string;
+  title: string;
+  depth: number;
+  zIndex: string;
+};
+
 type OverlayMode = 'none' | 'color' | 'gradient' | 'dark' | 'mask';
 
-const EDITOR_MESSAGE_SOURCE = 'chiliforge-visual-editor';
+const EDITOR_MESSAGE_SOURCE = 'chiliforge-ads-editor';
 
-const BRIDGE_STYLE_CONTENT = '.cf-editor-hover{outline:2px dashed #f97316 !important; outline-offset:2px !important; cursor:pointer !important;}\n.cf-editor-selected{outline:3px solid #ea580c !important; outline-offset:2px !important;}\n.cf-editor-editing{outline:2px solid #3b82f6 !important; outline-offset:2px !important; cursor:text !important; background:rgba(59,130,246,0.04) !important;}';
+const BRIDGE_STYLE_CONTENT = '.cf-editor-hover{outline:2px dashed #06b6d4 !important; outline-offset:2px !important; cursor:move !important;}\n.cf-editor-selected{outline:3px solid #0891b2 !important; outline-offset:2px !important; cursor:move !important;}\n.cf-editor-editing{outline:2px solid #3b82f6 !important; outline-offset:2px !important; cursor:text !important; background:rgba(59,130,246,0.04) !important;}\n.cf-editor-dragging{outline:3px solid #22d3ee !important; outline-offset:2px !important; cursor:grabbing !important; user-select:none !important;}\n.ad-banner,.creative-frame,.creative-scale{position:relative;}';
 
 const BRIDGE_SCRIPT_CONTENT = `(function(){
   var SOURCE='${EDITOR_MESSAGE_SOURCE}';
@@ -125,6 +134,8 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
   var editingOriginal='';
   var lastClickTarget=null;
   var lastClickTime=0;
+  var dragState=null;
+  var suppressClickUntil=0;
 
   function indexInType(el){
     var i=1; var p=el;
@@ -207,6 +218,53 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
       window.parent.postMessage({ source: SOURCE, type: 'select', payload: getInfo(el) }, '*');
     } catch (e) {}
   }
+  function serializeEditorDocument(){
+    var clone=document.documentElement.cloneNode(true);
+    try {
+      clone.querySelector('#cf-editor-base')?.remove();
+      clone.querySelector('#cf-editor-bridge-style')?.remove();
+      clone.querySelector('#cf-editor-bridge-script')?.remove();
+      clone.querySelector('#cf-editor-resize-overlay')?.remove();
+      clone.querySelectorAll('.cf-editor-hover,.cf-editor-selected,.cf-editor-editing,.cf-editor-dragging').forEach(function(node){
+        node.classList.remove('cf-editor-hover','cf-editor-selected','cf-editor-editing','cf-editor-dragging');
+        if(!node.getAttribute('class')) node.removeAttribute('class');
+      });
+      clone.querySelectorAll('[data-cf-editor-id]').forEach(function(node){ node.removeAttribute('data-cf-editor-id'); });
+    } catch(e) {}
+    return '<!DOCTYPE html>\\n' + clone.outerHTML;
+  }
+  function postMutation(){
+    try {
+      window.parent.postMessage({ source: SOURCE, type: 'ads-dom-mutated', payload: { html: serializeEditorDocument() } }, '*');
+    } catch(e) {}
+  }
+  function isCanvasRoot(el){
+    if(!el || !el.classList) return false;
+    return el === document.body ||
+      el.classList.contains('creative-board') ||
+      el.classList.contains('creative-grid') ||
+      el.classList.contains('creative-frame') ||
+      el.classList.contains('creative-scale') ||
+      el.classList.contains('ad-banner');
+  }
+  function draggableTarget(target){
+    if(!(target instanceof HTMLElement)) return null;
+    if(target.closest('[contenteditable="true"]')) return null;
+    var el=target.closest('img,a,button,h1,h2,h3,h4,h5,h6,p,span,strong,em,small,figure,svg,div');
+    if(!(el instanceof HTMLElement)) return null;
+    while(el && isCanvasRoot(el) && el.parentElement && el.parentElement!==document.body){
+      el=el.parentElement.closest('img,a,button,h1,h2,h3,h4,h5,h6,p,span,strong,em,small,figure,svg,div');
+    }
+    if(!el || el===document.body || el===document.documentElement || isCanvasRoot(el)) return null;
+    return el;
+  }
+  function ensureCanvasParent(target){
+    var parent=target.offsetParent instanceof HTMLElement ? target.offsetParent : target.parentElement;
+    if(!parent || parent===document.documentElement) parent=document.body;
+    var ps=window.getComputedStyle(parent);
+    if(parent!==document.body && ps.position==='static') parent.style.position='relative';
+    return parent;
+  }
   function finishEditing(cancel){
     if(!editingEl || !isEditing) return;
     var el=editingEl;
@@ -240,6 +298,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
   }, true);
   document.addEventListener('click', function(ev){
     if(isEditing) return;
+    if(Date.now()<suppressClickUntil){ ev.preventDefault(); ev.stopPropagation(); return; }
     var t=ev.target;
     if(!(t instanceof Element)) return;
     ev.preventDefault();
@@ -256,6 +315,78 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     lastSelected=t;
     t.classList.add('cf-editor-selected');
     postSelect(t);
+  }, true);
+  document.addEventListener('mousedown', function(ev){
+    if(isEditing) return;
+    if(ev.button!==0 || ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+    var t=draggableTarget(ev.target);
+    if(!t) return;
+    var parent=ensureCanvasParent(t);
+    var tr=t.getBoundingClientRect();
+    var pr=parent.getBoundingClientRect();
+    var cs=window.getComputedStyle(t);
+    var left=parseFloat(cs.left);
+    var top=parseFloat(cs.top);
+    dragState={
+      target:t,
+      parent:parent,
+      startX:ev.clientX,
+      startY:ev.clientY,
+      initialLeft:(cs.position==='absolute'||cs.position==='fixed') && Number.isFinite(left) ? left : tr.left - pr.left + parent.scrollLeft,
+      initialTop:(cs.position==='absolute'||cs.position==='fixed') && Number.isFinite(top) ? top : tr.top - pr.top + parent.scrollTop,
+      dragging:false
+    };
+  }, true);
+  document.addEventListener('mousemove', function(ev){
+    if(!dragState) return;
+    var dx=ev.clientX-dragState.startX;
+    var dy=ev.clientY-dragState.startY;
+    if(!dragState.dragging && Math.sqrt(dx*dx+dy*dy)<3) return;
+    dragState.dragging=true;
+    ev.preventDefault();
+    ev.stopPropagation();
+    var t=dragState.target;
+    var cs=window.getComputedStyle(t);
+    if(cs.position==='static' || cs.position==='relative'){
+      var op=t.offsetParent instanceof HTMLElement ? t.offsetParent : document.body;
+      var tBr=t.getBoundingClientRect();
+      var opBr=op.getBoundingClientRect();
+      var absLeft=Math.round(tBr.left - opBr.left + op.scrollLeft);
+      var absTop=Math.round(tBr.top - opBr.top + op.scrollTop);
+      var w=tBr.width;
+      var h=tBr.height;
+      t.style.position='absolute';
+      t.style.margin='0';
+      t.style.left=absLeft+'px';
+      t.style.top=absTop+'px';
+      if(!t.style.width && w>0) t.style.width=Math.round(w)+'px';
+      if(!t.style.height && h>0 && ['IMG','VIDEO','CANVAS','SVG'].includes(t.tagName)) t.style.height=Math.round(h)+'px';
+      dragState.initialLeft=absLeft;
+      dragState.initialTop=absTop;
+      dragState.startX=ev.clientX;
+      dragState.startY=ev.clientY;
+      dx=0; dy=0;
+    }
+    if(!t.style.zIndex || t.style.zIndex==='auto') t.style.zIndex='20';
+    t.style.left=Math.round(dragState.initialLeft+dx)+'px';
+    t.style.top=Math.round(dragState.initialTop+dy)+'px';
+    t.classList.add('cf-editor-dragging');
+  }, true);
+  document.addEventListener('mouseup', function(ev){
+    if(!dragState) return;
+    var state=dragState;
+    dragState=null;
+    if(state.dragging){
+      ev.preventDefault();
+      ev.stopPropagation();
+      suppressClickUntil=Date.now()+250;
+      state.target.classList.remove('cf-editor-dragging');
+      if(lastSelected){ lastSelected.classList.remove('cf-editor-selected'); }
+      lastSelected=state.target;
+      state.target.classList.add('cf-editor-selected');
+      postSelect(state.target);
+      postMutation();
+    }
   }, true);
   document.addEventListener('dblclick', function(ev){
     if(isEditing) return;
@@ -281,12 +412,46 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     } catch(e){}
   }, true);
   document.addEventListener('keydown', function(ev){
-    if(!isEditing) return;
-    if(ev.key==='Escape'){ ev.preventDefault(); ev.stopPropagation(); finishEditing(true); return; }
-    var tag=editingEl ? editingEl.tagName.toLowerCase() : '';
-    var isBlock=(tag==='h1'||tag==='h2'||tag==='h3'||tag==='h4'||tag==='h5'||tag==='h6'||tag==='button');
-    if(ev.key==='Enter' && isBlock && !ev.shiftKey){ ev.preventDefault(); finishEditing(false); }
-  }, true);
+    if(isEditing){
+      if(ev.key==='Escape'){ ev.preventDefault(); ev.stopPropagation(); finishEditing(true); return; }
+      var tag=editingEl ? editingEl.tagName.toLowerCase() : '';
+      var isBlock=(tag==='h1'||tag==='h2'||tag==='h3'||tag==='h4'||tag==='h5'||tag==='h6'||tag==='button');
+      if(ev.key==='Enter' && isBlock && !ev.shiftKey){ ev.preventDefault(); finishEditing(false); }
+      return;
+    }
+    if(!lastSelected || lastSelected===document.body || lastSelected===document.documentElement) return;
+    if(ev.key==='Delete' || ev.key==='Backspace'){
+      ev.preventDefault();
+      var el=lastSelected;
+      lastSelected=null;
+      lastHover=null;
+      el.remove();
+      postMutation();
+      try { window.parent.postMessage({ source: SOURCE, type: 'deselect' }, '*'); } catch(e) {}
+      return;
+    }
+    var step=ev.shiftKey ? 10 : 1;
+    var nudgeX=0, nudgeY=0;
+    if(ev.key==='ArrowLeft'){ nudgeX=-step; }
+    else if(ev.key==='ArrowRight'){ nudgeX=step; }
+    else if(ev.key==='ArrowUp'){ nudgeY=-step; }
+    else if(ev.key==='ArrowDown'){ nudgeY=step; }
+    if(nudgeX!==0 || nudgeY!==0){
+      ev.preventDefault();
+      var nt=lastSelected;
+      var ncs=window.getComputedStyle(nt);
+      if(ncs.position==='static'){ nt.style.position='relative'; }
+      var nl=parseFloat(nt.style.left || ncs.left) || 0;
+      var ntp=parseFloat(nt.style.top || ncs.top) || 0;
+      nt.style.left=(nl+nudgeX)+'px';
+      nt.style.top=(ntp+nudgeY)+'px';
+      postMutation();
+    }
+    if(ev.key==='Escape'){
+      if(lastSelected){ lastSelected.classList.remove('cf-editor-selected'); lastSelected=null; }
+      try { window.parent.postMessage({ source: SOURCE, type: 'deselect' }, '*'); } catch(e) {}
+    }
+  }, false);
   document.addEventListener('blur', function(ev){
     if(!isEditing) return;
     var t=ev.relatedTarget;
@@ -438,7 +603,8 @@ const normalizePublicBaseUrl = (value?: string) => {
 const buildAssetsFolderUrl = (value?: string) => {
   const base = normalizePublicBaseUrl(value);
   if (!base) return '';
-  return `${base}assets/`;
+  const parentBase = /\/b\d+\/$/i.test(base) ? base.replace(/\/b\d+\/$/i, '/') : base;
+  return `${parentBase}assets/`;
 };
 
 const buildAssetUrlCandidates = (rawUrl: string, projectUrl?: string, assetsUrl?: string, assetName?: string) => {
@@ -626,6 +792,7 @@ const cleanBridgeFromDocument = (doc: Document, preserveSelectionMarker = false)
   doc.querySelector('#cf-editor-base')?.remove();
   doc.querySelector('#cf-editor-bridge-style')?.remove();
   doc.querySelector('#cf-editor-bridge-script')?.remove();
+  doc.querySelector('#cf-editor-resize-overlay')?.remove();
   doc.querySelectorAll('.cf-editor-hover, .cf-editor-selected').forEach((node) => {
     node.classList.remove('cf-editor-hover', 'cf-editor-selected');
   });
@@ -644,6 +811,7 @@ const serializeWithoutBridge = (doc: Document): string => {
   html = html.replace(/<script\b[^>]*\bid="cf-editor-bridge-script"[^>]*>[\s\S]*?<\/script>/i, '');
   html = html.replace(/<style\b[^>]*\bid="cf-editor-bridge-style"[^>]*>[\s\S]*?<\/style>/i, '');
   html = html.replace(/<base\b[^>]*\bid="cf-editor-base"[^>]*\/?>/gi, '');
+  html = html.replace(/<div\b[^>]*\bid="cf-editor-resize-overlay"[^>]*>[\s\S]*?<\/div>/i, '');
   // Strip bridge CSS class names, then normalize class attribute whitespace
   html = html.replace(/\bcf-editor-(?:hover|selected|editing)\b/g, '');
   html = html.replace(/class="([^"]*)"/g, (_, cls) => {
@@ -680,7 +848,7 @@ export const stripEditorBridge = (html: string): string => {
   return serializeDocument(doc);
 };
 
-export function VisualEditor({
+export function AdsEditor({
   html,
   onChange,
   saving = false,
@@ -1224,7 +1392,6 @@ export function VisualEditor({
   const [panelOpen, setPanelOpen] = useState(true);
   const [editorTab, setEditorTab] = useState<'element' | 'sections'>('element');
   const [editorPanelTab, setEditorPanelTab] = useState<'content' | 'style' | 'advanced'>('content');
-  const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [, setHistoryVersion] = useState(0);
   const brandPaletteKey = brandPalette.map((value) => normalizeHexColor(value || '')).filter(Boolean).join('|');
   const initialBrandColors = useMemo(() => ({
@@ -1240,15 +1407,26 @@ export function VisualEditor({
   const [geminiChatOpen, setGeminiChatOpen] = useState(true);
   const [isPanMode, setIsPanMode] = useState(false);
   const [floatingAddElOpen, setFloatingAddElOpen] = useState(false);
+  const [floatingLayersOpen, setFloatingLayersOpen] = useState(false);
+  const [layersPanelRect, setLayersPanelRect] = useState<{ top: number; left: number } | null>(null);
+  const [canvasZoom, setCanvasZoom] = useState(1);
+  const [showEditorGrid, setShowEditorGrid] = useState(false);
+  const [showSafeZones, setShowSafeZones] = useState(false);
+  const [snapToGrid, setSnapToGrid] = useState(false);
+  const [smartResizePreset, setSmartResizePreset] = useState('1080x1080');
+  const [imageScale, setImageScale] = useState(100);
   const [toolbarAddElOpen, setToolbarAddElOpen] = useState(false);
   const [floatingAddTab, setFloatingAddTab] = useState<'element' | 'sections'>('element');
   const [toolbarAddTab, setToolbarAddTab] = useState<'element' | 'sections'>('element');
   const floatingAddElPopoverRef = useRef<HTMLDivElement | null>(null);
+  const floatingLayersPopoverRef = useRef<HTMLDivElement | null>(null);
+  const layersBtnRef = useRef<HTMLButtonElement | null>(null);
   const toolbarAddElPopoverRef = useRef<HTMLDivElement | null>(null);
   const nextGeneratedImageIdRef = useRef(1);
   const historyPastRef = useRef<string[]>([]);
   const historyFutureRef = useRef<string[]>([]);
   const lastHtmlRef = useRef('');
+  const latestHtmlRef = useRef(html);
   const skipHistoryRecordRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1261,6 +1439,8 @@ export function VisualEditor({
 
   const canUndo = historyPastRef.current.length > 0;
   const canRedo = historyFutureRef.current.length > 0;
+
+  useEffect(() => { latestHtmlRef.current = html; }, [html]);
 
   useEffect(() => {
     setGlobalBrandColors(initialBrandColors);
@@ -1278,6 +1458,17 @@ export function VisualEditor({
 
     return values.filter((value, index) => values.indexOf(value) === index);
   }, [globalBrandColors, brandPaletteKey]);
+
+  const adsEditorChromeStyle = useMemo(() => ({
+    '--cf-ads-primary': '#995AF2',
+    '--cf-ads-primary-strong': '#7C3AED',
+    '--cf-ads-accent': '#C084FC',
+    '--cf-ads-text': '#F8FAFC',
+    '--cf-ads-muted': '#B8A8D9',
+    '--cf-ads-panel': '#10091C',
+    '--cf-ads-panel-2': '#171021',
+    '--cf-ads-border': 'rgba(153, 90, 242, 0.34)',
+  }) as CSSProperties, []);
 
   const livePreviewUrl = useMemo(() => {
     const base = (projectPublicUrl || '').trim();
@@ -1317,12 +1508,55 @@ export function VisualEditor({
       const doc = iframeRef.current?.contentDocument;
       if (!doc) throw new Error('Live document is not accessible.');
 
+      // Write the latest html prop into the iframe so the editor always shows the
+      // current saved state — not the stale published file that may not have been updated.
+      const latestHtml = latestHtmlRef.current;
+      if (latestHtml && latestHtml.trim()) {
+        const base = (projectPublicUrl || '').trim();
+        const normalized = base ? base.replace(/\/index\.html$/i, '/').replace(/\/?$/, '/') : '';
+        const absoluteBase = normalized ? new URL(normalized, window.location.origin).href : '';
+        let htmlToWrite = latestHtml.replace(/<base\b[^>]*>/gi, '');
+        if (absoluteBase) {
+          htmlToWrite = htmlToWrite.replace(/(<head\b[^>]*>)/i, `$1\n<base href="${absoluteBase}">`);
+        }
+        doc.open();
+        doc.write(htmlToWrite);
+        doc.close();
+      }
+
       injectBridgeIntoDocument(doc);
 
-      const docWithHandler = doc as Document & { __cfParentSelectionHandler?: EventListener };
+      const docWithHandler = doc as Document & {
+        __cfParentSelectionHandler?: EventListener;
+        __cfAdsDragMouseDownHandler?: EventListener;
+        __cfAdsDragMouseMoveHandler?: EventListener;
+        __cfAdsDragMouseUpHandler?: EventListener;
+        __cfAdsResizeMouseDownHandler?: EventListener;
+        __cfAdsResizeMouseMoveHandler?: EventListener;
+        __cfAdsResizeMouseUpHandler?: EventListener;
+      };
       if (docWithHandler.__cfParentSelectionHandler) {
         doc.removeEventListener('click', docWithHandler.__cfParentSelectionHandler, true);
       }
+      if (docWithHandler.__cfAdsDragMouseDownHandler) {
+        doc.removeEventListener('mousedown', docWithHandler.__cfAdsDragMouseDownHandler, true);
+      }
+      if (docWithHandler.__cfAdsDragMouseMoveHandler) {
+        doc.removeEventListener('mousemove', docWithHandler.__cfAdsDragMouseMoveHandler, true);
+      }
+      if (docWithHandler.__cfAdsDragMouseUpHandler) {
+        doc.removeEventListener('mouseup', docWithHandler.__cfAdsDragMouseUpHandler, true);
+      }
+      if (docWithHandler.__cfAdsResizeMouseDownHandler) {
+        doc.removeEventListener('mousedown', docWithHandler.__cfAdsResizeMouseDownHandler, true);
+      }
+      if (docWithHandler.__cfAdsResizeMouseMoveHandler) {
+        doc.removeEventListener('mousemove', docWithHandler.__cfAdsResizeMouseMoveHandler, true);
+      }
+      if (docWithHandler.__cfAdsResizeMouseUpHandler) {
+        doc.removeEventListener('mouseup', docWithHandler.__cfAdsResizeMouseUpHandler, true);
+      }
+      doc.getElementById('cf-editor-resize-overlay')?.remove();
 
       const buildCssPath = (el: Element | null) => {
         if (!el || el === doc.documentElement) return 'html';
@@ -1342,15 +1576,11 @@ export function VisualEditor({
         return `body > ${parts.join(' > ')}`;
       };
 
-      const parentSelectionHandler: EventListener = (event) => {
-        const target = event.target;
-        if (!(target instanceof Element)) return;
-
+      const buildSelectionPayload = (target: Element): SelectedNode => {
         const frameWindow = doc.defaultView;
-        if (!frameWindow) return;
-
-        const computed = frameWindow.getComputedStyle(target);
-        const payload: SelectedNode = {
+        const computed = frameWindow?.getComputedStyle(target) || ({} as CSSStyleDeclaration);
+        const rect = target.getBoundingClientRect();
+        return {
           path: buildCssPath(target),
           sectionPath: target.closest('section') ? buildCssPath(target.closest('section')) : null,
           tag: target.tagName.toLowerCase(),
@@ -1389,13 +1619,338 @@ export function VisualEditor({
           textAlign: computed.textAlign || 'left',
           borderRadius: computed.borderRadius || '0px',
           isButtonLike: target.tagName === 'BUTTON' || target.tagName === 'A',
+          boundingRect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
         };
+      };
+
+      const ensureAbsoluteEditableLayer = (target: HTMLElement, parent: HTMLElement) => {
+        const frameWindow = doc.defaultView;
+        const computed = frameWindow?.getComputedStyle(target);
+        const targetRect = target.getBoundingClientRect();
+        const parentRect = parent.getBoundingClientRect();
+        const left = Math.round(targetRect.left - parentRect.left + parent.scrollLeft);
+        const top = Math.round(targetRect.top - parentRect.top + parent.scrollTop);
+        const widthPx = Math.max(1, Math.round(targetRect.width));
+        const heightPx = Math.max(1, Math.round(targetRect.height));
+
+        if (computed?.position === 'static' || computed?.position === 'relative' || !target.style.position) {
+          target.style.position = 'absolute';
+          target.style.left = `${left}px`;
+          target.style.top = `${top}px`;
+          target.style.margin = '0';
+        }
+
+        if (!target.style.width && widthPx > 0) {
+          target.style.width = `${widthPx}px`;
+        }
+        if (!target.style.height && heightPx > 0 && !['SPAN', 'STRONG', 'EM', 'SMALL'].includes(target.tagName)) {
+          target.style.height = `${heightPx}px`;
+        }
+        if (!target.style.zIndex || target.style.zIndex === 'auto') {
+          target.style.zIndex = '10';
+        }
+      };
+
+      const isNonEditableCanvasLayer = (element: HTMLElement) => (
+        element === doc.body ||
+        element.classList.contains('ad-banner') ||
+        element.classList.contains('creative-board') ||
+        element.classList.contains('creative-grid') ||
+        element.classList.contains('creative-frame') ||
+        element.classList.contains('creative-scale') ||
+        element.classList.contains('ad-bg')
+      );
+
+      const updateResizeOverlay = (target: HTMLElement | null) => {
+        let overlay = doc.getElementById('cf-editor-resize-overlay') as HTMLDivElement | null;
+        if (!target || isNonEditableCanvasLayer(target)) {
+          overlay?.remove();
+          return;
+        }
+
+        if (!overlay) {
+          overlay = doc.createElement('div');
+          overlay.id = 'cf-editor-resize-overlay';
+          overlay.style.cssText = 'position:fixed;z-index:2147483646;pointer-events:none;border:1px solid rgba(34,211,238,.95);box-shadow:0 0 0 1px rgba(2,6,23,.35);';
+          doc.body.appendChild(overlay);
+        }
+
+        const rect = target.getBoundingClientRect();
+        overlay.dataset.targetPath = buildCssPath(target);
+        overlay.style.left = `${Math.round(rect.left)}px`;
+        overlay.style.top = `${Math.round(rect.top)}px`;
+        overlay.style.width = `${Math.max(1, Math.round(rect.width))}px`;
+        overlay.style.height = `${Math.max(1, Math.round(rect.height))}px`;
+        overlay.innerHTML = '';
+
+        const handles: Array<{ dir: string; cursor: string; style: Partial<CSSStyleDeclaration> }> = [
+          { dir: 'e', cursor: 'ew-resize', style: { right: '-5px', top: '50%', transform: 'translateY(-50%)' } },
+          { dir: 's', cursor: 'ns-resize', style: { left: '50%', bottom: '-5px', transform: 'translateX(-50%)' } },
+          { dir: 'se', cursor: 'nwse-resize', style: { right: '-5px', bottom: '-5px' } },
+          { dir: 'nw', cursor: 'nwse-resize', style: { left: '-5px', top: '-5px' } },
+        ];
+
+        handles.forEach(({ dir, cursor, style }) => {
+          const handle = doc.createElement('button');
+          handle.type = 'button';
+          handle.dataset.resizeHandle = dir;
+          handle.style.cssText = 'position:absolute;width:10px;height:10px;border:1px solid rgba(255,255,255,.95);border-radius:999px;background:#22d3ee;box-shadow:0 1px 6px rgba(0,0,0,.35);padding:0;pointer-events:auto;';
+          Object.assign(handle.style, style);
+          handle.style.cursor = cursor;
+          overlay?.appendChild(handle);
+        });
+      };
+
+      const parentSelectionHandler: EventListener = (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        if (target.closest('#cf-editor-resize-overlay')) return;
+
+        const payload = buildSelectionPayload(target);
+        if (target instanceof HTMLElement) updateResizeOverlay(target);
 
         window.postMessage({ source: EDITOR_MESSAGE_SOURCE, type: 'select', payload }, '*');
       };
 
       doc.addEventListener('click', parentSelectionHandler, true);
       docWithHandler.__cfParentSelectionHandler = parentSelectionHandler;
+
+      let dragState: {
+        target: HTMLElement;
+        parent: HTMLElement;
+        startX: number;
+        startY: number;
+        initialLeft: number;
+        initialTop: number;
+        initialWidth: number;
+        initialHeight: number;
+        dragging: boolean;
+      } | null = null;
+
+      const getEditableDragTarget = (target: EventTarget | null) => {
+        if (!(target instanceof HTMLElement)) return null;
+        if (target.closest('#cf-editor-bridge-script, #cf-editor-bridge-style, #cf-editor-resize-overlay')) return null;
+        const element = target.closest('img,a,button,h1,h2,h3,h4,h5,h6,p,span,strong,em,small,div,figure,section,article') as HTMLElement | null;
+        if (!element || element === doc.body || element === doc.documentElement) return null;
+        if (isNonEditableCanvasLayer(element)) return null;
+        if (element.closest('[contenteditable="true"]')) return null;
+        return element;
+      };
+
+      const dragMouseDownHandler: EventListener = (event) => {
+        const mouse = event as MouseEvent;
+        if (mouse.button !== 0 || mouse.altKey || mouse.ctrlKey || mouse.metaKey || mouse.shiftKey) return;
+        const target = getEditableDragTarget(mouse.target);
+        if (!target) return;
+
+        const frameWindow = doc.defaultView;
+        if (!frameWindow) return;
+
+        const parent = (target.offsetParent || target.parentElement || doc.body) as HTMLElement;
+        const parentStyle = frameWindow.getComputedStyle(parent);
+        if (parent !== doc.body && parentStyle.position === 'static') {
+          parent.style.position = 'relative';
+        }
+        ensureAbsoluteEditableLayer(target, parent);
+
+        const targetRect = target.getBoundingClientRect();
+        const parentRect = parent.getBoundingClientRect();
+        const computed = frameWindow.getComputedStyle(target);
+        const existingLeft = Number.parseFloat(computed.left);
+        const existingTop = Number.parseFloat(computed.top);
+        const initialLeft = Number.isFinite(existingLeft) && computed.position !== 'static'
+          ? existingLeft
+          : targetRect.left - parentRect.left + parent.scrollLeft;
+        const initialTop = Number.isFinite(existingTop) && computed.position !== 'static'
+          ? existingTop
+          : targetRect.top - parentRect.top + parent.scrollTop;
+
+        dragState = {
+          target,
+          parent,
+          startX: mouse.clientX,
+          startY: mouse.clientY,
+          initialLeft,
+          initialTop,
+          initialWidth: targetRect.width,
+          initialHeight: targetRect.height,
+          dragging: false,
+        };
+      };
+
+      const dragMouseMoveHandler: EventListener = (event) => {
+        if (!dragState) return;
+        const mouse = event as MouseEvent;
+        const dx = mouse.clientX - dragState.startX;
+        const dy = mouse.clientY - dragState.startY;
+
+        if (!dragState.dragging && Math.hypot(dx, dy) < 4) return;
+
+        dragState.dragging = true;
+        mouse.preventDefault();
+        mouse.stopPropagation();
+
+        const target = dragState.target;
+        const computed = doc.defaultView?.getComputedStyle(target);
+        if (computed?.position === 'static' || !target.style.position) {
+          target.style.position = 'absolute';
+          target.style.margin = '0';
+        }
+        if (!target.style.zIndex || target.style.zIndex === 'auto') {
+          target.style.zIndex = '10';
+        }
+        target.style.left = `${Math.round(dragState.initialLeft + dx)}px`;
+        target.style.top = `${Math.round(dragState.initialTop + dy)}px`;
+        updateResizeOverlay(target);
+      };
+
+      const dragMouseUpHandler: EventListener = (event) => {
+        if (!dragState) return;
+        const wasDragging = dragState.dragging;
+        const target = dragState.target;
+        dragState = null;
+        if (wasDragging) {
+          const mouse = event as MouseEvent;
+          mouse.preventDefault();
+          mouse.stopPropagation();
+          updateResizeOverlay(target);
+          window.postMessage({ source: EDITOR_MESSAGE_SOURCE, type: 'select', payload: buildSelectionPayload(target) }, '*');
+          emitChange(serializeWithoutBridge(doc));
+        }
+      };
+
+      let resizeState: {
+        target: HTMLElement;
+        parent: HTMLElement;
+        dir: string;
+        startX: number;
+        startY: number;
+        initialLeft: number;
+        initialTop: number;
+        initialWidth: number;
+        initialHeight: number;
+        aspectRatio: number;
+        resizing: boolean;
+      } | null = null;
+
+      const resizeMouseDownHandler: EventListener = (event) => {
+        const mouse = event as MouseEvent;
+        const handle = (mouse.target instanceof HTMLElement)
+          ? mouse.target.closest('[data-resize-handle]') as HTMLElement | null
+          : null;
+        if (!handle) return;
+
+        const selectedPath = handle.closest('#cf-editor-resize-overlay')?.getAttribute('data-target-path') || selectedRef.current?.path;
+        const target = selectedPath ? doc.querySelector(selectedPath) as HTMLElement | null : null;
+        if (!target || isNonEditableCanvasLayer(target)) return;
+
+        const parent = (target.offsetParent || target.parentElement || doc.body) as HTMLElement;
+        const parentStyle = doc.defaultView?.getComputedStyle(parent);
+        if (parent !== doc.body && parentStyle?.position === 'static') {
+          parent.style.position = 'relative';
+        }
+        ensureAbsoluteEditableLayer(target, parent);
+
+        const rect = target.getBoundingClientRect();
+        const parentRect = parent.getBoundingClientRect();
+        resizeState = {
+          target,
+          parent,
+          dir: handle.dataset.resizeHandle || 'se',
+          startX: mouse.clientX,
+          startY: mouse.clientY,
+          initialLeft: rect.left - parentRect.left + parent.scrollLeft,
+          initialTop: rect.top - parentRect.top + parent.scrollTop,
+          initialWidth: Math.max(1, rect.width),
+          initialHeight: Math.max(1, rect.height),
+          aspectRatio: rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1,
+          resizing: false,
+        };
+
+        mouse.preventDefault();
+        mouse.stopPropagation();
+      };
+
+      const resizeMouseMoveHandler: EventListener = (event) => {
+        if (!resizeState) return;
+        const mouse = event as MouseEvent;
+        const dx = mouse.clientX - resizeState.startX;
+        const dy = mouse.clientY - resizeState.startY;
+        if (!resizeState.resizing && Math.hypot(dx, dy) < 3) return;
+
+        resizeState.resizing = true;
+        mouse.preventDefault();
+        mouse.stopPropagation();
+
+        const target = resizeState.target;
+        const dir = resizeState.dir;
+        const preserveRatio = mouse.shiftKey;
+        let nextLeft = resizeState.initialLeft;
+        let nextTop = resizeState.initialTop;
+        let nextWidth = resizeState.initialWidth;
+        let nextHeight = resizeState.initialHeight;
+
+        if (dir.includes('e')) nextWidth = resizeState.initialWidth + dx;
+        if (dir.includes('s')) nextHeight = resizeState.initialHeight + dy;
+        if (dir.includes('w')) {
+          nextWidth = resizeState.initialWidth - dx;
+          nextLeft = resizeState.initialLeft + dx;
+        }
+        if (dir.includes('n')) {
+          nextHeight = resizeState.initialHeight - dy;
+          nextTop = resizeState.initialTop + dy;
+        }
+
+        nextWidth = Math.max(24, nextWidth);
+        nextHeight = Math.max(24, nextHeight);
+
+        if (preserveRatio && resizeState.aspectRatio > 0) {
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            nextHeight = nextWidth / resizeState.aspectRatio;
+          } else {
+            nextWidth = nextHeight * resizeState.aspectRatio;
+          }
+          if (dir.includes('w')) nextLeft = resizeState.initialLeft + resizeState.initialWidth - nextWidth;
+          if (dir.includes('n')) nextTop = resizeState.initialTop + resizeState.initialHeight - nextHeight;
+        }
+
+        target.style.position = 'absolute';
+        target.style.margin = '0';
+        target.style.left = `${Math.round(nextLeft)}px`;
+        target.style.top = `${Math.round(nextTop)}px`;
+        target.style.width = `${Math.round(nextWidth)}px`;
+        target.style.height = `${Math.round(nextHeight)}px`;
+        if (!target.style.zIndex || target.style.zIndex === 'auto') {
+          target.style.zIndex = '10';
+        }
+        updateResizeOverlay(target);
+      };
+
+      const resizeMouseUpHandler: EventListener = (event) => {
+        if (!resizeState) return;
+        const state = resizeState;
+        resizeState = null;
+        if (!state.resizing) return;
+        const mouse = event as MouseEvent;
+        mouse.preventDefault();
+        mouse.stopPropagation();
+        updateResizeOverlay(state.target);
+        window.postMessage({ source: EDITOR_MESSAGE_SOURCE, type: 'select', payload: buildSelectionPayload(state.target) }, '*');
+        emitChange(serializeWithoutBridge(doc));
+      };
+
+      doc.addEventListener('mousedown', resizeMouseDownHandler, true);
+      doc.addEventListener('mousedown', dragMouseDownHandler, true);
+      doc.addEventListener('mousemove', dragMouseMoveHandler, true);
+      doc.addEventListener('mouseup', dragMouseUpHandler, true);
+      doc.addEventListener('mousemove', resizeMouseMoveHandler, true);
+      doc.addEventListener('mouseup', resizeMouseUpHandler, true);
+      docWithHandler.__cfAdsResizeMouseDownHandler = resizeMouseDownHandler;
+      docWithHandler.__cfAdsResizeMouseMoveHandler = resizeMouseMoveHandler;
+      docWithHandler.__cfAdsResizeMouseUpHandler = resizeMouseUpHandler;
+      docWithHandler.__cfAdsDragMouseDownHandler = dragMouseDownHandler;
+      docWithHandler.__cfAdsDragMouseMoveHandler = dragMouseMoveHandler;
+      docWithHandler.__cfAdsDragMouseUpHandler = dragMouseUpHandler;
 
       const serialized = serializeWithoutBridge(doc);
       if (serialized && stripEditorBridge(serialized).trim() !== stripEditorBridge(html).trim()) {
@@ -1404,9 +1959,35 @@ export function VisualEditor({
     } catch {
       toast.error('Live mode could not access the page DOM.');
     }
-  }, [html, emitChange]);
+  }, [html, emitChange, projectPublicUrl]);
 
   useEffect(() => { setIframeReady(false); }, [livePreviewUrl]);
+
+  useEffect(() => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc || !iframeReady) return;
+
+    let styleEl = doc.getElementById('cf-editor-guides') as HTMLStyleElement | null;
+    if (!showEditorGrid && !showSafeZones) {
+      styleEl?.remove();
+      return;
+    }
+    if (!styleEl) {
+      styleEl = doc.createElement('style');
+      styleEl.id = 'cf-editor-guides';
+      doc.head.appendChild(styleEl);
+    }
+    styleEl.textContent = `
+      .ad-banner::before,[data-platform][data-format]::before{
+        content:"";position:absolute;inset:0;pointer-events:none;z-index:99997;
+        ${showEditorGrid ? "background-image:linear-gradient(rgba(153,90,242,.22) 1px,transparent 1px),linear-gradient(90deg,rgba(153,90,242,.22) 1px,transparent 1px);background-size:8px 8px;" : ""}
+      }
+      .ad-banner::after,[data-platform][data-format]::after{
+        content:"";position:absolute;pointer-events:none;z-index:99998;
+        ${showSafeZones ? "inset:6%;border:2px dashed rgba(34,211,238,.75);box-shadow:0 0 0 9999px rgba(2,6,23,.10);" : "display:none;"}
+      }
+    `;
+  }, [iframeReady, showEditorGrid, showSafeZones]);
 
   useEffect(() => {
     historyPastRef.current = [];
@@ -1452,15 +2033,9 @@ export function VisualEditor({
     // Força atualização do iframe e do editor
     emitChange(previous);
     setHistoryVersion((value) => value + 1);
-    // Se o iframe estiver pronto, atualiza o DOM dele também
     setTimeout(() => {
       const doc = iframeRef.current?.contentDocument;
-      if (doc) {
-        doc.open();
-        doc.write(previous);
-        doc.close();
-        injectBridgeIntoDocument(doc);
-      }
+      if (doc) writeHtmlToIframeDoc(doc, previous);
     }, 0);
   }, [html, emitChange]);
 
@@ -1571,6 +2146,23 @@ export function VisualEditor({
   }, [floatingAddElOpen]);
 
   useEffect(() => {
+    if (!floatingLayersOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (floatingLayersPopoverRef.current && !floatingLayersPopoverRef.current.contains(e.target as Node)) {
+        setFloatingLayersOpen(false);
+      }
+    };
+    const frameHandler = () => setFloatingLayersOpen(false);
+    const frameDoc = iframeRef.current?.contentDocument;
+    document.addEventListener('mousedown', handler);
+    frameDoc?.addEventListener('mousedown', frameHandler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      frameDoc?.removeEventListener('mousedown', frameHandler);
+    };
+  }, [floatingLayersOpen]);
+
+  useEffect(() => {
     if (!toolbarAddElOpen) return;
     const handler = (e: MouseEvent) => {
       if (toolbarAddElPopoverRef.current && !toolbarAddElPopoverRef.current.contains(e.target as Node)) {
@@ -1651,6 +2243,21 @@ export function VisualEditor({
             el.innerHTML = p.innerHTML || '';
           });
         }
+        return;
+      }
+
+      if (data.type === 'ads-dom-mutated') {
+        const p = data.payload as { html?: string };
+        if (typeof p?.html === 'string' && p.html.trim()) {
+          emitChange(p.html);
+          updateToolbarPositionForSelection();
+        }
+        return;
+      }
+
+      if (data.type === 'deselect') {
+        setSelected(null);
+        setToolbarPos(null);
         return;
       }
 
@@ -1904,6 +2511,7 @@ export function VisualEditor({
       const parsedImagePos = parsePositionToPercent(nextImagePosition);
       setImagePositionX(parsedImagePos.x);
       setImagePositionY(parsedImagePos.y);
+      setImageScale(100);
       setImageWidth(payload.width || '');
       setImageMinWidth(payload.minWidth || '');
       setImageHeight(payload.height || '');
@@ -2113,6 +2721,7 @@ export function VisualEditor({
     nextOverlayGrad2: string;
     nextOverlayAngle: number;
     nextDarkOverlayStrength: number;
+    nextScale: number;
   }>) => {
     if (!selected?.path) return;
 
@@ -2132,6 +2741,7 @@ export function VisualEditor({
     const nextOverlayGrad2 = overrides?.nextOverlayGrad2 ?? overlayGrad2;
     const nextOverlayAngle = overrides?.nextOverlayAngle ?? overlayAngle;
     const nextDarkOverlayStrength = overrides?.nextDarkOverlayStrength ?? darkOverlayStrength;
+    const nextScale = overrides?.nextScale ?? imageScale;
 
     // target the explicitly discovered image path (inner img) if present, otherwise fall back to the selected.path
     const targetPath = selectedImagePath || selected.path;
@@ -2195,6 +2805,14 @@ export function VisualEditor({
             img.style.aspectRatio = nextAspectRatio;
           } else {
             img.style.removeProperty('aspect-ratio');
+          }
+
+          if (nextScale && nextScale !== 100) {
+            img.style.transform = `scale(${Math.max(10, Math.min(300, nextScale)) / 100})`;
+            img.style.transformOrigin = nextPosition || 'center';
+          } else {
+            img.style.removeProperty('transform');
+            img.style.removeProperty('transform-origin');
           }
 
           const parent = img.parentElement as HTMLElement | null;
@@ -2287,6 +2905,14 @@ export function VisualEditor({
           return match ? match[1] : '';
         })();
         if (currentBgUrl) {
+          const bgSize = nextScale && nextScale !== 100
+            ? `${Math.max(10, Math.min(300, nextScale))}%`
+            : nextFit === 'cover'
+              ? 'cover'
+              : nextFit === 'contain'
+                ? 'contain'
+                : nextFit;
+          target.style.backgroundSize = bgSize || target.style.backgroundSize;
           target.style.setProperty('background-image', composeBackgroundImageWithOverlay({
             imageUrl: currentBgUrl,
             overlayMode: nextOverlayMode,
@@ -3257,14 +3883,28 @@ export function VisualEditor({
     applyColorsLive({ nextTextColor: next });
   };
 
+  const buildHtmlWithBase = (nextHtml: string) => {
+    const base = (projectPublicUrl || '').trim();
+    if (!base) return nextHtml;
+    const normalized = base.replace(/\/index\.html$/i, '/').replace(/\/?$/, '/');
+    const absoluteBase = new URL(normalized, window.location.origin).href;
+    let result = nextHtml.replace(/<base\b[^>]*>/gi, '');
+    result = result.replace(/(<head\b[^>]*>)/i, `$1\n<base href="${absoluteBase}">`);
+    return result;
+  };
+
+  const writeHtmlToIframeDoc = (doc: Document, nextHtml: string) => {
+    doc.open();
+    doc.write(buildHtmlWithBase(nextHtml));
+    doc.close();
+    injectBridgeIntoDocument(doc);
+  };
+
   const writeHtmlToIframe = (nextHtml: string) => {
     setTimeout(() => {
       const doc = iframeRef.current?.contentDocument;
       if (!doc) return;
-      doc.open();
-      doc.write(nextHtml);
-      doc.close();
-      injectBridgeIntoDocument(doc);
+      writeHtmlToIframeDoc(doc, nextHtml);
     }, 0);
   };
 
@@ -3730,27 +4370,10 @@ export function VisualEditor({
     }
   };
 
-  const previewWidthClass = previewMode === 'desktop'
-    ? 'w-full'
-    : previewMode === 'tablet'
-      ? 'w-[900px] max-w-full'
-      : 'w-[430px] max-w-full';
-
   const iframeEl = (
     <div className="relative h-full w-full bg-muted/20">
-      <div className="absolute right-3 top-3 z-30 flex items-center gap-1 rounded-md border border-border/70 bg-background/95 p-1 shadow">
-        <Button size="sm" variant={previewMode === 'desktop' ? 'default' : 'ghost'} className="h-8 px-2" onClick={() => setPreviewMode('desktop')}>
-          <Monitor className="h-4 w-4" />
-        </Button>
-        <Button size="sm" variant={previewMode === 'tablet' ? 'default' : 'ghost'} className="h-8 px-2" onClick={() => setPreviewMode('tablet')}>
-          <Tablet className="h-4 w-4" />
-        </Button>
-        <Button size="sm" variant={previewMode === 'mobile' ? 'default' : 'ghost'} className="h-8 px-2" onClick={() => setPreviewMode('mobile')}>
-          <Smartphone className="h-4 w-4" />
-        </Button>
-        {!panelOpen && (
-          <>
-            <div className="w-px h-5 bg-border mx-0.5" />
+      {!panelOpen && (
+        <div className="absolute right-3 top-3 z-30 flex items-center gap-1 rounded-md border border-border/70 bg-background/95 p-1 shadow">
             <Button
               size="sm"
               variant={layout === 'overlay' ? 'default' : 'ghost'}
@@ -3765,8 +4388,47 @@ export function VisualEditor({
               <Pencil className="h-4 w-4" />
               {layout === 'overlay' && <span className="text-xs">Edit</span>}
             </Button>
-          </>
-        )}
+        </div>
+      )}
+
+      <div className="absolute left-3 top-3 z-30">
+        <Button
+          ref={layersBtnRef}
+          size="sm"
+          className="h-9 gap-2 rounded-md shadow-lg"
+          style={{ background: '#995AF2', color: '#fff' }}
+          onClick={() => {
+            setToolbarPos(null);
+            setToolbarAddElOpen(false);
+            setFloatingAddElOpen(false);
+            setEditorTab('element');
+            const rect = layersBtnRef.current?.getBoundingClientRect();
+            if (rect) setLayersPanelRect({ top: rect.bottom + 4, left: rect.left });
+            setFloatingLayersOpen((value) => !value);
+          }}
+          title="Layers"
+        >
+          <Layers className="h-4 w-4" />
+          Layers
+        </Button>
+      </div>
+
+      <div className="absolute right-3 top-3 z-30 flex items-center gap-1 rounded-md border border-white/20 bg-black/60 px-2 py-1 shadow backdrop-blur-sm">
+        <button
+          className="flex h-6 w-6 items-center justify-center rounded text-white/80 hover:bg-white/15 text-base leading-none font-bold"
+          title="Zoom out"
+          onClick={() => setCanvasZoom(z => Math.max(0.25, Math.round((z - 0.25) * 100) / 100))}
+        >−</button>
+        <button
+          className="min-w-[38px] text-center text-[11px] font-semibold text-white/80 hover:text-white cursor-pointer"
+          title="Reset zoom"
+          onClick={() => setCanvasZoom(1)}
+        >{Math.round(canvasZoom * 100)}%</button>
+        <button
+          className="flex h-6 w-6 items-center justify-center rounded text-white/80 hover:bg-white/15 text-base leading-none font-bold"
+          title="Zoom in"
+          onClick={() => setCanvasZoom(z => Math.min(2, Math.round((z + 0.25) * 100) / 100))}
+        >+</button>
       </div>
 
       <div className="absolute bottom-3 left-3 z-30" ref={floatingAddElPopoverRef}>
@@ -3777,6 +4439,7 @@ export function VisualEditor({
           <Button
             size="sm"
             className="h-10 gap-2 rounded-md shadow-lg"
+            style={{ background: '#995AF2', color: '#fff' }}
             onClick={() => {
               setToolbarPos(null);
               setToolbarAddElOpen(false);
@@ -3797,7 +4460,10 @@ export function VisualEditor({
         })()}
       </div>
 
-      <div className={`relative mx-auto h-full transition-all duration-300 ${previewWidthClass}`}>
+      <div
+        className="relative mx-auto h-full w-full transition-all duration-300"
+        style={canvasZoom !== 1 ? { transform: `scale(${canvasZoom})`, transformOrigin: 'top center', height: `${100 / canvasZoom}%` } : undefined}
+      >
         {!livePreviewUrl && (
           <div className="absolute inset-0 z-20 flex items-center justify-center rounded-xl bg-background/95 p-6 text-center">
             <div className="max-w-md space-y-2">
@@ -3857,6 +4523,62 @@ export function VisualEditor({
     }
   }, [html]);
 
+  const adsLayers = useMemo<AdsLayer[]>(() => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const buildPath = (el: Element | null) => {
+        if (!el || el === doc.documentElement) return 'html';
+        const parts: string[] = [];
+        let node: Element | null = el;
+        while (node && node.nodeType === 1 && node !== doc.body) {
+          const tag = node.tagName.toLowerCase();
+          let idx = 1;
+          let sibling = node.previousElementSibling;
+          while (sibling) {
+            if (sibling.tagName === node.tagName) idx += 1;
+            sibling = sibling.previousElementSibling;
+          }
+          parts.unshift(`${tag}:nth-of-type(${idx})`);
+          node = node.parentElement;
+        }
+        return `body > ${parts.join(' > ')}`;
+      };
+
+      const roots = Array.from(doc.querySelectorAll('.ad-banner, [data-platform][data-format]'));
+      const scope = roots.length > 0 ? roots : Array.from(doc.body.children);
+      const ignored = new Set(['script', 'style', 'meta', 'link', 'title', 'base']);
+      const layers: AdsLayer[] = [];
+
+      const walk = (el: Element, depth: number) => {
+        const tag = el.tagName.toLowerCase();
+        if (ignored.has(tag)) return;
+        const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        const label =
+          el.getAttribute('aria-label') ||
+          el.getAttribute('alt') ||
+          el.getAttribute('data-format') ||
+          el.getAttribute('class')?.split(/\s+/).find(Boolean) ||
+          text.slice(0, 42) ||
+          tag;
+        layers.push({
+          path: buildPath(el),
+          parentPath: buildPath(el.parentElement),
+          tag,
+          title: label,
+          depth,
+          zIndex: (el as HTMLElement).style?.zIndex || '',
+        });
+        Array.from(el.children).forEach((child) => walk(child, depth + 1));
+      };
+
+      scope.forEach((el) => walk(el, 0));
+      return layers;
+    } catch {
+      return [];
+    }
+  }, [html]);
+
   // Selecionar sessão no painel lateral: não deve preencher campo de texto
   const selectSection = (path: string) => {
     const doc = iframeRef.current?.contentDocument;
@@ -3883,6 +4605,7 @@ export function VisualEditor({
     setSrcValue('');
     setImageFit('cover');
     setImagePosition('center');
+    setImageScale(100);
     setImageWidth('');
     setImageMinWidth('');
     setImageHeight('');
@@ -3929,9 +4652,83 @@ export function VisualEditor({
     setBorderRadius(0);
   };
 
+  const selectAdsLayer = (path: string) => {
+    const doc = iframeRef.current?.contentDocument;
+    const el = doc?.querySelector(path) as HTMLElement | null;
+    const frameWindow = doc?.defaultView;
+    if (!doc || !el || !frameWindow) return;
+    const buildPath = (node: Element | null) => {
+      if (!node || node === doc.documentElement) return 'html';
+      const parts: string[] = [];
+      let current: Element | null = node;
+      while (current && current.nodeType === 1 && current !== doc.body) {
+        const tag = current.tagName.toLowerCase();
+        let idx = 1;
+        let sibling = current.previousElementSibling;
+        while (sibling) {
+          if (sibling.tagName === current.tagName) idx += 1;
+          sibling = sibling.previousElementSibling;
+        }
+        parts.unshift(`${tag}:nth-of-type(${idx})`);
+        current = current.parentElement;
+      }
+      return `body > ${parts.join(' > ')}`;
+    };
+
+    doc.querySelectorAll('.cf-editor-selected').forEach((node) => node.classList.remove('cf-editor-selected'));
+    el.classList.add('cf-editor-selected');
+
+    const computed = frameWindow.getComputedStyle(el);
+    const section = el.closest('section');
+    const payload: SelectedNode = {
+      path,
+      sectionPath: section ? buildPath(section) : null,
+      tag: el.tagName.toLowerCase(),
+      text: (el.textContent || '').trim().slice(0, 500),
+      fontFamily: computed.fontFamily || '',
+      lineHeight: computed.lineHeight || '',
+      whiteSpace: computed.whiteSpace || '',
+      overflowWrap: computed.overflowWrap || '',
+      wordBreak: computed.wordBreak || '',
+      textWrap: computed.textWrap || '',
+      src: el.getAttribute('src') || '',
+      objectFit: computed.objectFit || 'fill',
+      objectPosition: computed.objectPosition || '50% 50%',
+      width: computed.width || '',
+      minWidth: computed.minWidth || '',
+      height: computed.height || '',
+      minHeight: computed.minHeight || '',
+      maxWidth: computed.maxWidth || '',
+      maxHeight: computed.maxHeight || '',
+      aspectRatio: computed.aspectRatio || '',
+      href: el.getAttribute('href') || '',
+      target: el.getAttribute('target') || '',
+      rel: el.getAttribute('rel') || '',
+      color: computed.color || '',
+      backgroundColor: computed.backgroundColor || '',
+      backgroundImage: computed.backgroundImage || '',
+      backgroundSize: computed.backgroundSize || '',
+      backgroundPosition: computed.backgroundPosition || '',
+      backgroundRepeat: computed.backgroundRepeat || '',
+      paddingTop: computed.paddingTop || '0px',
+      paddingBottom: computed.paddingBottom || '0px',
+      marginTop: computed.marginTop || '0px',
+      marginBottom: computed.marginBottom || '0px',
+      fontSize: computed.fontSize || '16px',
+      fontWeight: computed.fontWeight || '400',
+      textAlign: computed.textAlign || 'left',
+      borderRadius: computed.borderRadius || '0px',
+      isButtonLike: el.tagName === 'BUTTON' || el.tagName === 'A',
+    };
+
+    window.postMessage({ source: EDITOR_MESSAGE_SOURCE, type: 'select', payload }, '*');
+    el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+  };
+
   // Render painel de sessões
   // Drag-and-drop state
   const [draggedSectionIdx, setDraggedSectionIdx] = useState<number | null>(null);
+  const [draggedLayerPath, setDraggedLayerPath] = useState<string | null>(null);
 
   const isTextElementSelected = useMemo(() => {
     if (!selected) return false;
@@ -4001,6 +4798,158 @@ export function VisualEditor({
       body.insertBefore(fromEl, toEl);
     });
     setDraggedSectionIdx(null);
+  };
+
+  const moveLayerInStack = (path: string, direction: 'front' | 'back') => {
+    applyMutation(path, (el) => {
+      const target = el as HTMLElement;
+      const current = Number.parseInt(window.getComputedStyle(target).zIndex || target.style.zIndex || '0', 10);
+      const next = direction === 'front'
+        ? (Number.isFinite(current) ? current + 1 : 1)
+        : (Number.isFinite(current) ? current - 1 : -1);
+      target.style.position = target.style.position || 'absolute';
+      target.style.zIndex = String(next);
+    });
+  };
+
+  const nudgeSelectedElement = (dx: number, dy: number) => {
+    if (!selected?.path) return;
+    applyMutation(selected.path, (el, doc) => {
+      const target = el as HTMLElement;
+      const parent = (target.offsetParent || target.parentElement) as HTMLElement | null;
+      const parentRect = parent?.getBoundingClientRect();
+      const rect = target.getBoundingClientRect();
+      const computed = window.getComputedStyle(target);
+      const left = Number.parseFloat(computed.left);
+      const top = Number.parseFloat(computed.top);
+      const baseLeft = Number.isFinite(left) && computed.position !== 'static'
+        ? left
+        : rect.left - (parentRect?.left || 0) + (parent?.scrollLeft || 0);
+      const baseTop = Number.isFinite(top) && computed.position !== 'static'
+        ? top
+        : rect.top - (parentRect?.top || 0) + (parent?.scrollTop || 0);
+
+      if (parent && parent !== doc.body && window.getComputedStyle(parent).position === 'static') {
+        parent.style.position = 'relative';
+      }
+      target.style.position = 'absolute';
+      target.style.margin = '0';
+      if (!target.style.zIndex || target.style.zIndex === 'auto') target.style.zIndex = '20';
+      const rawLeft = baseLeft + dx;
+      const rawTop = baseTop + dy;
+      const nextLeft = snapToGrid ? Math.round(rawLeft / 8) * 8 : Math.round(rawLeft);
+      const nextTop = snapToGrid ? Math.round(rawTop / 8) * 8 : Math.round(rawTop);
+      target.style.left = `${nextLeft}px`;
+      target.style.top = `${nextTop}px`;
+    });
+  };
+
+  const applySmartResize = (preset = smartResizePreset) => {
+    const [widthRaw, heightRaw] = preset.split('x');
+    const nextWidth = Number(widthRaw);
+    const nextHeight = Number(heightRaw);
+    if (!Number.isFinite(nextWidth) || !Number.isFinite(nextHeight) || nextWidth <= 0 || nextHeight <= 0) {
+      toast.error('Invalid resize preset.');
+      return;
+    }
+
+    applyMutation('body', (body) => {
+      const root = (body.querySelector('.ad-banner, [data-platform][data-format]') || body.firstElementChild) as HTMLElement | null;
+      if (!root) return;
+      const currentWidth = Number.parseFloat(root.style.width || window.getComputedStyle(root).width || String(nextWidth));
+      const scale = currentWidth > 0 ? nextWidth / currentWidth : 1;
+      root.style.width = `${nextWidth}px`;
+      root.style.height = `${nextHeight}px`;
+      root.style.position = root.style.position || 'relative';
+      root.style.overflow = 'hidden';
+      root.setAttribute('data-smart-resized', `${nextWidth}x${nextHeight}`);
+      root.querySelectorAll<HTMLElement>('h1,h2,h3,p,span,a,button').forEach((el) => {
+        const current = Number.parseFloat(el.style.fontSize || window.getComputedStyle(el).fontSize || '');
+        if (Number.isFinite(current) && current > 0) {
+          el.style.fontSize = `${Math.max(8, Math.round(current * scale))}px`;
+        }
+      });
+      root.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+        img.style.maxWidth = img.style.maxWidth || '100%';
+        img.style.maxHeight = img.style.maxHeight || '100%';
+      });
+    });
+    toast.success(`Creative resized to ${nextWidth}x${nextHeight}.`);
+  };
+
+  const applyAutoLayoutPreset = (preset: 'row' | 'column' | 'center' | 'grid') => {
+    const targetPath = selectedWrapperPath || selected?.sectionPath || selected?.path;
+    if (!targetPath) {
+      toast.info('Select a container or element first.');
+      return;
+    }
+
+    applyMutation(targetPath, (el) => {
+      const target = el as HTMLElement;
+      target.style.boxSizing = 'border-box';
+      if (preset === 'grid') {
+        target.style.display = 'grid';
+        target.style.gridTemplateColumns = 'repeat(2, minmax(0, 1fr))';
+        target.style.gap = target.style.gap || '16px';
+        target.style.alignItems = 'center';
+        return;
+      }
+      target.style.display = 'flex';
+      target.style.flexDirection = preset === 'row' ? 'row' : 'column';
+      target.style.flexWrap = 'nowrap';
+      target.style.gap = target.style.gap || '12px';
+      target.style.alignItems = preset === 'center' ? 'center' : 'stretch';
+      target.style.justifyContent = preset === 'center' ? 'center' : 'space-between';
+    });
+  };
+
+  const applyCropPreset = (preset: 'fill' | 'contain' | 'left' | 'right' | 'top' | 'product') => {
+    if (preset === 'fill') {
+      setImageFit('cover');
+      setImageScale(115);
+      applyImageFormattingLive({ nextFit: 'cover', nextScale: 115 });
+      return;
+    }
+    if (preset === 'contain') {
+      setImageFit('contain');
+      setImageScale(100);
+      applyImageFormattingLive({ nextFit: 'contain', nextScale: 100 });
+      return;
+    }
+    if (preset === 'product') {
+      setImageFit('contain');
+      setImageScale(105);
+      setImageMaxWidth('78%');
+      applyImageFormattingLive({ nextFit: 'contain', nextScale: 105, nextMaxWidth: '78%' });
+      applyShadowLive({ nextBoxEnabled: true, nextBoxY: 12, nextBoxBlur: 32, nextBoxOpacity: 28 });
+      return;
+    }
+    const nextPosition = preset === 'left' ? '18% 50%' : preset === 'right' ? '82% 50%' : '50% 18%';
+    const parsed = parsePositionToPercent(nextPosition);
+    setImagePosition(nextPosition);
+    setImagePositionX(parsed.x);
+    setImagePositionY(parsed.y);
+    applyImageFormattingLive({ nextPosition });
+  };
+
+  const handleLayerDrop = (e: React.DragEvent, targetPath: string) => {
+    e.preventDefault();
+    if (!draggedLayerPath || draggedLayerPath === targetPath) return;
+
+    const fromLayer = adsLayers.find((layer) => layer.path === draggedLayerPath);
+    const toLayer = adsLayers.find((layer) => layer.path === targetPath);
+    if (!fromLayer || !toLayer || fromLayer.parentPath !== toLayer.parentPath) {
+      toast.info('Layers can be reordered when they share the same parent.');
+      setDraggedLayerPath(null);
+      return;
+    }
+
+    applyMutation(draggedLayerPath, (fromEl, doc) => {
+      const toEl = doc.querySelector(targetPath);
+      if (!toEl || !fromEl.parentElement || fromEl.parentElement !== toEl.parentElement) return;
+      fromEl.parentElement.insertBefore(fromEl, toEl);
+    });
+    setDraggedLayerPath(null);
   };
 
   const isEmbeddedFormModal = pendingEmbedMode === 'section' && (pendingSectionType === 'Embedded Form' || pendingSectionType === 'Forms Embedded');
@@ -4239,6 +5188,80 @@ export function VisualEditor({
     </div>
   );
 
+  const layersPanel = (
+    <div className="overflow-hidden rounded-lg border shadow-sm" style={{ borderColor: 'var(--cf-ads-border)', background: 'rgba(16, 9, 28, 0.92)' }}>
+      <div className="border-b px-3 py-3" style={{ borderColor: 'var(--cf-ads-border)' }}>
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4" style={{ color: 'var(--cf-ads-accent)' }} />
+          <p className="text-sm font-semibold" style={{ color: 'var(--cf-ads-text)' }}>Layers</p>
+          <Badge variant="secondary" className="text-[10px]">{adsLayers.length}</Badge>
+        </div>
+        <p className="mt-1 text-xs" style={{ color: 'var(--cf-ads-muted)' }}>
+          Select artwork, reorder the stack, then drag directly on the creative.
+        </p>
+      </div>
+
+      {adsLayers.length === 0 ? (
+        <div className="p-4 text-center">
+          <p className="text-sm font-medium" style={{ color: 'var(--cf-ads-text)' }}>No layers found</p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--cf-ads-muted)' }}>Open a generated creative to edit its artwork.</p>
+        </div>
+      ) : (
+        <ul className="max-h-[48vh] space-y-1 overflow-auto p-2">
+          {adsLayers.map((layer) => {
+            const isActive = selected?.path === layer.path;
+            return (
+              <li
+                key={layer.path}
+                draggable
+                onDragStart={() => setDraggedLayerPath(layer.path)}
+                onDragEnd={() => setDraggedLayerPath(null)}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = 'move';
+                }}
+                onDrop={(event) => handleLayerDrop(event, layer.path)}
+                className={`group rounded-md border transition-colors ${draggedLayerPath === layer.path ? 'opacity-50' : ''}`}
+                style={{
+                  borderColor: isActive ? 'var(--cf-ads-primary)' : 'rgba(255,255,255,0.1)',
+                  background: isActive ? 'rgba(153, 90, 242, 0.16)' : 'rgba(255,255,255,0.04)',
+                }}
+              >
+                <div className="flex items-center gap-2 p-2" style={{ paddingLeft: `${8 + Math.min(layer.depth, 5) * 12}px` }}>
+                  <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    onClick={() => selectAdsLayer(layer.path)}
+                    title="Select layer"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[10px] font-semibold uppercase shadow-sm" style={{ background: 'rgba(255,255,255,0.08)', color: 'var(--cf-ads-muted)' }}>
+                      {layer.tag.slice(0, 3)}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-medium" style={{ color: 'var(--cf-ads-text)' }}>{layer.title}</span>
+                      <span className="mt-0.5 block truncate text-[10px]" style={{ color: 'var(--cf-ads-muted)' }}>
+                        {layer.zIndex ? `z ${layer.zIndex}` : layer.path.replace(/^body\s*>\s*/, '')}
+                      </span>
+                    </span>
+                  </button>
+                  <div className="flex shrink-0 items-center gap-0.5 opacity-80 group-hover:opacity-100">
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => moveLayerInStack(layer.path, 'front')} title="Bring forward">
+                      <ArrowUp size={14} />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => moveLayerInStack(layer.path, 'back')} title="Send backward">
+                      <ArrowDown size={14} />
+                    </Button>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+
   function renderAddMenu(
     activeTab: 'element' | 'sections',
     setActiveTab: (tab: 'element' | 'sections') => void,
@@ -4314,20 +5337,21 @@ export function VisualEditor({
   }
 
   const elementFormattingTabs = (
-    <div className="grid grid-cols-3 overflow-hidden rounded-md border border-border/70 bg-[#15181d] text-[11px] text-slate-300 shadow-sm">
+    <div className="grid grid-cols-3 overflow-hidden rounded-md border text-[11px] shadow-sm" style={{ borderColor: 'var(--cf-ads-border)', background: 'rgba(255,255,255,0.05)', color: 'var(--cf-ads-muted)' }}>
       {([
-        { id: 'content', label: 'Content', icon: <Pencil className="h-4 w-4" /> },
-        { id: 'style', label: 'Style', icon: <Palette className="h-4 w-4" /> },
-        { id: 'advanced', label: 'Advanced', icon: <Settings2 className="h-4 w-4" /> },
+        { id: 'content', label: 'Copy', icon: <Pencil className="h-4 w-4" /> },
+        { id: 'style', label: 'Visual', icon: <Palette className="h-4 w-4" /> },
+        { id: 'advanced', label: 'Layout', icon: <Settings2 className="h-4 w-4" /> },
       ] as const).map((tab) => (
         <button
           key={tab.id}
           type="button"
-          className={`flex h-14 flex-col items-center justify-center gap-1 border-b-2 transition-colors hover:bg-white/5 ${
-            editorPanelTab === tab.id
-              ? 'border-primary text-white'
-              : 'border-transparent text-slate-400'
-          }`}
+          className="flex h-14 flex-col items-center justify-center gap-1 border-b-2 transition-colors hover:bg-white/5"
+          style={{
+            borderColor: editorPanelTab === tab.id ? 'var(--cf-ads-primary)' : 'transparent',
+            color: editorPanelTab === tab.id ? 'var(--cf-ads-text)' : 'var(--cf-ads-muted)',
+            background: editorPanelTab === tab.id ? 'rgba(153, 90, 242, 0.14)' : 'transparent',
+          }}
           onClick={() => {
             setToolbarPos(null);
             setToolbarAddElOpen(false);
@@ -4345,12 +5369,16 @@ export function VisualEditor({
     <div className="text-sm space-y-3">
       <div className="mb-3 flex items-center gap-2">
         {([
-          ['element', 'Element'],
-          ['sections', 'Sections'],
+          ['element', 'Design'],
         ] as const).map(([id, label]) => (
           <button
             key={id}
-            className={`px-3 py-1 rounded-md text-sm font-medium ${editorTab === id ? 'bg-muted text-primary' : 'text-muted-foreground'}`}
+            className="rounded-md px-3 py-1 text-sm font-medium transition-colors"
+            style={{
+              background: editorTab === id ? 'rgba(153, 90, 242, 0.18)' : 'transparent',
+              color: editorTab === id ? 'var(--cf-ads-text)' : 'var(--cf-ads-muted)',
+              border: editorTab === id ? '1px solid var(--cf-ads-border)' : '1px solid transparent',
+            }}
             onClick={() => {
               setToolbarPos(null);
               setToolbarAddElOpen(false);
@@ -4362,7 +5390,7 @@ export function VisualEditor({
         ))}
       </div>
 
-      <div className="rounded-md border border-border/60 bg-muted/20">
+      <div className="rounded-md border" style={{ borderColor: 'var(--cf-ads-border)', background: 'rgba(255,255,255,0.04)' }}>
         <button
           className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
           onClick={() => {
@@ -4372,8 +5400,8 @@ export function VisualEditor({
           }}
         >
           <div className="flex items-center gap-2">
-            <Palette className="h-4 w-4 text-primary" />
-            <p className="text-sm font-medium">Brand Colors</p>
+            <Palette className="h-4 w-4" style={{ color: 'var(--cf-ads-accent)' }} />
+            <p className="text-sm font-medium" style={{ color: 'var(--cf-ads-text)' }}>Campaign Palette</p>
           </div>
           <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${brandColorsOpen ? 'rotate-180' : ''}`} />
         </button>
@@ -4419,19 +5447,15 @@ export function VisualEditor({
         )}
       </div>
 
-      {editorTab === 'sections' ? (
-        sectionsPanel
-      ) : (
-        !selected ? (
+      {!selected ? (
           <>
-            <div className="rounded-md border border-border/50 bg-muted/20 p-4 space-y-2">
-              <p className="text-sm font-medium text-foreground">No element selected</p>
-              <p className="text-xs text-muted-foreground">Click any text, image, or section in the preview to start editing it.</p>
-              <ul className="text-xs text-muted-foreground space-y-1 mt-2 list-disc pl-4">
-                <li>Click a <strong>heading or paragraph</strong> to edit its text and style</li>
-                <li>Click an <strong>image</strong> to swap it from your assets folder</li>
-                <li>Click inside the <strong>hero section</strong> to see the Replace Image shortcut</li>
-                <li>Switch to <strong>Sections</strong> tab above to reorder or remove sections</li>
+            <div className="space-y-2 rounded-md border p-4" style={{ borderColor: 'var(--cf-ads-border)', background: 'rgba(255,255,255,0.04)' }}>
+              <p className="text-sm font-medium" style={{ color: 'var(--cf-ads-text)' }}>Select an artwork layer</p>
+              <p className="text-xs" style={{ color: 'var(--cf-ads-muted)' }}>Click text, logo, image, button, or choose a layer to edit the creative.</p>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs" style={{ color: 'var(--cf-ads-muted)' }}>
+                <li>Drag directly on the canvas to reposition</li>
+                <li>Use Layers to bring items forward or backward</li>
+                <li>Use Copy, Visual, and Layout tabs for focused controls</li>
               </ul>
             </div>
             {showFilesFolder && (
@@ -4520,6 +5544,40 @@ export function VisualEditor({
         ) : (
           <div className="flex flex-col gap-4">
           {elementFormattingTabs}
+          <div className="rounded-md border p-3" style={{ borderColor: 'var(--cf-ads-border)', background: 'rgba(255,255,255,0.04)' }}>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: 'var(--cf-ads-muted)' }}>Position</p>
+              <div className="flex items-center gap-1">
+                <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => selected?.path && moveLayerInStack(selected.path, 'front')}>
+                  Front
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => selected?.path && moveLayerInStack(selected.path, 'back')}>
+                  Back
+                </Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              <span />
+              <Button size="sm" variant="outline" className="h-8" onClick={() => nudgeSelectedElement(0, -8)} title="Move up">
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+              <span />
+              <Button size="sm" variant="outline" className="h-8" onClick={() => nudgeSelectedElement(-8, 0)} title="Move left">
+                <ArrowDown className="h-4 w-4 rotate-90" />
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 text-[11px]" onClick={() => nudgeSelectedElement(0, 0)} title="Make draggable">
+                Pin
+              </Button>
+              <Button size="sm" variant="outline" className="h-8" onClick={() => nudgeSelectedElement(8, 0)} title="Move right">
+                <ArrowDown className="h-4 w-4 -rotate-90" />
+              </Button>
+              <span />
+              <Button size="sm" variant="outline" className="h-8" onClick={() => nudgeSelectedElement(0, 8)} title="Move down">
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+              <span />
+            </div>
+          </div>
           {(selected?.sectionPath || selected?.tag === 'section') && (
             <div className="hidden">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Add element</p>
@@ -4538,9 +5596,9 @@ export function VisualEditor({
               </div>
             </div>
           )}
-          <details open className="order-last rounded-md border border-border/60 bg-muted/20">
+          <details open className="order-last rounded-md border" style={{ borderColor: 'var(--cf-ads-border)', background: 'rgba(255,255,255,0.03)' }}>
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground [&::-webkit-details-marker]:hidden">
-              Selection Context
+              Selected Layer
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             </summary>
             <div className="p-3 pt-0">
@@ -5262,6 +6320,32 @@ export function VisualEditor({
                     <option value="bottom left">bottom left</option>
                     <option value="bottom right">bottom right</option>
                   </select>
+                </div>
+                <div className="space-y-2 rounded-md border border-primary/25 bg-primary/5 p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Crop & focal point</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Button size="sm" variant="outline" onClick={() => applyCropPreset('fill')}>Fill</Button>
+                    <Button size="sm" variant="outline" onClick={() => applyCropPreset('contain')}>Contain</Button>
+                    <Button size="sm" variant="outline" onClick={() => applyCropPreset('product')}>Product</Button>
+                    <Button size="sm" variant="outline" onClick={() => applyCropPreset('left')}>Left</Button>
+                    <Button size="sm" variant="outline" onClick={() => applyCropPreset('top')}>Top</Button>
+                    <Button size="sm" variant="outline" onClick={() => applyCropPreset('right')}>Right</Button>
+                  </div>
+                  <div>
+                    <Label htmlFor="cf-image-scale" className="text-xs text-muted-foreground">Zoom ({imageScale}%)</Label>
+                    <Input
+                      id="cf-image-scale"
+                      type="range"
+                      min={50}
+                      max={220}
+                      value={imageScale}
+                      onChange={(e) => {
+                        const next = Number(e.target.value || 100);
+                        setImageScale(next);
+                        applyImageFormattingLive({ nextScale: next });
+                      }}
+                    />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -6224,6 +7308,65 @@ export function VisualEditor({
                       onChange={(e) => { const v = Number(e.target.value); setHoverTransitionDuration(v); applyHoverStyleLive({ nextTransitionDuration: v }); }} />
                   </div>
                 )}
+              </div>
+            </div>
+          </details>
+
+          <details open className={`order-9 rounded-md border border-primary/30 bg-primary/5 ${editorPanelTab === 'advanced' ? '' : 'hidden'}`}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+              Premium Layout Tools
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </summary>
+            <div className="space-y-4 p-3 pt-0">
+              <div className="space-y-2">
+                <Label htmlFor="cf-smart-resize" className="text-xs text-muted-foreground">Smart resize format</Label>
+                <div className="flex gap-2">
+                  <select
+                    id="cf-smart-resize"
+                    className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                    value={smartResizePreset}
+                    onChange={(e) => setSmartResizePreset(e.target.value)}
+                  >
+                    <option value="1080x1080">Square 1080x1080</option>
+                    <option value="1080x1350">Portrait 1080x1350</option>
+                    <option value="1080x1920">Story 1080x1920</option>
+                    <option value="1200x628">Feed 1200x628</option>
+                    <option value="300x250">Rectangle 300x250</option>
+                    <option value="728x90">Leaderboard 728x90</option>
+                    <option value="970x90">Billboard 970x90</option>
+                    <option value="600x200">Email Header 600x200</option>
+                  </select>
+                  <Button size="sm" onClick={() => applySmartResize()}>Apply</Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">Resizes the root ad banner and scales visible typography proportionally.</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Auto layout presets</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button size="sm" variant="outline" onClick={() => applyAutoLayoutPreset('row')}>Flex row</Button>
+                  <Button size="sm" variant="outline" onClick={() => applyAutoLayoutPreset('column')}>Flex column</Button>
+                  <Button size="sm" variant="outline" onClick={() => applyAutoLayoutPreset('center')}>Center stack</Button>
+                  <Button size="sm" variant="outline" onClick={() => applyAutoLayoutPreset('grid')}>2-col grid</Button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Guides & snapping</p>
+                <div className="grid grid-cols-1 gap-2">
+                  <label className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-xs">
+                    <input type="checkbox" checked={showEditorGrid} onChange={(e) => setShowEditorGrid(e.target.checked)} />
+                    Show 8px grid
+                  </label>
+                  <label className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-xs">
+                    <input type="checkbox" checked={showSafeZones} onChange={(e) => setShowSafeZones(e.target.checked)} />
+                    Show platform safe zone
+                  </label>
+                  <label className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-xs">
+                    <input type="checkbox" checked={snapToGrid} onChange={(e) => setSnapToGrid(e.target.checked)} />
+                    Snap nudges to 8px grid
+                  </label>
+                </div>
               </div>
             </div>
           </details>
@@ -7338,11 +8481,25 @@ export function VisualEditor({
 
           <div className="order-[999] space-y-2">
             {isSelectedSection() ? (
-              <Button className="w-full" size="sm" variant="destructive" onClick={removeSection} disabled={!selected?.sectionPath}>
+              <Button
+                className="w-full"
+                size="sm"
+                variant="outline"
+                style={{ borderColor: 'rgba(153,90,242,0.4)', color: 'var(--cf-ads-text, #F8FAFC)' }}
+                onClick={removeSection}
+                disabled={!selected?.sectionPath}
+              >
                 <Trash2 className="mr-2 h-4 w-4" /> Remove Section
               </Button>
             ) : (
-              <Button className="w-full" size="sm" variant="destructive" onClick={removeElement} disabled={!selected?.path}>
+              <Button
+                className="w-full"
+                size="sm"
+                variant="outline"
+                style={{ borderColor: 'rgba(153,90,242,0.4)', color: 'var(--cf-ads-text, #F8FAFC)' }}
+                onClick={removeElement}
+                disabled={!selected?.path}
+              >
                 <Trash2 className="mr-2 h-4 w-4" /> Remove Element
               </Button>
             )}
@@ -7351,156 +8508,40 @@ export function VisualEditor({
 
           </div>
         )
-      )}
+      }
     </div>
   );
 
-  const floatingToolbarEl = toolbarPos && selected ? (
-    <div
-      style={{
-        position: 'fixed',
-        left: Math.max(8, Math.min(toolbarPos.x, window.innerWidth - 280)),
-        top: Math.max(FLOATING_TOOLBAR_MIN_TOP, toolbarPos.y),
-        zIndex: 99999,
-      }}
-      className="flex items-center gap-0.5 rounded-lg border border-border bg-background shadow-lg px-1 py-1"
-    >
-      {/* Text / heading formatting */}
-      {isTextElementSelected && (
-        <>
-          <button
-            title="Bold"
-            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-xs font-bold ${fontWeight >= 700 ? 'bg-muted' : ''}`}
-            onClick={() => { const next = fontWeight >= 700 ? 400 : 700; setFontWeight(next); applyElementFormattingLive({ nextFontWeight: next }); }}
-          >B</button>
-          <button
-            title="Align Left"
-            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-muted ${textAlign === 'left' ? 'bg-muted' : ''}`}
-            onClick={() => { setTextAlign('left'); applyElementFormattingLive({ nextTextAlign: 'left' }); }}
-          ><AlignLeft className="h-3.5 w-3.5" /></button>
-          <button
-            title="Align Center"
-            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-muted ${textAlign === 'center' ? 'bg-muted' : ''}`}
-            onClick={() => { setTextAlign('center'); applyElementFormattingLive({ nextTextAlign: 'center' }); }}
-          ><AlignCenter className="h-3.5 w-3.5" /></button>
-          <button
-            title="Align Right"
-            className={`h-7 w-7 flex items-center justify-center rounded hover:bg-muted ${textAlign === 'right' ? 'bg-muted' : ''}`}
-            onClick={() => { setTextAlign('right'); applyElementFormattingLive({ nextTextAlign: 'right' }); }}
-          ><AlignRight className="h-3.5 w-3.5" /></button>
-          <button
-            title="Decrease font size"
-            className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-[10px] font-semibold"
-            onClick={() => { const next = Math.max(8, fontSize - 2); setFontSize(next); applyElementFormattingLive({ nextFontSize: next }); }}
-          >A-</button>
-          <button
-            title="Increase font size"
-            className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-[10px] font-semibold"
-            onClick={() => { const next = fontSize + 2; setFontSize(next); applyElementFormattingLive({ nextFontSize: next }); }}
-          >A+</button>
-          <label title="Text color" className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted cursor-pointer relative overflow-hidden">
-            <span className="text-[11px] font-bold leading-none" style={{ borderBottom: `2px solid ${textColor || '#000'}` }}>A</span>
-            <input
-              type="color"
-              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-              value={textColor || '#000000'}
-              onChange={(e) => { const c = e.target.value; setTextColor(c); applyColorsLive({ nextTextColor: c }); }}
-            />
-          </label>
-          <div className="w-px h-5 bg-border mx-0.5" />
-        </>
-      )}
-
-      {/* Image pan mode — only for cover images */}
-      {selected.tag === 'img' && imageFit === 'cover' && (
-        <>
-          <button
-            title={isPanMode ? 'Exit Pan Mode' : 'Pan image position (drag to reposition)'}
-            className={`h-7 px-2 flex items-center justify-center rounded hover:bg-muted text-[10px] font-semibold gap-1 ${isPanMode ? 'bg-blue-100 text-blue-700' : ''}`}
-            onClick={() => { if (!isPanMode) startImagePan(); }}
-          >
-            {isPanMode ? 'Panning…' : 'Pan'}
-          </button>
-          <div className="w-px h-5 bg-border mx-0.5" />
-        </>
-      )}
-
-      {/* Element controls */}
-      {selected.path && (
-        <>
-          <button title={isSelectedSection() ? 'Duplicate section' : 'Duplicate element'} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={duplicateSelectedElement}>
-            <Copy className="h-3.5 w-3.5" />
-          </button>
-          <button title={isSelectedSection() ? 'Move section up' : 'Move element up'} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={moveSelectedElementUp}>
-            <ArrowUp className="h-3.5 w-3.5" />
-          </button>
-          <button title={isSelectedSection() ? 'Move section down' : 'Move element down'} className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted" onClick={moveSelectedElementDown}>
-            <ArrowDown className="h-3.5 w-3.5" />
-          </button>
-          <div className="w-px h-5 bg-border mx-0.5" />
-        </>
-      )}
-
-      {/* Insert element */}
-      {(selected?.sectionPath || selected?.tag === 'section') && (
-        <>
-          <div className="w-px h-5 bg-border mx-0.5" />
-          <div className="relative" ref={toolbarAddElPopoverRef}>
-            <button
-              title="Add element after this"
-              className={`h-7 px-2 flex items-center justify-center rounded hover:bg-muted text-sm font-bold leading-none ${toolbarAddElOpen ? 'bg-muted' : ''}`}
-              onClick={() => {
-                setFloatingAddElOpen(false);
-                setToolbarAddElOpen(v => !v);
-              }}
-            >+</button>
-            {toolbarAddElOpen && (
-              <div className="absolute top-full left-0 mt-1 z-[100000] rounded-lg border border-border bg-background p-2 shadow-xl">
-                {renderAddMenu(toolbarAddTab, setToolbarAddTab, () => setToolbarAddElOpen(false), true)}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* Remove selected */}
-      <button
-        title={isSelectedSection() ? 'Remove section' : 'Remove element'}
-        className="h-7 w-7 flex items-center justify-center rounded text-destructive hover:bg-destructive/10"
-        onClick={isSelectedSection() ? removeSection : removeElement}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
-
-      {/* Dismiss */}
-      <button
-        title="Dismiss toolbar"
-        className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground text-base leading-none"
-        onClick={() => setToolbarPos(null)}
-      >×</button>
-    </div>
-  ) : null;
 
   if (layout === 'overlay') {
     return (
       <>
       <div
         className="relative grid h-full w-full gap-3"
-        style={panelOpen ? { gridTemplateColumns: 'minmax(0,1fr) 380px' } : undefined}
+        style={{
+          ...adsEditorChromeStyle,
+          ...(panelOpen ? { gridTemplateColumns: 'minmax(0,1fr) 380px' } : {}),
+          background: 'radial-gradient(circle at 12% 0%, rgba(153, 90, 242, 0.22), transparent 32%), linear-gradient(135deg, #080510, #13091f 55%, #09050f)',
+        }}
       >
-        <div className="overflow-hidden rounded-xl border border-border bg-white shadow-lg">
+        <div className="overflow-hidden rounded-xl border bg-white shadow-lg" style={{ borderColor: 'var(--cf-ads-border)' }}>
           {iframeEl}
         </div>
 
         {panelOpen ? (
           <aside
-            className="h-full overflow-y-auto rounded-xl border border-border bg-gradient-to-b from-background via-background to-muted/40 shadow-xl"
+            className="h-full overflow-y-auto rounded-xl border shadow-xl"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--cf-ads-primary) 32%, transparent)',
+              background: 'linear-gradient(180deg, var(--cf-ads-panel), var(--cf-ads-panel-2))',
+              color: 'var(--cf-ads-text)',
+            }}
             onMouseDownCapture={() => {
               setToolbarPos(null);
               setToolbarAddElOpen(false);
             }}
           >
-            <div className="sticky top-0 z-10 border-b border-border/60 bg-background/95 px-3 py-3 backdrop-blur">
+            <div className="sticky top-0 z-10 border-b px-3 py-3 backdrop-blur" style={{ borderColor: 'var(--cf-ads-border)', background: 'rgba(16, 9, 28, 0.94)' }}>
               <div className="flex items-center justify-between gap-2">
                 <button
                   onClick={() => {
@@ -7513,7 +8554,7 @@ export function VisualEditor({
                 >
                   <X className="h-4 w-4" />
                 </button>
-                <h3 className="text-sm font-semibold tracking-wide">Visual Editor</h3>
+                <h3 className="text-sm font-semibold tracking-wide" style={{ color: 'var(--cf-ads-text)' }}>Ads Editor</h3>
                 <div className="flex items-center gap-1">
                   <Button size="sm" variant="ghost" className="h-8 px-2" onClick={undo} disabled={!canUndo}>
                     <Undo2 className="h-4 w-4" />
@@ -7584,7 +8625,22 @@ export function VisualEditor({
             )}
           </div>
       {embedModal}
-      {floatingToolbarEl}
+      {floatingLayersOpen && layersPanelRect && (
+        <div
+          ref={floatingLayersPopoverRef}
+          style={{
+            position: 'fixed',
+            top: layersPanelRect.top,
+            left: layersPanelRect.left,
+            zIndex: 99998,
+            width: 320,
+            maxHeight: '70vh',
+            overflowY: 'auto',
+          }}
+        >
+          {layersPanel}
+        </div>
+      )}
       </>
     );
   }
@@ -7593,7 +8649,7 @@ export function VisualEditor({
     <>
     <div
       className="grid grid-cols-1 gap-4"
-      style={panelOpen ? { gridTemplateColumns: 'minmax(0, 1fr) 360px' } : undefined}
+      style={{ ...adsEditorChromeStyle, ...(panelOpen ? { gridTemplateColumns: 'minmax(0, 1fr) 360px' } : {}) }}
     >
       <div className="min-h-[500px] overflow-hidden rounded-xl border border-border bg-white shadow-lg" style={{ minHeight: '70vh', position: 'relative' }}>
         {/* Header with Open Raw Site, Undo/Redo, Save Changes */}
@@ -7610,10 +8666,11 @@ export function VisualEditor({
           </Button>
           <Badge variant={saving ? 'default' : 'secondary'} className="ml-2">{saving ? 'Saving...' : 'Saved'}</Badge>
 
-          {/* Save Changes - always last, pink, prominent */}
+          {/* Save Changes */}
           <Button
             size="sm"
-            className="ml-auto bg-pink-600 hover:bg-pink-700 text-white font-bold px-5 py-2 rounded shadow transition"
+            className="ml-auto text-white font-bold px-5 py-2 rounded shadow transition"
+            style={{ background: 'var(--cf-ads-primary, #995AF2)', color: '#fff' }}
             onClick={() => onChange(html)}
           >
             Save Changes
@@ -7638,7 +8695,7 @@ export function VisualEditor({
           }}
         >
           <div className="mb-4 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">Visual Editor</h3>
+            <h3 className="text-sm font-semibold">Ads Editor</h3>
             <div className="flex items-center gap-1">
               <Button size="sm" variant="ghost" className="h-8 px-2" onClick={undo} disabled={!canUndo}>
                 <Undo2 className="h-4 w-4" />
@@ -7711,7 +8768,22 @@ export function VisualEditor({
       )}
     </div>
     {embedModal}
-    {floatingToolbarEl}
+    {floatingLayersOpen && layersPanelRect && (
+      <div
+        ref={floatingLayersPopoverRef}
+        style={{
+          position: 'fixed',
+          top: layersPanelRect.top,
+          left: layersPanelRect.left,
+          zIndex: 99998,
+          width: 320,
+          maxHeight: '70vh',
+          overflowY: 'auto',
+        }}
+      >
+        {layersPanel}
+      </div>
+    )}
     </>
   );
 }
