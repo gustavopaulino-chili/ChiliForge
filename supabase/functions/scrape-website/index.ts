@@ -162,7 +162,7 @@ function looksLikeHtmlDocument(content: string) {
   return /<html[\s>]|<!doctype html|<body[\s>]|<head[\s>]/i.test(content);
 }
 
-async function fetchViaPhpProxy(targetUrl: string): Promise<string> {
+async function fetchViaPhpProxy(targetUrl: string): Promise<{ html: string; pixelPalette: string[] }> {
   if (!PHP_PROXY_URL || !PHP_PROXY_TOKEN) {
     throw new Error("PHP proxy not configured");
   }
@@ -171,20 +171,24 @@ async function fetchViaPhpProxy(targetUrl: string): Promise<string> {
     headers: { "Accept": "application/json" },
   }, 25000); // longer timeout — proxy does the heavy lifting
 
-  const json = await response.json() as { html?: string; error?: string; status?: number; finalUrl?: string };
+  const json = await response.json() as { html?: string; error?: string; status?: number; finalUrl?: string; pixelPalette?: string[] };
   if (json.error) throw new Error(`PHP proxy error: ${json.error}`);
   if (!json.html || !json.html.trim()) throw new Error("PHP proxy returned empty HTML");
-  return json.html;
+  return {
+    html: json.html,
+    pixelPalette: Array.isArray(json.pixelPalette) ? json.pixelPalette.filter((color) => /^#[0-9a-f]{6}$/i.test(color)).slice(0, 8) : [],
+  };
 }
 
 async function fetchWebsiteHtml(formattedUrl: string) {
   // 1. PHP proxy — uses the client's server IP, bypasses most anti-bot restrictions
   if (PHP_PROXY_URL && PHP_PROXY_TOKEN) {
     try {
-      const html = await fetchViaPhpProxy(formattedUrl);
+      const proxied = await fetchViaPhpProxy(formattedUrl);
+      const html = proxied.html;
       if (html.trim() && looksLikeHtmlDocument(html)) {
         console.log(`Fetched via PHP proxy: ${html.length} chars`);
-        return html;
+        return proxied;
       }
       console.warn("PHP proxy returned non-HTML content, falling back to direct fetch");
     } catch (e) {
@@ -217,7 +221,7 @@ async function fetchWebsiteHtml(formattedUrl: string) {
   for (const attempt of fetchAttempts) {
     const result = await tryFetchHtml(formattedUrl, attempt.init);
     if (result.ok && result.text.trim()) {
-      return result.text;
+      return { html: result.text, pixelPalette: [] };
     }
 
     lastFailure = `${attempt.name}:${result.status || "fetch-error"}`;
@@ -313,7 +317,9 @@ serve(async (req) => {
 
     console.log("Fetching website:", formattedUrl);
 
-    const html = await fetchWebsiteHtml(formattedUrl);
+    const fetchedWebsite = await fetchWebsiteHtml(formattedUrl);
+    const html = fetchedWebsite.html;
+    const pixelPalette = fetchedWebsite.pixelPalette || [];
     if (!looksLikeHtmlDocument(html)) {
       throw new Error("Fetched content is not recognizable HTML");
     }
@@ -649,6 +655,7 @@ serve(async (req) => {
     if (semanticColorMap['link-color']) colorSignals.push({ value: semanticColorMap['link-color'], source: 'link-color', weight: 65 });
     if (semanticColorMap['heading-color']) colorSignals.push({ value: semanticColorMap['heading-color'], source: 'heading-color', weight: 55 });
     if (themeColor && !isNeutral(themeColor)) colorSignals.push({ value: themeColor, source: 'theme-meta', weight: 88 });
+    pixelPalette.forEach((c,i) => colorSignals.push({ value: c.toLowerCase(), source: `php-imagecolorat-${i+1}`, weight: 96-(i*4) }));
     topColors.forEach((c,i) => colorSignals.push({ value: c, source: `css-freq-${i+1}`, weight: 40-(i*3) }));
     twColors.forEach((c,i) => colorSignals.push({ value: c, source: `tailwind-${i+1}`, weight: 35-(i*3) }));
     uniqueInlineColors.forEach((c,i) => colorSignals.push({ value: c, source: `inline-${i+1}`, weight: 25-(i*2) }));
@@ -706,6 +713,7 @@ serve(async (req) => {
             topCssColors: topColors.slice(0, 10),
             tailwindColors: twColors.slice(0, 8),
             inlineColors: uniqueInlineColors.slice(0, 8),
+            pixelPalette,
             rankedSignals: rankedColors.slice(0, 12),
             detected: {
               primary: detPrimary,
@@ -730,6 +738,7 @@ serve(async (req) => {
 
     const colorHintParts: string[] = [];
     if (themeColor && !isNeutral(themeColor)) colorHintParts.push(`theme-color (mobile browser bar): ${themeColor}`);
+    if (pixelPalette.length) colorHintParts.push(`Brand image/logo pixel palette from PHP imagecolorat(): ${pixelPalette.join(', ')}`);
     if (Object.keys(cssVarColors).length > 0) colorHintParts.push(`CSS custom properties (HIGHEST CONFIDENCE): ${Object.entries(cssVarColors).map(([k,v])=>`--${k}: ${v}`).join(', ')}`);
     if (semanticColorMap['primary-button-bg']) colorHintParts.push(`Primary button background: ${semanticColorMap['primary-button-bg']}`);
     if (semanticColorMap['button-bg']) colorHintParts.push(`Button background: ${semanticColorMap['button-bg']}`);

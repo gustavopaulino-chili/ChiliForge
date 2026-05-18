@@ -611,6 +611,41 @@ function extract_asset_urls_from_form_data($formData) {
     }
 
     $found = [];
+    $collectCandidate = function ($value) use (&$found) {
+        if (!is_string($value)) {
+            return;
+        }
+
+        $candidate = normalize_asset_url($value);
+        if ($candidate !== '' && is_supported_asset_url($candidate)) {
+            $found[] = $candidate;
+        }
+    };
+
+    foreach (['logoUrl', 'productImageUrl', 'backgroundImageUrl'] as $key) {
+        $collectCandidate($formData[$key] ?? '');
+    }
+
+    foreach (['productImageVariants', 'backgroundImageVariants'] as $key) {
+        if (!isset($formData[$key]) || !is_array($formData[$key])) {
+            continue;
+        }
+
+        foreach ($formData[$key] as $value) {
+            $collectCandidate($value);
+        }
+    }
+
+    if (isset($formData['logoVariants']) && is_array($formData['logoVariants'])) {
+        foreach ($formData['logoVariants'] as $variant) {
+            if (is_array($variant)) {
+                $collectCandidate($variant['url'] ?? '');
+            } else {
+                $collectCandidate($variant);
+            }
+        }
+    }
+
     if (isset($formData['images']) && is_array($formData['images'])) {
         $images = $formData['images'];
 
@@ -620,22 +655,16 @@ function extract_asset_urls_from_form_data($formData) {
             }
 
             if (is_string($value)) {
-                $candidate = normalize_asset_url($value);
-                if ($candidate !== '' && is_supported_asset_url($candidate)) {
-                    $found[] = $candidate;
-                }
+                $collectCandidate($value);
                 continue;
             }
 
             if (is_array($value)) {
                 foreach ($value as $item) {
-                    if (!is_string($item)) {
-                        continue;
-                    }
-
-                    $candidate = normalize_asset_url($item);
-                    if ($candidate !== '' && is_supported_asset_url($candidate)) {
-                        $found[] = $candidate;
+                    if (is_string($item)) {
+                        $collectCandidate($item);
+                    } elseif (is_array($item)) {
+                        $collectCandidate($item['url'] ?? '');
                     }
                 }
             }
@@ -647,10 +676,7 @@ function extract_asset_urls_from_form_data($formData) {
             if (!is_array($fileItem)) {
                 continue;
             }
-            $candidate = normalize_asset_url((string)($fileItem['url'] ?? ''));
-            if ($candidate !== '' && is_supported_asset_url($candidate)) {
-                $found[] = $candidate;
-            }
+            $collectCandidate($fileItem['url'] ?? '');
         }
     }
 

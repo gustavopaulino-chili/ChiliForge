@@ -193,6 +193,109 @@ function extract_img_src($imgTag, $base) {
     return '';
 }
 
+function is_neutral_rgb($r, $g, $b) {
+    if ($r > 238 && $g > 238 && $b > 238) return true;
+    if ($r < 18 && $g < 18 && $b < 18) return true;
+    $max = max($r, $g, $b);
+    $min = min($r, $g, $b);
+    return (($max - $min) / max(1, $max)) < 0.12;
+}
+
+function palette_from_image_body_with_imagecolorat($body) {
+    if (!function_exists('imagecreatefromstring') || !function_exists('imagecolorat')) {
+        return [];
+    }
+
+    $img = @imagecreatefromstring($body);
+    if (!$img) return [];
+
+    $w = imagesx($img);
+    $h = imagesy($img);
+    if ($w <= 0 || $h <= 0) {
+        imagedestroy($img);
+        return [];
+    }
+
+    $step = max(1, (int)floor(max($w, $h) / 80));
+    $buckets = [];
+    for ($y = 0; $y < $h; $y += $step) {
+        for ($x = 0; $x < $w; $x += $step) {
+            $rgb = imagecolorat($img, $x, $y);
+            if ($rgb === false) continue;
+
+            if (function_exists('imageistruecolor') && imageistruecolor($img)) {
+                $alpha = ($rgb & 0x7F000000) >> 24;
+                if ($alpha > 110) continue;
+                $r = ($rgb >> 16) & 0xFF;
+                $g = ($rgb >> 8) & 0xFF;
+                $b = $rgb & 0xFF;
+            } else {
+                $colors = imagecolorsforindex($img, $rgb);
+                if ((int)($colors['alpha'] ?? 0) > 110) continue;
+                $r = (int)$colors['red'];
+                $g = (int)$colors['green'];
+                $b = (int)$colors['blue'];
+            }
+
+            if (is_neutral_rgb($r, $g, $b)) continue;
+
+            $qr = max(0, min(255, (int)(round($r / 24) * 24)));
+            $qg = max(0, min(255, (int)(round($g / 24) * 24)));
+            $qb = max(0, min(255, (int)(round($b / 24) * 24)));
+            $key = sprintf('#%02x%02x%02x', $qr, $qg, $qb);
+            $buckets[$key] = ($buckets[$key] ?? 0) + 1;
+        }
+    }
+
+    imagedestroy($img);
+    arsort($buckets);
+    return array_slice(array_keys($buckets), 0, 5);
+}
+
+function extract_pixel_palette_from_images($html, $baseUrl, $preferredUrls = []) {
+    $candidates = [];
+    $add = function ($url, $score) use (&$candidates, $baseUrl) {
+        $absolute = make_absolute_url($url, $baseUrl);
+        if (!$absolute || str_starts_with($absolute, 'data:')) return;
+        if (!preg_match('#^https?://#i', $absolute)) return;
+        if (preg_match('#\.(?:svg|ico)(?:[?#].*)?$#i', $absolute)) return;
+        $candidates[$absolute] = max($candidates[$absolute] ?? 0, $score);
+    };
+
+    foreach ($preferredUrls as $url) {
+        if (is_string($url) && trim($url) !== '') $add($url, 90);
+    }
+
+    if (preg_match_all('/<link\b[^>]*rel=["\'][^"\']*(?:apple-touch-icon|icon)[^"\']*["\'][^>]*href=["\']([^"\']+)["\']/i', $html, $links)) {
+        foreach ($links[1] as $href) $add(html_entity_decode($href, ENT_QUOTES | ENT_HTML5), 65);
+    }
+
+    if (preg_match_all('/<img\b[^>]*>/i', $html, $tags)) {
+        foreach ($tags[0] as $tag) {
+            $score = preg_match('/logo|brand|marca|logotipo|custom-logo|site-logo|navbar-brand/i', $tag) ? 80 : 20;
+            $src = extract_img_src($tag, $baseUrl);
+            if ($src) $add($src, $score);
+        }
+    }
+
+    arsort($candidates);
+    $palette = [];
+    foreach (array_slice(array_keys($candidates), 0, 6) as $imageUrl) {
+        try {
+            $result = fetch_url($imageUrl, ['Accept: image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8'], 10);
+            if (!$result['ok'] || trim($result['body']) === '') continue;
+            foreach (palette_from_image_body_with_imagecolorat($result['body']) as $color) {
+                $palette[$color] = ($palette[$color] ?? 0) + 1;
+            }
+        } catch (Throwable $e) {
+            continue;
+        }
+    }
+
+    arsort($palette);
+    return array_slice(array_keys($palette), 0, 8);
+}
+
 function pre_extract_from_html($html, $baseUrl) {
     $d = array_fill_keys([
         'businessName', 'businessDescription',
@@ -336,6 +439,17 @@ function pre_extract_from_html($html, $baseUrl) {
     // Theme color from meta tag
     $tc = extract_meta_content($html, 'name', 'theme-color');
     if (preg_match('/(#[0-9a-fA-F]{3,6})/', $tc, $m)) $d['primaryColor'] = $m[1];
+
+    $pixelPalette = extract_pixel_palette_from_images($html, $baseUrl, array_filter([
+        $d['logoUrl'],
+        $d['heroImage1'],
+    ]));
+    if (!empty($pixelPalette)) {
+        $d['pixelPalette'] = $pixelPalette;
+        if (empty($d['primaryColor'])) $d['primaryColor'] = $pixelPalette[0];
+        $d['secondaryColor'] = $pixelPalette[1] ?? '';
+        $d['accentColor'] = $pixelPalette[2] ?? '';
+    }
 
     return $d;
 }
@@ -544,6 +658,9 @@ try {
     if (!empty($preExtracted['businessName']))   $hints .= "\nDETECTED_NAME: "          . $preExtracted['businessName'];
     if (!empty($preExtracted['headingFont']))    $hints .= "\nDETECTED_FONTS: heading=" . $preExtracted['headingFont'] . ', body=' . ($preExtracted['bodyFont'] ?? '');
     if (!empty($preExtracted['primaryColor']))   $hints .= "\nDETECTED_PRIMARY_COLOR: " . $preExtracted['primaryColor'];
+    if (!empty($preExtracted['pixelPalette']) && is_array($preExtracted['pixelPalette'])) {
+        $hints .= "\nDETECTED_PIXEL_PALETTE_FROM_IMAGECOLORAT: " . implode(', ', $preExtracted['pixelPalette']);
+    }
 
     // ── Step 3: AI — semantic fields only (50% fewer tokens vs before) ──────
     $prompt =
@@ -642,8 +759,11 @@ try {
     // Fonts: Google Fonts detection is the ground truth
     if (!empty($preExtracted['headingFont'])) $extracted['headingFont'] = $preExtracted['headingFont'];
     if (!empty($preExtracted['bodyFont']))    $extracted['bodyFont']    = $preExtracted['bodyFont'];
-    // Primary color: meta theme-color is the actual brand color
+    // Pixel/meta color extraction is deterministic and wins over AI guesses.
     if (!empty($preExtracted['primaryColor'])) $extracted['primaryColor'] = $preExtracted['primaryColor'];
+    if (!empty($preExtracted['secondaryColor'])) $extracted['secondaryColor'] = $preExtracted['secondaryColor'];
+    if (!empty($preExtracted['accentColor'])) $extracted['accentColor'] = $preExtracted['accentColor'];
+    if (!empty($preExtracted['pixelPalette'])) $extracted['pixelPalette'] = $preExtracted['pixelPalette'];
 
     write_cache($cacheKey, $extracted);
     echo json_encode([

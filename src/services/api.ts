@@ -192,6 +192,116 @@ export const updateProjectContent = (payload: { id: number; user_id: number; gen
     return data;
   });
 
+export const getAdCreative = async (creativeId: number, userId: number) => {
+  const params = new URLSearchParams({
+    id: String(creativeId),
+    user_id: String(userId),
+  });
+
+  const response = await fetch(`${API}/getAdCreative.php?${params.toString()}`, {
+    cache: 'no-store',
+    credentials: 'same-origin',
+  });
+  const data = await response.json();
+  if (!response.ok || data?.error) {
+    throw new Error(data?.error || `Request failed with status ${response.status}`);
+  }
+  return data.creative as {
+    id: number;
+    project_id: number;
+    campaign_id: number;
+    user_id?: number;
+    name: string;
+    public_url?: string;
+    html: string;
+    platform?: string;
+    format?: string;
+    label?: string;
+    width?: number;
+    height?: number;
+    form_data?: {
+      primaryColor?: string;
+      secondaryColor?: string;
+      accentColor?: string;
+      textColor?: string;
+      backgroundColor?: string;
+    } | null;
+    project_type?: string;
+  };
+};
+
+export const getAdCreatives = async (projectId: number, userId: number) => {
+  const params = new URLSearchParams({
+    project_id: String(projectId),
+    user_id: String(userId),
+  });
+
+  const response = await fetch(`${API}/getAdCreatives.php?${params.toString()}`, {
+    cache: 'no-store',
+    credentials: 'same-origin',
+  });
+  const data = await response.json();
+  if (!response.ok || data?.error) {
+    throw new Error(data?.error || `Request failed with status ${response.status}`);
+  }
+  return (Array.isArray(data.creatives) ? data.creatives : []) as Array<{
+    id: number;
+    creative_id: number;
+    project_id: number;
+    campaign_id: number;
+    name: string;
+    public_url?: string;
+    url?: string;
+    platform?: string;
+    format?: string;
+    label?: string;
+    width?: number;
+    height?: number;
+    sort_order?: number;
+    created_at?: string;
+    updated_at?: string;
+  }>;
+};
+
+export const updateAdCreativeContent = (payload: { id: number; user_id: number; html: string }) =>
+  fetch(`${API}/updateAdCreativeContent.php`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).then(async (res) => {
+    const data = await res.json();
+    if (!res.ok || data?.error) {
+      throw new Error(data?.error || `Request failed with status ${res.status}`);
+    }
+    return data;
+  });
+
+export const updateAdCampaignBoard = (payload: { project_id: number; user_id: number; html: string }) =>
+  fetch(`${API}/updateAdCampaignBoard.php`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).then(async (res) => {
+    const data = await res.json();
+    if (!res.ok || data?.error) {
+      throw new Error(data?.error || `Request failed with status ${res.status}`);
+    }
+    return data;
+  });
+
+export const deleteAdCreative = (payload: { id: number; user_id: number }) =>
+  fetch(`${API}/deleteAdCreative.php`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).then(async (res) => {
+    const data = await res.json();
+    if (!res.ok || data?.error) {
+      throw new Error(data?.error || `Request failed with status ${res.status}`);
+    }
+    return data;
+  });
+
 export const updateProjectStep = (payload: { id: number; user_id: number; current_step: number }) =>
   fetch(`${API}/updateProjectStep.php`, {
     method: "POST",
@@ -449,6 +559,36 @@ export const generateLanding = async (payload: {
     return await invoke();
   }
 };
+
+export const generateAdCreatives = async (payload: {
+  prompt: string;
+  businessName: string;
+  adData: Record<string, unknown>;
+}) => {
+  const invoke = () => invokeAiFunction<{
+    html: string;
+    css: string;
+    js: string;
+    assets: string[];
+    slug: string;
+    creativeCount?: number;
+    formats?: Array<{ platform: string; format: string; label: string; width: number; height: number }>;
+  }>("generate-ad-creatives", payload);
+
+  try {
+    return await invoke();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/status\s*546|gateway|timed out|unavailable/i.test(message)) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      return await invoke();
+    }
+    throw error;
+  }
+};
+
+export const analyzeAdBrief = (description: string, currentData?: Record<string, unknown>) =>
+  invokeAiFunction<{ extracted: Record<string, unknown> }>("analyze-ad-brief", { description, currentData });
 
 export const getProjectFiles = async (projectId: number, userId: number) => {
   const params = new URLSearchParams({
