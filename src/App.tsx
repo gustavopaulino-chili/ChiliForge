@@ -8,6 +8,8 @@ import { ErrorCatcher } from "@/components/ErrorCatcher";
 import Index from "./pages/Index.tsx";
 import History from "./pages/History.tsx";
 import VisualEditorPage from "./pages/VisualEditorPage.tsx";
+import AdCreatives from "./pages/AdCreatives.tsx";
+import AdsEditorPage from "./pages/AdsEditorPage.tsx";
 import Auth from "./pages/Auth.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { Loader2 } from "lucide-react";
@@ -40,6 +42,8 @@ const App = () => (
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
             <Route path="/visual-editor" element={<ProtectedRoute><VisualEditorPage /></ProtectedRoute>} />
+            <Route path="/ads-editor" element={<ProtectedRoute><AdsEditorPage /></ProtectedRoute>} />
+            <Route path="/ad-creatives" element={<ProtectedRoute><AdCreatives /></ProtectedRoute>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

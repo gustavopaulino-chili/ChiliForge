@@ -23,3 +23,9 @@ verify_jwt = false
 
 [functions.render-landing-preview]
 verify_jwt = false
+
+[functions.generate-ad-creatives]
+verify_jwt = false
+
+[functions.analyze-ad-brief]
+verify_jwt = false
