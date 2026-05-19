@@ -10,17 +10,31 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS projects (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    public_url VARCHAR(255),
-    folder_path VARCHAR(255),
-    form_data LONGTEXT NOT NULL,
-    generated_html LONGTEXT,
-    current_step INT DEFAULT 0,
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    user_id      INT NOT NULL,
+    name         VARCHAR(255) NOT NULL,
+    public_url   VARCHAR(255),
+    folder_path  VARCHAR(255),
+    company_form_data LONGTEXT NOT NULL DEFAULT '{}',
+    context      LONGTEXT,
     project_type VARCHAR(50) DEFAULT 'landing_page',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS lps (
+    id             INT AUTO_INCREMENT PRIMARY KEY,
+    project_id     INT NOT NULL UNIQUE,
+    public_url     VARCHAR(255),
+    folder_path    VARCHAR(255),
+    form_data      LONGTEXT NOT NULL DEFAULT '{}',
+    generated_html LONGTEXT,
+    current_step   INT DEFAULT 0,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_lps_project
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS ads_campaign (
@@ -63,13 +77,19 @@ CREATE TABLE IF NOT EXISTS ads_creatives (
 CREATE INDEX idx_user_email ON users(email);
 CREATE INDEX idx_projects_user_id ON projects(user_id);
 CREATE INDEX idx_projects_created_at ON projects(created_at);
+CREATE INDEX idx_projects_type ON projects(project_type);
+CREATE INDEX idx_lps_project_id ON lps(project_id);
 CREATE INDEX idx_ads_campaign_project_id ON ads_campaign(project_id);
 CREATE INDEX idx_ads_creatives_project_id ON ads_creatives(project_id);
 CREATE INDEX idx_ads_creatives_campaign_id ON ads_creatives(campaign_id);
 CREATE INDEX idx_ads_creatives_sort_order ON ads_creatives(campaign_id, sort_order);
 
-ALTER TABLE projects ADD COLUMN IF NOT EXISTS generated_html LONGTEXT AFTER form_data;
-ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_type VARCHAR(50) DEFAULT 'landing_page' AFTER current_step;
+ALTER TABLE projects DROP COLUMN IF EXISTS generated_json_site;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_url VARCHAR(255) AFTER name;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS folder_path VARCHAR(255) AFTER public_url;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS company_form_data LONGTEXT NOT NULL DEFAULT '{}' AFTER folder_path;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS context LONGTEXT AFTER company_form_data;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at;
 ALTER TABLE ads_creatives ADD COLUMN IF NOT EXISTS generated_html LONGTEXT AFTER height;
 ALTER TABLE ads_creatives DROP COLUMN IF EXISTS html;
 ALTER TABLE ads_creatives DROP COLUMN IF EXISTS folder_path;
@@ -93,3 +113,26 @@ CREATE TABLE IF NOT EXISTS api_keys (
 );
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(api_key);
+
+-- ============================================================
+-- Company-project linking: LP/Ad projects reference their parent company project
+-- All statements are idempotent — safe to run on an existing database.
+-- ============================================================
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS company_project_id INT NULL AFTER user_id;
+CREATE INDEX IF NOT EXISTS idx_projects_company ON projects(company_project_id);
+
+-- Add FK only when it does not already exist (MySQL 8 dynamic SQL trick)
+SET @_fk_exists = (
+  SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'projects'
+    AND CONSTRAINT_NAME = 'fk_projects_company'
+);
+SET @_add_fk = IF(
+  @_fk_exists = 0,
+  'ALTER TABLE projects ADD CONSTRAINT fk_projects_company FOREIGN KEY (company_project_id) REFERENCES projects(id) ON DELETE SET NULL',
+  'SELECT 1'
+);
+PREPARE _fk_stmt FROM @_add_fk;
+EXECUTE _fk_stmt;
+DEALLOCATE PREPARE _fk_stmt;

@@ -131,12 +131,18 @@ export const getProjectById = async (projectId: number, userId: number, userEmai
     user_id?: number;
     name?: string;
     public_url?: string;
+    project_public_url?: string;
+    lp_public_url?: string;
+    ad_public_url?: string;
     folder_path?: string;
     form_data?: any;
     generated_html?: string;
     has_generated_html?: boolean;
     current_step?: number;
     currentStep?: number;
+    company_form_data?: any;
+    context?: string;
+    project_type?: string;
   } | null);
 };
 
@@ -164,6 +170,20 @@ export const getProjectEditorContent = async (projectId: number, userId: number)
     };
   };
 };
+
+export const updateCompanyProject = (payload: {
+  id: number;
+  user_id: number;
+  name: string;
+  company_form_data: any;
+  context: string;
+}) => postApi<{ success: boolean; id: number }>('updateCompanyProject.php', payload);
+
+export const moveProjectToCompany = (payload: {
+  project_id: number;
+  user_id: number;
+  company_project_id: number;
+}) => postApi<{ success: boolean; id: number; company_project_id: number; public_url?: string; folder_path?: string }>('moveProjectToCompany.php', payload);
 
 export const createProject = (data: any) =>
   fetch(`${API}/createProject.php`, {
@@ -302,7 +322,7 @@ export const deleteAdCreative = (payload: { id: number; user_id: number }) =>
     return data;
   });
 
-export const updateProjectStep = (payload: { id: number; user_id: number; current_step: number }) =>
+export const updateProjectStep = (payload: { id: number; user_id: number; current_step: number; project_type?: string }) =>
   fetch(`${API}/updateProjectStep.php`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -315,7 +335,7 @@ export const updateProjectStep = (payload: { id: number; user_id: number; curren
     return data;
   });
 
-export const updateProjectFormState = (payload: { id: number; user_id: number; current_step: number; form_data: unknown }) =>
+export const updateProjectFormState = (payload: { id: number; user_id: number; current_step: number; form_data: unknown; project_type?: string }) =>
   fetch(`${API}/updateProjectFormState.php`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

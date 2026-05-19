@@ -3,22 +3,16 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import logoResult from '@/assets/logo-result.png';
 import { BusinessFormData, ImageUrls, defaultFormData, LANDING_PRESETS, LandingPreset } from '@/types/businessForm';
 import { StepIndicator } from '@/components/generator/StepIndicator';
-import { StepCsvImport } from '@/components/generator/StepCsvImport';
 import { StepWebsiteType } from '@/components/generator/StepWebsiteType';
-import { StepBasics } from '@/components/generator/StepBasics';
-import { StepServices } from '@/components/generator/StepServices';
-import { StepBrand } from '@/components/generator/StepBrand';
 import { StepImages } from '@/components/generator/StepImages';
-import { StepContact } from '@/components/generator/StepContact';
 import { StepReview } from '@/components/generator/StepReview';
 import { StepPages } from '@/components/generator/StepPages';
-import { NicheTemplateSelector } from '@/components/generator/NicheTemplateSelector';
 import { PromptPreview } from '@/components/generator/PromptPreview';
 import { HeroLanding } from '@/components/landing/HeroLanding';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { VisualEditor } from '@/components/editor/VisualEditor';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, Clock, LogOut, User, Server, Edit3, Key } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, FolderOpen, LogOut, User, Server, Edit3, Key } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { downloadProjectZip, generateImages, generateLanding, searchImages, updateProjectContent, updateProjectFormState, getProjectById, uploadProjectAssetsFromUrls, uploadProjectAssets } from '@/services/api';
 import { isUploadedImage } from '@/services/imageUpload';
@@ -31,14 +25,9 @@ import { ApiKeyModal } from '@/components/ApiKeyModal';
 type StepDef = { id: string; label: string };
 
 const STEPS: StepDef[] = [
-  { id: 'csv', label: 'Import' },
   { id: 'type', label: 'Preset' },
-  { id: 'basics', label: 'Basics' },
-  { id: 'services', label: 'Services' },
   { id: 'pages', label: 'Sections' },
-  { id: 'brand', label: 'Brand' },
   { id: 'images', label: 'Images' },
-  { id: 'contact', label: 'Contact' },
   { id: 'review', label: 'Review' },
 ];
 
@@ -65,6 +54,12 @@ const buildProgressStorageKey = (userId?: number, folderPath?: string) => {
   return `${STORAGE_KEY_PREFIX}:${safeUserId}:${safeFolder}`;
 };
 
+const clampStepIndex = (value?: number) => {
+  const step = Number(value ?? 0);
+  if (!Number.isFinite(step)) return 0;
+  return Math.min(Math.max(step, 0), STEPS.length - 1);
+};
+
 const deriveFolderPathFromPublicUrl = (url?: string) => {
   const raw = (url || '').trim();
   if (!raw) return '';
@@ -72,13 +67,13 @@ const deriveFolderPathFromPublicUrl = (url?: string) => {
     const absolute = raw.startsWith('http://') || raw.startsWith('https://')
       ? new URL(raw)
       : new URL(raw.startsWith('/') ? raw : `/${raw}`, window.location.origin);
-    const match = absolute.pathname.match(/\/projects\/([^/]+)\/?$/i);
+    const match = absolute.pathname.match(/\/projects\/(.+?)\/?$/i);
     if (!match?.[1]) return '';
-    return `/public/projects/${match[1]}`;
+    return `/public/projects/${match[1].replace(/\/index\.html$/i, '').replace(/\/+$/g, '')}`;
   } catch {
-    const match = raw.match(/\/projects\/([^/]+)\/?$/i);
+    const match = raw.match(/\/projects\/(.+?)\/?$/i);
     if (!match?.[1]) return '';
-    return `/public/projects/${match[1]}`;
+    return `/public/projects/${match[1].replace(/\/index\.html$/i, '').replace(/\/+$/g, '')}`;
   }
 };
 
@@ -261,7 +256,7 @@ const Index = () => {
   const { user, signOut: authSignOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const routeState = location.state as { formData?: BusinessFormData; currentStep?: number; generatedHtml?: string; savedProjectId?: number; projectOwnerId?: number; generatedLandingUrl?: string; folderPath?: string } | null;
+  const routeState = location.state as { formData?: BusinessFormData; currentStep?: number; generatedHtml?: string; savedProjectId?: number; projectOwnerId?: number; generatedLandingUrl?: string; projectPublicUrl?: string; folderPath?: string; companyProjectId?: number } | null;
   const restoreProjectId = useMemo(() => {
     const raw = new URLSearchParams(location.search).get('restoreProjectId');
     const parsed = raw ? Number(raw) : 0;
@@ -301,7 +296,7 @@ const Index = () => {
   const [pendingRestore, setPendingRestore] = useState<SavedProgress | null>(null);
   const [isLoadingRestoredProject, setIsLoadingRestoredProject] = useState(Boolean(restoreProjectId));
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [currentStep, setCurrentStep] = useState(routeState?.currentStep ?? 0);
+  const [currentStep, setCurrentStep] = useState(clampStepIndex(routeState?.currentStep));
   const [maxVisitedStep, setMaxVisitedStep] = useState(0);
   const [formData, setFormData] = useState<BusinessFormData>(normalizeFormData(routeState?.formData ?? defaultFormData));
   const [showResults, setShowResults] = useState(Boolean(routeState?.generatedHtml));
@@ -311,8 +306,9 @@ const Index = () => {
 
     if (routeState?.formData) {
       setFormData(normalizeFormData(routeState.formData));
-      setCurrentStep(routeState.currentStep ?? 0);
-      setMaxVisitedStep(routeState.currentStep ?? 0);
+      const restoredStep = clampStepIndex(routeState.currentStep);
+      setCurrentStep(restoredStep);
+      setMaxVisitedStep(restoredStep);
       setShowLanding(false);
       setShowResults(false);
     }
@@ -382,7 +378,7 @@ const Index = () => {
         navigate('/', { replace: true, state: null });
       } catch (error) {
         console.error('Failed to restore project by ID:', error);
-        toast.error('Could not restore this project. Please try again from History.');
+        toast.error('Could not restore this project. Please try again from Projects.');
         setShowLanding(true);
       } finally {
         if (!cancelled) setIsLoadingRestoredProject(false);
@@ -396,8 +392,7 @@ const Index = () => {
     };
   }, [restoreProjectId, user?.id, user?.email, navigate]);
 
-  // Note: When restoring from History, the new project ID is passed via routeState.savedProjectId
-  // (History.tsx creates the draft before navigating). No auto-draft needed here.
+  // Note: When restoring from Projects, the project ID is passed via routeState.savedProjectId.
 
   useEffect(() => {
     if (!generatedHtml || !savedProjectId || !user?.id) return;
@@ -494,6 +489,7 @@ const Index = () => {
           form_data: defaultFormData,
           generated_html: '',
           current_step: 0,
+          ...(routeState?.companyProjectId ? { company_project_id: routeState.companyProjectId } : {}),
         }),
       });
       const saved = await response.json();
@@ -1616,6 +1612,7 @@ const Index = () => {
           const basePayload = {
             project_id: savedProjectId,
             user_id: projectOwnerId ?? user.id,
+            ...(routeState?.companyProjectId ? { company_project_id: routeState.companyProjectId } : {}),
             name: generationFormData.businessName || 'Projeto',
             slug: requestedSlug,
             form_data: generationFormData,
@@ -1796,6 +1793,7 @@ const Index = () => {
           form_data: formData,
           generated_html: generatedDocument,
           current_step: currentStep,
+          ...(routeState?.companyProjectId ? { company_project_id: routeState.companyProjectId } : {}),
         })
       });
 
@@ -1847,6 +1845,7 @@ const Index = () => {
           user_id: projectOwnerId ?? user.id,
           current_step: currentStep,
           form_data: formData,
+          project_type: 'landing_page',
         });
       } catch (error) {
         console.error('Form state autosave failed:', error);
@@ -1916,8 +1915,8 @@ const Index = () => {
                 <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
               </button>
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={() => { if (!confirmLeaveGeneration()) return; navigate('/history'); }} className="gap-2 text-muted-foreground hover:text-foreground">
-                  <Clock className="h-4 w-4" /> History
+                <Button variant="ghost" size="sm" onClick={() => { if (!confirmLeaveGeneration()) return; navigate('/projects'); }} className="gap-2 text-muted-foreground hover:text-foreground">
+                  <FolderOpen className="h-4 w-4" /> Projects
                 </Button>
                 {user?.accountType === 'admin' && (
                   <Button variant="ghost" size="sm" onClick={() => setShowApiKeyModal(true)} className="gap-2 text-muted-foreground hover:text-foreground">
@@ -1930,7 +1929,7 @@ const Index = () => {
               </div>
             </div>
           </header>
-          <HeroLanding onStartGenerator={handleStartGenerator} onStartAdCreatives={() => navigate('/ad-creatives')} />
+          <HeroLanding onStartGenerator={() => navigate('/projects/new')} onStartAdCreatives={() => navigate('/ad-creatives')} />
         </div>
         <ApiKeyModal open={showApiKeyModal} onClose={() => setShowApiKeyModal(false)} />
         {showRestoreDialog && pendingRestore && (
@@ -1971,7 +1970,7 @@ const Index = () => {
         }} onSignOut={signOut} onHistoryClick={() => {
           if (!confirmLeaveGeneration()) return;
           setIsGenerating(false);
-          navigate('/history');
+          navigate('/projects');
         }} />
         <main className="flex-1 flex items-center justify-center relative z-10 px-6">
           <div className="max-w-md w-full text-center space-y-8">
@@ -2232,24 +2231,9 @@ const Index = () => {
         <StepIndicator steps={steps} currentStep={currentStep} maxVisitedStep={maxVisitedStep} onStepClick={setCurrentStep} />
 
         <div className="mt-8 glass-card rounded-xl p-6 sm:p-8" key={currentStepId}>
-          {currentStepId === 'csv' && (
-            <>
-              <StepCsvImport data={formData} onChange={updateForm} />
-              <div className="mt-6">
-                <NicheTemplateSelector onApply={(updates) => {
-                  updateForm(updates);
-                  toast.success('Template applied! Review and customize the data.');
-                }} />
-              </div>
-            </>
-          )}
           {currentStepId === 'type' && <StepWebsiteType data={formData} onChange={updateForm} />}
-          {currentStepId === 'basics' && <StepBasics data={formData} onChange={updateForm} />}
-          {currentStepId === 'services' && <StepServices data={formData} onChange={updateForm} />}
-          {currentStepId === 'brand' && <StepBrand data={formData} onChange={updateForm} />}
           {currentStepId === 'pages' && <StepPages data={formData} onChange={updateForm} />}
           {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} onGenerateAiImages={handleAiImagesGenerate} isGeneratingAiImages={stepImagesAiGenerating} aiPercent={stepImagesAiPercent} aiLog={stepImagesAiLog} onUploadImages={handleUploadImagesForStep} aiImagesGenerated={aiImagesGenerated} generatedImageUrls={aiGeneratedImageUrls} />}
-          {currentStepId === 'contact' && <StepContact data={formData} onChange={updateForm} />}
           {/* Files step removed: download files will be created automatically from AI references to ./files/ in generated content. */}
           {currentStepId === 'review' && <StepReview data={formData} />}
         </div>
@@ -2287,7 +2271,7 @@ const Index = () => {
           {currentStep < steps.length - 1 ? (
             <Button
               onClick={handleNext}
-              disabled={(currentStepId === 'basics' && !formData.customSlug.trim()) || (currentStepId === 'images' && (isGeneratingImages || stepImagesAiGenerating))}
+              disabled={currentStepId === 'images' && (isGeneratingImages || stepImagesAiGenerating)}
               className="gap-2"
             >
               {currentStepId === 'images' && isGeneratingImages ? (
@@ -2328,12 +2312,12 @@ function Header({ onLogoClick, onSignOut, onHistoryClick }: { onLogoClick?: () =
         <div className="flex items-center gap-2">
           {onHistoryClick ? (
             <Button variant="ghost" size="sm" onClick={onHistoryClick} className="gap-2 text-muted-foreground hover:text-foreground">
-              <Clock className="h-4 w-4" /> History
+              <FolderOpen className="h-4 w-4" /> Projects
             </Button>
           ) : (
-            <Link to="/history">
+            <Link to="/projects">
               <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
-                <Clock className="h-4 w-4" /> History
+                <FolderOpen className="h-4 w-4" /> Projects
               </Button>
             </Link>
           )}

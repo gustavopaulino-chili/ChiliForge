@@ -45,8 +45,8 @@ function rewrite_project_asset_refs_for_ad_board(string $content, string $projec
         $projectPath . 'assets/',
         ltrim($projectPath, '/') . 'assets/',
     ], 'assets/', $content);
-    $content = preg_replace('/https?:\/\/[^"\'\s)]+\/projects\/[^\/"\'\s)]+\/assets\//i', 'assets/', $content);
-    $content = preg_replace('/(?<![\w:])\/?projects\/[^\/"\'\s)]+\/assets\//i', 'assets/', $content);
+    $content = preg_replace('/https?:\/\/[^"\'\s)]+\/projects\/(?:[^\/"\'\s)]+\/)+assets\//i', 'assets/', $content);
+    $content = preg_replace('/(?<![\w:])\/?projects\/(?:[^\/"\'\s)]+\/)+assets\//i', 'assets/', $content);
 
     return is_string($content) ? $content : '';
 }
@@ -59,7 +59,7 @@ if ($projectId <= 0 || $userId <= 0) {
 
 include "db.php";
 
-$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.folder_path, p.public_url, p.project_type');
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.project_type');
 if (!$projectRow) {
     http_response_code(404);
     echo json_encode(["error" => "Project not found"]);
@@ -68,15 +68,30 @@ if (!$projectRow) {
 }
 
 $projectType = (string)($projectRow['project_type'] ?? '');
-if ($projectType !== 'ad_creative') {
+if ($projectType !== 'ad_creative' && $projectType !== 'project') {
     http_response_code(400);
     echo json_encode(["error" => "This endpoint only saves ad campaign boards"]);
     $conn->close();
     exit;
 }
 
-$folderPath = (string)($projectRow['folder_path'] ?? '');
-$publicUrl = (string)($projectRow['public_url'] ?? '');
+// Ad projects store public_url in ads_campaign, not lps
+$publicUrl = '';
+$acStmt = $conn->prepare("SELECT public_url FROM ads_campaign WHERE project_id = ? ORDER BY id DESC LIMIT 1");
+if ($acStmt) {
+    $acStmt->bind_param("i", $projectId);
+    $acStmt->execute();
+    $acStmt->bind_result($acPublicUrl);
+    if ($acStmt->fetch()) {
+        $publicUrl = (string)($acPublicUrl ?? '');
+    }
+    $acStmt->close();
+}
+$folderPath = '';
+if ($publicUrl !== '') {
+    $path = trim((string)(parse_url($publicUrl, PHP_URL_PATH) ?? ''), '/');
+    $folderPath = $path !== '' ? '/public/' . $path : '';
+}
 $writeWarning = null;
 $html = rewrite_project_asset_refs_for_ad_board($html, $publicUrl);
 

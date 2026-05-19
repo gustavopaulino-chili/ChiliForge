@@ -21,7 +21,7 @@ if ($projectId <= 0 || $userId <= 0) {
 
 include "db.php";
 
-$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.id, p.name, p.public_url, p.folder_path, p.generated_html');
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.id, p.name');
 
 if (!$projectRow) {
     http_response_code(404);

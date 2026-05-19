@@ -115,7 +115,12 @@ Rules:
 - Infer objective, funnel stage, strategy, tone, urgency, and audience when the brief supports it.
 - Keep copy short enough for ads.
 - Preserve any important user wording in context.
-- Do not include images unless the user provided explicit image URLs.`;
+- Do not include images unless the user provided explicit image URLs.
+- Suggest 2-4 relevant ad formats in selectedFormats based on the campaign objective and industry.
+  Common dimensions: Instagram Feed Square (1080x1080), Instagram Stories (1080x1920),
+  Facebook Feed Landscape (1200x628), Google Display Banner 300x250 (300x250),
+  LinkedIn Feed (1200x627), TikTok Video (1080x1920), Pinterest Pin (1000x1500).
+  Match formats to the campaign's likely distribution channels.`;
 
     const schema = `{
   "campaignName": "string",
@@ -155,7 +160,17 @@ Rules:
   "abTestingEnabled": boolean,
   "abVariantCount": 2,
   "abTestFocus": "headline|cta|visual|color|mixed",
-  "context": "string"
+  "context": "string",
+  "selectedFormats": [
+    {
+      "platform": "Instagram|Facebook|Google Ads|LinkedIn|TikTok|Twitter/X|Pinterest",
+      "format": "string",
+      "label": "string",
+      "width": 1080,
+      "height": 1080,
+      "enabled": true
+    }
+  ]
 }`;
 
     const data = await requestAiPayload(JSON.stringify({

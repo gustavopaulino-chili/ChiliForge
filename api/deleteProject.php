@@ -33,7 +33,7 @@ include "db.php";
 $folderPath      = '';
 $effectiveUserId = 0;
 
-$row = find_project_for_user($conn, $id, $userId, 'p.folder_path');
+$row = find_project_for_user($conn, $id, $userId, 'p.id');
 if (!$row) {
     http_response_code(404);
     echo json_encode(["error" => "Project not found"]);

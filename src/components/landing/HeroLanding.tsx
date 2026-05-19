@@ -1,8 +1,8 @@
 import { useState, type PointerEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import {
-  Sparkles, Zap, Palette, Code2, ArrowRight, Flame, Check,
-  Globe, Brain, Image, FileCode2, LayoutTemplate, Search,
+  Palette, Code2, ArrowRight, Flame, Check,
+  Globe, Brain, Image, FileCode2, LayoutTemplate, Search, Rocket,
 } from 'lucide-react';
 import { PremiumParticleBackground, type ParticleTone } from './PremiumParticleBackground';
 import './HeroLanding.css';
@@ -152,11 +152,7 @@ export function HeroLanding({ onStartGenerator, onStartAdCreatives }: HeroLandin
   };
 
   return (
-    <div
-      className="premium-home min-h-screen bg-background relative overflow-x-hidden"
-      onPointerOver={handleHomeButtonPointerOver}
-      onPointerOut={handleHomeButtonPointerOut}
-    >
+    <div className="premium-home min-h-screen bg-background relative overflow-x-hidden">
       <PremiumParticleBackground activeTone={activeTone} />
 
       {/* ── Page content ── */}
@@ -164,10 +160,10 @@ export function HeroLanding({ onStartGenerator, onStartAdCreatives }: HeroLandin
 
         {/* ════ HERO SECTION ════ */}
         <section className="premium-home-hero min-h-[92vh] px-6 pt-28 pb-16 flex items-center">
-          <div className="mx-auto w-full max-w-6xl text-center">
+          <div className="mx-auto w-full max-w-4xl text-center">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 mb-8">
               <Flame className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium text-primary">AI-Powered Landing Page Generator</span>
+              <span className="text-sm font-medium text-primary">AI-Powered Marketing Generator</span>
             </div>
 
             <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-foreground leading-[1.02] max-w-4xl mx-auto">
@@ -179,78 +175,19 @@ export function HeroLanding({ onStartGenerator, onStartAdCreatives }: HeroLandin
               Chili Forge transforms your business data into production-ready landing pages and ad creatives.
             </p>
 
-            <div className="premium-home-products mt-14 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 max-w-4xl mx-auto">
-              <div
-                className="premium-home-card premium-home-product-card glass-card rounded-2xl p-7 sm:p-8 flex flex-col items-start gap-4 transition-all duration-500 ease-out cursor-pointer group hover:border-primary/50 hover:shadow-[0_0_40px_-8px_hsl(359_100%_60%/0.25)]"
-                data-card-tone="lp"
-                onPointerEnter={() => setActiveTone('primary')}
-                onPointerMove={handleCardPointerMove}
-                onPointerLeave={(event) => {
-                  setActiveTone(getToneFromElement(event.relatedTarget));
-                  resetCardMotion(event);
-                }}
+            <div className="mt-12 flex justify-center">
+              <Button
+                variant="gradient"
+                size="lg"
+                className="gap-3 px-8 py-6 text-base font-semibold"
+                onClick={onStartGenerator}
+                onPointerEnter={() => setActiveTone('glow')}
+                onPointerLeave={() => setActiveTone(null)}
               >
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors duration-500 ease-out">
-                    <Sparkles className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="text-left">
-                    <div className="text-base font-semibold text-foreground">Landing Pages</div>
-                    <div className="text-xs text-muted-foreground">Conversion-focused</div>
-                  </div>
-                </div>
-                <p className="text-sm text-muted-foreground leading-relaxed text-left">
-                  Create professional landing page prompts for Lovable. Scrape any site, pick a preset, and generate instantly.
-                </p>
-                <Button
-                  variant="gradient"
-                  className="w-full gap-2 mt-auto"
-                  data-particle-tone="primary"
-                  onClick={onStartGenerator}
-                  onPointerEnter={() => setActiveTone('primary')}
-                  onPointerLeave={handleTonePointerLeave}
-                >
-                  <Sparkles className="h-4 w-4" />
-                  Start Building
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </div>
-
-              <div
-                className="premium-home-card premium-home-product-card glass-card rounded-2xl p-7 sm:p-8 flex flex-col items-start gap-4 transition-all duration-500 ease-out cursor-pointer group hover:border-accent/50 hover:shadow-[0_0_40px_-8px_hsl(265_85%_65%/0.25)]"
-                data-card-tone="ad"
-                onPointerEnter={() => setActiveTone('accent')}
-                onPointerMove={handleCardPointerMove}
-                onPointerLeave={(event) => {
-                  setActiveTone(getToneFromElement(event.relatedTarget));
-                  resetCardMotion(event);
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-accent/10 flex items-center justify-center group-hover:bg-accent/20 transition-colors duration-500 ease-out">
-                    <Zap className="h-5 w-5 text-accent" />
-                  </div>
-                  <div className="text-left">
-                    <div className="text-base font-semibold text-foreground">AD Creatives</div>
-                    <div className="text-xs text-muted-foreground">Multi-platform banners</div>
-                  </div>
-                </div>
-                <p className="text-sm text-muted-foreground leading-relaxed text-left">
-                  Generate HTML ad banners for Facebook, Instagram, TikTok, Google Display, and Email. Upload your brand book for instant autofill.
-                </p>
-                <Button
-                  variant="outline"
-                  className="w-full gap-2 mt-auto border-accent/40 hover:bg-accent/5 hover:border-accent/60"
-                  data-particle-tone="accent"
-                  onClick={onStartAdCreatives}
-                  onPointerEnter={() => setActiveTone('accent')}
-                  onPointerLeave={handleTonePointerLeave}
-                >
-                  <Zap className="h-4 w-4 text-accent" />
-                  Create AD Creatives
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </div>
+                <Rocket className="h-5 w-5" />
+                Começar projeto
+                <ArrowRight className="h-5 w-5" />
+              </Button>
             </div>
           </div>
         </section>
@@ -395,31 +332,18 @@ export function HeroLanding({ onStartGenerator, onStartAdCreatives }: HeroLandin
               Start generating professional landing pages and ad creatives in minutes —
               no design skills required.
             </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <div className="flex justify-center">
               <Button
                 variant="gradient"
                 size="xl"
-                className="gap-3"
-                data-particle-tone="primary"
+                className="gap-3 px-8"
                 onClick={onStartGenerator}
-                onPointerEnter={() => setActiveTone('primary')}
-                onPointerLeave={handleTonePointerLeave}
+                onPointerEnter={() => setActiveTone('glow')}
+                onPointerLeave={() => setActiveTone(null)}
               >
-                <Sparkles className="h-5 w-5" />
-                Generate Landing Page
+                <Rocket className="h-5 w-5" />
+                Começar projeto
                 <ArrowRight className="h-5 w-5" />
-              </Button>
-              <Button
-                variant="outline"
-                size="xl"
-                className="gap-3 border-accent/40 hover:bg-accent/5 hover:border-accent/60"
-                data-particle-tone="accent"
-                onClick={onStartAdCreatives}
-                onPointerEnter={() => setActiveTone('accent')}
-                onPointerLeave={handleTonePointerLeave}
-              >
-                <Zap className="h-5 w-5 text-accent" />
-                Create AD Creatives
               </Button>
             </div>
           </div>

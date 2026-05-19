@@ -1,6 +1,6 @@
 <?php
-ini_set('display_errors', '1');
-ini_set('display_startup_errors', '1');
+ini_set('display_errors', '0');
+ini_set('display_startup_errors', '0');
 error_reporting(E_ALL);
 
 
@@ -21,4 +21,9 @@ if ($conn->connect_error) {
     ]));
 }
 $conn->set_charset("utf8mb4");
+// Prevent "MySQL server has gone away" on long-running requests (edge functions can take ~5 min)
+$conn->query("SET SESSION wait_timeout = 28800");
+$conn->query("SET SESSION interactive_timeout = 28800");
+$conn->query("SET SESSION net_read_timeout = 300");
+$conn->query("SET SESSION net_write_timeout = 300");
 ?>

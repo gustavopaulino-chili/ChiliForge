@@ -20,7 +20,7 @@ if ($projectId <= 0 || $userId <= 0) {
     exit;
 }
 
-$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.folder_path, p.public_url');
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.id');
 if (!$projectRow) {
     http_response_code(404);
     echo json_encode(["error" => "Project not found"]);
@@ -36,10 +36,13 @@ try {
     $filesDir = $projectDir . DIRECTORY_SEPARATOR . 'files';
     ensure_directory($filesDir);
 
-    $publicBase = trim((string)$publicUrl);
+    $publicBase = project_public_prefix_from_folder_path((string)$folderPath, (string)$publicUrl);
     if ($publicBase === '') {
-        $slug = basename(trim((string)$folderPath, " \/\\"));
-        $publicBase = '/projects/' . sanitize_slug($slug) . '/';
+        $relativePath = extract_project_relative_path_from_folder_path((string)$folderPath);
+        if ($relativePath === '') {
+            $relativePath = 'project-' . $projectId;
+        }
+        $publicBase = project_public_url_from_relative($relativePath);
     }
     if (!str_ends_with($publicBase, '/')) {
         $publicBase .= '/';

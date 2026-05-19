@@ -21,6 +21,8 @@ if (!$data || !isset($data["user_id"]) || !isset($data["name"]) || !isset($data[
 
 $user_id = (int)$data["user_id"];
 $project_id = isset($data["project_id"]) ? (int)$data["project_id"] : 0;
+$company_project_id = isset($data["company_project_id"]) && (int)$data["company_project_id"] > 0
+    ? (int)$data["company_project_id"] : null;
 $name = trim((string)$data["name"]);
 $formDataPayload = is_array($data["form_data"]) ? $data["form_data"] : [];
 $form_data = json_encode($data["form_data"], JSON_UNESCAPED_UNICODE);
@@ -57,8 +59,14 @@ try {
     $existingProject = null;
     $effectiveUserId = $user_id;
     if ($project_id > 0) {
-        $existingProject = find_project_for_user($conn, $project_id, $user_id, 'p.id, p.public_url, p.folder_path');
+        $existingProject = find_project_for_user($conn, $project_id, $user_id, 'p.id');
         if ($existingProject) {
+            if (($existingProject['project_type'] ?? 'landing_page') === 'ad_creative') {
+                throw new RuntimeException('Este projeto e de Ads. Use o endpoint de publicacao de AD Creative.');
+            }
+            if (($existingProject['project_type'] ?? '') === 'project') {
+                $project_type = 'project';
+            }
             $effectiveUserId = (int)($existingProject['actual_user_id'] ?? $user_id);
         }
     }
@@ -67,42 +75,91 @@ try {
         $public_url = trim((string)($existingProject['public_url'] ?? ''));
         $folder_path = trim((string)($existingProject['folder_path'] ?? ''));
         if ($public_url === '' && $folder_path !== '') {
-            $folderSlug = sanitize_slug((string)basename(trim($folder_path, " \/\\")));
-            $public_url = '/projects/' . $folderSlug . '/';
+            $public_url = project_public_prefix_from_folder_path($folder_path, $public_url);
         }
         $projectPath = resolve_project_directory_from_folder_path($folder_path, $public_url);
         $slug = sanitize_slug((string)basename($projectPath));
+        $currentRelativePath = extract_project_relative_path_from_folder_path($folder_path);
+        if ($currentRelativePath === '') {
+            $currentRelativePath = extract_project_relative_path_from_public_url($public_url);
+        }
+        if ($currentRelativePath === '') {
+            $currentRelativePath = $slug;
+        }
 
         // --- Slug rename: renomeia pasta para o customSlug do formulário ---
         $requestedSlugNorm = sanitize_slug($requested_slug);
         if ($requestedSlugNorm !== '' && $requestedSlugNorm !== $slug) {
-            $newSlug = !is_dir($sitesBasePath . DIRECTORY_SEPARATOR . $requestedSlugNorm)
-                ? $requestedSlugNorm
-                : ensure_unique_slug($requestedSlugNorm, $sitesBasePath);
+            $currentParts = array_values(array_filter(explode('/', trim($currentRelativePath, '/')), 'strlen'));
+            array_pop($currentParts);
+            $parentRelative = implode('/', $currentParts);
+            $parentPath = $parentRelative !== ''
+                ? project_directory_from_relative($parentRelative)
+                : $sitesBasePath;
+            ensure_directory($parentPath);
 
-            $newProjectPath = $sitesBasePath . DIRECTORY_SEPARATOR . $newSlug;
+            $newSlug = !is_dir($parentPath . DIRECTORY_SEPARATOR . $requestedSlugNorm)
+                ? $requestedSlugNorm
+                : ensure_unique_slug($requestedSlugNorm, $parentPath);
+
+            $newProjectPath = $parentPath . DIRECTORY_SEPARATOR . $newSlug;
 
             if (@rename($projectPath, $newProjectPath)) {
-                $oldPrefix = '/projects/' . $slug . '/';
-                $newPrefix = '/projects/' . $newSlug . '/';
+                $newRelativePath = $parentRelative !== '' ? $parentRelative . '/' . $newSlug : $newSlug;
+                $oldPrefix = project_public_url_from_relative($currentRelativePath);
+                $newPrefix = project_public_url_from_relative($newRelativePath);
                 $html = str_replace($oldPrefix, $newPrefix, $html);
                 $css  = str_replace($oldPrefix, $newPrefix, $css);
                 $js   = str_replace($oldPrefix, $newPrefix, $js);
 
                 $projectPath = $newProjectPath;
                 $slug        = $newSlug;
-                $public_url  = '/projects/' . $newSlug . '/';
-                $folder_path = '/public/projects/' . $newSlug;
+                $public_url  = project_public_url_from_relative($newRelativePath);
+                $folder_path = project_folder_path_from_relative($newRelativePath);
+                $currentRelativePath = $newRelativePath;
             } else {
                 error_log('[ChiliForge] publishSite: could not rename ' . $projectPath . ' → ' . $newProjectPath . '; keeping old slug.');
             }
         }
         // --- End slug rename ---
     } else {
-        $slug = ensure_unique_slug($requested_slug, $sitesBasePath);
-        $projectPath = $sitesBasePath . DIRECTORY_SEPARATOR . $slug;
-        $public_url = '/projects/' . $slug . '/';
-        $folder_path = '/public/projects/' . $slug;
+        $companyRelativePath = '';
+        if ($company_project_id !== null) {
+            $companyStmt = $conn->prepare(
+                "SELECT public_url, folder_path
+                 FROM projects
+                 WHERE id = ? AND user_id = ? AND project_type = 'project'
+                 LIMIT 1"
+            );
+            if ($companyStmt) {
+                $companyStmt->bind_param("ii", $company_project_id, $user_id);
+                $companyStmt->execute();
+                $companyResult = $companyStmt->get_result();
+                $companyRow = ($companyResult !== false) ? $companyResult->fetch_assoc() : null;
+                $companyStmt->close();
+                if ($companyRow) {
+                    $companyRelativePath = extract_project_relative_path_from_folder_path((string)($companyRow['folder_path'] ?? ''));
+                    if ($companyRelativePath === '') {
+                        $companyRelativePath = extract_project_relative_path_from_public_url((string)($companyRow['public_url'] ?? ''));
+                    }
+                }
+            }
+        }
+
+        if ($companyRelativePath !== '') {
+            $companyPath = project_directory_from_relative($companyRelativePath);
+            ensure_directory($companyPath);
+            $slug = ensure_unique_slug($requested_slug, $companyPath);
+            $relativePath = trim($companyRelativePath, '/') . '/' . $slug;
+            $projectPath = project_directory_from_relative($relativePath);
+            $public_url = project_public_url_from_relative($relativePath);
+            $folder_path = project_folder_path_from_relative($relativePath);
+        } else {
+            $slug = ensure_unique_slug($requested_slug, $sitesBasePath);
+            $projectPath = $sitesBasePath . DIRECTORY_SEPARATOR . $slug;
+            $public_url = '/projects/' . $slug . '/';
+            $folder_path = '/public/projects/' . $slug;
+        }
     }
 
     $assetsPath = $projectPath . DIRECTORY_SEPARATOR . 'assets';
@@ -434,15 +491,32 @@ try {
 
     if ($existingProject) {
         $project_id = (int)$existingProject['id'];
-        $update = $conn->prepare("UPDATE projects SET name = ?, public_url = ?, folder_path = ?, form_data = ?, generated_html = ?, current_step = ?, project_type = ? WHERE id = ? AND user_id = ?");
-        $update->bind_param("sssssisii", $name, $public_url, $folder_path, $form_data, $hostedHtml, $current_step, $project_type, $project_id, $effectiveUserId);
-        if (!$update->execute()) {
-            throw new RuntimeException('Erro ao atualizar projeto: ' . $update->error);
+
+        $updP = $conn->prepare("UPDATE projects SET name = ?, project_type = ? WHERE id = ? AND user_id = ?");
+        $updP->bind_param("ssii", $name, $project_type, $project_id, $effectiveUserId);
+        if (!$updP->execute()) {
+            throw new RuntimeException('Erro ao atualizar projeto: ' . $updP->error);
         }
-        $update->close();
+        $updP->close();
+
+        $updL = $conn->prepare(
+            "INSERT INTO lps (project_id, public_url, folder_path, form_data, generated_html, current_step)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+               public_url = VALUES(public_url),
+               folder_path = VALUES(folder_path),
+               form_data = VALUES(form_data),
+               generated_html = VALUES(generated_html),
+               current_step = VALUES(current_step)"
+        );
+        $updL->bind_param("issssi", $project_id, $public_url, $folder_path, $form_data, $hostedHtml, $current_step);
+        if (!$updL->execute()) {
+            throw new RuntimeException('Erro ao atualizar LP: ' . $updL->error);
+        }
+        $updL->close();
     } else {
-        $stmt = $conn->prepare("INSERT INTO projects (user_id, name, public_url, folder_path, form_data, generated_html, current_step, project_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
-        $stmt->bind_param("isssssiss", $user_id, $name, $public_url, $folder_path, $form_data, $hostedHtml, $current_step, $project_type);
+        $stmt = $conn->prepare("INSERT INTO projects (user_id, company_project_id, name, project_type, created_at) VALUES (?, ?, ?, ?, NOW())");
+        $stmt->bind_param("iiss", $user_id, $company_project_id, $name, $project_type);
 
         if (!$stmt->execute()) {
             throw new RuntimeException('Erro ao salvar projeto: ' . $stmt->error);
@@ -450,6 +524,15 @@ try {
 
         $project_id = $conn->insert_id;
         $stmt->close();
+
+        $insL = $conn->prepare(
+            "INSERT INTO lps (project_id, public_url, folder_path, form_data, generated_html, current_step) VALUES (?, ?, ?, ?, ?, ?)"
+        );
+        $insL->bind_param("issssi", $project_id, $public_url, $folder_path, $form_data, $hostedHtml, $current_step);
+        if (!$insL->execute()) {
+            throw new RuntimeException('Erro ao salvar LP: ' . $insL->error);
+        }
+        $insL->close();
     }
 
     $conn->close();

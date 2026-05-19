@@ -7,9 +7,11 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ErrorCatcher } from "@/components/ErrorCatcher";
 import Index from "./pages/Index.tsx";
 import History from "./pages/History.tsx";
+import ProjectSetup from "./pages/ProjectSetup.tsx";
 import VisualEditorPage from "./pages/VisualEditorPage.tsx";
 import AdCreatives from "./pages/AdCreatives.tsx";
 import AdsEditorPage from "./pages/AdsEditorPage.tsx";
+import CompanyPage from "./pages/CompanyPage.tsx";
 import Auth from "./pages/Auth.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { Loader2 } from "lucide-react";
@@ -40,6 +42,9 @@ const App = () => (
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+            <Route path="/projects/new" element={<ProtectedRoute><ProjectSetup /></ProtectedRoute>} />
+            <Route path="/projects/:id" element={<ProtectedRoute><CompanyPage /></ProtectedRoute>} />
+            <Route path="/projects" element={<ProtectedRoute><History /></ProtectedRoute>} />
             <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
             <Route path="/visual-editor" element={<ProtectedRoute><VisualEditorPage /></ProtectedRoute>} />
             <Route path="/ads-editor" element={<ProtectedRoute><AdsEditorPage /></ProtectedRoute>} />
