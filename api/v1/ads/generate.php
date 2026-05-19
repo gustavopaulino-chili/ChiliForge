@@ -269,15 +269,36 @@ $brief    = isset($body['brief'])     ? trim((string)$body['brief'])     : '';
 $formData = isset($body['form_data']) && is_array($body['form_data']) ? $body['form_data'] : [];
 $accountType = 'admin'; // always use production Gemini key for API calls
 
-if ($brief === '' && empty($formData)) {
+// Extract image URLs — these have absolute priority over anything the AI produces
+$productImageUrl    = isset($body['product_image_url'])    ? trim((string)$body['product_image_url'])    : '';
+$backgroundImageUrl = isset($body['background_image_url']) ? trim((string)$body['background_image_url']) : '';
+// image_url is a convenience alias for product_image_url
+if ($productImageUrl === '' && isset($body['image_url'])) {
+    $productImageUrl = trim((string)$body['image_url']);
+}
+
+if ($brief === '' && empty($formData) && $productImageUrl === '' && $backgroundImageUrl === '') {
     http_response_code(400);
-    echo json_encode(['error' => 'Provide "brief" (text description) or "form_data" (structured object), or both']);
+    echo json_encode(['error' => 'Provide at least one of: "brief", "form_data", "product_image_url", or "image_url"']);
     exit;
 }
 
 try {
-    // 3. Analyze brief → structured form_data ----------------------------------
-    if ($brief !== '') {
+    // 3. Build description from any available input ----------------------------
+    // If no explicit brief, serialize form_data fields so the AI can interpret them
+    if ($brief === '' && !empty($formData)) {
+        $bodyParts = [];
+        foreach ($formData as $key => $value) {
+            if (is_scalar($value) && trim((string)$value) !== '' && $key !== 'selectedFormats') {
+                $bodyParts[] = ucfirst(str_replace('_', ' ', (string)$key)) . ': ' . $value;
+            }
+        }
+        $brief = implode('. ', $bodyParts);
+    }
+
+    // 4. Analyze → extract structured fields + format suggestions --------------
+    // Always call analyze-ad-brief when there's enough description (≥20 chars)
+    if (strlen($brief) >= 20) {
         $analyzed  = call_edge_function('analyze-ad-brief', [
             'description' => $brief,
             'currentData' => !empty($formData) ? $formData : null,
@@ -292,9 +313,33 @@ try {
         throw new RuntimeException('Could not extract campaign data. Please provide more details in "brief".');
     }
 
+    // 5. Inject caller images with absolute priority (MUST be used if provided) -
+    if ($productImageUrl !== '') {
+        $formData['productImageUrl'] = $productImageUrl;
+    }
+    if ($backgroundImageUrl !== '') {
+        $formData['backgroundImageUrl'] = $backgroundImageUrl;
+    }
+    // Ensure image keys exist so the edge function always sees them
+    $formData['productImageUrl']    = $formData['productImageUrl']    ?? '';
+    $formData['backgroundImageUrl'] = $formData['backgroundImageUrl'] ?? '';
+
     $campaignName = (string)($formData['campaignName'] ?? $formData['brandName'] ?? 'Campaign');
 
-    // 4. Generate ad creatives -------------------------------------------------
+    // 6. Formats: use AI suggestions > caller form_data > hardcoded defaults ---
+    if (empty($formData['selectedFormats'])) {
+        $formData['selectedFormats'] = [
+            ['platform' => 'Instagram', 'format' => 'Feed Square',   'label' => 'Feed Square',   'width' => 1080, 'height' => 1080, 'enabled' => true],
+            ['platform' => 'Instagram', 'format' => 'Stories',       'label' => 'Stories',       'width' => 1080, 'height' => 1920, 'enabled' => true],
+            ['platform' => 'Facebook',  'format' => 'Feed Landscape','label' => 'Feed Landscape','width' => 1200, 'height' => 628,  'enabled' => true],
+        ];
+    } else {
+        $formData['selectedFormats'] = array_map(function ($f) {
+            if (!isset($f['enabled'])) $f['enabled'] = true;
+            return $f;
+        }, (array)$formData['selectedFormats']);
+    }
+
     $generated = call_edge_function('generate-ad-creatives', [
         'businessName' => (string)($formData['brandName'] ?? $formData['campaignName'] ?? ''),
         'accountType'  => $accountType,
@@ -337,19 +382,20 @@ try {
     file_put_contents($projectPath . DIRECTORY_SEPARATOR . 'index.html', $boardHtml);
 
     // 8. Save project to DB ----------------------------------------------------
+    // Reconnect if the edge-function call idled the connection past wait_timeout
+    if (!$conn->ping()) {
+        $conn->close();
+        include __DIR__ . '/../../db.php';
+    }
     $formDataJson = json_encode($formData, JSON_UNESCAPED_UNICODE);
     $projectType  = 'ad_creative';
     $currentStep  = 9;
     $emptyHtml    = '';
 
     $pStmt = $conn->prepare(
-        "INSERT INTO projects (user_id, name, public_url, folder_path, form_data, generated_html, current_step, project_type, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())"
+        "INSERT INTO projects (user_id, name, project_type, created_at) VALUES (?, ?, ?, NOW())"
     );
-    $pStmt->bind_param('isssssis',
-        $apiKeyUserId, $campaignName, $publicUrl, $folderPath,
-        $formDataJson, $emptyHtml, $currentStep, $projectType
-    );
+    $pStmt->bind_param('iss', $apiKeyUserId, $campaignName, $projectType);
     if (!$pStmt->execute()) {
         throw new RuntimeException('Error saving project: ' . $pStmt->error);
     }

@@ -103,7 +103,7 @@ export default function VisualEditorPage() {
       navigate(-1);
       return;
     }
-    navigate('/history');
+    navigate('/projects');
   };
 
   useEffect(() => {
@@ -195,8 +195,8 @@ export default function VisualEditorPage() {
   if (loadError || !project || !html) {
     return (
       <div className="min-h-screen bg-background p-6">
-        <Button variant="ghost" onClick={() => navigate('/history')}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back to History
+        <Button variant="ghost" onClick={() => navigate('/projects')}>
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Projects
         </Button>
         <div className="mt-6 max-w-md">
           <p className="text-sm font-medium text-destructive mb-1">Could not open editor</p>

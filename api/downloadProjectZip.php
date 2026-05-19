@@ -20,7 +20,7 @@ if ($projectId <= 0 || $userId <= 0) {
     exit;
 }
 
-$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.name, p.folder_path, p.public_url');
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.name');
 $conn->close();
 
 if (!$projectRow) {

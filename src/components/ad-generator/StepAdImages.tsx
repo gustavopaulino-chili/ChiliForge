@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { AdCreativeFormData, AdLogoVariant } from '@/types/adCreativeForm';
 import { FieldLabel } from '@/components/generator/FieldLabel';
-import { Upload, X, Image, Plus, Sparkles, Loader2, CheckCircle2, AlertCircle, Wand2, RefreshCw } from 'lucide-react';
+import { Upload, X, Image, Plus, Sparkles, Loader2, CheckCircle2, AlertCircle, Wand2, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AdImageGenerateContext {
@@ -27,6 +27,7 @@ interface Props {
   onUploadAssets?: (files: File[]) => Promise<string[]>;
   onRemoveAsset?: (url: string) => Promise<void>;
   onGenerateImage?: (slot: 'logo' | 'product' | 'background', context: AdImageGenerateContext, variantIndex?: number) => Promise<string | null>;
+  onSearchPexelsImage?: (slot: 'logo' | 'product' | 'background', context: AdImageGenerateContext, variantIndex?: number) => Promise<string | null>;
 }
 
 const LOGO_VARIANT_LABELS = ['Full color', 'White', 'Black', 'Monochrome', 'Horizontal', 'Icon only'];
@@ -51,8 +52,10 @@ function ImageInput({
   onUrlChange,
   onUpload,
   onGenerate,
+  onSearchPexels,
   onRemove,
   isGenerating,
+  isSearching,
   anyGenerating,
 }: {
   id?: string;
@@ -61,8 +64,10 @@ function ImageInput({
   onUrlChange: (url: string) => void;
   onUpload: () => void;
   onGenerate?: () => void;
+  onSearchPexels?: () => void;
   onRemove: () => void;
   isGenerating: boolean;
+  isSearching: boolean;
   anyGenerating: boolean;
 }) {
   return (
@@ -89,6 +94,18 @@ function ImageInput({
           {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
         </Button>
       )}
+      {onSearchPexels && (
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          disabled={anyGenerating}
+          onClick={onSearchPexels}
+          title="Search Pexels with this image context"
+        >
+          {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+        </Button>
+      )}
       {value && (
         <Button type="button" variant="outline" size="icon" onClick={onRemove} title="Remove image">
           <X className="h-4 w-4" />
@@ -112,10 +129,11 @@ function ImagePreview({ url, alt }: { url: string; alt: string }) {
   );
 }
 
-export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, onGenerateImage }: Props) {
+export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, onGenerateImage, onSearchPexelsImage }: Props) {
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const logoVariantFileRef = useRef<HTMLInputElement | null>(null);
   const [generatingKey, setGeneratingKey] = useState<string | null>(null);
+  const [searchingKey, setSearchingKey] = useState<string | null>(null);
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [bulkPercent, setBulkPercent] = useState(0);
   const [bulkLog, setBulkLog] = useState<AiLogEntry[]>([]);
@@ -161,6 +179,17 @@ export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, on
       if (url) onDone(url);
     } finally {
       setGeneratingKey(null);
+    }
+  };
+
+  const handleSearchPexels = async (slot: 'logo' | 'product' | 'background', key: string, onDone: (url: string) => void, variantIndex?: number) => {
+    if (!onSearchPexelsImage) return;
+    setSearchingKey(key);
+    try {
+      const url = await onSearchPexelsImage(slot, buildCtx(), variantIndex);
+      if (url) onDone(url);
+    } finally {
+      setSearchingKey(null);
     }
   };
 
@@ -484,9 +513,11 @@ export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, on
             onUrlChange={url => onChange({ logoUrl: url })}
             onUpload={() => fileRefs.current['logoUrl']?.click()}
             onGenerate={onGenerateImage ? () => handleGenerate('logo', 'logoUrl', url => onChange({ logoUrl: url })) : undefined}
+            onSearchPexels={onSearchPexelsImage ? () => handleSearchPexels('logo', 'logoUrl', url => onChange({ logoUrl: url })) : undefined}
             onRemove={() => removeImage(data.logoUrl, 'logoUrl', () => onChange({ logoUrl: '' }))}
             isGenerating={generatingKey === 'logoUrl'}
-            anyGenerating={generatingKey !== null}
+            isSearching={searchingKey === 'logoUrl'}
+            anyGenerating={generatingKey !== null || searchingKey !== null}
           />
           <ImagePreview url={data.logoUrl} alt="Brand logo" />
           {!data.logoUrl && (
@@ -605,9 +636,11 @@ export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, on
             onUrlChange={url => onChange({ productImageUrl: url })}
             onUpload={() => fileRefs.current['productImageUrl']?.click()}
             onGenerate={onGenerateImage ? () => handleGenerate('product', 'productImageUrl', url => onChange({ productImageUrl: url })) : undefined}
+            onSearchPexels={onSearchPexelsImage ? () => handleSearchPexels('product', 'productImageUrl', url => onChange({ productImageUrl: url })) : undefined}
             onRemove={() => removeImage(data.productImageUrl, 'productImageUrl', () => onChange({ productImageUrl: '' }))}
             isGenerating={generatingKey === 'productImageUrl'}
-            anyGenerating={generatingKey !== null}
+            isSearching={searchingKey === 'productImageUrl'}
+            anyGenerating={generatingKey !== null || searchingKey !== null}
           />
           {data.productImageUrl
             ? <ImagePreview url={data.productImageUrl} alt="Product image" />
@@ -633,9 +666,11 @@ export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, on
             onUrlChange={url => onChange({ backgroundImageUrl: url })}
             onUpload={() => fileRefs.current['backgroundImageUrl']?.click()}
             onGenerate={onGenerateImage ? () => handleGenerate('background', 'backgroundImageUrl', url => onChange({ backgroundImageUrl: url })) : undefined}
+            onSearchPexels={onSearchPexelsImage ? () => handleSearchPexels('background', 'backgroundImageUrl', url => onChange({ backgroundImageUrl: url })) : undefined}
             onRemove={() => removeImage(data.backgroundImageUrl, 'backgroundImageUrl', () => onChange({ backgroundImageUrl: '' }))}
             isGenerating={generatingKey === 'backgroundImageUrl'}
-            anyGenerating={generatingKey !== null}
+            isSearching={searchingKey === 'backgroundImageUrl'}
+            anyGenerating={generatingKey !== null || searchingKey !== null}
           />
           {data.backgroundImageUrl
             ? <ImagePreview url={data.backgroundImageUrl} alt="Background image" />
@@ -687,6 +722,13 @@ export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, on
                           {generatingKey === varKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                         </Button>
                       )}
+                      {onSearchPexelsImage && (
+                        <Button type="button" variant="outline" size="icon" disabled={generatingKey !== null || searchingKey !== null}
+                          onClick={() => handleSearchPexels('product', varKey, url => updateProductVariant(i, url), i)}
+                          title={`Search Pexels for variant ${label}`}>
+                          {searchingKey === varKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        </Button>
+                      )}
                       {productVariants[i] && (
                         <Button type="button" variant="outline" size="icon" onClick={() => updateProductVariant(i, '')} title="Remove">
                           <X className="h-4 w-4" />
@@ -729,6 +771,13 @@ export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, on
                           {generatingKey === varKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                         </Button>
                       )}
+                      {onSearchPexelsImage && (
+                        <Button type="button" variant="outline" size="icon" disabled={generatingKey !== null || searchingKey !== null}
+                          onClick={() => handleSearchPexels('background', varKey, url => updateBgVariant(i, url), i)}
+                          title={`Search Pexels for variant ${label} background`}>
+                          {searchingKey === varKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        </Button>
+                      )}
                       {bgVariants[i] && (
                         <Button type="button" variant="outline" size="icon" onClick={() => updateBgVariant(i, '')} title="Remove">
                           <X className="h-4 w-4" />
@@ -747,6 +796,7 @@ export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, on
       <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
         Images uploaded here are saved to this project's assets folder.
         {onGenerateImage && <> Click <Sparkles className="inline h-3 w-3 mx-0.5" /> to generate any image with AI using your brand context.</>}
+        {onSearchPexelsImage && <> Click <Search className="inline h-3 w-3 mx-0.5" /> to search Pexels with the same context.</>}
       </div>
     </div>
   );

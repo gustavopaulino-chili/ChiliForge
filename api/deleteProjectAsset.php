@@ -29,7 +29,7 @@ if ($safeFileName === '' || $safeFileName === '.' || $safeFileName === '..') {
     exit;
 }
 
-$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.folder_path, p.public_url');
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.id');
 if (!$projectRow) {
     http_response_code(404);
     echo json_encode(["error" => "Project not found"]);

@@ -29,7 +29,7 @@ if ($projectId <= 0 || $userId <= 0) {
 
 include "db.php";
 
-$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.folder_path, p.public_url');
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.id');
 
 if (!$projectRow) {
     http_response_code(404);
@@ -42,14 +42,34 @@ $folderPath = (string)($projectRow['folder_path'] ?? '');
 $publicUrl  = (string)($projectRow['public_url']  ?? '');
 $effectiveUserId = (int)($projectRow['actual_user_id'] ?? $userId);
 
-$update = $conn->prepare("UPDATE projects SET generated_html = ? WHERE id = ? AND user_id = ?");
+if (($projectRow['project_type'] ?? '') === 'ad_creative') {
+    echo json_encode([
+        "success" => true,
+        "id" => $projectId,
+        "url" => $publicUrl,
+        "skipped" => true,
+        "message" => "AD creative content is saved through ad-specific endpoints.",
+    ]);
+    $conn->close();
+    exit;
+}
+
+$update = $conn->prepare(
+    "INSERT INTO lps (project_id, public_url, folder_path, form_data, generated_html, current_step)
+     SELECT p.id, ?, ?, COALESCE(l.form_data, '{}'), ?, COALESCE(l.current_step, 0)
+     FROM projects p
+     LEFT JOIN lps l ON l.project_id = p.id
+     WHERE p.id = ? AND p.user_id = ?
+     ON DUPLICATE KEY UPDATE
+       generated_html = VALUES(generated_html)"
+);
 if (!$update) {
     http_response_code(500);
     echo json_encode(["error" => "Query preparation failed", "details" => $conn->error]);
     $conn->close();
     exit;
 }
-$update->bind_param("sii", $generatedHtml, $projectId, $effectiveUserId);
+$update->bind_param("sssii", $publicUrl, $folderPath, $generatedHtml, $projectId, $effectiveUserId);
 
 if (!$update->execute()) {
     http_response_code(500);

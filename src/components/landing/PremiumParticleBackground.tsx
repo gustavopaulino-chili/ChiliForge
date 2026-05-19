@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
 
-export type ParticleTone = 'primary' | 'accent' | 'success';
+export type ParticleTone = 'primary' | 'accent' | 'success' | 'glow';
 
 interface PremiumParticleBackgroundProps {
   activeTone: ParticleTone | null;
+  colorOverrides?: Partial<Record<Exclude<ParticleTone, 'glow'>, string>>;
 }
 
 type Rgb = [number, number, number];
@@ -68,6 +69,17 @@ const hslToRgb = (h: number, s: number, l: number): Rgb => {
   ];
 };
 
+const hexToRgb = (hex?: string): Rgb | null => {
+  const clean = String(hex || '').trim().replace(/^#/, '');
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
+
+  return [
+    parseInt(clean.slice(0, 2), 16),
+    parseInt(clean.slice(2, 4), 16),
+    parseInt(clean.slice(4, 6), 16),
+  ];
+};
+
 const readThemeColor = (name: ParticleTone): Rgb => {
   const raw = getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
   const [h, s, l] = raw.split(/\s+/).map(value => Number(value.replace('%', '')));
@@ -112,7 +124,7 @@ const getViewportProfile = (viewportWidth: number, viewportHeight: number): Part
   return { count: 154, sizeScale: 1, driftScale: 1, parallaxScale: 1, glowScale: 1 };
 };
 
-export function PremiumParticleBackground({ activeTone }: PremiumParticleBackgroundProps) {
+export function PremiumParticleBackground({ activeTone, colorOverrides }: PremiumParticleBackgroundProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const activeToneRef = useRef<ParticleTone | null>(activeTone);
 
@@ -137,9 +149,9 @@ export function PremiumParticleBackground({ activeTone }: PremiumParticleBackgro
     let particles: Particle[] = [];
     const mouse = { x: 0, y: 0, active: false };
     const themeColors = {
-      primary: readThemeColor('primary'),
-      accent: readThemeColor('accent'),
-      success: readThemeColor('success'),
+      primary: hexToRgb(colorOverrides?.primary) ?? readThemeColor('primary'),
+      accent: hexToRgb(colorOverrides?.accent) ?? readThemeColor('accent'),
+      success: hexToRgb(colorOverrides?.success) ?? readThemeColor('success'),
     };
 
     const makeParticle = ({ index, total }: ParticleSeed): Particle => {
@@ -259,9 +271,10 @@ export function PremiumParticleBackground({ activeTone }: PremiumParticleBackgro
 
     const draw = (time: number) => {
       const active = activeToneRef.current;
-      const targetColor = active ? themeColors[active] : getIdleColor(time, 0);
+      const glowOnly = active === 'glow';
+      const targetColor = (active && !glowOnly) ? themeColors[active] : getIdleColor(time, 0);
       hoverLevel = lerp(hoverLevel, active ? 1 : 0, active ? 0.055 : 0.038);
-      currentColor = blendColor(currentColor, targetColor, active ? 0.045 : 0.018);
+      currentColor = blendColor(currentColor, targetColor, (active && !glowOnly) ? 0.045 : 0.018);
       glow = lerp(glow, active ? 1.45 : 1.12, 0.038);
 
       context.clearRect(0, 0, width, height);
@@ -294,7 +307,7 @@ export function PremiumParticleBackground({ activeTone }: PremiumParticleBackgro
       window.removeEventListener('pointerleave', onPointerLeave);
       cancelAnimationFrame(rafId);
     };
-  }, []);
+  }, [colorOverrides?.primary, colorOverrides?.accent, colorOverrides?.success]);
 
   return (
     <div className="premium-particle-bg" aria-hidden="true">

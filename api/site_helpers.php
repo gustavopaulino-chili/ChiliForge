@@ -746,6 +746,103 @@ function extract_slug_from_public_url($publicUrl) {
     return sanitize_slug($segments[1]);
 }
 
+function extract_project_relative_path_from_public_url($publicUrl) {
+    if (!is_string($publicUrl) || trim($publicUrl) === '') {
+        return '';
+    }
+
+    $path = parse_url($publicUrl, PHP_URL_PATH);
+    if (!is_string($path) || trim($path) === '') {
+        $path = $publicUrl;
+    }
+
+    $trimmed = trim(str_replace('\\', '/', $path));
+    $trimmed = preg_replace('#/index\.html$#i', '/', $trimmed);
+    $segments = array_values(array_filter(explode('/', trim((string)$trimmed, '/')), 'strlen'));
+    if (count($segments) < 2 || strtolower((string)$segments[0]) !== 'projects') {
+        return '';
+    }
+
+    $relativeSegments = [];
+    foreach (array_slice($segments, 1) as $segment) {
+        $safe = sanitize_slug((string)$segment);
+        if ($safe !== '') {
+            $relativeSegments[] = $safe;
+        }
+    }
+
+    return implode('/', $relativeSegments);
+}
+
+function extract_project_relative_path_from_folder_path($folderPath) {
+    if (!is_string($folderPath) || trim($folderPath) === '') {
+        return '';
+    }
+
+    $normalized = trim(str_replace('\\', '/', $folderPath));
+    $normalized = preg_replace('#/index\.html$#i', '', (string)$normalized);
+    $normalized = trim((string)$normalized, '/');
+    if ($normalized === '' || strpos($normalized, '..') !== false) {
+        return '';
+    }
+
+    if (path_starts_with($normalized, 'public/projects/')) {
+        $normalized = substr($normalized, strlen('public/projects/'));
+    } elseif (path_starts_with($normalized, 'projects/')) {
+        $normalized = substr($normalized, strlen('projects/'));
+    } else {
+        $parts = array_values(array_filter(explode('/', $normalized), 'strlen'));
+        $projectsIndex = -1;
+        foreach ($parts as $index => $part) {
+            if (strtolower((string)$part) === 'projects') {
+                $projectsIndex = $index;
+            }
+        }
+        if ($projectsIndex >= 0) {
+            $normalized = implode('/', array_slice($parts, $projectsIndex + 1));
+        }
+    }
+
+    $segments = array_values(array_filter(explode('/', trim((string)$normalized, '/')), 'strlen'));
+    $safeSegments = [];
+    foreach ($segments as $segment) {
+        $safe = sanitize_slug((string)$segment);
+        if ($safe !== '') {
+            $safeSegments[] = $safe;
+        }
+    }
+
+    return implode('/', $safeSegments);
+}
+
+function project_public_prefix_from_folder_path($folderPath, $publicUrl = '') {
+    $relative = extract_project_relative_path_from_folder_path($folderPath);
+    if ($relative === '') {
+        $relative = extract_project_relative_path_from_public_url($publicUrl);
+    }
+
+    return $relative !== '' ? '/projects/' . trim($relative, '/') . '/' : '';
+}
+
+function project_folder_path_from_relative($relativePath) {
+    $relative = trim(str_replace('\\', '/', (string)$relativePath), '/');
+    return $relative !== '' ? '/public/projects/' . $relative : '';
+}
+
+function project_public_url_from_relative($relativePath) {
+    $relative = trim(str_replace('\\', '/', (string)$relativePath), '/');
+    return $relative !== '' ? '/projects/' . $relative . '/' : '';
+}
+
+function project_directory_from_relative($relativePath) {
+    $relative = trim(str_replace('\\', '/', (string)$relativePath), '/');
+    if ($relative === '' || strpos($relative, '..') !== false) {
+        throw new RuntimeException('Invalid project path.');
+    }
+
+    return resolve_sites_base_path() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+}
+
 function resolve_project_directory_from_folder_path($folderPath, $publicUrl = '') {
     $sitesBasePath = resolve_sites_base_path();
     ensure_directory($sitesBasePath);
@@ -781,8 +878,13 @@ function resolve_project_directory_from_folder_path($folderPath, $publicUrl = ''
         }
     }
 
+    $relativeFromUrl = extract_project_relative_path_from_public_url($publicUrl);
+    if ($relativeFromUrl !== '') {
+        $candidates[] = $relativeFromUrl;
+    }
+
     $slugFromUrl = extract_slug_from_public_url($publicUrl);
-    if ($slugFromUrl !== '') {
+    if ($slugFromUrl !== '' && $slugFromUrl !== $relativeFromUrl) {
         $candidates[] = $slugFromUrl;
     }
 
@@ -906,13 +1008,97 @@ function build_project_zip_archive($projectPath, $projectName) {
  * @param int     $userId     The user_id from the current session (may differ from DB after migration)
  * @param string  $columns    Comma-separated list of columns to SELECT (prefixed with p. as needed)
  */
-function find_project_for_user(mysqli $conn, int $projectId, int $userId, string $columns = 'p.folder_path, p.public_url'): ?array {
+function normalize_project_lookup_columns(string $columns): string {
+    $normalized = $columns;
+    $replacements = [
+        'p.public_url' => 'COALESCE(NULLIF(l.public_url, \'\'), NULLIF(p.public_url, \'\')) AS public_url',
+        'p.folder_path' => 'COALESCE(NULLIF(l.folder_path, \'\'), NULLIF(p.folder_path, \'\')) AS folder_path',
+        'p.form_data' => 'l.form_data',
+        'p.generated_html' => 'l.generated_html',
+        'p.current_step' => 'l.current_step',
+    ];
+
+    foreach ($replacements as $from => $to) {
+        $normalized = str_ireplace($from, $to, $normalized);
+    }
+
+    return trim($normalized) !== '' ? $normalized : 'p.id';
+}
+
+function normalize_project_lookup_row(?array $row): ?array {
+    if (!$row) {
+        return null;
+    }
+
+    if (trim((string)($row['folder_path'] ?? '')) === '' && trim((string)($row['public_url'] ?? '')) !== '') {
+        $relative = extract_project_relative_path_from_public_url((string)$row['public_url']);
+        if ($relative !== '') {
+            $row['folder_path'] = project_folder_path_from_relative($relative);
+        }
+    }
+
+    return $row;
+}
+
+function find_latest_ad_campaign_for_project(mysqli $conn, int $projectId): ?array {
+    if ($projectId <= 0) {
+        return null;
+    }
+
+    $stmt = $conn->prepare(
+        "SELECT id, form_data, public_url, current_step, status, metadata
+         FROM ads_campaign
+         WHERE project_id = ?
+         ORDER BY id DESC
+         LIMIT 1"
+    );
+    if (!$stmt) {
+        return null;
+    }
+
+    $stmt->bind_param("i", $projectId);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = ($result !== false) ? $result->fetch_assoc() : null;
+    $stmt->close();
+
+    if (!$row) {
+        return null;
+    }
+
+    if (trim((string)($row['public_url'] ?? '')) !== '') {
+        $relative = extract_project_relative_path_from_public_url((string)$row['public_url']);
+        if ($relative !== '') {
+            $row['folder_path'] = project_folder_path_from_relative($relative);
+        }
+    }
+
+    return $row;
+}
+
+function find_project_for_user(mysqli $conn, int $projectId, int $userId, string $columns = 'p.id'): ?array {
     if ($projectId <= 0 || $userId <= 0) {
         return null;
     }
 
+    $columns = normalize_project_lookup_columns($columns);
+    $lpCols = "COALESCE(NULLIF(l.folder_path, ''), NULLIF(p.folder_path, '')) AS folder_path,
+        COALESCE(NULLIF(l.public_url, ''), NULLIF(p.public_url, '')) AS public_url,
+        l.form_data,
+        l.generated_html,
+        l.current_step,
+        l.id AS lp_id,
+        p.company_form_data,
+        p.context,
+        p.project_type";
+
     // Fast path: exact user_id match
-    $stmt = $conn->prepare("SELECT {$columns}, p.user_id AS actual_user_id FROM projects p WHERE p.id = ? AND p.user_id = ? LIMIT 1");
+    $stmt = $conn->prepare(
+        "SELECT {$columns}, {$lpCols}, p.user_id AS actual_user_id
+         FROM projects p
+         LEFT JOIN lps l ON l.project_id = p.id
+         WHERE p.id = ? AND p.user_id = ? LIMIT 1"
+    );
     if (!$stmt) {
         return null;
     }
@@ -922,19 +1108,29 @@ function find_project_for_user(mysqli $conn, int $projectId, int $userId, string
     $row = ($result !== false) ? $result->fetch_assoc() : null;
     $stmt->close();
     if ($row) {
+        $row = normalize_project_lookup_row($row);
+        if (($row['project_type'] ?? '') === 'ad_creative') {
+            $campaign = find_latest_ad_campaign_for_project($conn, $projectId);
+            if ($campaign) {
+                $row['campaign_id'] = (int)($campaign['id'] ?? 0);
+                $row['public_url'] = (string)($campaign['public_url'] ?? '');
+                $row['folder_path'] = (string)($campaign['folder_path'] ?? '');
+                $row['form_data'] = (string)($campaign['form_data'] ?? '{}');
+                $row['current_step'] = (int)($campaign['current_step'] ?? 0);
+            }
+        }
         return $row;
     }
 
-    // Email-based fallback: the session user_id doesn't match the stored owner,
-    // but if they share the same email address we treat them as the same person.
-    // This handles accounts whose numeric IDs drifted after a database migration.
+    // Email-based fallback: handles accounts whose numeric IDs drifted after a migration.
     $stmt2 = $conn->prepare(
-        "SELECT {$columns}, p.user_id AS actual_user_id " .
-        "FROM projects p " .
-        "JOIN users pu ON pu.id = p.user_id " .
-        "JOIN users cu ON cu.id = ? " .
-        "WHERE p.id = ? AND LOWER(pu.email) = LOWER(cu.email) " .
-        "LIMIT 1"
+        "SELECT {$columns}, {$lpCols}, p.user_id AS actual_user_id
+         FROM projects p
+         LEFT JOIN lps l ON l.project_id = p.id
+         JOIN users pu ON pu.id = p.user_id
+         JOIN users cu ON cu.id = ?
+         WHERE p.id = ? AND LOWER(pu.email) = LOWER(cu.email)
+         LIMIT 1"
     );
     if (!$stmt2) {
         return null;
@@ -944,5 +1140,16 @@ function find_project_for_user(mysqli $conn, int $projectId, int $userId, string
     $result2 = $stmt2->get_result();
     $row2 = ($result2 !== false) ? $result2->fetch_assoc() : null;
     $stmt2->close();
-    return $row2 ?: null;
+    $row2 = normalize_project_lookup_row($row2);
+    if ($row2 && ($row2['project_type'] ?? '') === 'ad_creative') {
+        $campaign = find_latest_ad_campaign_for_project($conn, $projectId);
+        if ($campaign) {
+            $row2['campaign_id'] = (int)($campaign['id'] ?? 0);
+            $row2['public_url'] = (string)($campaign['public_url'] ?? '');
+            $row2['folder_path'] = (string)($campaign['folder_path'] ?? '');
+            $row2['form_data'] = (string)($campaign['form_data'] ?? '{}');
+            $row2['current_step'] = (int)($campaign['current_step'] ?? 0);
+        }
+    }
+    return $row2;
 }

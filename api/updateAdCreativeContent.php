@@ -56,8 +56,8 @@ function rewrite_project_asset_refs_for_ad_creative(string $content, string $pro
         $projectPath . 'assets/',
         ltrim($projectPath, '/') . 'assets/',
     ], $target, $content);
-    $content = preg_replace('/https?:\/\/[^"\'\s)]+\/projects\/[^\/"\'\s)]+\/assets\//i', $target, $content);
-    $content = preg_replace('/(?<![\w:])\/?projects\/[^\/"\'\s)]+\/assets\//i', $target, $content);
+    $content = preg_replace('/https?:\/\/[^"\'\s)]+\/projects\/(?:[^\/"\'\s)]+\/)+assets\//i', $target, $content);
+    $content = preg_replace('/(?<![\w:])\/?projects\/(?:[^\/"\'\s)]+\/)+assets\//i', $target, $content);
 
     if ($relativePrefix !== '') {
         $content = preg_replace('/((?:src|data-src|poster)=["\'])assets\//i', '$1' . $target, $content);
@@ -88,7 +88,8 @@ if ($creativeId <= 0 || $userId <= 0) {
 include "db.php";
 
 $stmt = $conn->prepare(
-    "SELECT c.public_url, p.public_url
+    "SELECT c.public_url,
+        (SELECT ac.public_url FROM ads_campaign ac WHERE ac.project_id = c.project_id ORDER BY ac.id DESC LIMIT 1) AS project_public_url
      FROM ads_creatives c
      INNER JOIN projects p ON p.id = c.project_id
      WHERE c.id = ? AND p.user_id = ?
@@ -105,7 +106,7 @@ if (!$stmt) {
 $stmt->bind_param("ii", $creativeId, $userId);
 $stmt->execute();
 $stmt->store_result();
-$stmt->bind_result($publicUrl, $projectPublicUrl);
+$stmt->bind_result($publicUrl, $projectPublicUrl); // project_public_url from ads_campaign
 
 if (!$stmt->fetch()) {
     http_response_code(404);

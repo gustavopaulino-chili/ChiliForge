@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AdCreativeFormData, defaultAdCreativeFormData, AD_PLATFORM_LABELS } from '@/types/adCreativeForm';
 import { StepIndicator } from '@/components/generator/StepIndicator';
-import { StepAdObjective } from '@/components/ad-generator/StepAdObjective';
 import { StepAdImport } from '@/components/ad-generator/StepAdImport';
+import { StepAdObjective } from '@/components/ad-generator/StepAdObjective';
 import { StepAdPlatform } from '@/components/ad-generator/StepAdPlatform';
 import { StepAdBrand } from '@/components/ad-generator/StepAdBrand';
 import { StepAdCopy } from '@/components/ad-generator/StepAdCopy';
@@ -14,11 +14,11 @@ import { StepAdReview } from '@/components/ad-generator/StepAdReview';
 import { BannerLightbox } from '@/components/ad-generator/BannerLightbox';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { ArrowLeft, ArrowRight, Zap, Clock, LogOut, Loader2, Wand2, RotateCcw, Check, Edit3, Download, ZoomIn } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Zap, FolderOpen, LogOut, Loader2, Wand2, RotateCcw, Check, Edit3, Download, ZoomIn } from 'lucide-react';
 import logoResult from '@/assets/logo-result.png';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { useAuth } from '@/contexts/AuthContext';
-import { createProject, deleteProjectAssetFile, generateAdCreatives, generateImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls } from '@/services/api';
+import { createProject, deleteProjectAssetFile, generateAdCreatives, generateImages, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls } from '@/services/api';
 import { toast } from 'sonner';
 import '@/components/landing/HeroLanding.css';
 
@@ -39,7 +39,7 @@ type GeneratedBanner = {
 };
 
 const STEPS: StepDef[] = [
-  { id: 'import',    label: 'Import' },
+  { id: 'import',    label: 'Campaign' },
   { id: 'objective', label: 'Objective' },
   { id: 'platform',  label: 'Platforms' },
   { id: 'brand',     label: 'Brand' },
@@ -49,6 +49,12 @@ const STEPS: StepDef[] = [
   { id: 'images',    label: 'Images' },
   { id: 'review',    label: 'Review' },
 ];
+
+const clampStepIndex = (value?: number) => {
+  const step = Number(value ?? 0);
+  if (!Number.isFinite(step)) return 0;
+  return Math.min(Math.max(step, 0), STEPS.length - 1);
+};
 
 function buildAdFormatGroups(data: AdCreativeFormData) {
   const groups = new Map<string, number>();
@@ -444,8 +450,9 @@ function buildProjectAssetBase(publicUrl?: string, folderPath?: string): string 
   const normalizedFolder = String(folderPath || '').replace(/\\/g, '/').replace(/\/index\.html$/i, '').replace(/^\/+|\/+$/g, '');
   const parts = normalizedFolder.split('/').filter(Boolean);
   const projectsIndex = parts.findIndex((part) => part.toLowerCase() === 'projects');
-  const slug = projectsIndex >= 0 ? parts[projectsIndex + 1] : parts[parts.length - 1];
-  return slug ? `/projects/${slug}/` : '';
+  const projectParts = projectsIndex >= 0 ? parts.slice(projectsIndex + 1) : parts.slice(-1);
+  const relativePath = projectParts.join('/');
+  return relativePath ? `/projects/${relativePath}/` : '';
 }
 
 function resolveRestoredAssetUrl(value: unknown, projectBase: string): string {
@@ -568,9 +575,9 @@ function AdHeader({ onLogoClick, onSignOut }: { onLogoClick?: () => void; onSign
           <img src="/images/logo.png" alt="Forge" className="h-7 w-auto" />
         </button>
         <div className="flex items-center gap-2">
-          <Link to="/history">
+          <Link to="/projects">
             <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
-              <Clock className="h-4 w-4" /> History
+              <FolderOpen className="h-4 w-4" /> Projects
             </Button>
           </Link>
           <Button variant="ghost" size="sm" onClick={onSignOut} className="gap-2 text-muted-foreground hover:text-foreground">
@@ -589,17 +596,18 @@ export default function AdCreatives() {
   const routeState = location.state as {
     formData?: AdCreativeFormData;
     currentStep?: number;
-    savedProjectId?: number;
+    savedProjectId?: number | string;
     showResults?: boolean;
     generatedHtml?: string;
     generatedPublicUrl?: string;
     projectPublicUrl?: string;
     folderPath?: string;
     generatedBanners?: GeneratedBanner[];
+    companyProjectId?: number;
   } | null;
 
-  const [currentStep, setCurrentStep] = useState(routeState?.currentStep ?? 0);
-  const [maxVisitedStep, setMaxVisitedStep] = useState(routeState?.currentStep ?? 0);
+  const [currentStep, setCurrentStep] = useState(clampStepIndex(routeState?.currentStep));
+  const [maxVisitedStep, setMaxVisitedStep] = useState(clampStepIndex(routeState?.currentStep));
   const [formData, setFormData] = useState<AdCreativeFormData>(() =>
     normalizeRestoredAdFormData(
       routeState?.formData,
@@ -607,12 +615,14 @@ export default function AdCreatives() {
       routeState?.folderPath,
     )
   );
-  const [brandBookFile, setBrandBookFile] = useState<File | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStatus, setGenerationStatus] = useState('');
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationLog, setGenerationLog] = useState<string[]>([]);
-  const [savedProjectId, setSavedProjectId] = useState<number | null>(routeState?.savedProjectId ?? null);
+  const [savedProjectId, setSavedProjectId] = useState<number | null>(() => {
+    const id = Number(routeState?.savedProjectId ?? 0);
+    return id > 0 ? id : null;
+  });
   const [showResults, setShowResults] = useState(Boolean(routeState?.showResults));
   const [generatedHtml, setGeneratedHtml] = useState(routeState?.generatedHtml || '');
   const [generatedPublicUrl, setGeneratedPublicUrl] = useState(routeState?.generatedPublicUrl || '');
@@ -622,10 +632,12 @@ export default function AdCreatives() {
   );
   const [lightboxBanner, setLightboxBanner] = useState<typeof generatedBanners[0] | null>(null);
   const [activePlatform, setActivePlatform] = useState<string>('all');
+  const [brandBookFile, setBrandBookFile] = useState<File | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState('');
   const [downloadLog, setDownloadLog] = useState<string[]>([]);
+  const recentPexelsUrlsRef = useRef<string[]>([]);
 
   const currentStepId = STEPS[currentStep]?.id;
 
@@ -643,7 +655,7 @@ export default function AdCreatives() {
   }, []);
 
   const ensureDraftProject = useCallback(async () => {
-    if (savedProjectId) return savedProjectId;
+    if (savedProjectId) return Number(savedProjectId);
     if (!user?.id) throw new Error('User not authenticated');
 
     const saved = await createProject({
@@ -656,14 +668,16 @@ export default function AdCreatives() {
       current_step: currentStep,
       project_type: 'ad_creative',
       draft_only: true,
+      ...(routeState?.companyProjectId ? { company_project_id: routeState.companyProjectId } : {}),
     });
 
     if (!saved?.success || !saved?.id) {
       throw new Error(saved?.error || 'Could not create draft project for asset upload');
     }
 
-    setSavedProjectId(saved.id);
-    return Number(saved.id);
+    const projectId = Number(saved.id);
+    setSavedProjectId(projectId);
+    return projectId;
   }, [currentStep, formData, savedProjectId, user?.id]);
 
   const handleUploadAssets = useCallback(async (files: File[]) => {
@@ -758,6 +772,54 @@ export default function AdCreatives() {
       throw new Error('Generated image returned an unsupported URL format.');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Image generation failed. Try again or upload manually.');
+      return null;
+    }
+  }, [ensureDraftProject, user?.id]);
+
+  const handleSearchPexelsAdImage = useCallback(async (
+    slot: 'logo' | 'product' | 'background',
+    ctx: { brandName: string; productName: string; valueProposition: string; style: string; primaryColor: string; secondaryColor: string; backgroundColor: string; industry: string; toneOfVoice: string; targetAudience: string; campaignName: string },
+    variantIndex?: number
+  ): Promise<string | null> => {
+    const query = (ctx.productName || '').replace(/\s+/g, ' ').trim();
+    if (!query) {
+      toast.error('Fill the Product / Service field before searching Pexels.');
+      return null;
+    }
+
+    try {
+      const result = await searchImages(query, 10);
+      const candidates = (result.images || [])
+        .map((image) => image?.url)
+        .filter((url): url is string => typeof url === 'string' && url.trim() !== '');
+      const recentUrls = recentPexelsUrlsRef.current;
+      const freshCandidates = candidates.filter((url) => !recentUrls.includes(url));
+      const pool = freshCandidates.length ? freshCandidates : candidates;
+      const imageUrl = pool.length ? pool[Math.floor(Math.random() * pool.length)] : '';
+      if (!imageUrl) {
+        toast.error('No Pexels image found for this context.');
+        return null;
+      }
+      recentPexelsUrlsRef.current = [imageUrl, ...recentUrls.filter((url) => url !== imageUrl)].slice(0, 20);
+
+      const projectId = await ensureDraftProject();
+      if (user?.id && /^https?:\/\//i.test(imageUrl)) {
+        const slotLabel = variantIndex !== undefined
+          ? `${slot}-pexels-variant-${(['a', 'b', 'c'])[variantIndex] ?? variantIndex}`
+          : `${slot}-pexels`;
+        const safeBrand = (ctx.brandName || 'brand').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
+        const uploadResult = await uploadProjectAssetsFromUrls(projectId, user.id, [imageUrl], [`ad-${slotLabel}-${safeBrand}`]);
+        const uploadedUrl = (uploadResult.uploaded || [])[0]?.url;
+        if (uploadedUrl) {
+          toast.success('Pexels image found and saved to assets.');
+          return uploadedUrl;
+        }
+      }
+
+      toast.success('Pexels image found.');
+      return imageUrl;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Pexels search failed. Try another context or upload manually.');
       return null;
     }
   }, [ensureDraftProject, user?.id]);
@@ -935,6 +997,7 @@ export default function AdCreatives() {
         user_id: user.id,
         current_step: currentStep,
         form_data: formData,
+        project_type: 'ad_creative',
       }).catch(() => undefined);
     }, 700);
     return () => window.clearTimeout(timeout);
@@ -951,16 +1014,10 @@ export default function AdCreatives() {
   };
 
   const handleNext = () => {
-    if (currentStepId === 'import' && !formData.campaignName.trim()) {
-      toast.error('Please enter a campaign name before continuing.');
-      return;
-    }
     if (!canProceed()) {
-      toast.error('Please select at least one platform and format to continue');
+      if (currentStepId === 'import') toast.error('Campaign name is required to continue');
+      else toast.error('Please select at least one platform and format to continue');
       return;
-    }
-    if (currentStepId === 'import' && brandBookFile) {
-      toast.info(`Brand book "${brandBookFile.name}" received — brand fields pre-filled where possible.`);
     }
     if (currentStep < STEPS.length - 1) {
       const next = currentStep + 1;
@@ -978,10 +1035,10 @@ export default function AdCreatives() {
   const handleClear = () => {
     if (window.confirm('Clear all form data and start over?')) {
       setFormData(defaultAdCreativeFormData);
-      setBrandBookFile(null);
       setCurrentStep(0);
       setMaxVisitedStep(0);
       setSavedProjectId(null);
+      setBrandBookFile(null);
       toast.success('Form cleared');
     }
   };
@@ -1088,12 +1145,13 @@ export default function AdCreatives() {
       const slugBase = (formData.campaignName || formData.brandName || 'campaign')
         .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
       const slug = `ad-${slugBase}-${Date.now()}`;
+      const projectIdForPublish = await ensureDraftProject();
 
       const publishResponse = await fetch('/api/publishAdCreative.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project_id: savedProjectId,
+          project_id: projectIdForPublish,
           user_id: user.id,
           name: formData.campaignName || `AD Creative — ${formData.brandName}`,
           slug,
@@ -1109,7 +1167,7 @@ export default function AdCreatives() {
         const msg = [saved?.error, saved?.details].filter(Boolean).join(' — ');
         throw new Error(msg || 'Failed to save project');
       }
-      setSavedProjectId(saved.id);
+      setSavedProjectId(Number(saved.id));
 
       setGenerationProgress(100);
       setGenerationStatus('Generation created!');
@@ -1265,10 +1323,10 @@ export default function AdCreatives() {
     const resetAndNew = () => {
       setShowResults(false);
       setFormData(defaultAdCreativeFormData);
-      setBrandBookFile(null);
       setCurrentStep(0);
       setMaxVisitedStep(0);
       setSavedProjectId(null);
+      setBrandBookFile(null);
       setGeneratedBanners([]);
       setSelectedBannerIds(new Set());
       setLightboxBanner(null);
@@ -1566,9 +1624,6 @@ export default function AdCreatives() {
         />
 
         <div className="mt-8 glass-card rounded-xl p-6 sm:p-8 animate-in-up" key={currentStepId}>
-          {currentStepId === 'objective' && (
-            <StepAdObjective data={formData} onChange={updateForm} />
-          )}
           {currentStepId === 'import' && (
             <StepAdImport
               data={formData}
@@ -1576,6 +1631,9 @@ export default function AdCreatives() {
               brandBookFile={brandBookFile}
               onBrandBookFile={setBrandBookFile}
             />
+          )}
+          {currentStepId === 'objective' && (
+            <StepAdObjective data={formData} onChange={updateForm} />
           )}
           {currentStepId === 'platform' && (
             <StepAdPlatform data={formData} onChange={updateForm} />
@@ -1599,6 +1657,7 @@ export default function AdCreatives() {
               onUploadAssets={handleUploadAssets}
               onRemoveAsset={handleRemoveAsset}
               onGenerateImage={handleGenerateAdImage}
+              onSearchPexelsImage={handleSearchPexelsAdImage}
             />
           )}
           {currentStepId === 'review' && (

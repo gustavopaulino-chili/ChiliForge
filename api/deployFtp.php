@@ -94,7 +94,7 @@ if ($targetDir === '/') {
 }
 
 // Resolve project, including legacy rows whose original users entry was reset.
-$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.folder_path, p.public_url');
+$projectRow = find_project_for_user($conn, $projectId, $userId, 'p.id');
 $conn->close();
 
 if (!$projectRow) {

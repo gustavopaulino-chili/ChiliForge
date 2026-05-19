@@ -1,12 +1,12 @@
-import { useState, useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { AdCreativeFormData } from '@/types/adCreativeForm';
-import { Upload, Check, AlertCircle, X, Loader2, Sparkles, Globe, MessageSquare, BookOpen, Tag } from 'lucide-react';
+import { AlertCircle, BookOpen, Check, Loader2, MessageSquare, Sparkles, Tag, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { analyzeAdBrief, scrapeWebsite } from '@/services/api';
+import { analyzeAdBrief } from '@/services/api';
 
 interface Props {
   data: AdCreativeFormData;
@@ -21,7 +21,7 @@ function normalizeColor(value: unknown): string | null {
   const hexMatch = v.match(/#([0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3})(?:[^0-9a-f]|$)/i);
   if (hexMatch) {
     const raw = hexMatch[1].toLowerCase();
-    if (raw.length === 3) return '#' + raw[0]+raw[0]+raw[1]+raw[1]+raw[2]+raw[2];
+    if (raw.length === 3) return '#' + raw[0] + raw[0] + raw[1] + raw[1] + raw[2] + raw[2];
     if (raw.length === 8) return '#' + raw.slice(0, 6);
     return '#' + raw;
   }
@@ -44,8 +44,9 @@ function pickStringArray(value: unknown, max = 3): string[] {
     : [];
 }
 
-function scrapeDataToAdUpdates(extracted: Record<string, unknown>): Partial<AdCreativeFormData> {
+function briefDataToAdUpdates(extracted: Record<string, unknown>): Partial<AdCreativeFormData> {
   const updates: Partial<AdCreativeFormData> = {};
+
   if (extracted.campaignName) updates.campaignName = String(extracted.campaignName);
   const objective = pickEnum(extracted.campaignObjective, ['lead-generation', 'sales', 'awareness', 'product-launch', 'retargeting', 'engagement', 'app-install', 'whatsapp', 'traffic', 'event', ''] as const);
   if (objective !== null) updates.campaignObjective = objective;
@@ -69,10 +70,12 @@ function scrapeDataToAdUpdates(extracted: Record<string, unknown>): Partial<AdCr
   if (extracted.ctaText) updates.ctaText = String(extracted.ctaText);
   if (extracted.targetAudience) updates.targetAudience = String(extracted.targetAudience);
   if (extracted.ageRange) updates.ageRange = String(extracted.ageRange);
+
   const gender = pickEnum(extracted.gender, ['all', 'male', 'female'] as const);
   if (gender) updates.gender = gender;
   if (extracted.painPoints) updates.painPoints = String(extracted.painPoints);
   if (extracted.desires) updates.desires = String(extracted.desires);
+
   const tone = pickEnum(extracted.toneOfVoice, ['formal', 'casual', 'inspirational', 'authoritative', 'conversational', 'urgent', 'empathetic'] as const);
   if (tone) updates.toneOfVoice = tone;
   const urgency = pickEnum(extracted.urgencyLevel, ['none', 'low', 'medium', 'high'] as const);
@@ -81,17 +84,24 @@ function scrapeDataToAdUpdates(extracted: Record<string, unknown>): Partial<AdCr
   if (strategy !== null) updates.creativeStrategy = strategy;
   if (extracted.creativeStrategyOther) updates.creativeStrategyOther = String(extracted.creativeStrategyOther);
 
-  const VALID_STYLES = ['modern', 'corporate', 'minimal', 'bold', 'premium', 'luxury', 'futuristic', 'cinematic', 'clean', 'high-contrast'] as const;
-  const STYLE_MAP: Record<string, typeof VALID_STYLES[number]> = {
-    editorial: 'minimal', energetic: 'bold', saas: 'modern', tech: 'modern',
-    luxury: 'premium', elegant: 'premium', 'high-end': 'premium',
-    dramatic: 'bold', creative: 'bold', corporate: 'corporate',
+  const validStyles = ['modern', 'corporate', 'minimal', 'bold', 'premium', 'luxury', 'futuristic', 'cinematic', 'clean', 'high-contrast'] as const;
+  const styleMap: Record<string, typeof validStyles[number]> = {
+    editorial: 'minimal',
+    energetic: 'bold',
+    saas: 'modern',
+    tech: 'modern',
+    luxury: 'premium',
+    elegant: 'premium',
+    'high-end': 'premium',
+    dramatic: 'bold',
+    creative: 'bold',
+    corporate: 'corporate',
   };
   if (extracted.preferredStyle) {
     const raw = String(extracted.preferredStyle).toLowerCase().trim();
-    updates.preferredStyle = (VALID_STYLES as readonly string[]).includes(raw)
-      ? (raw as typeof VALID_STYLES[number])
-      : (STYLE_MAP[raw] ?? 'modern');
+    updates.preferredStyle = (validStyles as readonly string[]).includes(raw)
+      ? (raw as typeof validStyles[number])
+      : (styleMap[raw] ?? 'modern');
   }
 
   const primaryColor = normalizeColor(extracted.primaryColor);
@@ -108,6 +118,7 @@ function scrapeDataToAdUpdates(extracted: Record<string, unknown>): Partial<AdCr
   if (extracted.headingFont) updates.headingFont = String(extracted.headingFont);
   if (extracted.bodyFont) updates.bodyFont = String(extracted.bodyFont);
   if (extracted.logoUrl) updates.logoUrl = String(extracted.logoUrl);
+
   const headlines = pickStringArray(extracted.headlineVariants, 3);
   if (headlines.length) updates.headlineVariants = headlines;
   const ctas = pickStringArray(extracted.ctaVariants, 3);
@@ -123,41 +134,16 @@ function scrapeDataToAdUpdates(extracted: Record<string, unknown>): Partial<AdCr
 }
 
 export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }: Props) {
-  const [isScraping, setIsScraping] = useState(false);
   const [isAnalyzingBrief, setIsAnalyzingBrief] = useState(false);
-  const [scrapeResult, setScrapeResult] = useState<{ fields: string[] } | null>(null);
   const [briefResult, setBriefResult] = useState<{ fields: string[] } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const getFilledFields = (updates: Partial<AdCreativeFormData>) => Object.keys(updates).filter(k => {
-    const val = (updates as Record<string, unknown>)[k];
-    if (Array.isArray(val)) return val.length > 0;
-    if (typeof val === 'object' && val !== null) return Object.keys(val).length > 0;
-    return val !== '' && val !== null && val !== undefined;
+  const getFilledFields = (updates: Partial<AdCreativeFormData>) => Object.keys(updates).filter((key) => {
+    const value = (updates as Record<string, unknown>)[key];
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'object' && value !== null) return Object.keys(value).length > 0;
+    return value !== '' && value !== null && value !== undefined;
   });
-
-  const handleScrapeWebsite = async () => {
-    if (!data.websiteUrl.trim()) {
-      toast.error('Please enter a website URL');
-      return;
-    }
-    setIsScraping(true);
-    setScrapeResult(null);
-    try {
-      const result = await scrapeWebsite(data.websiteUrl.trim(), false, data.context || undefined);
-      const extracted = result.extracted;
-      if (!extracted) throw new Error('No data extracted from website');
-      const updates = scrapeDataToAdUpdates(extracted as Record<string, unknown>);
-      const matched = getFilledFields(updates);
-      onChange({ ...updates, websiteUrl: data.websiteUrl.trim() });
-      setScrapeResult({ fields: matched });
-      toast.success(`AI analyzed the website and extracted ${matched.length} fields!`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to analyze website');
-    } finally {
-      setIsScraping(false);
-    }
-  };
 
   const handleAnalyzeBrief = async () => {
     if (!data.context.trim() || data.context.trim().length < 20) {
@@ -171,7 +157,7 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
       const result = await analyzeAdBrief(data.context.trim(), data as unknown as Record<string, unknown>);
       const extracted = result.extracted;
       if (!extracted) throw new Error('No data extracted from campaign description');
-      const updates = scrapeDataToAdUpdates(extracted);
+      const updates = briefDataToAdUpdates(extracted);
       const matched = getFilledFields(updates);
       onChange({ ...updates, context: data.context.trim() });
       setBriefResult({ fields: matched });
@@ -199,13 +185,12 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
   return (
     <div className="space-y-8">
       <div>
-        <h3 className="form-section-title">Import Brand Data</h3>
+        <h3 className="form-section-title">Campaign Setup</h3>
         <p className="form-section-desc">
-          Import data from a website URL or upload your brand book — AI will extract and fill the form automatically
+          Name this campaign and optionally describe the specific offer, audience, and creative direction for AI autofill.
         </p>
       </div>
 
-      {/* Campaign Name */}
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <Tag className="h-4 w-4 text-primary" />
@@ -213,7 +198,7 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
           <span className="text-xs text-destructive font-medium">*required</span>
         </div>
         <Input
-          placeholder="e.g. Summer Sale 2026, Product Launch — Brand"
+          placeholder="e.g. Summer Sale 2026, Product Launch - Brand"
           value={data.campaignName}
           onChange={e => onChange({ campaignName: e.target.value })}
           className={!data.campaignName.trim() ? 'border-destructive/50 focus-visible:ring-destructive/30' : ''}
@@ -223,7 +208,6 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
         )}
       </div>
 
-      {/* Campaign brief field */}
       <div className="space-y-3 rounded-lg border border-primary/25 bg-primary/5 p-4">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-primary" />
@@ -231,14 +215,14 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
           <span className="text-xs text-muted-foreground">(optional)</span>
         </div>
         <Textarea
-          placeholder="Describe the campaign in your own words. Example: Launch campaign for a premium skincare serum, targeting women 25-40, offer 20% off this week, minimalist luxury visual style, CTA 'Shop now'."
+          placeholder="Describe this campaign only. Example: Launch campaign for a premium skincare serum, targeting women 25-40, offer 20% off this week, minimalist luxury visual style, CTA 'Shop now'."
           value={data.context}
           onChange={e => onChange({ context: e.target.value })}
           className="min-h-[110px] text-sm"
         />
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-muted-foreground">
-            AI will interpret this brief and fill objective, brand, offer, audience, copy, strategy, and A/B suggestions.
+            AI will interpret this brief and fill objective, offer, audience, copy, strategy, and A/B suggestions.
           </p>
           <Button
             type="button"
@@ -261,85 +245,21 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
               <span className="text-sm font-medium text-success">Campaign brief interpreted successfully!</span>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {briefResult.fields.map(f => (
-                <span key={f} className="text-xs bg-success/10 text-success rounded px-2 py-0.5">{f}</span>
+              {briefResult.fields.map(field => (
+                <span key={field} className="text-xs bg-success/10 text-success rounded px-2 py-0.5">{field}</span>
               ))}
             </div>
           </div>
         )}
       </div>
 
-      {/* Website URL Scraping */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Globe className="h-4 w-4 text-primary" />
-          <Label className="text-sm font-semibold text-foreground">Import from Website URL</Label>
-        </div>
-        <p className="text-xs text-muted-foreground -mt-2">
-          Paste a website link — AI will analyze content, colors, style, and brand identity.
-        </p>
-        <div className="flex gap-2">
-          <Input
-            type="url"
-            placeholder="https://yourbrand.com"
-            value={data.websiteUrl}
-            onChange={e => onChange({ websiteUrl: e.target.value })}
-            disabled={isScraping}
-            className="flex-1"
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleScrapeWebsite(); } }}
-          />
-          <Button
-            type="button"
-            onClick={handleScrapeWebsite}
-            disabled={isScraping || !data.websiteUrl.trim()}
-            className="gap-2 shrink-0"
-          >
-            {isScraping ? (
-              <><Loader2 className="h-4 w-4 animate-spin" />Analyzing...</>
-            ) : (
-              <><Sparkles className="h-4 w-4" />Analyze Site</>
-            )}
-          </Button>
-        </div>
-
-        {isScraping && (
-          <div className="rounded-lg bg-primary/5 border border-primary/20 p-6 text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-3" />
-            <span className="text-sm font-medium text-foreground">AI is analyzing the website...</span>
-          </div>
-        )}
-
-        {scrapeResult && !isScraping && (
-          <div className="rounded-lg bg-success/10 border border-success/20 p-4 space-y-2">
-            <div className="flex items-center gap-2">
-              <Check className="h-4 w-4 text-success" />
-              <span className="text-sm font-medium text-success">Website analyzed successfully!</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {scrapeResult.fields.map(f => (
-                <span key={f} className="text-xs bg-success/10 text-success rounded px-2 py-0.5">{f}</span>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Divider */}
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border" /></div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-card px-3 text-muted-foreground">or</span>
-        </div>
-      </div>
-
-      {/* Brand Book Upload */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <BookOpen className="h-4 w-4 text-primary" />
           <Label className="text-sm font-semibold text-foreground">Upload Brand Book</Label>
         </div>
         <p className="text-xs text-muted-foreground -mt-2">
-          Upload your brand guide (PDF, image, or any file) — AI will extract colors, fonts, style, and brand identity.
+          Upload your brand guide (PDF, image, or any file) - AI will extract colors, fonts, style, and brand identity.
         </p>
 
         <input
@@ -347,7 +267,10 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
           type="file"
           accept="*"
           className="hidden"
-          onChange={e => { const file = e.target.files?.[0]; if (file) handleBrandBookFile(file); }}
+          onChange={e => {
+            const file = e.target.files?.[0];
+            if (file) handleBrandBookFile(file);
+          }}
         />
 
         {brandBookFile || data.brandBookFileName ? (
@@ -358,7 +281,7 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
                 <div className="text-sm font-medium text-foreground truncate">
                   {brandBookFile?.name || data.brandBookFileName}
                 </div>
-                <div className="text-xs text-muted-foreground">Brand book loaded — fields will auto-fill on next step</div>
+                <div className="text-xs text-muted-foreground">Brand book loaded - fields will auto-fill on next step</div>
               </div>
             </div>
             <Button type="button" variant="ghost" size="sm" onClick={removeBrandBook} className="shrink-0 gap-1.5 text-muted-foreground">
@@ -382,8 +305,8 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
         <div className="flex items-start gap-2">
           <AlertCircle className="h-4 w-4 text-muted-foreground mt-0.5" />
           <div className="text-xs text-muted-foreground space-y-1">
-            <p><strong>Website URL:</strong> AI extracts brand colors, style, fonts, and logo from your site.</p>
-            <p><strong>Brand Book:</strong> Any file format accepted — AI reads brand guidelines to auto-fill Brand Identity step.</p>
+            <p><strong>Campaign brief:</strong> Use this only for campaign-specific instructions, not the full company profile.</p>
+            <p><strong>Brand Book:</strong> Any file format accepted - AI reads brand guidelines to auto-fill Brand Identity step.</p>
             <p>All imported fields can be edited in the following steps.</p>
           </div>
         </div>

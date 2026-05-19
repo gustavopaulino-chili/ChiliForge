@@ -21,6 +21,7 @@ type Project = {
   user_id?: number;
   name: string;
   public_url?: string;
+  ad_public_url?: string;
   folder_path?: string;
   generated_html?: string;
   project_type?: string;
@@ -162,14 +163,15 @@ export default function AdsEditorPage() {
           return;
         }
 
-        if (found.project_type && !['ad_creative', 'ad_banner'].includes(found.project_type)) {
+        if (found.project_type && !['ad_creative', 'ad_banner', 'project'].includes(found.project_type)) {
           setLoadError('This project is a landing page. Open it in the Visual Editor instead.');
           setLoading(false);
           return;
         }
 
-        setProject(found);
-        const finalHtml = await loadPublishedDocument(found.public_url, found.generated_html || '');
+        const adBoardUrl = found.project_type === 'project' ? (found.ad_public_url || found.public_url) : found.public_url;
+        setProject({ ...found, public_url: adBoardUrl });
+        const finalHtml = await loadPublishedDocument(adBoardUrl, found.generated_html || '');
 
         if (!mounted) return;
 
