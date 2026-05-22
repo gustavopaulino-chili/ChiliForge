@@ -1,0 +1,183 @@
+AD VISUAL DESIGN SYSTEM
+========================
+These are structural design principles that improve legibility and
+conversion performance. Creative expression, color choices, layout concepts,
+and visual personality are entirely yours.
+
+
+COLOR APPLICATION RULES
+-----------------------
+Campaign data provides specific colors (primary, secondary, accent, text, background).
+Use them as the palette — don't invent new colors unless the palette is incomplete.
+
+Color roles (default mapping — override if the design concept requires it):
+  Primary color    → dominant brand expression (large backgrounds, bold shapes, overlays)
+  Secondary color  → supporting elements (dividers, secondary shapes, tags)
+  Accent / CTA     → CTA button background and interactive elements
+  Text color       → all copy on non-dark backgrounds
+  Background color → banner background when no image is used
+
+Contrast enforcement:
+  - Text over an image: always add a semi-transparent overlay or shadow
+    behind text to ensure legibility. Use rgba(0,0,0,0.45) or brand-color overlay.
+  - CTA button: the button text must have contrast ratio ≥ 4.5:1 against
+    the button background (WCAG AA). When in doubt, use white text on colored button.
+  - Do NOT place dark text directly on a dark hero image without an overlay.
+
+When no colors are provided: use high-contrast defaults (deep navy + white, or
+near-black + brand white) — never use pastel-on-pastel or similar low-contrast combos.
+
+
+TYPOGRAPHY RULES
+----------------
+Heading font: use the heading font from campaign data for all headlines.
+Body font: use the body font for subheadlines and body copy.
+If neither is provided, choose a clean sans-serif from Google Fonts
+(Inter, Montserrat, DM Sans, Plus Jakarta Sans) that fits the brand style.
+
+Font weight rules:
+  - Headline: weight 700–900 (bold/black) — always strong, never thin
+  - Subheadline: weight 400–600 — readable, not competing with headline
+  - CTA label: weight 600–700 — assertive, visible at small sizes
+  - Body copy: weight 400 — legible, not too light
+
+Letter-spacing guidelines:
+  - Headlines at large sizes (>60px): letter-spacing -0.02em to 0 (tighter)
+  - All-caps short labels: letter-spacing 0.08em to 0.15em (wider)
+  - CTA buttons: letter-spacing 0.04em (slightly wider, improves button legibility)
+
+Line-height:
+  - Headlines: 1.0–1.15
+  - Subheadlines: 1.2–1.35
+  - Body copy: 1.4–1.6
+
+
+VISUAL HIERARCHY
+----------------
+Every banner must have a clear focal point that loads first visually.
+The hierarchy flows: Primary focal → Headline → Supporting info → CTA.
+
+Common hierarchy patterns (choose the one that serves the concept):
+  Image-led: Big visual occupies 60–70% of the banner. Short headline overlay. CTA.
+  Type-led: Bold headline is the hero. Minimal or no image. Strong CTA.
+  Balanced: Equal emphasis between image and copy. Works for consideration-stage ads.
+
+One dominant element per banner. Competing focal points reduce conversion.
+The CTA is never the focal point — it follows the eye, not leads it.
+
+
+Z-INDEX LAYERING FOR VISUAL DEPTH
+-----------------------------------
+Use z-index layers to create perceived depth:
+  Layer 0:  Background (image or color fill)
+  Layer 5:  Color overlay / gradient mask (for text readability over images)
+  Layer 10: Secondary visual elements (patterns, shapes, decorative elements)
+  Layer 20: Product image or hero visual
+  Layer 25: Logo / brand mark
+  Layer 30: Headline block
+  Layer 35: Subheadline / body copy block
+  Layer 40: CTA button (always on top of all content)
+
+Gradient overlay technique (critical for image-background ads):
+  Add a div at z-index:5 over the background image to ensure text readability:
+  style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;
+         background:linear-gradient(to bottom, rgba(0,0,0,0) 30%, rgba(0,0,0,0.65) 100%);"
+  Adjust the direction and opacity to fit the layout.
+
+
+LOGO RENDERING RULES
+--------------------
+logo-strategy values and how to apply them:
+  auto:        Choose the version that has best contrast against the background.
+  light:       Use white/light version of logo — place on dark backgrounds.
+  dark:        Use dark/black version — place on light/white backgrounds.
+  monochrome:  Desaturate the logo and apply a solid color matching the brand palette.
+  full-color:  Use the logo exactly as provided — avoid placing on competing backgrounds.
+
+Logo sizing guidelines by format:
+  Story/Portrait/Square (1080px+): height 60–100px, max-width 280px
+  Landscape/Widescreen:           height 60–90px, max-width 280px
+  Medium Rectangle (300×250):     height 32–44px, max-width 160px
+  Leaderboard/Billboard:          height 52–64px, max-width 130px
+  Small Square (250×250):         height 26–32px, max-width 120px
+  Email formats:                  height 40–56px, max-width 160px
+
+Never distort the logo. Use object-fit:contain with explicit width:auto.
+Always add a safe margin around the logo (minimum 8px clearance on all sides).
+
+
+BACKGROUND IMAGE TREATMENT
+---------------------------
+When a background image is provided (backgroundImageUrl), always use it.
+Apply one of these treatments to ensure text reads cleanly:
+
+  1. Gradient overlay (most common):
+     Dark gradient over the image toward the text area.
+     opacity typically 0.5–0.75 depending on image brightness.
+
+  2. Vignette:
+     Radial gradient darkening the edges, keeping center bright.
+     Best for product-centered compositions.
+
+  3. Frosted panel:
+     Semi-transparent color panel behind the copy block (rgba brand color 0.8).
+     Good for maintaining brand color presence with strong background images.
+
+  4. Blur zone:
+     Place copy over a blurred area of the image (not achievable with inline CSS —
+     use a solid color panel instead for isolated banner environments).
+
+Always test: if the text would be unreadable, darken the overlay. Legibility wins.
+
+
+SAFE ZONE COMPLIANCE
+--------------------
+Content outside the safe zone risks being cropped by platform UI,
+screen edges, or thumbnail generation.
+
+Display format safe zones (use pixel values, not %):
+  Leaderboard 728×90:    8px top/bottom, 10px left/right
+  Billboard 970×90:      8px top/bottom, 12px left/right
+  Medium Rect 300×250:   12px all sides
+  Small Square 250×250:  10px all sides
+  Email Header 600×200:  20px all sides
+  Email Banner 600×400:  24px all sides
+
+Social format safe zones (percentage approach acceptable):
+  Story 1080×1920:       250px top/bottom (platform UI), 54px left/right
+  All other social:      5% of each dimension (≈54px on 1080px dimension)
+
+
+VISUAL STYLE EXECUTION
+-----------------------
+These are brief execution notes per style — interpret freely within each.
+
+modern:      Clean geometry, high contrast, generous whitespace, sans-serif type
+             Grid-aligned layouts, flat colors or subtle gradients, minimal decoration
+
+corporate:   Professional, structured, trust-building — conservative color palette
+             serif or clean sans-serif, symmetrical layouts, badge/credential elements
+
+minimal:     Maximum whitespace, 1–2 colors, one focal point
+             Typography is the primary design element, minimal imagery decoration
+
+bold:        High contrast, large type, strong primary shapes, attention-grabbing
+             Bright CTA colors, tight compositions, energetic visual weight
+
+premium:     Dark or muted backgrounds, gold/bronze/metallic accents, refined spacing
+             Serif headlines, generous whitespace, implied luxury through restraint
+
+luxury:      Near-black or deep backgrounds, gold/champagne palette, elegant serif type
+             Minimal decoration, focus on product quality and exclusivity
+
+futuristic:  Dark backgrounds, neon or electric accent colors, geometric shapes
+             Gradient text or glow effects, tech-forward sans-serif fonts
+
+cinematic:   Full-bleed image, strong directional overlay, dramatic type scale
+             Film-like compositions, strong mood through image treatment
+
+clean:       Bright/white backgrounds, clear hierarchy, easy to scan
+             High readability, accessible contrast, friendly sans-serif
+
+high-contrast: Maximum contrast between foreground and background
+              Black/white with a single accent color, bold type, no gradients

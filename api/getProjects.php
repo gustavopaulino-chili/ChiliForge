@@ -30,7 +30,7 @@ $hasGeneratedHtmlSelect = "TRIM(COALESCE(l.generated_html, '')) <> '' AS has_gen
 
 // Latest campaign per project (for ad_creative projects whose data lives in ads_campaign)
 $acJoin = "LEFT JOIN (
-    SELECT ac1.project_id, ac1.public_url, ac1.form_data, ac1.current_step
+    SELECT ac1.id AS campaign_id, ac1.project_id, ac1.public_url, ac1.form_data, ac1.current_step
     FROM ads_campaign ac1
     INNER JOIN (SELECT MAX(id) AS max_id FROM ads_campaign GROUP BY project_id) acm ON acm.max_id = ac1.id
 ) ac ON ac.project_id = p.id";
@@ -65,7 +65,8 @@ $cols = "p.id, p.user_id, p.name,
     END AS current_step,
     p.created_at,
     COALESCE(p.project_type, 'landing_page') AS project_type,
-    p.company_project_id";
+    p.company_project_id,
+    COALESCE(ac.campaign_id, 0) AS campaign_id";
 
 if ($project_id > 0 && $user_id > 0 && $has_valid_email) {
     $stmt = $conn->prepare("SELECT {$cols} FROM projects p LEFT JOIN lps l ON l.project_id = p.id {$acJoin} LEFT JOIN users u ON u.id = p.user_id WHERE p.id = ? AND (p.user_id = ? OR LOWER(u.email) = LOWER(?))");
@@ -93,7 +94,7 @@ if (!$stmt) {
 }
 $stmt->execute();
 $stmt->store_result();
-$stmt->bind_result($projectId, $projectUserId, $projectName, $projectUrl, $projectPath, $projectFormData, $projectCompanyFormData, $projectContext, $lpPublicUrl, $adPublicUrl, $projectGeneratedHtml, $projectHasGeneratedHtml, $projectCurrentStep, $projectCreatedAt, $projectType, $projectCompanyProjectId);
+$stmt->bind_result($projectId, $projectUserId, $projectName, $projectUrl, $projectPath, $projectFormData, $projectCompanyFormData, $projectContext, $lpPublicUrl, $adPublicUrl, $projectGeneratedHtml, $projectHasGeneratedHtml, $projectCurrentStep, $projectCreatedAt, $projectType, $projectCompanyProjectId, $campaignId);
 
 $projects = [];
 
@@ -115,6 +116,7 @@ while ($stmt->fetch()) {
         "created_at" => $projectCreatedAt,
         "project_type" => $projectType ?? 'landing_page',
         "company_project_id" => $projectCompanyProjectId ? (int)$projectCompanyProjectId : null,
+        "campaign_id" => $campaignId ? (int)$campaignId : null,
     ];
 }
 

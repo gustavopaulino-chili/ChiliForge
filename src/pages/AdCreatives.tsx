@@ -18,7 +18,7 @@ import { ArrowLeft, ArrowRight, Zap, FolderOpen, LogOut, Loader2, Wand2, RotateC
 import logoResult from '@/assets/logo-result.png';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { useAuth } from '@/contexts/AuthContext';
-import { createProject, deleteProjectAssetFile, generateAdCreatives, generateImages, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls } from '@/services/api';
+import { createProject, deleteProjectAssetFile, generateAdCreatives, generateAdsViaAgent, generateImages, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls } from '@/services/api';
 import { toast } from 'sonner';
 import '@/components/landing/HeroLanding.css';
 
@@ -604,6 +604,7 @@ export default function AdCreatives() {
     folderPath?: string;
     generatedBanners?: GeneratedBanner[];
     companyProjectId?: number;
+    campaignId?: number;
   } | null;
 
   const [currentStep, setCurrentStep] = useState(clampStepIndex(routeState?.currentStep));
@@ -1089,11 +1090,18 @@ export default function AdCreatives() {
         assetBaseUrl: window.location.origin,
       };
 
-      const data = await generateAdCreatives({
-        prompt,
-        businessName: formData.brandName || 'AD Creative',
-        adData: adDataForApi,
-      });
+      const data = (routeState?.companyProjectId && user?.id)
+        ? await generateAdsViaAgent({
+            user_id: user.id,
+            company_project_id: routeState.companyProjectId,
+            campaign_id: routeState.campaignId,
+            form_data: adDataForApi as Record<string, unknown>,
+          })
+        : await generateAdCreatives({
+            prompt,
+            businessName: formData.brandName || 'AD Creative',
+            adData: adDataForApi,
+          });
 
       if (!data?.html) throw new Error('AI did not return HTML');
       setGenerationLog(prev => [
@@ -1414,7 +1422,7 @@ export default function AdCreatives() {
             <div className="flex items-center gap-1.5 flex-wrap mb-4">
               {platforms.map(p => {
                 const count = p === 'all' ? generatedBanners.length : generatedBanners.filter(b => b.platform === p).length;
-                const label = p === 'all' ? 'Todos' : (AD_PLATFORM_LABELS[p as keyof typeof AD_PLATFORM_LABELS] || p);
+                const label = p === 'all' ? 'All' : (AD_PLATFORM_LABELS[p as keyof typeof AD_PLATFORM_LABELS] || p);
                 return (
                   <button
                     key={p}
@@ -1581,7 +1589,7 @@ export default function AdCreatives() {
               onClick={resetAndNew}
               className="gap-2 px-8 font-semibold shadow-lg shadow-primary/20"
             >
-              <Zap className="h-4 w-4" /> Gerar nova campanha
+              <Zap className="h-4 w-4" /> Generate new campaign
             </Button>
           </div>
         </main>
@@ -1658,6 +1666,8 @@ export default function AdCreatives() {
               onRemoveAsset={handleRemoveAsset}
               onGenerateImage={handleGenerateAdImage}
               onSearchPexelsImage={handleSearchPexelsAdImage}
+              companyProjectId={routeState?.companyProjectId}
+              userId={user?.id}
             />
           )}
           {currentStepId === 'review' && (

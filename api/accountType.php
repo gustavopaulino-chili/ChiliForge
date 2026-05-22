@@ -1,7 +1,7 @@
 <?php
 
 function normalize_account_type($value) {
-    return (is_string($value) && strtolower(trim($value)) === 'admin') ? 'admin' : 'testing';
+    return (is_string($value) && strtolower(trim($value)) === 'admin') ? 'admin' : 'user';
 }
 
 function parse_admin_domain_allowlist() {
@@ -13,7 +13,7 @@ function parse_admin_domain_allowlist() {
         }
     }
 
-    // Safe fallback for environments where custom env vars are not exposed to PHP.
+    // Safe default for ChiliForge's own admin domain. Override/extend with ADMIN_EMAIL_DOMAINS.
     if (!is_string($raw) || trim($raw) === '') {
         $raw = '@chili.pa';
     }
@@ -38,6 +38,35 @@ function parse_admin_domain_allowlist() {
     }
 
     return array_values(array_unique($rules));
+}
+
+function parse_admin_email_allowlist() {
+    $raw = getenv('ADMIN_EMAILS');
+    if (!is_string($raw) || trim($raw) === '') {
+        $single = getenv('ADMIN_EMAIL');
+        if (is_string($single) && trim($single) !== '') {
+            $raw = $single;
+        }
+    }
+
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
+    }
+
+    $parts = preg_split('/[;,\s]+/', strtolower(trim($raw)));
+    if (!is_array($parts)) {
+        return [];
+    }
+
+    $emails = [];
+    foreach ($parts as $part) {
+        $email = trim($part);
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $emails[] = $email;
+        }
+    }
+
+    return array_values(array_unique($emails));
 }
 
 function get_email_domain($email) {
@@ -83,15 +112,17 @@ function domain_matches_rule($domain, $rule) {
 
 function resolve_account_type_by_domain($email, $fallbackAccountType) {
     $fallback = normalize_account_type($fallbackAccountType);
-    $domain = get_email_domain($email);
+    $normalizedEmail = is_string($email) ? strtolower(trim($email)) : '';
 
-    // Hard rule requested by product: any @chili.pa account is admin.
-    if ($domain === 'chili.pa') {
+    $emailRules = parse_admin_email_allowlist();
+    if ($normalizedEmail !== '' && in_array($normalizedEmail, $emailRules, true)) {
         return [
             'configured' => true,
             'accountType' => 'admin'
         ];
     }
+
+    $domain = get_email_domain($email);
 
     $rules = parse_admin_domain_allowlist();
     if (count($rules) === 0) {
@@ -104,7 +135,7 @@ function resolve_account_type_by_domain($email, $fallbackAccountType) {
     if ($domain === '') {
         return [
             'configured' => true,
-            'accountType' => 'testing'
+            'accountType' => 'user'
         ];
     }
 
@@ -119,6 +150,6 @@ function resolve_account_type_by_domain($email, $fallbackAccountType) {
 
     return [
         'configured' => true,
-        'accountType' => 'testing'
+        'accountType' => 'user'
     ];
 }

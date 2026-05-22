@@ -2,28 +2,39 @@ const API = "/api";
 const SUPABASE_FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-const normalizeAccountType = (value: unknown): "admin" | "testing" =>
-  value === "admin" ? "admin" : "testing";
+const normalizeAccountType = (value: unknown): "admin" | "user" =>
+  value === "admin" ? "admin" : "user";
 
-const getStoredAccountType = (): "admin" | "testing" => {
+const getStoredAccountType = (): "admin" | "user" => {
   try {
     const storedUser = localStorage.getItem("user");
-    if (!storedUser) return "testing";
+    if (!storedUser) return "user";
 
     const parsedUser = JSON.parse(storedUser);
     return normalizeAccountType(parsedUser?.accountType);
   } catch {
-    return "testing";
+    return "user";
   }
 };
 
 type InvokeAiOptions = {
-  accountType?: "admin" | "testing";
+  accountType?: "admin" | "user";
 };
 
 const readJson = async (response: Response) => {
   const text = await response.text();
-  return text ? JSON.parse(text) : {};
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    const contentType = response.headers.get("content-type") || "";
+    const snippet = text.replace(/\s+/g, " ").trim().slice(0, 240);
+    throw new Error(
+      contentType.includes("text/html") || text.trim().startsWith("<")
+        ? `Server returned HTML instead of JSON (${response.status}). ${snippet}`
+        : `Server returned invalid JSON (${response.status}). ${snippet}`,
+    );
+  }
 };
 
 const postApi = async <T>(path: string, payload: unknown): Promise<T> => {
@@ -475,10 +486,10 @@ export const downloadProjectZip = async (projectId: number, userId: number, fall
 };
 
 export const generatePreset = (description: string) =>
-  invokeAiFunction<{ preset: string; sections: Array<{ name: string; description: string; required: boolean }> }>("generate-preset", { description }, { accountType: "testing" });
+  invokeAiFunction<{ preset: string; sections: Array<{ name: string; description: string; required: boolean }> }>("generate-preset", { description }, { accountType: "user" });
 
 export const generateSections = (description: string) =>
-  invokeAiFunction<{ preset: string; sections: Array<{ name: string; description: string; required: boolean }> }>("generate-preset", { description }, { accountType: "testing" });
+  invokeAiFunction<{ preset: string; sections: Array<{ name: string; description: string; required: boolean }> }>("generate-preset", { description }, { accountType: "user" });
 
 export const parseSpreadsheet = (sheetData: string, context?: string) =>
   invokeAiFunction<{ extracted: Record<string, unknown> }>("parse-spreadsheet", { sheetData, context });
@@ -563,7 +574,7 @@ export const generateLanding = async (payload: {
     return await invoke();
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (accountType === "testing" && /status\s*546/i.test(message)) {
+    if (accountType === "user" && /status\s*546/i.test(message)) {
       // Testing key path may intermittently hit upstream gateway 546; retry once.
       await new Promise((resolve) => setTimeout(resolve, 2500));
       return await invoke();
@@ -665,3 +676,370 @@ export const deleteProjectFile = async (projectId: number, userId: number, fileN
 
   return data as { success: boolean; deleted: string };
 };
+
+// ---------------------------------------------------------------------------
+// Agents — File Search Store-backed LP and Ads generation
+// ---------------------------------------------------------------------------
+
+const AGENTS_API = `${API}/v1/agents`;
+
+async function agentsPost<T>(endpoint: string, payload: unknown): Promise<T> {
+  const response = await fetch(`${AGENTS_API}/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await readJson(response);
+  if (!response.ok || data?.error) {
+    throw new Error(data?.error || `${endpoint} failed with status ${response.status}`);
+  }
+  return data as T;
+}
+
+export type AgentLpResult = {
+  success: boolean;
+  html: string;
+  slug: string;
+  assets: string[];
+  agentVersion?: number;
+  usedStores?: string[];
+  groundingMetadata?: unknown;
+};
+
+export type AgentAdsResult = {
+  success: boolean;
+  html: string;
+  assets: string[];
+  slug: string;
+  creativeCount: number;
+  formats: Array<{ platform: string; format: string; label: string; width: number; height: number }>;
+  creativePlan?: string;
+  agentVersion?: number;
+  usedStores?: string[];
+  groundingMetadata?: unknown;
+};
+
+export const generateLandingViaAgent = (payload: {
+  user_id: number;
+  company_project_id: number;
+  objective?: string;
+  conversion_goal?: string;
+  hero_layout?: string;
+  cta_label?: string;
+  cta_href?: string;
+  offer_text?: string;
+  urgency_text?: string;
+  design_notes?: string;
+  language?: string;
+  target_url?: string;
+  sections?: string[];
+  additional_images?: string[];
+  custom_slug?: string;
+  form_data?: Record<string, unknown>;
+}): Promise<AgentLpResult> =>
+  agentsPost<AgentLpResult>("generate-landing.php", payload);
+
+export const generateAdsViaAgent = (payload: {
+  user_id: number;
+  company_project_id: number;
+  campaign_id?: number;
+  form_data: Record<string, unknown>;
+}): Promise<AgentAdsResult> => {
+  return agentsPost<{
+    success: boolean;
+    edgePayload: Record<string, unknown> & {
+      accountType?: "admin" | "user";
+      campaignData?: Record<string, unknown>;
+    };
+    campaignId?: number | null;
+    campaignMemoryStore?: string | null;
+  }>("prepare-generate-ads.php", payload).then(async (prepared) => {
+    const invokeEdge = () => invokeAiFunction<Omit<AgentAdsResult, "success">>(
+      "agents-ads",
+      prepared.edgePayload,
+      { accountType: prepared.edgePayload.accountType || getStoredAccountType() },
+    );
+    let edgeResult: Omit<AgentAdsResult, "success">;
+    try {
+      edgeResult = await invokeEdge();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (/status\s*546|gateway|timed out|unavailable/i.test(msg)) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        edgeResult = await invokeEdge();
+      } else {
+        throw err;
+      }
+    }
+
+    const creativePlan = edgeResult.creativePlan || "";
+    if (creativePlan.trim() && prepared.campaignId) {
+      void agentsPost("record-campaign-generation.php", {
+        user_id: payload.user_id,
+        company_project_id: payload.company_project_id,
+        campaign_id: prepared.campaignId,
+        form_data: prepared.edgePayload.campaignData || payload.form_data,
+        creative_plan: creativePlan,
+        source: "form_generation",
+      }).catch((err) => {
+        console.warn("[form-generation] failed to record creative plan", err);
+      });
+    }
+
+    return {
+      success: true,
+      ...edgeResult,
+      creativePlan,
+    };
+  });
+};
+
+export const learnFromAdFeedback = (payload: {
+  user_id: number;
+  company_project_id: number;
+  campaign_id: number;
+  bad_ad_ids: number[];
+  feedback?: string;
+  metrics?: Record<string, unknown>;
+}): Promise<{ success: boolean; learnings: string; storeName: string; adCount: number }> =>
+  agentsPost("learn-from-feedback.php", payload);
+
+export const syncCompanyKnowledge = (payload: {
+  user_id: number;
+  company_project_id: number;
+}): Promise<{ success: boolean; storeName: string; refreshed: boolean }> =>
+  agentsPost("sync-company-knowledge.php", payload);
+
+export const uploadCompanyFile = (formData: FormData): Promise<{
+  success: boolean;
+  fileId: number;
+  displayName: string;
+  storeName: string;
+  fileUri: string | null;
+  documentName?: string | null;
+}> => {
+  return fetch(`${API}/v1/agents/upload-company-file.php`, {
+    method: "POST",
+    body: formData,
+  }).then((r) => r.json());
+};
+
+export const listCompanyFiles = (payload: {
+  user_id: number;
+  company_project_id: number;
+}): Promise<{
+  success: boolean;
+  files: Array<{
+    id: number;
+    display_name: string;
+    mime_type: string;
+    file_size_bytes: number | null;
+    created_at: string;
+  }>;
+}> => agentsPost("list-company-files.php", payload);
+
+export const deleteCompanyFile = (payload: {
+  user_id: number;
+  company_project_id: number;
+  file_id: number;
+}): Promise<{ success: boolean }> =>
+  agentsPost("delete-company-file.php", payload);
+
+export const markGoodExamples = (payload: {
+  user_id: number;
+  company_project_id: number;
+  campaign_id: number;
+  ad_ids: number[];
+}): Promise<{ success: boolean; storeName: string; uploadedCount: number }> =>
+  agentsPost("mark-good-example.php", payload);
+
+export const removeCampaignExample = (payload: {
+  user_id: number;
+  company_project_id: number;
+  campaign_id: number;
+  example_id: number;
+}): Promise<{ success: boolean; deletedRecord: boolean; deletedDocument: boolean }> =>
+  agentsPost("remove-campaign-example.php", payload);
+
+export const syncGlobalStore = (formData: FormData): Promise<{
+  success: boolean;
+  storeName: string;
+  fileUri: string | null;
+  documentName?: string | null;
+  storedFile?: string | null;
+}> =>
+  fetch(`${API}/v1/agents/sync-global-store.php`, {
+    method: "POST",
+    body: formData,
+  }).then(async (response) => {
+    const data = await readJson(response);
+    if (!response.ok || data?.error) {
+      throw new Error(data?.error || `Request failed with status ${response.status}`);
+    }
+    return data;
+  });
+
+export const getCreativesHtml = (
+  creativeIds: number[],
+  userId: number,
+): Promise<{ id: number; label: string; platform: string; format: string; width: number; height: number; html: string }[]> =>
+  fetch(`${API}/getCreativesHtml.php?user_id=${userId}&creative_ids=${creativeIds.join(",")}`)
+    .then(async (r) => {
+      const data = await readJson(r);
+      if (!r.ok || data?.error) throw new Error(data?.error || `HTTP ${r.status}`);
+      return data.creatives ?? [];
+    });
+
+export const sendCreativeHtmlToGlobalStore = (
+  userId: number,
+  html: string,
+  label: string,
+): Promise<{ success: boolean }> => {
+  const fd = new FormData();
+  fd.append("user_id", String(userId));
+  fd.append("store_type", "ads");
+  fd.append("display_name", label);
+  fd.append("text", html);
+  return syncGlobalStore(fd);
+};
+
+export type GlobalStoreFile = {
+  id: number;
+  store_name: string;
+  document_name: string | null;
+  display_name: string;
+  original_name: string | null;
+  mime_type: string;
+  file_size_bytes: number | null;
+  storage_path: string;
+  created_at: string;
+};
+
+export const listGlobalStoreFiles = (payload: {
+  user_id: number;
+  store_type: "lp" | "ads";
+}): Promise<{ success: boolean; files: GlobalStoreFile[] }> =>
+  agentsPost("list-global-store-files.php", payload);
+
+export const deleteGlobalStoreFile = (payload: {
+  user_id: number;
+  store_type: "lp" | "ads";
+  file_id: number;
+}): Promise<{ success: boolean; deletedDocument: boolean; deletedRecord: boolean }> =>
+  agentsPost("delete-global-store-file.php", payload);
+
+export type CampaignPlan = {
+  date: string;
+  plan: string;
+  formats: string[];
+  source?: string;
+};
+
+export type CampaignExampleCreative = {
+  id: number;
+  creative_id: number;
+  gemini_document_name?: string | null;
+  created_at: string;
+  name: string;
+  url?: string;
+  public_url?: string;
+  platform?: string;
+  format?: string;
+  label?: string;
+  width?: number;
+  height?: number;
+};
+
+export type CampaignData = {
+  success: boolean;
+  id: number;
+  name: string;
+  form_data: Record<string, unknown>;
+  company_form_data?: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  creative_plans: CampaignPlan[];
+  example_creatives: CampaignExampleCreative[];
+  gemini_good_examples_store: string | null;
+  gemini_memory_store: string | null;
+  project_id: number;
+  company_project_id: number;
+};
+
+export const getCampaign = (
+  campaignId: number,
+  userId: number
+): Promise<CampaignData> =>
+  fetch(`${API}/getCampaign.php?campaign_id=${campaignId}&user_id=${userId}`)
+    .then(async (r) => {
+      const data = await readJson(r);
+      if (!r.ok || data?.error) throw new Error(data?.error || `HTTP ${r.status}`);
+      return data;
+    });
+
+export const generateFromCampaign = (payload: {
+  user_id: number;
+  company_project_id: number;
+  campaign_id: number;
+  form_overrides?: Record<string, unknown>;
+}): Promise<AgentAdsResult> => {
+  return agentsPost<{
+    success: boolean;
+    edgePayload: Record<string, unknown> & {
+      accountType?: "admin" | "user";
+      campaignData?: Record<string, unknown>;
+    };
+  }>("prepare-generate-ads-from-campaign.php", payload)
+    .then(async (prepared) => {
+      const invokeEdge = () => invokeAiFunction<Omit<AgentAdsResult, "success">>(
+        "agents-ads",
+        prepared.edgePayload,
+        { accountType: prepared.edgePayload.accountType || getStoredAccountType() },
+      );
+      let edgeResult: Omit<AgentAdsResult, "success">;
+      try {
+        edgeResult = await invokeEdge();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        if (/status\s*546|gateway|timed out|unavailable/i.test(msg)) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          edgeResult = await invokeEdge();
+        } else {
+          throw err;
+        }
+      }
+
+      const creativePlan = edgeResult.creativePlan || "";
+      if (creativePlan.trim()) {
+        void agentsPost("record-campaign-generation.php", {
+          user_id: payload.user_id,
+          company_project_id: payload.company_project_id,
+          campaign_id: payload.campaign_id,
+          form_data: prepared.edgePayload.campaignData || {},
+          creative_plan: creativePlan,
+          source: "campaign_direct_edge",
+        }).catch((error) => {
+          console.warn("[campaign-generation] failed to record creative plan", error);
+        });
+      }
+
+      return {
+        success: true,
+        ...edgeResult,
+        creativePlan,
+      };
+    });
+};
+
+export type ChatMessage = { role: "user" | "assistant"; content: string };
+
+export type CampaignChatResponse =
+  | { type: "text"; message: string; usedStores?: string[] }
+  | { type: "generate"; message: string; formOverrides: Record<string, unknown> };
+
+export const campaignChat = (payload: {
+  user_id: number;
+  campaign_id: number;
+  message: string;
+  history: ChatMessage[];
+}): Promise<CampaignChatResponse> =>
+  agentsPost("campaign-chat.php", payload);

@@ -26,6 +26,7 @@ $formDataRaw  = isset($data["form_data"]) && is_array($data["form_data"]) ? $dat
 $slug_request = isset($data["slug"]) ? (string)$data["slug"] : $name;
 $current_step = isset($data["current_step"]) ? (int)$data["current_step"] : 0;
 $project_type = 'ad_creative';
+$appendBanners = !empty($data["append_banners"]);
 
 $raw_html = isset($data["html"]) ? (string)$data["html"] : '';
 $html = strip_editor_bridge_artifacts($raw_html);
@@ -245,7 +246,7 @@ try {
         }
 
         $requestedSlugNorm = sanitize_slug($slug_request);
-        if ($existingType !== 'project' && $requestedSlugNorm !== '' && $requestedSlugNorm !== $slug) {
+        if ($existingType !== 'project' && !$appendBanners && $requestedSlugNorm !== '' && $requestedSlugNorm !== $slug) {
             $currentParts = array_values(array_filter(explode('/', trim($currentRelativePath, '/')), 'strlen'));
             array_pop($currentParts);
             $parentRelative = implode('/', $currentParts);
@@ -379,15 +380,17 @@ try {
         }
         $campStmt->close();
 
-        $deleteOld = $conn->prepare("DELETE FROM ads_creatives WHERE campaign_id = ? AND project_id = ?");
-        if (!$deleteOld) {
-            throw new RuntimeException('Erro ao preparar limpeza de criativos: ' . $conn->error);
+        if (!$appendBanners) {
+            $deleteOld = $conn->prepare("DELETE FROM ads_creatives WHERE campaign_id = ? AND project_id = ?");
+            if (!$deleteOld) {
+                throw new RuntimeException('Erro ao preparar limpeza de criativos: ' . $conn->error);
+            }
+            $deleteOld->bind_param("ii", $campaignId, $project_id);
+            if (!$deleteOld->execute()) {
+                throw new RuntimeException('Erro ao limpar criativos antigos: ' . $deleteOld->error);
+            }
+            $deleteOld->close();
         }
-        $deleteOld->bind_param("ii", $campaignId, $project_id);
-        if (!$deleteOld->execute()) {
-            throw new RuntimeException('Erro ao limpar criativos antigos: ' . $deleteOld->error);
-        }
-        $deleteOld->close();
     } else {
         $campStmt = $conn->prepare(
             "INSERT INTO ads_campaign (project_id, name, form_data, public_url, current_step, status, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())"
@@ -404,6 +407,18 @@ try {
     }
 
     $savedBanners = [];
+    $sortOffset = 0;
+    if ($appendBanners && $campaignId > 0) {
+        $sortStmt = $conn->prepare("SELECT COALESCE(MAX(sort_order) + 1, 0) FROM ads_creatives WHERE campaign_id = ? AND project_id = ?");
+        if ($sortStmt) {
+            $sortStmt->bind_param("ii", $campaignId, $project_id);
+            $sortStmt->execute();
+            $sortStmt->bind_result($sortOffset);
+            $sortStmt->fetch();
+            $sortStmt->close();
+            $sortOffset = (int)$sortOffset;
+        }
+    }
     foreach ($reqBanners as $i => $banner) {
         $bHtml = $bannerHtmlList[$i] ?? '';
         $bHtml = replace_asset_paths($bHtml, $bannerAssetMap);
@@ -416,13 +431,14 @@ try {
         $bWidth     = (int)($banner["width"]  ?? 1080);
         $bHeight    = (int)($banner["height"] ?? 1080);
 
-        $bDirName    = "b{$i}";
+        $sortOrder   = $sortOffset + $i;
+        $bDirName    = "b{$sortOrder}";
         $bFolder     = $projectPath . DIRECTORY_SEPARATOR . $bDirName;
         $bPublicUrl  = $public_url . $bDirName . '/';
         $bName       = $name . ' - ' . $bLabel;
         $bMetadata   = json_encode([
             "variant" => isset($banner["variant"]) ? (string)$banner["variant"] : "",
-            "source_index" => $i,
+            "source_index" => $sortOrder,
         ], JSON_UNESCAPED_UNICODE);
 
         ensure_directory($bFolder);
@@ -434,7 +450,7 @@ try {
         if (!$bStmt) {
             throw new RuntimeException('Erro ao preparar insert de criativo: ' . $conn->error);
         }
-        $bStmt->bind_param("iissssiissis", $project_id, $campaignId, $bName, $bPlatform, $bFormat, $bLabel, $bWidth, $bHeight, $bHtml, $bPublicUrl, $i, $bMetadata);
+        $bStmt->bind_param("iissssiissis", $project_id, $campaignId, $bName, $bPlatform, $bFormat, $bLabel, $bWidth, $bHeight, $bHtml, $bPublicUrl, $sortOrder, $bMetadata);
         if ($bStmt->execute()) {
             $bId = (int)$conn->insert_id;
             $savedBanners[] = [

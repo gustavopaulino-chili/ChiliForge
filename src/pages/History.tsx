@@ -471,25 +471,25 @@ export default function History() {
       <main className="max-w-4xl mx-auto p-6">
         <Tabs defaultValue={location.pathname === "/history" ? "history" : "projects"}>
           <TabsList className="mb-6">
-            <TabsTrigger value="projects">Projetos</TabsTrigger>
-            <TabsTrigger value="history">Histórico</TabsTrigger>
+            <TabsTrigger value="projects">Projects</TabsTrigger>
+            <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
 
           <TabsContent value="history">
             {loading ? (
               <div className="flex items-center gap-2 text-muted-foreground py-8">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Carregando...</span>
+                <span>Loading...</span>
               </div>
             ) : (() => {
               const historyItems = projects.filter(p => p.project_type !== 'project');
-              if (historyItems.length === 0) return <p className="text-muted-foreground py-8">Nenhum projeto encontrado.</p>;
+              if (historyItems.length === 0) return <p className="text-muted-foreground py-8">No projects found.</p>;
               return (
                 <div className="space-y-2">
                   {historyItems.map((project) => {
                     const canView = hasContent(project);
                     const adCampaign = isAdCampaign(project);
-                    const formattedDate = new Date(project.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+                    const formattedDate = new Date(project.created_at).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
                     return (
                       <div key={project.id} className="flex items-center justify-between border rounded-lg px-4 py-2.5 gap-3 hover:bg-muted/30 transition-colors">
                         <div className="flex items-center gap-2 min-w-0">
@@ -498,7 +498,7 @@ export default function History() {
                           ) : (
                             <span className="text-xs font-medium px-1.5 py-0.5 rounded shrink-0" style={{ background: 'hsl(359 100% 60% / 0.12)', color: 'hsl(359 100% 68%)', border: '1px solid hsl(359 100% 60% / 0.3)' }}>LP</span>
                           )}
-                          <span className="font-medium truncate text-sm">{project.name || "Sem título"}</span>
+                          <span className="font-medium truncate text-sm">{project.name || "Untitled"}</span>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-xs text-muted-foreground hidden sm:block">{formattedDate}</span>

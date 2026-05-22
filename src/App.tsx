@@ -12,8 +12,10 @@ import VisualEditorPage from "./pages/VisualEditorPage.tsx";
 import AdCreatives from "./pages/AdCreatives.tsx";
 import AdsEditorPage from "./pages/AdsEditorPage.tsx";
 import CompanyPage from "./pages/CompanyPage.tsx";
+import CampaignScreen from "./pages/CampaignScreen.tsx";
 import Auth from "./pages/Auth.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import GlobalStoreAdmin from "./pages/GlobalStoreAdmin.tsx";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
@@ -44,11 +46,13 @@ const App = () => (
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/projects/new" element={<ProtectedRoute><ProjectSetup /></ProtectedRoute>} />
             <Route path="/projects/:id" element={<ProtectedRoute><CompanyPage /></ProtectedRoute>} />
+            <Route path="/projects/:companyId/campaigns/:campaignId" element={<ProtectedRoute><CampaignScreen /></ProtectedRoute>} />
             <Route path="/projects" element={<ProtectedRoute><History /></ProtectedRoute>} />
             <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
             <Route path="/visual-editor" element={<ProtectedRoute><VisualEditorPage /></ProtectedRoute>} />
             <Route path="/ads-editor" element={<ProtectedRoute><AdsEditorPage /></ProtectedRoute>} />
             <Route path="/ad-creatives" element={<ProtectedRoute><AdCreatives /></ProtectedRoute>} />
+            <Route path="/admin/global-stores" element={<ProtectedRoute><GlobalStoreAdmin /></ProtectedRoute>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

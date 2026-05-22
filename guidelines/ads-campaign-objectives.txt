@@ -1,0 +1,301 @@
+AD CAMPAIGN OBJECTIVES — VISUAL & COPY EXECUTION GUIDE
+=======================================================
+Each campaign objective changes how the banner should be designed:
+the visual weight, the copy angle, the CTA urgency, and the
+emotional register. Creative freedom remains fully yours — these
+rules describe what converts, not what to create.
+
+
+═══════════════════════════════════════════════════════════
+FUNNEL STAGE OVERRIDES EVERYTHING
+═══════════════════════════════════════════════════════════
+Before applying objective rules, apply funnel stage modifiers.
+Funnel stage is the strongest signal for how hard to push conversion.
+
+AWARENESS (top-funnel):
+  - Never hard-sell. The audience doesn't know the brand yet.
+  - Lead with emotion, aspiration, or a striking visual statement.
+  - CTA should invite, not demand: "Discover", "See How", "Learn More"
+  - Price and discount: do NOT show. Too early.
+  - Logo prominence: high — brand recall is the goal.
+
+CONSIDERATION (mid-funnel):
+  - Audience knows the brand. They're comparing options.
+  - Lead with the key differentiator or proof point (stat, testimonial, feature).
+  - CTA is directional: "Get Free Quote", "Watch Demo", "Explore"
+  - Price: show if competitive. Guarantee/warranty: include if strong.
+  - Visual tone: confident, informative, credibility-building.
+
+CONVERSION (bottom-funnel):
+  - Audience is ready to act. Remove all friction from the path.
+  - Lead with the offer — discount, guarantee, deadline, or free trial.
+  - CTA is the visual anchor of the banner. Make it unmissable.
+  - CTA text: urgent and specific — "Buy Now", "Claim 30% Off", "Ends Today"
+  - Price and scarcity: show prominently when provided.
+  - Visual tone: energetic, direct, high-contrast.
+
+
+═══════════════════════════════════════════════════════════
+CAMPAIGN OBJECTIVES
+═══════════════════════════════════════════════════════════
+
+── LEAD GENERATION ───────────────────────────────────────
+Goal: capture contact information (name, email, phone).
+The user exchanges their data for something valuable.
+
+Visual direction:
+  - The "value exchange" must be the hero: what do they GET by clicking?
+  - Emphasize the lead magnet: free guide, free quote, free consultation, demo.
+  - Trust signals matter here — brand logo prominent, professional tone.
+  - Avoid aggressive or loud designs (they reduce form completion rates).
+
+Copy direction:
+  - Headline: name the free thing or the outcome of the consultation.
+    Examples: "Get Your Free Marketing Audit", "Download the 2025 Salary Guide"
+  - Subheadline: reduce friction — "No credit card. No commitment."
+  - CTA: "Get Free [X]", "Book Free Call", "Download Now", "Get Your Quote"
+
+Color/visual:
+  - Trust palette: blues, deep greens, or brand primary.
+  - Avoid red/orange CTAs for professional services (alarm associations).
+    Exception: if brand uses these colors natively.
+
+By funnel:
+  Awareness   → Tease the benefit. "Want to grow faster? We have a free guide."
+  Consideration → Show what's inside the lead magnet. "37-page playbook inside."
+  Conversion  → Urgency + specificity. "Free audit — only 5 spots this week."
+
+
+── SALES / E-COMMERCE ────────────────────────────────────
+Goal: direct purchase. Revenue is the metric.
+
+Visual direction:
+  - Product is the hero. If productImageUrl is provided, it dominates the frame.
+  - Price and discount get prime real estate — second only to the product.
+  - CTA must be the largest interactive element in the banner.
+  - High-energy, high-contrast design. This is not the place for subtlety.
+
+Copy direction:
+  - Headline: the offer or the product outcome.
+    Examples: "Up to 50% Off — Today Only", "The Chair That Fixed My Back"
+  - Include: price, discount %, guarantee, scarcity (if provided in campaign data).
+  - CTA: "Shop Now", "Buy Today", "Get X% Off", "Claim Deal"
+
+Color/visual:
+  - CTA button: use the accent/CTA color — make it pop against everything else.
+  - Red or orange CTAs outperform on e-commerce conversion when not in brand conflict.
+  - Scarcity indicators (countdown, "X left in stock"): style with urgency colors.
+
+By funnel:
+  Awareness   → Show the product at its best. No price yet. Aspirational visual.
+  Consideration → Show product + key benefit + social proof (star rating, reviews count).
+  Conversion  → Full offer: product + price + discount + CTA. Pack the value.
+
+
+── BRAND AWARENESS ───────────────────────────────────────
+Goal: make the brand memorable. No direct conversion expected.
+
+Visual direction:
+  - Brand identity IS the ad. Logo, colors, and visual style carry the message.
+  - The concept should be striking enough to stop the scroll.
+  - Less is more — one strong image, one powerful line, the logo.
+  - No price, no CTA urgency, no discount.
+
+Copy direction:
+  - Headline: brand statement, campaign tagline, or emotional hook.
+    Examples: "Built for people who move fast.", "Your city. Your rules."
+  - CTA: soft and inviting — "Explore", "Discover", "Learn More", "See the Story"
+  - Subheadline is optional — if used, it should deepen the feeling, not explain.
+
+Color/visual:
+  - Use the full brand palette expressively.
+  - Bold typography can be the primary visual element.
+  - Motion-suggesting compositions (diagonal lines, action blur, dynamic crops).
+
+By funnel:
+  Awareness only — this objective should not appear at consideration or conversion.
+
+
+── PRODUCT LAUNCH ────────────────────────────────────────
+Goal: introduce a new product or feature and generate first-wave interest.
+
+Visual direction:
+  - "NEW" or "Introducing" as a visual device — badge, sticker, or headline prefix.
+  - Product as the hero, shot or rendered as cleanly as possible.
+  - Energy of revelation: the ad should feel like an announcement.
+  - Use brand colors + a distinctive accent to signal something new.
+
+Copy direction:
+  - Headline: lead with "Introducing", "New:", or the product name + key benefit.
+    Examples: "Introducing the X3 Pro — 40% faster.", "Finally. A bag that fits everything."
+  - Subheadline: the 1-line value proposition.
+  - CTA: "See It Now", "Explore", "Learn More", "Pre-Order"
+
+Color/visual:
+  - Fresh, high-contrast palette. Launch energy should feel celebratory.
+  - Product isolation on clean background works extremely well for launches.
+
+By funnel:
+  Awareness → Hero product image + name + tagline. No price.
+  Consideration → Product + key specs/benefits + early-adopter incentive.
+  Conversion → Launch offer (early bird pricing, pre-order discount) + deadline.
+
+
+── RETARGETING ───────────────────────────────────────────
+Goal: re-engage people who already visited the site, viewed a product,
+or abandoned a cart. They know the brand — remind and remove friction.
+
+Visual direction:
+  - The abandoned product or browsed category should appear if productImageUrl is set.
+  - Warm, familiar tone — not cold or aggressive. They left for a reason; address it.
+  - Offers and guarantees resolve the hesitation (price, return policy, free shipping).
+  - Social proof (reviews, star rating, customer count) reduces doubt.
+
+Copy direction:
+  - Headline: acknowledge the prior visit or address the objection.
+    Examples: "Still thinking about it? Here's 15% off.", "You left something behind."
+    "Free returns. No questions asked.", "3,400 happy customers. Join them."
+  - CTA: "Complete Your Order", "Come Back", "Claim Your Discount", "Finish Checkout"
+
+Color/visual:
+  - Use brand colors consistently — this is a recognition play.
+  - Keep the visual familiar to what they saw on the site.
+  - Soft urgency (not aggressive) — this is the last push before they forget.
+
+By funnel:
+  Conversion only — retargeting is always bottom-funnel.
+  Add time-sensitive offer if campaign data includes discount or scarcity.
+
+
+── ENGAGEMENT ────────────────────────────────────────────
+Goal: likes, shares, comments, saves, video views, profile visits.
+The action is social, not transactional.
+
+Visual direction:
+  - Visually native to the platform — should feel organic, not like an ad.
+  - High-interest content: surprising statistic, bold opinion, relatable moment.
+  - Community feeling: real-looking elements, user-generated aesthetic (even if designed).
+  - Faces and people outperform product shots for engagement objectives.
+
+Copy direction:
+  - Headline: trigger curiosity, agreement, or debate.
+    Examples: "This changed how we run meetings.", "Most people get this wrong."
+  - CTA: "See More", "Learn the Method", "Share Your Story", "Join the Conversation"
+  - Avoid "Buy" and "Shop" — they signal commercial intent and reduce organic engagement.
+
+Color/visual:
+  - Authentic palette: real-looking, not too polished. Engagement favors humanity.
+  - Contrast still matters — it stops the scroll.
+
+By funnel:
+  Awareness to Consideration. Never Conversion — wrong objective for purchase pressure.
+
+
+── APP INSTALL ───────────────────────────────────────────
+Goal: drive downloads from app stores (iOS, Android).
+
+Visual direction:
+  - Show the app interface or key screen — let the product speak visually.
+  - App icon should be visible and clear (treat as the logo layer).
+  - Badge graphics ("App Store" / "Google Play" buttons) may be included if space allows.
+  - Clean, modern, tech-forward design.
+
+Copy direction:
+  - Headline: the app's core value or top user benefit.
+    Examples: "Track every expense in 10 seconds.", "Meditate. Anywhere. Anytime."
+  - Subheadline: rating or download count if strong ("4.8★ · 2M downloads").
+  - CTA: "Download Free", "Install Now", "Get the App", "Try Free"
+
+Color/visual:
+  - App brand colors take priority (if different from company brand).
+  - Screen mockup on device (phone frame) works well for consideration/conversion.
+
+By funnel:
+  Awareness → App concept + key visual. No rating yet.
+  Consideration → App screen + benefit + rating.
+  Conversion → Free download offer + rating + "Install Now".
+
+
+── WHATSAPP / DIRECT MESSAGE ─────────────────────────────
+Goal: drive messages to a WhatsApp number, DM, or chat channel.
+Conversion = a conversation started, not a purchase.
+
+Visual direction:
+  - Human and approachable — this is a personal channel.
+  - WhatsApp green (#25D366) as an accent when not in brand conflict.
+  - Face of the team, founder, or a friendly illustration works well.
+  - Low-pressure visual — this is an invitation, not a hard sell.
+
+Copy direction:
+  - Headline: open the conversation with a question or a direct invitation.
+    Examples: "Have a question? We answer in minutes.", "Talk to a specialist. Free."
+  - CTA: "Message Us", "Chat Now", "Talk to Us", "Ask Us Anything"
+  - Avoid "Buy" — the sale happens in the conversation, not in the ad.
+
+By funnel:
+  Consideration to Conversion — works best as a soft entry point to sales.
+
+
+── TRAFFIC ───────────────────────────────────────────────
+Goal: drive clicks to a website, blog post, or landing page.
+
+Visual direction:
+  - Clear "destination signal" — the ad should feel like a doorway to more content.
+  - Preview of what they'll find (article image, product category, tool screenshot).
+  - Curiosity gap is powerful here: enough information to intrigue, not to satisfy.
+
+Copy direction:
+  - Headline: the benefit or insight waiting on the other side of the click.
+    Examples: "The 5-step framework that doubled our conversion rate."
+  - CTA: "Read More", "See the Guide", "Visit Site", "Explore", "Get the Details"
+
+By funnel:
+  Awareness to Consideration. Keep copy benefit-focused, not offer-focused.
+
+
+── EVENT ─────────────────────────────────────────────────
+Goal: registrations, ticket sales, or awareness for a live or digital event.
+
+Visual direction:
+  - Date and time are critical — must be clearly visible.
+  - Event brand (name, logo, visual identity) should lead.
+  - Energy and anticipation: the ad should feel exciting and time-sensitive.
+  - Speaker photo or venue image adds credibility.
+
+Copy direction:
+  - Headline: event name + key draw (speaker, topic, exclusive content).
+    Examples: "Digital Summit 2025 — Register Free", "Live Workshop: Scale to 7 Figures"
+  - Subheadline: date, time, and location (or "Online — join from anywhere").
+  - CTA: "Register Now", "Get Your Ticket", "Save My Spot", "Join Free"
+  - Urgency: "Limited seats", "Early bird ends [date]" — use if provided in campaign data.
+
+By funnel:
+  Awareness → Event + date + topic. "Mark your calendar."
+  Consideration → Speaker/content preview + benefit of attending.
+  Conversion → Early bird offer + seat scarcity + "Register Now".
+
+
+═══════════════════════════════════════════════════════════
+URGENCY LEVEL EXECUTION
+═══════════════════════════════════════════════════════════
+Apply urgency modifiers on top of the objective rules above.
+
+none:
+  No urgency signals. Clean, confident, timeless design.
+  No countdown, no "limited", no "expires".
+
+low:
+  Soft urgency as a secondary element. "While supplies last." or "Limited availability."
+  Urgency color or badge is subtle — does not compete with the main message.
+
+medium:
+  Urgency is a clear secondary message. "Offer ends soon." "This week only."
+  Use urgency-colored accent (warm tones) on a badge or subheadline.
+  CTA includes time reference: "Shop Now — Offer Ends Sunday"
+
+high:
+  Urgency IS the headline or the dominant design element.
+  Countdown badge, strong "TODAY ONLY" or "ENDS MIDNIGHT" visual device.
+  CTA is aggressive and specific: "Claim Now — 2 Hours Left", "Last Chance"
+  High-contrast, high-energy design. Red, orange, or urgent accent on CTA.
+  Do not use high urgency with awareness objectives — mismatched signals.

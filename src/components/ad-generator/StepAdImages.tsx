@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { AdCreativeFormData, AdLogoVariant } from '@/types/adCreativeForm';
 import { FieldLabel } from '@/components/generator/FieldLabel';
+import { getProjectAssets, type ProjectAsset } from '@/services/api';
 import { Upload, X, Image, Plus, Sparkles, Loader2, CheckCircle2, AlertCircle, Wand2, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -28,6 +29,8 @@ interface Props {
   onRemoveAsset?: (url: string) => Promise<void>;
   onGenerateImage?: (slot: 'logo' | 'product' | 'background', context: AdImageGenerateContext, variantIndex?: number) => Promise<string | null>;
   onSearchPexelsImage?: (slot: 'logo' | 'product' | 'background', context: AdImageGenerateContext, variantIndex?: number) => Promise<string | null>;
+  companyProjectId?: number;
+  userId?: number;
 }
 
 const LOGO_VARIANT_LABELS = ['Full color', 'White', 'Black', 'Monochrome', 'Horizontal', 'Icon only'];
@@ -129,7 +132,53 @@ function ImagePreview({ url, alt }: { url: string; alt: string }) {
   );
 }
 
-export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, onGenerateImage, onSearchPexelsImage }: Props) {
+function AssetPickerRow({
+  assets,
+  onSelect,
+}: {
+  assets: ProjectAsset[];
+  onSelect: (url: string) => void;
+}) {
+  if (!assets.length) return null;
+  return (
+    <div className="mt-1 space-y-1.5">
+      <p className="text-[11px] font-medium text-muted-foreground">Company images</p>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {assets.map(asset => (
+          <button
+            key={asset.name}
+            type="button"
+            onClick={() => onSelect(asset.url)}
+            className="h-12 w-12 shrink-0 overflow-hidden rounded-md border-2 border-transparent bg-muted/40 transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            title={asset.name}
+          >
+            <img
+              src={asset.url}
+              alt={asset.name}
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const isImageAsset = (asset: ProjectAsset) =>
+  /\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i.test(asset.url || '') ||
+  /\.(png|jpe?g|webp|gif|svg|avif)$/i.test(asset.name || '');
+
+export function StepAdImages({
+  data,
+  onChange,
+  onUploadAssets,
+  onRemoveAsset,
+  onGenerateImage,
+  onSearchPexelsImage,
+  companyProjectId,
+  userId,
+}: Props) {
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const logoVariantFileRef = useRef<HTMLInputElement | null>(null);
   const [generatingKey, setGeneratingKey] = useState<string | null>(null);
@@ -139,6 +188,17 @@ export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, on
   const [bulkLog, setBulkLog] = useState<AiLogEntry[]>([]);
   const [bulkGeneratedUrls, setBulkGeneratedUrls] = useState<string[]>([]);
   const [bulkHasRun, setBulkHasRun] = useState(false);
+  const [companyAssets, setCompanyAssets] = useState<ProjectAsset[]>([]);
+
+  useEffect(() => {
+    if (!companyProjectId || !userId) {
+      setCompanyAssets([]);
+      return;
+    }
+    getProjectAssets(companyProjectId, userId)
+      .then(result => setCompanyAssets((result.assets || []).filter(isImageAsset)))
+      .catch(() => setCompanyAssets([]));
+  }, [companyProjectId, userId]);
 
   const buildCtx = (): AdImageGenerateContext => ({
     brandName: data.brandName,
@@ -519,6 +579,7 @@ export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, on
             isSearching={searchingKey === 'logoUrl'}
             anyGenerating={generatingKey !== null || searchingKey !== null}
           />
+          <AssetPickerRow assets={companyAssets} onSelect={url => onChange({ logoUrl: url })} />
           <ImagePreview url={data.logoUrl} alt="Brand logo" />
           {!data.logoUrl && (
             <button
@@ -642,6 +703,7 @@ export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, on
             isSearching={searchingKey === 'productImageUrl'}
             anyGenerating={generatingKey !== null || searchingKey !== null}
           />
+          <AssetPickerRow assets={companyAssets} onSelect={url => onChange({ productImageUrl: url })} />
           {data.productImageUrl
             ? <ImagePreview url={data.productImageUrl} alt="Product image" />
             : (
@@ -672,6 +734,7 @@ export function StepAdImages({ data, onChange, onUploadAssets, onRemoveAsset, on
             isSearching={searchingKey === 'backgroundImageUrl'}
             anyGenerating={generatingKey !== null || searchingKey !== null}
           />
+          <AssetPickerRow assets={companyAssets} onSelect={url => onChange({ backgroundImageUrl: url })} />
           {data.backgroundImageUrl
             ? <ImagePreview url={data.backgroundImageUrl} alt="Background image" />
             : (

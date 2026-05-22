@@ -29,3 +29,15 @@ verify_jwt = false
 
 [functions.analyze-ad-brief]
 verify_jwt = false
+
+[functions.agents-ads]
+verify_jwt = false
+
+[functions.agents-store]
+verify_jwt = false
+
+[functions.agents-lp]
+verify_jwt = false
+
+[functions.agents-learn]
+verify_jwt = false

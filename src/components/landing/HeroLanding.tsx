@@ -185,7 +185,7 @@ export function HeroLanding({ onStartGenerator, onStartAdCreatives }: HeroLandin
                 onPointerLeave={() => setActiveTone(null)}
               >
                 <Rocket className="h-5 w-5" />
-                Começar projeto
+                Start project
                 <ArrowRight className="h-5 w-5" />
               </Button>
             </div>
@@ -342,7 +342,7 @@ export function HeroLanding({ onStartGenerator, onStartAdCreatives }: HeroLandin
                 onPointerLeave={() => setActiveTone(null)}
               >
                 <Rocket className="h-5 w-5" />
-                Começar projeto
+                Start project
                 <ArrowRight className="h-5 w-5" />
               </Button>
             </div>

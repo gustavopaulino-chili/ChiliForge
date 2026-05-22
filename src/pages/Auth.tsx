@@ -56,7 +56,7 @@ export default function Auth() {
       const resolvedName = String((data?.name ?? data?.user?.name ?? resolvedEmail) || '').trim();
       const resolvedAccountType = (data?.accountType ?? data?.account_type ?? data?.user?.accountType ?? data?.user?.account_type) === 'admin'
         ? 'admin'
-        : 'testing';
+        : 'user';
 
       if (!Number.isFinite(resolvedId) || resolvedId <= 0 || !resolvedEmail) {
         throw new Error('Authentication response is missing valid user id/email.');
