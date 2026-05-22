@@ -14,17 +14,20 @@ function normalizeAccountType(value: unknown) {
   return value === "admin" ? "admin" : "testing";
 }
 
-function getGeminiApiKeyForAccountType(accountType: unknown) {
+function getGeminiApiKeyCandidates(accountType: unknown): string[] {
   const productionKey = Deno.env.get("GEMINI_API_KEY_PRODUCTION") || Deno.env.get("GEMINI_API_KEY");
   const testingKey = Deno.env.get("GEMINI_API_KEY_TESTING");
 
   if (normalizeAccountType(accountType) === "admin") {
     if (!productionKey) throw new Error("GEMINI_API_KEY_PRODUCTION is not configured");
-    return productionKey;
+    return [productionKey];
   }
 
-  if (!testingKey) throw new Error("GEMINI_API_KEY_TESTING is not configured");
-  return testingKey;
+  const candidates: string[] = [];
+  if (testingKey) candidates.push(testingKey);
+  if (productionKey) candidates.push(productionKey);
+  if (!candidates.length) throw new Error("GEMINI_API_KEY_TESTING is not configured");
+  return candidates;
 }
 
 function buildAiUrl(model: string) {
@@ -72,6 +75,20 @@ async function requestAiPayload(body: string, apiKey: string) {
   throw new Error("AI gateway failed for all configured models.");
 }
 
+async function requestAiPayloadWithFallback(body: string, apiKeys: string[]) {
+  let lastError: unknown;
+  for (const apiKey of apiKeys) {
+    try {
+      return await requestAiPayload(body, apiKey);
+    } catch (err) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("credits") || msg.includes("usage limit")) throw err;
+    }
+  }
+  throw lastError;
+}
+
 function stripJsonFences(value: string) {
   let cleaned = String(value || "").trim();
   if (cleaned.startsWith("```json")) cleaned = cleaned.slice(7);
@@ -104,7 +121,7 @@ serve(async (req) => {
       });
     }
 
-    const apiKey = getGeminiApiKeyForAccountType(accountType);
+    const apiKeys = getGeminiApiKeyCandidates(accountType);
     const systemPrompt = `You are an expert paid-media campaign strategist and form autofill assistant.
 Extract and infer fields for an ad creative generator from the user's campaign description.
 
@@ -173,7 +190,7 @@ Rules:
   ]
 }`;
 
-    const data = await requestAiPayload(JSON.stringify({
+    const data = await requestAiPayloadWithFallback(JSON.stringify({
       contents: [{
         parts: [{
           text: `${systemPrompt}

@@ -53,7 +53,7 @@ function env_value($key, $default = '') {
 }
 
 function normalize_account_type($value) {
-    return $value === 'admin' ? 'admin' : 'testing';
+    return $value === 'admin' ? 'admin' : 'user';
 }
 
 // ── API key & model ──────────────────────────────────────────────────────────
@@ -449,6 +449,16 @@ function pre_extract_from_html($html, $baseUrl) {
         if (empty($d['primaryColor'])) $d['primaryColor'] = $pixelPalette[0];
         $d['secondaryColor'] = $pixelPalette[1] ?? '';
         $d['accentColor'] = $pixelPalette[2] ?? '';
+    }
+
+    // Deduplicate: logo should not be reused as content imagery.
+    if (!empty($d['logoUrl'])) {
+        foreach (['heroImage1', 'heroImage2', 'brandImage', 'sectionImage1', 'sectionImage2', 'sectionImage3'] as $field) {
+            if (!empty($d[$field]) && $d[$field] === $d['logoUrl']) {
+                $d[$field] = '';
+                $d[$field . 'Context'] = '';
+            }
+        }
     }
 
     return $d;

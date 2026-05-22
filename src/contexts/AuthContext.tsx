@@ -4,7 +4,7 @@ type User = {
   id: number;
   email: string;
   name: string;
-  accountType: "admin" | "testing";
+  accountType: "admin" | "user";
 };
 
 type AuthContextType = {
@@ -17,7 +17,7 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const normalizeAccountType = (value: unknown): User["accountType"] =>
-  value === "admin" ? "admin" : "testing";
+  value === "admin" ? "admin" : "user";
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);

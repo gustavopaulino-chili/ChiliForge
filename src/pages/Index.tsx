@@ -14,7 +14,7 @@ import { VisualEditor } from '@/components/editor/VisualEditor';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, FolderOpen, LogOut, User, Server, Edit3, Key } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-import { downloadProjectZip, generateImages, generateLanding, searchImages, updateProjectContent, updateProjectFormState, getProjectById, uploadProjectAssetsFromUrls, uploadProjectAssets } from '@/services/api';
+import { downloadProjectZip, generateImages, generateLanding, generateLandingViaAgent, searchImages, updateProjectContent, updateProjectFormState, getProjectById, uploadProjectAssetsFromUrls, uploadProjectAssets } from '@/services/api';
 import { isUploadedImage } from '@/services/imageUpload';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
@@ -1530,13 +1530,23 @@ const Index = () => {
     const formDataSnapshot = buildFormDataSnapshot(generationFormData, collectedImages);
 
     try {
-      const data = await generateLanding({
-        prompt: currentPrompt,
-        businessName: generationFormData.businessName,
-        customSlug: generationFormData.customSlug || undefined,
-        formData: formDataSnapshot,
-        ...(mandatorySections.length > 0 && { mandatorySections }),
-      });
+      const data = (routeState?.companyProjectId && user?.id)
+        ? await generateLandingViaAgent({
+            user_id: user.id,
+            company_project_id: routeState.companyProjectId,
+            design_notes: currentPrompt,
+            language: generationFormData.language || undefined,
+            custom_slug: generationFormData.customSlug || undefined,
+            form_data: formDataSnapshot as Record<string, unknown>,
+            ...(mandatorySections.length > 0 && { sections: mandatorySections }),
+          })
+        : await generateLanding({
+            prompt: currentPrompt,
+            businessName: generationFormData.businessName,
+            customSlug: generationFormData.customSlug || undefined,
+            formData: formDataSnapshot,
+            ...(mandatorySections.length > 0 && { mandatorySections }),
+          });
 
       console.log('Raw AI response:', data);
       let parsed = normalizeGeneratedSite(data);

@@ -1,0 +1,243 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+type AgentsStorePayload =
+  | {
+      action: "get_or_create";
+      storeName?: string;
+      displayName: string;
+      documentText: string;
+      documentLabel: string;
+      accountType?: "admin" | "user";
+    }
+  | {
+      action: "upload_learnings";
+      storeName?: string;
+      displayName: string;
+      learningsText: string;
+      accountType?: "admin" | "user";
+    }
+  | {
+      action: "upload_file";
+      storeName: string;
+      fileBase64: string;
+      mimeType: string;
+      displayName: string;
+      accountType?: "admin" | "user";
+    };
+
+type Operation = {
+  name?: string;
+  done?: boolean;
+  error?: { message?: string; code?: number; status?: string };
+  response?: Record<string, unknown>;
+};
+
+const env = (globalThis as any).Deno?.env;
+const GEMINI_BASE = "https://generativelanguage.googleapis.com";
+
+function getApiKey(): string {
+  return env?.get("GEMINI_API_KEY_PRODUCTION") || env?.get("GEMINI_API_KEY_TESTING") || "";
+}
+
+async function createStore(displayName: string, apiKey: string): Promise<string> {
+  const res = await fetch(`${GEMINI_BASE}/v1beta/fileSearchStores?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      displayName,
+      embedding_model: "models/gemini-embedding-2",
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(`Failed to create File Search Store: HTTP ${res.status}: ${err.slice(0, 300)}`);
+  }
+
+  const data = await res.json();
+  if (!data?.name) throw new Error("File Search Store created but no name returned");
+  return data.name as string;
+}
+
+async function waitForOperation(operation: Operation, apiKey: string): Promise<Operation> {
+  if (!operation?.name) {
+    throw new Error("File Search upload started but no operation name was returned");
+  }
+
+  let current = operation;
+  for (let attempt = 0; attempt < 60; attempt++) {
+    if (current.done) {
+      if (current.error) {
+        throw new Error(`File Search indexing failed: ${current.error.message || current.error.status || "Unknown error"}`);
+      }
+      return current;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const res = await fetch(`${GEMINI_BASE}/v1beta/${current.name}?key=${apiKey}`);
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      throw new Error(`Failed to poll File Search operation: HTTP ${res.status}: ${err.slice(0, 300)}`);
+    }
+    current = await res.json();
+  }
+
+  throw new Error("File Search indexing did not finish in time");
+}
+
+async function uploadBytesToStore(
+  storeName: string,
+  fileBytes: Uint8Array,
+  mimeType: string,
+  displayName: string,
+  apiKey: string
+): Promise<Operation> {
+  const boundary = `boundary_${Date.now()}`;
+  const safeFileName = displayName.replace(/[^\w.\-]+/g, "-") || "file";
+  const metadataJson = JSON.stringify({ displayName, mimeType });
+  const encoder = new TextEncoder();
+  const bodyParts: Uint8Array[] = [
+    encoder.encode(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`),
+    encoder.encode(metadataJson),
+    encoder.encode(`\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\nContent-Disposition: form-data; name="file"; filename="${safeFileName}"\r\n\r\n`),
+    fileBytes,
+    encoder.encode(`\r\n--${boundary}--\r\n`),
+  ];
+
+  let totalLen = 0;
+  for (const part of bodyParts) totalLen += part.length;
+
+  const body = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const part of bodyParts) {
+    body.set(part, offset);
+    offset += part.length;
+  }
+
+  const res = await fetch(`${GEMINI_BASE}/upload/v1beta/${storeName}:uploadToFileSearchStore?key=${apiKey}`, {
+    method: "POST",
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": `multipart/related; boundary=${boundary}`,
+      "Content-Length": String(totalLen),
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(`Failed to upload to File Search store: HTTP ${res.status}: ${err.slice(0, 300)}`);
+  }
+
+  return await res.json();
+}
+
+function decodeBase64(base64: string): Uint8Array {
+  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+}
+
+serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+    const payload = await req.json() as AgentsStorePayload;
+    const apiKey = getApiKey();
+
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: "Gemini API key not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (payload.action === "get_or_create") {
+      const { storeName: existingStore, displayName, documentText, documentLabel } = payload;
+
+      if (!documentText?.trim()) {
+        return new Response(JSON.stringify({ error: "documentText is required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const storeName = existingStore?.trim() || await createStore(displayName, apiKey);
+      const operation = await waitForOperation(
+        await uploadBytesToStore(storeName, new TextEncoder().encode(documentText), "text/plain", documentLabel, apiKey),
+        apiKey
+      );
+
+      return new Response(JSON.stringify({ storeName, operationName: operation.name, document: operation.response ?? null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (payload.action === "upload_learnings") {
+      const { storeName: existingStore, displayName, learningsText } = payload;
+
+      if (!learningsText?.trim()) {
+        return new Response(JSON.stringify({ error: "learningsText is required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const storeName = existingStore?.trim() || await createStore(displayName, apiKey);
+      const operation = await waitForOperation(
+        await uploadBytesToStore(
+          storeName,
+          new TextEncoder().encode(learningsText),
+          "text/plain",
+          `Learnings - ${new Date().toISOString().slice(0, 10)}`,
+          apiKey
+        ),
+        apiKey
+      );
+
+      return new Response(JSON.stringify({ storeName, operationName: operation.name, document: operation.response ?? null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (payload.action === "upload_file") {
+      const { storeName, fileBase64, mimeType, displayName } = payload;
+
+      if (!storeName?.trim()) {
+        return new Response(JSON.stringify({ error: "storeName is required for upload_file" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!fileBase64?.trim()) {
+        return new Response(JSON.stringify({ error: "fileBase64 is required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const operation = await waitForOperation(
+        await uploadBytesToStore(storeName, decodeBase64(fileBase64), mimeType || "application/octet-stream", displayName, apiKey),
+        apiKey
+      );
+
+      return new Response(JSON.stringify({ storeName, operationName: operation.name, document: operation.response ?? null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: "Unknown action" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("[agents-store] error:", error);
+    return new Response(
+      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});

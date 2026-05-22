@@ -1,0 +1,337 @@
+AD FORMAT CATALOG — COORDINATE TEMPLATES & RENDERING SPECS
+============================================================
+These are technical minimums and safe-zone constraints.
+Within these constraints, choose any composition, visual language,
+color expression, or creative concept freely.
+
+
+HOW TO USE THIS CATALOG
+-----------------------
+1. Find the format below by its dimensions.
+2. Apply the safe zone (no important content outside it).
+3. Use the coordinate reference points as a starting baseline.
+4. Adapt the composition to the actual campaign concept — the
+   reference points are a technical floor, not a creative ceiling.
+
+
+═══════════════════════════════════════════════════════════
+SOCIAL MEDIA FORMATS
+═══════════════════════════════════════════════════════════
+
+── STORY / VERTICAL  1080 × 1920 px ──────────────────────
+Platform: Instagram, Facebook, TikTok, Snapchat Stories
+Aspect ratio: 9:16
+
+Safe zone:
+  - Top: 250px (platform UI: camera/progress bar)
+  - Bottom: 250px (platform UI: CTA/swipe bar)
+  - Left/Right: 54px (5%)
+  Active content zone: y 250–1670, x 54–1026
+
+Font sizes:
+  Headline:     72–120px  (bold or heavy weight)
+  Subheadline:  36–56px
+  Body copy:    28–40px
+  CTA label:    32–44px
+
+Reference layout points (adjust to concept):
+  Logo:         top:80px; left:54px; width:auto; height:80px; max-width:260px
+  Headline:     top:340px; left:54px; right:54px; font-size:96px
+  Subheadline:  top:500px; left:54px; right:54px; font-size:44px
+  CTA button:   bottom:320px; left:54px; right:54px; height:96px
+
+Background: always fill full 1080×1920. Image-dominant designs work best.
+
+Notes:
+  - Vertical compositions (top-to-bottom narrative) outperform horizontal splits.
+  - Text must be in the active zone — never above 250px or below 1670px.
+
+
+── PORTRAIT 4:5  1080 × 1350 px ─────────────────────────
+Platform: Instagram Feed Portrait, Facebook Feed
+Aspect ratio: 4:5
+
+Safe zone: 54px on all sides (5%)
+Active content zone: x 54–1026, y 54–1296
+
+Font sizes:
+  Headline:     64–100px
+  Subheadline:  32–48px
+  Body copy:    24–36px
+  CTA label:    28–36px
+
+Reference layout points:
+  Logo:         top:54px; left:54px; width:auto; height:72px; max-width:280px
+  Headline:     top:200px; left:54px; right:54px; font-size:80px
+  Subheadline:  top:320px; left:54px; right:54px; font-size:40px
+  CTA button:   bottom:80px; left:54px; right:54px; height:88px
+
+Notes:
+  - Portrait is more spacious than square — use the extra vertical room
+    for stronger visual storytelling (product staging, layered elements).
+
+
+── SQUARE  1080 × 1080 px ────────────────────────────────
+Platform: Instagram, Facebook, Twitter Square
+Aspect ratio: 1:1
+
+Safe zone: 54px on all sides (5%)
+Active content zone: x 54–1026, y 54–1026
+
+Font sizes:
+  Headline:     52–96px
+  Subheadline:  28–44px
+  Body copy:    20–28px
+  CTA label:    24–32px
+
+Reference layout points:
+  Logo:         top:54px; left:54px; width:auto; height:60px; max-width:240px
+  Headline:     top:200px; left:54px; right:54px; font-size:80px
+  Subheadline:  top:320px; left:54px; right:54px; font-size:40px
+  CTA button:   bottom:80px; left:54px; right:54px; height:80px
+
+Notes:
+  - Square rewards bold, centered, or split compositions equally.
+  - Avoid packing all four quadrants — white space or background breathing
+    room often improves performance.
+
+
+── LANDSCAPE / FEED  1200 × 628 px ───────────────────────
+Platform: Facebook/Instagram Feed Landscape, LinkedIn, Twitter
+Aspect ratio: ~1.91:1
+
+Safe zone: 60px on all sides (5%)
+Active content zone: x 60–1140, y 60–568
+
+Font sizes:
+  Headline:     56–88px
+  Subheadline:  28–44px
+  CTA label:    24–32px
+
+Reference layout points (split-panel approach):
+  Left panel (visual): top:0; left:0; width:620px; height:628px
+  Logo:          top:60px; left:60px; width:auto; height:70px; max-width:240px
+  Headline:      top:200px; left:640px; right:60px; font-size:68px
+  Subheadline:   top:310px; left:640px; right:60px; font-size:36px
+  CTA button:    bottom:80px; left:640px; width:320px; height:72px
+
+Alternative (overlay approach): full-bleed image with overlay gradient,
+copy on one side, CTA anchored. Both are valid compositions.
+
+Notes:
+  - Landscape is the most versatile format — split-panel, overlay, and
+    typography-dominant all work. Choose based on asset quality.
+  - Headline must fit in 1 line at chosen font size or set white-space:nowrap.
+
+
+═══════════════════════════════════════════════════════════
+DISPLAY / WEB FORMATS
+═══════════════════════════════════════════════════════════
+
+─── CRITICAL NOTE FOR DISPLAY BANNERS ────────────────────
+Web display banners are rendered at 1:1 pixel scale in browsers.
+The safe zone is very tight. Pixel-accurate coordinates are mandatory.
+All text must have white-space:nowrap + overflow:hidden on single-line elements.
+Use px for ALL position values (no percentages) in display formats.
+──────────────────────────────────────────────────────────
+
+── LEADERBOARD  728 × 90 px ──────────────────────────────
+Platform: Google Display Network, websites top/bottom
+Aspect ratio: ~8.09:1
+
+Safe zone: 8px top/bottom; 10px left/right
+Layout pattern: horizontal row — logo | message | CTA
+
+Font sizes:
+  Headline:     14–18px  (single line mandatory)
+  CTA label:    13–15px
+
+Reference coordinate layout:
+  Background:   top:0; left:0; width:728px; height:90px; z-index:0
+  Logo:         top:50%; left:10px; transform:translateY(-50%);
+                width:auto; height:58px; max-width:110px; z-index:20
+  Divider:      top:15px; left:130px; width:1px; height:60px; (optional)
+  Headline:     top:50%; left:140px; width:370px; height:22px;
+                font-size:16px; line-height:22px; white-space:nowrap;
+                overflow:hidden; transform:translateY(-50%); z-index:30
+  CTA button:   top:50%; right:10px; width:140px; height:52px;
+                transform:translateY(-50%); border-radius:4px; z-index:40
+
+Important: transform:translateY(-50%) requires top:50% — always pair them.
+The headline and CTA MUST NOT overlap. With logo at 130px and CTA at 140px
+from right, headline has ~370px — enough for ~45 characters at 16px.
+
+
+── BILLBOARD  970 × 90 px ────────────────────────────────
+Platform: Google Display Network, premium placements
+Aspect ratio: ~10.78:1
+
+Safe zone: 8px top/bottom; 12px left/right
+Same horizontal row pattern as leaderboard, scaled.
+
+Font sizes:
+  Headline:     16–20px  (single line)
+  CTA label:    14–16px
+
+Reference coordinate layout:
+  Background:   top:0; left:0; width:970px; height:90px; z-index:0
+  Logo:         top:50%; left:12px; transform:translateY(-50%);
+                width:auto; height:62px; max-width:140px; z-index:20
+  Headline:     top:50%; left:165px; width:510px; height:24px;
+                font-size:18px; line-height:24px; white-space:nowrap;
+                overflow:hidden; transform:translateY(-50%); z-index:30
+  CTA button:   top:50%; right:12px; width:150px; height:56px;
+                transform:translateY(-50%); border-radius:4px; z-index:40
+
+
+── MEDIUM RECTANGLE  300 × 250 px ────────────────────────
+Platform: Google Display Network, sidebar placements
+Aspect ratio: 1.2:1
+
+Safe zone: 12px on all sides
+Active content zone: x 12–288, y 12–238
+
+Font sizes:
+  Headline:     18–26px
+  Subheadline:  12–16px
+  Body copy:    11–13px  (optional — use only if copy is short)
+  CTA label:    13–16px
+
+Reference coordinate layout (centered-column approach):
+  Background:   top:0; left:0; width:300px; height:250px; z-index:0
+  Logo:         top:14px; left:50%; transform:translateX(-50%);
+                width:auto; max-width:160px; height:36px; z-index:20
+  Headline:     top:62px; left:14px; right:14px; height:66px;
+                font-size:22px; line-height:1.2; text-align:center; z-index:30
+  Subheadline:  top:135px; left:14px; right:14px; height:36px;
+                font-size:14px; line-height:18px; text-align:center; z-index:35
+  CTA button:   bottom:18px; left:50%; transform:translateX(-50%);
+                width:160px; height:44px; border-radius:22px; z-index:40
+
+Alternative (split-row): image fills left 120px, copy on the right 168px.
+Works well with strong product shots.
+
+Notes:
+  - 300x250 is the highest-performing display format — invest in clarity.
+  - One strong headline + CTA outperforms cluttered layouts.
+  - Avoid body copy unless it's 1 short line (fits in the available height).
+
+
+── SMALL SQUARE (DISPLAY)  250 × 250 px ──────────────────
+Platform: Google Display Network, inline placements
+Aspect ratio: 1:1
+
+Safe zone: 10px on all sides
+Active content zone: x 10–240, y 10–240
+
+Font sizes:
+  Headline:     14–18px
+  Subheadline:  10–12px
+  CTA label:    11–14px
+
+Reference coordinate layout:
+  Background:   top:0; left:0; width:250px; height:250px; z-index:0
+  Logo:         top:12px; left:50%; transform:translateX(-50%);
+                width:auto; max-width:120px; height:28px; z-index:20
+  Headline:     top:50px; left:12px; right:12px; height:52px;
+                font-size:16px; line-height:1.2; text-align:center; z-index:30
+  CTA button:   bottom:14px; left:50%; transform:translateX(-50%);
+                width:130px; height:36px; border-radius:18px; z-index:40
+
+Notes:
+  - Very small canvas — one single compelling message + CTA only.
+  - Skip subheadline and body copy.
+  - Logo should be small enough to leave room for the headline.
+
+
+═══════════════════════════════════════════════════════════
+EMAIL MARKETING FORMATS
+═══════════════════════════════════════════════════════════
+
+─── CRITICAL NOTE FOR EMAIL BANNERS ──────────────────────
+Email clients vary in CSS support. Use px for all dimensions.
+Avoid border-radius > 4px (Outlook may ignore it).
+Always specify background-color on the outer div (transparent may render white).
+Use web-safe fonts or Google Fonts with a fallback font stack.
+──────────────────────────────────────────────────────────
+
+── EMAIL HEADER  600 × 200 px ────────────────────────────
+Use: Email newsletter hero, top-of-email visual
+Aspect ratio: 3:1
+
+Safe zone: 20px all sides
+Active content: x 20–580, y 20–180
+
+Font sizes:
+  Headline:     28–40px  (often 1–2 lines)
+  Subheadline:  14–20px
+  CTA label:    14–18px
+
+Reference coordinate layout:
+  Background:   top:0; left:0; width:600px; height:200px; z-index:0
+  Logo:         top:50%; left:24px; transform:translateY(-50%);
+                width:auto; max-width:120px; height:56px; z-index:20
+  Headline:     top:30px; left:165px; right:24px; height:52px;
+                font-size:34px; line-height:1.1; white-space:nowrap; z-index:30
+  Subheadline:  top:88px; left:165px; right:24px; height:26px;
+                font-size:17px; line-height:26px; white-space:nowrap; z-index:35
+  CTA button:   bottom:24px; right:24px; width:150px; height:44px;
+                border-radius:4px; z-index:40
+
+Alternative: full-width background image with logo top-left,
+headline centered, CTA bottom-right.
+
+
+── EMAIL BANNER  600 × 400 px ────────────────────────────
+Use: Email body offer section, product feature block
+Aspect ratio: 1.5:1
+
+Safe zone: 24px all sides
+Active content: x 24–576, y 24–376
+
+Font sizes:
+  Headline:     36–52px  (1–2 lines)
+  Subheadline:  18–26px
+  Body copy:    13–17px  (max 2 lines)
+  CTA label:    18–24px
+
+Reference coordinate layout:
+  Background:   top:0; left:0; width:600px; height:400px; z-index:0
+  Logo:         top:24px; left:50%; transform:translateX(-50%);
+                width:auto; max-width:160px; height:48px; z-index:20
+  Headline:     top:90px; left:32px; right:32px; height:80px;
+                font-size:44px; line-height:1.15; text-align:center; z-index:30
+  Subheadline:  top:180px; left:32px; right:32px; height:34px;
+                font-size:22px; text-align:center; z-index:35
+  CTA button:   bottom:32px; left:50%; transform:translateX(-50%);
+                width:200px; height:52px; border-radius:26px; z-index:40
+
+
+═══════════════════════════════════════════════════════════
+VIDEO / WIDESCREEN FORMAT
+═══════════════════════════════════════════════════════════
+
+── WIDESCREEN / VIDEO THUMBNAIL  1920 × 1080 px ──────────
+Platform: YouTube thumbnail, video thumbnail, digital signage
+Aspect ratio: 16:9
+
+Safe zone: 96px all sides (5%)
+Active content zone: x 96–1824, y 96–984
+
+Font sizes:
+  Headline:     80–120px
+  Subheadline:  40–60px
+  Body copy:    28–40px
+  CTA label:    36–48px
+
+Reference layout points:
+  Logo:         top:96px; left:96px; width:auto; height:100px; max-width:360px
+  Headline:     top:300px; left:96px; right:96px; font-size:100px
+  Subheadline:  top:440px; left:96px; right:96px; font-size:52px
+  CTA button:   bottom:120px; left:96px; width:400px; height:100px
+
+Notes:
+  - Video thumbnails are viewed at reduced sizes (120x67px on YouTube) —
+    use bold, high-contrast design and limit text to 1–2 words in the headline
+    if optimizing for thumbnail legibility.
+  - For full-scale static ads, treat as a large landscape with more detail capacity.

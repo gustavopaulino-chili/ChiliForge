@@ -4516,7 +4516,7 @@ export function AdsEditor({
           }
           return 'body > ' + parts.join(' > ');
         })(),
-        title: el.querySelector('h2,h1')?.textContent?.trim() || `Sessão ${idx+1}`,
+        title: el.querySelector('h2,h1')?.textContent?.trim() || `Section ${idx+1}`,
       }));
     } catch {
       return [];

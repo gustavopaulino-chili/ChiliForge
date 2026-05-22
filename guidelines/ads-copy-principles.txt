@@ -1,0 +1,143 @@
+AD COPY PRINCIPLES — CHARACTER LIMITS & MESSAGING RULES
+=========================================================
+These rules enforce physical rendering constraints (overflow, legibility).
+The message angle, tone, emotional hook, and persuasion strategy
+are entirely your creative choice.
+
+
+CHARACTER LIMITS BY FORMAT
+--------------------------
+These are hard limits before text overflows or becomes unreadable.
+Count characters including spaces.
+
+Format              | Headline      | Subheadline   | Body copy   | CTA button
+--------------------|---------------|---------------|-------------|------------
+Story 1080×1920     | 60 chars max  | 90 chars max  | 200 chars   | 18 chars
+Portrait 1080×1350  | 70 chars max  | 100 chars max | 180 chars   | 18 chars
+Square 1080×1080    | 70 chars max  | 100 chars max | 200 chars   | 20 chars
+Landscape 1200×628  | 65 chars max  | 100 chars max | 120 chars   | 18 chars
+Widescreen 1920×1080| 70 chars max  | 100 chars max | 150 chars   | 20 chars
+Leaderboard 728×90  | 45 chars MAX  | NONE          | NONE        | 14 chars
+Billboard 970×90    | 55 chars MAX  | NONE          | NONE        | 16 chars
+Med. Rect. 300×250  | 30 chars MAX  | 50 chars max  | 60 chars    | 14 chars
+Small Sq. 250×250   | 25 chars MAX  | NONE          | NONE        | 12 chars
+Email Header 600×200| 50 chars max  | 70 chars max  | NONE        | 18 chars
+Email Banner 600×400| 40 chars max  | 80 chars max  | 80 chars    | 18 chars
+
+NONE = do not include this copy element; the format has no room for it.
+MAX (in caps) = absolutely enforce; even a few extra characters will break rendering.
+
+
+COPY DENSITY BY FORMAT SIZE
+-----------------------------
+Display formats (all display/web sizes):
+  Maximum 2 text elements visible at once: headline + CTA.
+  Subheadline only if it fits without reducing CTA size.
+  Body copy never in display formats under 300×300px.
+
+Small social formats (square, portrait, landscape):
+  Up to 3 text elements: headline + optional subheadline + CTA.
+  Keep headline short enough to remain legible at 50% zoom.
+
+Large social formats (story, widescreen):
+  Up to 4 text elements: headline + subheadline + optional body + CTA.
+  Story format allows more copy because of the vertical space — use it.
+
+Email formats:
+  Treat like small social — headline + optional subheadline + CTA.
+  Email banners may include 1–2 lines of body copy.
+
+
+HEADLINE PRINCIPLES
+-------------------
+Write the headline to work at its maximum character limit as a single line.
+When the headline wraps, reconsider the word choice — shorter is stronger.
+
+Headlines that work in ads:
+  - Lead with the benefit (result, transformation, emotion, number)
+  - Start with a verb in commands: "Transform", "Unlock", "Stop", "Discover"
+  - Use specificity over vagueness: "Save 3 hours/week" beats "Save time"
+  - Address the pain point or desire stated in the campaign brief
+
+Headlines to avoid:
+  - Brand name as the headline (put the brand in the logo, not the headline)
+  - Questions that the reader doesn't care about
+  - Generic lines: "The best solution", "Quality you can trust"
+
+
+CTA BUTTON TEXT
+---------------
+CTA text should be a single clear action.
+Use active verbs. Avoid passive constructions.
+
+By campaign objective:
+  Lead generation:  "Get Free Quote", "Book Now", "Download Guide"
+  Sales:            "Shop Now", "Get X% Off", "Buy Today"
+  Awareness:        "Learn More", "See How", "Explore"
+  Retargeting:      "Complete Your Order", "Come Back", "Claim Deal"
+  App install:      "Download Free", "Install Now", "Try Free"
+  WhatsApp:         "Message Us", "Chat Now", "Talk to Us"
+
+Urgency modifiers (add when urgencyLevel is high):
+  "Now", "Today", "Limited Offer", "Ends Soon"
+
+Character enforcement for small formats:
+  728×90 leaderboard: max 14 chars → "Shop Now", "Learn More", "Get Quote"
+  300×250 med rect:   max 14 chars → "Get Offer", "Buy Now", "Try Free"
+  250×250 sm square:  max 12 chars → "Shop Now", "See More", "Get It"
+
+
+COPY BY FUNNEL STAGE
+---------------------
+Awareness (top-funnel):
+  - Headline: problem-agitating or aspiration-building
+  - No price, no hard sell
+  - CTA: "Discover", "Learn More", "See How"
+
+Consideration (mid-funnel):
+  - Headline: solution + key benefit or differentiator
+  - May include 1 proof point (testimonial snippet, stat)
+  - CTA: "Get Free Quote", "Watch Demo", "Read More"
+
+Conversion (bottom-funnel):
+  - Headline: offer-first (discount, guarantee, urgency)
+  - Include scarcity or time-pressure if provided
+  - CTA: "Buy Now", "Claim Discount", "Complete Order"
+
+
+COPY BY CREATIVE STRATEGY
+--------------------------
+problem-solution:
+  Headline names the problem. Subheadline introduces the solution.
+  CTA = the action to access the solution.
+
+before-after:
+  Headline = the "before" state (frustration). Subheadline = the "after" promise.
+
+testimonial:
+  Headline = the most powerful quote line.
+  Subheadline = attribution (name, role, result).
+
+direct-response:
+  Lead with the offer or discount in the headline. Include scarcity/urgency.
+  CTA is the primary visual element — make it large and unmissable.
+
+educational:
+  Headline states the insight or the myth to bust.
+  Body copy (if format allows) delivers the 1-line payoff.
+
+emotional / lifestyle:
+  Headline = the feeling or identity statement.
+  Avoid feature lists — keep it aspirational.
+
+product-showcase:
+  Headline = main product benefit.
+  Product image carries most of the message — keep copy brief.
+
+
+MULTILINGUAL COPY
+-----------------
+Write all copy in the language specified in the campaign data.
+Do not mix languages in the same banner.
+Consider that translated copy is often 15–30% longer than English —
+stay well within the character limits to leave buffer for longer translations.

@@ -52,7 +52,7 @@ try {
 
     // Resolve account type from domain allowlist when configured.
     $hashedPwd = password_hash($pwd, PASSWORD_DEFAULT);
-    $resolved = resolve_account_type_by_domain($email, 'testing');
+    $resolved = resolve_account_type_by_domain($email, 'user');
     $accountType = $resolved['accountType'];
     $stmt = $conn->prepare("INSERT INTO users (email, pwd, account_type) VALUES (?, ?, ?)");
     $stmt->bind_param("sss", $email, $hashedPwd, $accountType);

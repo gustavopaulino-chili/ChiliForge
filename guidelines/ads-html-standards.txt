@@ -1,0 +1,129 @@
+AD BANNER HTML TECHNICAL STANDARDS
+====================================
+These are structural rendering rules only. Creative direction (layout concept,
+color expression, typographic choices, imagery treatment) remains fully yours.
+
+
+OUTPUT STRUCTURE
+----------------
+Each banner is a single self-contained <div>:
+
+  <div class="ad-banner"
+       style="width:{W}px;height:{H}px;position:relative;overflow:hidden;
+              box-sizing:border-box;background:{fallback-color};"
+       data-platform="{platform}"
+       data-format="{format}">
+    <!-- layers go here -->
+  </div>
+
+The outer div dimensions MUST match the format spec exactly. overflow:hidden
+prevents any content from bleeding outside the banner frame.
+
+
+POSITIONING SYSTEM
+------------------
+ALL child elements must use position:absolute. This allows drag-and-drop
+editing in the visual editor (Figma-like interactions depend on absolute coords).
+
+Every positioned element MUST declare all four relevant values:
+  - top (or bottom) — exact pixel value, never left undefined
+  - left (or right) — exact pixel value, never left undefined
+  - width — explicit px or calc(); never rely on implicit sizing
+  - height — explicit px or height:auto only when text line height is known
+
+Do NOT use flexbox, grid, float, or inline-block for layout.
+
+CORRECT:
+  style="position:absolute;top:24px;left:40px;width:300px;height:56px;"
+
+WRONG (implicit positions):
+  style="position:absolute;width:300px;" ← no top/left = renders at origin
+
+
+LAYER Z-INDEX SYSTEM
+--------------------
+Use these z-index tiers consistently:
+  z-index: 0   → Background layer (.ad-bg): full-bleed image or color fill
+  z-index: 5   → Background overlay: gradient or color mask over the background
+  z-index: 10  → Product / hero image layer
+  z-index: 20  → Logo layer (.ad-logo)
+  z-index: 30  → Headline and copy layers (.ad-headline)
+  z-index: 35  → Subheadline / body copy
+  z-index: 40  → CTA button (.ad-cta)
+  z-index: 50  → Badges, stickers, urgency indicators
+
+
+BACKGROUND LAYER RULES
+-----------------------
+The background layer MUST always fill the complete banner:
+  style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:0;"
+
+When using a background image:
+  style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:0;
+         object-fit:cover;"  ← for <img> tags
+
+When using CSS background:
+  style="position:absolute;top:0;left:0;width:{W}px;height:{H}px;z-index:0;
+         background-image:url('...');background-size:cover;background-position:center;"
+
+
+IMAGE RENDERING
+---------------
+Always use <img> for provided logo, product, and background URLs:
+  <img src="{url}" alt="" style="position:absolute;..." />
+
+Use object-fit:contain for logos (preserves aspect ratio within the box).
+Use object-fit:cover for background and hero images (fills the space).
+Never replace a provided URL with a placeholder, color block, or SVG icon.
+
+
+TEXT ELEMENT RULES
+------------------
+Single-line text (headlines, CTAs, labels):
+  - Add white-space:nowrap to prevent wrapping
+  - Add overflow:hidden and text-overflow:ellipsis as a safety net
+  - Set explicit max-width to prevent overflow beyond the safe zone
+
+Multi-line text (body copy, subheadlines):
+  - Set explicit line-height (1.15 to 1.4 depending on style)
+  - Set explicit max-height or limit line count via overflow:hidden
+  - Never use word-break:break-all unless the copy is numeric
+
+Font loading: load Google Fonts via @import inside a <style> tag that is scoped
+to the banner. Example:
+  <style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');</style>
+Place this style tag as the first child inside the .ad-banner div.
+
+
+CTA BUTTON RULES
+----------------
+The CTA must always be a visually distinct block:
+  - Background: the accent/CTA color from brand data
+  - Text: high-contrast color relative to the button background
+  - border-radius: 4px to 999px depending on the visual style
+  - cursor: pointer
+  - Minimum touch target: 44px height for social; 36px for display
+  - Add a subtle hover state is NOT needed (static ad)
+
+Never skip the CTA element. Even if the campaign doesn't specify CTA text,
+use a short default ("Learn More", "Get Offer", "Shop Now").
+
+
+INLINE STYLES ONLY
+------------------
+No <style> blocks for layout or element styling. Exception: font @import.
+No class-based CSS beyond the structural classes (ad-banner, ad-bg, etc.).
+No CSS variables (var(--)) — they won't resolve in an isolated iframe.
+No external CSS files or CDN links beyond Google Fonts.
+
+
+WHAT NOT TO DO
+--------------
+- Do not use percentage values for top/left on display/web formats (use px).
+  Percentage can work for social formats where the scale is large and predictable.
+- Do not omit width or height on any visible element.
+- Do not nest absolute containers without resetting the positioning context.
+- Do not output multiple banners merged in one HTML document — each banner
+  is a separate div wrapped in <!-- BANNER_START --> ... <!-- BANNER_END -->.
+- Do not add animations or transitions unless the brief explicitly asks for them.
+- Do not use box-shadow on the outermost .ad-banner div (clips to overflow:hidden).

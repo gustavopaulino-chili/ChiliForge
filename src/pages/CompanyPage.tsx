@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { CompanyProjectForm } from '@/components/project/CompanyProjectForm';
 import { useAuth } from '@/contexts/AuthContext';
-import { createProject, getAdCreatives, getProjectById, getProjects, updateCompanyProject, uploadProjectAssets } from '@/services/api';
+import { createProject, getAdCreatives, getProjectById, getProjects, updateCompanyProject, uploadProjectAssets, uploadProjectAssetsFromUrls } from '@/services/api';
 import {
   CompanyProjectFormData,
   defaultCompanyProjectFormData,
@@ -34,6 +34,7 @@ type ChildProject = {
   current_step?: number;
   created_at: string;
   company_project_id?: number | null;
+  campaign_id?: number | null;
 };
 
 type AdCreativeItem = {
@@ -179,6 +180,21 @@ export default function CompanyPage() {
         company_form_data: draftForm,
         context,
       });
+      const images = draftForm.images || {};
+      const imagesToSave = Array.from(new Set([
+        images.logoUrl,
+        images.heroImage1,
+        images.heroImage2,
+        images.brandImage,
+        images.sectionImage1,
+        images.sectionImage2,
+        images.sectionImage3,
+        ...(Array.isArray(images.productImages) ? images.productImages : []),
+      ].filter((url): url is string => typeof url === 'string' && /^https?:\/\//i.test(url))));
+
+      if (imagesToSave.length > 0) {
+        void uploadProjectAssetsFromUrls(company.id, user.id, imagesToSave).catch(() => {});
+      }
       setFormData({ ...draftForm });
       setIsEditing(false);
       toast.success('Company updated');
@@ -217,37 +233,22 @@ export default function CompanyPage() {
       },
     });
 
-  const openAdBoard = async (project: ChildProject) => {
+  const openAdCampaign = async (project: ChildProject) => {
     if (!user?.id) return;
     setBusyChildId(project.id);
     try {
-      const creatives = await getAdCreatives(project.id, user.id);
-      navigate('/ad-creatives', {
-        state: {
-          formData: project.form_data || {},
-          currentStep: project.currentStep ?? project.current_step ?? 0,
-          savedProjectId: project.id,
-          showResults: true,
-          generatedPublicUrl: project.public_url || '',
-          projectPublicUrl: project.public_url || '',
-          folderPath: project.folder_path || '',
-          companyProjectId: projectId,
-          generatedBanners: (creatives as AdCreativeItem[]).map((creative) => ({
-            id: creative.id,
-            creative_id: creative.creative_id || creative.id,
-            campaign_id: creative.campaign_id,
-            project_id: creative.project_id,
-            url: creative.public_url || creative.url || '',
-            platform: creative.platform || 'banner',
-            format: creative.format || 'ad',
-            label: creative.label || creative.name || `Creative ${creative.id}`,
-            width: creative.width || 1080,
-            height: creative.height || 1080,
-          })),
-        },
-      });
+      let campaignId = Number(project.campaign_id || 0);
+      if (!campaignId) {
+        const creatives = await getAdCreatives(project.id, user.id);
+        campaignId = Number((creatives as AdCreativeItem[])[0]?.campaign_id || 0);
+      }
+      if (!campaignId) {
+        toast.error('Campaign data not found yet. Open the editor to generate creatives first.');
+        return;
+      }
+      navigate(`/projects/${projectId}/campaigns/${campaignId}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not open campaign board.');
+      toast.error(error instanceof Error ? error.message : 'Could not open campaign.');
     } finally {
       setBusyChildId(null);
     }
@@ -611,12 +612,13 @@ export default function CompanyPage() {
                   project={p}
                   type="ads"
                   accentColor={secondaryColor}
-                  onOpen={() => openAdBoard(p)}
+                  onOpen={() => openAdCampaign(p)}
                   onEditor={() => navigate('/ad-creatives', {
                     state: {
                       formData: p.form_data || {},
                       currentStep: p.currentStep ?? p.current_step ?? 0,
                       savedProjectId: p.id,
+                      campaignId: p.campaign_id,
                       generatedPublicUrl: p.public_url || '',
                       projectPublicUrl: p.public_url || '',
                       folderPath: p.folder_path || '',
@@ -721,7 +723,10 @@ function ChildProjectCard({
   busy?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/60 px-4 py-3.5 hover:border-primary/30 transition-colors">
+    <div
+      className={`flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/60 px-4 py-3.5 hover:border-primary/30 transition-colors ${onOpen ? 'cursor-pointer' : ''}`}
+      onClick={onOpen}
+    >
       <div className="flex items-center gap-3 min-w-0">
         <div
           className="h-9 w-9 rounded-lg flex items-center justify-center shrink-0"
@@ -754,22 +759,22 @@ function ChildProjectCard({
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {onOpen && (
-          <Button size="sm" variant="default" onClick={onOpen} title="Open published" disabled={busy}>
+          <Button size="sm" variant="default" onClick={(e) => { e.stopPropagation(); onOpen(); }} title={type === 'lp' ? 'Open published' : 'Open campaign'} disabled={busy}>
             <Eye className="h-4 w-4" />
           </Button>
         )}
         {onEditor && (
-          <Button size="sm" variant="outline" onClick={onEditor} title={type === 'lp' ? 'Visual editor' : 'Edit campaign'} disabled={busy}>
+          <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onEditor(); }} title={type === 'lp' ? 'Visual editor' : 'Edit campaign'} disabled={busy}>
             <Edit3 className="h-4 w-4" />
           </Button>
         )}
         {onRestore && (
-          <Button size="sm" variant="outline" onClick={onRestore} title="Restore as new draft" disabled={busy}>
+          <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onRestore(); }} title="Restore as new draft" disabled={busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
           </Button>
         )}
         {onDelete && (
-          <Button size="sm" variant="destructive" onClick={onDelete} title="Delete" disabled={busy}>
+          <Button size="sm" variant="destructive" onClick={(e) => { e.stopPropagation(); onDelete(); }} title="Delete" disabled={busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
           </Button>
         )}

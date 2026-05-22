@@ -9,6 +9,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'site_helpers.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'accountType.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'v1' . DIRECTORY_SEPARATOR . 'agents' . DIRECTORY_SEPARATOR . 'helpers.php';
 
 $data = json_decode(file_get_contents("php://input"), true);
 
@@ -125,6 +127,20 @@ function create_project_find_company(mysqli $conn, int $companyProjectId, int $u
     $stmt->close();
 
     return $row ?: null;
+}
+
+function create_project_account_type(mysqli $conn, int $userId): string {
+    $email = '';
+    $stmt = $conn->prepare("SELECT email FROM users WHERE id = ? LIMIT 1");
+    if ($stmt) {
+        $stmt->bind_param("i", $userId);
+        $stmt->execute();
+        $stmt->bind_result($email);
+        $stmt->fetch();
+        $stmt->close();
+    }
+    $result = resolve_account_type_by_domain($email, 'user');
+    return $result['accountType'];
 }
 
 function create_project_rewrite_asset_paths($value, array $oldPrefixes, $newPrefix) {
@@ -341,12 +357,24 @@ if ($stmt->execute()) {
         $update->close();
     }
 
+    $storeWarning = null;
+    if ($project_type === 'project') {
+        try {
+            $accountType = create_project_account_type($conn, $user_id);
+            agents_sync_company_store($conn, $project_id, $formDataDecoded, $accountType, $user_id, null);
+        } catch (Throwable $e) {
+            $storeWarning = $e->getMessage();
+            error_log("Company store sync failed after createProject: " . $storeWarning);
+        }
+    }
+
     echo json_encode([
         "success" => true,
         "id" => $project_id,
         "public_url" => $public_url,
         "folder_path" => $folder_path,
         "form_data" => $formDataDecoded,
+        "store_warning" => $storeWarning,
         "message" => "Projeto salvo com sucesso"
     ]);
 } else {
