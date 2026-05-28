@@ -191,6 +191,7 @@ async function generateAdImage(
               contents: [{ parts }],
               generationConfig,
             }),
+            signal: AbortSignal.timeout(100000),
           });
           const bodyText = await res.text();
           if (!res.ok) {
@@ -1414,6 +1415,7 @@ async function callGemini(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(130000),
   });
 
   if (!res.ok) {
