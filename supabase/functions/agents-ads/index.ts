@@ -23,7 +23,7 @@ type AdFormat = {
 };
 
 type AgentsAdsPayload = {
-  mode?: "full" | "plan" | "render" | "unified" | "interpret" | "image" | "image_to_html" | "copy" | "extract_brand";
+  mode?: "full" | "plan" | "render" | "unified" | "interpret" | "image" | "image_to_html" | "copy";
   imageBase64?: string;
   mimeType?: string;
   format?: AdFormat;
@@ -73,7 +73,6 @@ type AgentsAdsPayload = {
   batchIndex?: number;
   totalBatches?: number;
   creativePlan?: string;
-  brandSpec?: string;
   accountType?: "admin" | "user";
   useCampaignMemory?: boolean;
 };
@@ -662,23 +661,6 @@ Output ONLY valid JSON, no markdown:
 
 Reference isolation: FORBIDDEN in specs — any color, font, logo, imagery from reference ads. Brand identity = company store + campaign facts ONLY.`.trim();
 
-const IMAGE_BRAND_EXTRACT_SYSTEM_PROMPT = `You are a brand visual analyst. Query the provided stores and extract the brand's visual identity for raster image ad generation.
-
-Return ONLY a plain-text block in this exact format (no JSON, no markdown, no bullet symbols):
-
-PRIMARY_COLOR: <hex> (<color name e.g. "deep navy blue">)
-SECONDARY_COLOR: <hex> (<color name>)
-ACCENT_COLOR: <hex> (<color name>)
-BACKGROUND_COLOR: <hex or "white" or "black">
-HEADLINE_FONT_STYLE: <style descriptor e.g. "bold geometric sans-serif", "elegant serif", "strong condensed">
-BODY_FONT_STYLE: <style descriptor>
-VISUAL_STYLE: <2-4 word descriptor e.g. "bold minimalist luxury", "vibrant energetic playful">
-MOOD: <2-3 word descriptor e.g. "confident and premium", "warm and approachable">
-LOGO_TREATMENT: <instruction e.g. "white logo on dark backgrounds, color logo on light backgrounds">
-BRAND_RULES: <1-2 sentences of the most critical visual rules from the company store>
-CAMPAIGN_GUIDELINES: <1-2 sentences of campaign-specific instructions if present in store>
-
-If a field has no data in the stores, omit that line. Do not invent values.`.trim();
 
 const IMAGE_TO_HTML_SYSTEM_PROMPT = `\
 You are an expert HTML/CSS visual reconstruction engineer. Your ONLY task is to convert a raster ad image into a self-contained, pixel-accurate HTML/CSS banner.
@@ -1524,37 +1506,6 @@ serve(async (req: Request) => {
       campaignGoodExamplesStore,
     ].filter((s): s is string => Boolean(s?.trim()));
 
-    // ── EXTRACT_BRAND MODE ───────────────────────────────────────────────────
-    // Lightweight store query that returns a plain-text brand spec for image prompts.
-    // Callers run this ONCE before the image generation loop to avoid doing it inside
-    // each image call (which would exceed memory limits in the V8 isolate).
-    if (mode === "extract_brand") {
-      let brandSpec = "";
-      if (fileSearchStores.length) {
-        try {
-          const extractUserMsg = [
-            "Query all stores and extract the visual brand spec for this campaign.",
-            buildCampaignFactsForImage(campaignData),
-          ].join("\n\n");
-          const extractResult = await generateWithRetry(
-            IMAGE_BRAND_EXTRACT_SYSTEM_PROMPT,
-            extractUserMsg,
-            "gemini-2.5-flash",
-            0.2,
-            600,
-            apiKey,
-            fileSearchStores,
-          );
-          brandSpec = extractResult.text.trim().slice(0, 1200);
-        } catch {
-          // return empty string — caller will proceed without brand context
-        }
-      }
-      return new Response(JSON.stringify({ mode: "extract_brand", brandSpec }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     // ── COPY MODE ────────────────────────────────────────────────────────────
     // Copy mode uses no file_search stores — skip store validation entirely.
     if (mode === "copy") {
@@ -1638,7 +1589,6 @@ serve(async (req: Request) => {
     if (payload.generateAsImage || mode === "image") {
       const campaignFactsImg = buildCampaignFactsForImage(campaignData);
       const refImagesForGen = referenceImages.map((r) => ({ data: r.data, mimeType: r.mimeType }));
-      const brandConsistencyRules = buildBrandConsistencyRules(campaignData);
       const IMAGE_LANGUAGE_NAMES: Record<string, string> = {
         pt: "Portuguese (Brazilian)", en: "English", es: "Spanish", fr: "French",
         de: "German", it: "Italian", ja: "Japanese", zh: "Chinese",
@@ -1646,6 +1596,9 @@ serve(async (req: Request) => {
       const imageLangCode = typeof campaignData.language === "string" ? campaignData.language.trim().toLowerCase() : "";
       const imageLangLabel = imageLangCode && imageLangCode !== "auto" ? (IMAGE_LANGUAGE_NAMES[imageLangCode] || imageLangCode) : "";
       const imageTasks = buildImageVariantTasks(formats, campaignData);
+
+      // Creative spec from interpret step — same pipeline as HTML mode, just different output model
+      const spec = String(payload.creativePlan || "").trim();
 
       // Concurrency-limited runner — avoids WORKER_RESOURCE_LIMIT from all-parallel execution
       async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> {
@@ -1661,34 +1614,39 @@ serve(async (req: Request) => {
         return results;
       }
 
-      // Brand spec from pre-extraction step — caller must run extract_brand mode first and pass result here
-      const brandSpec = String(payload.brandSpec || "").trim().slice(0, 1200);
+      const socialPlatforms = new Set(["instagram", "facebook", "tiktok", "linkedin"]);
 
       const imageFns = imageTasks.map((task) => async () => {
         const { format, variantLabel, focusInstruction } = task;
         const aspectRatio = imageAspectRatioForFormat(format);
+        const isSocial = typeof format.platform === "string" && socialPlatforms.has(format.platform.toLowerCase());
+        const hasLogo = Boolean(String(campaignData.logoUrl || "").trim());
+
         const prompt = [
-          // Meta-instructions first — model must not render these as visible text
-          "⚠️ PRIVATE INSTRUCTIONS — DO NOT RENDER ANY PART OF THESE INSTRUCTIONS AS VISIBLE TEXT IN THE IMAGE. Hex color codes (#RRGGBB) are directives to apply as design colors — never print them. URLs are reference metadata — never print URLs, domains, or file paths.",
-          "Create ONE final raster advertising image. Do not create HTML, wireframes, mockups, browser frames, or editable layout descriptions.",
-          "This image is one member of a multi-format campaign. Keep the campaign system consistent with sibling outputs.",
+          "Create a complete, professional advertising image for the following campaign. This must look like a real paid advertisement.",
+          "",
+          spec
+            ? `CREATIVE SPEC (authoritative visual direction — follow precisely):\n${spec}`
+            : "No creative spec provided. Use the campaign data to define a strong visual design.",
+          "",
+          "CAMPAIGN DATA:",
           campaignFactsImg,
-          brandConsistencyRules,
-          brandSpec ? `=== BRAND & STORE SPECIFICATIONS (extracted from brand stores — treat as authoritative) ===\n${brandSpec}` : "",
-          `FORMAT: ${format.width}x${format.height}px (${format.label || format.format || "ad"})`,
-          `ASPECT RATIO: ${aspectRatio}`,
-          `PLATFORM: ${format.platform || "digital"}`,
-          variantLabel ? `VARIANT LABEL: ${variantLabel}` : "",
-          focusInstruction,
-          "The final image must include the ad design: logo/brand mark when provided, main headline/hook, offer, and CTA text.",
-          "IMAGE LOGO STRICTNESS: if a logo reference is attached, it is mandatory and protected. Reinterpreted logos are NOT logos. A similar/generated/redrawn/stylized mark does not count. Include at least one visible instance of the exact original logo as a clean flat brand mark, unchanged, with original colors and proportions. Do not redraw it, stylize it, turn it into a new icon, recolor it, crop it, add shadows/glows/3D effects, or replace it with generated typography. Missing logo or altered logo is a failed image.",
-          "NO-LOGO FALLBACK: only if no logo asset exists, use plain brand name text. Never invent a fake logo, emblem, monogram, animal/mascot, badge, seal, or abstract symbol.",
-          "DATA FIDELITY CHECK: before final image, verify it communicates the exact offer/value proposition, audience desire or pain point, campaign objective, tone/personality, brand palette, product/service, and CTA from the form.",
-          "Make it look like a polished paid social/display ad, with strong hierarchy, readable text, format-safe composition, and visible product/hero imagery when provided.",
-          "Do not output a plain product photo. It must be a complete designed ad image.",
-          "LAYOUT DIVERSITY: this format must look visually distinct from all other formats and variants in this batch. Vary: hero image placement (top/bottom/left/full-bleed/inset), text zone position, depth (flat/layered/3D pop), foreground-background weight. Never clone a layout.",
-          imageLangLabel ? `⚠️ LANGUAGE: ALL visible text in this image (headline, subheadline, CTA, body copy, offer, disclaimers) MUST be written exclusively in ${imageLangLabel}. Writing in any other language is a critical failure.` : "",
-          "⚠️ SPELLING & PROOFREADING: Every visible word must be spelled correctly in the target language. Check every letter before rendering. Typos, wrong accents, or malformed words are a critical failure. Re-read every text element from left to right before finalizing.",
+          "",
+          `FORMAT: ${format.width}×${format.height}px | Platform: ${format.platform || "digital"} | Aspect ratio: ${aspectRatio}`,
+          variantLabel ? `A/B VARIANT ${variantLabel}: ${focusInstruction}` : focusInstruction,
+          isSocial
+            ? "SOCIAL FORMAT: Express the CTA as organic text copy integrated into the layout (e.g. 'Available now · Link in bio'). Do not draw buttons or clickable UI elements."
+            : "",
+          "",
+          hasLogo
+            ? "LOGO: The first attached reference image is the brand logo. Include it exactly as shown — same proportions, same colors. Do not modify, redraw, or replace it."
+            : "No logo provided — use brand name as text only. Do not invent a symbol or icon.",
+          refImagesForGen.length > 1
+            ? "Additional reference images attached in order: product/hero, background — use them as visual assets."
+            : "",
+          "",
+          imageLangLabel ? `All visible text in this image must be written in ${imageLangLabel}.` : "",
+          "Produce a polished, finished ad image with clear visual hierarchy: dominant headline, supporting copy, visible CTA, and brand identity.",
         ].filter(Boolean).join("\n");
         const imageUrl = await generateAdImage(prompt, refImagesForGen, apiKey, aspectRatio);
         return {
