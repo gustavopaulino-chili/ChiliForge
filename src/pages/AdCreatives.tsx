@@ -19,7 +19,7 @@ import { ArrowLeft, ArrowRight, Zap, FolderOpen, LogOut, Loader2, Wand2, RotateC
 import logoResult from '@/assets/logo-result.png';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { useAuth } from '@/contexts/AuthContext';
-import { createProject, deleteProjectAssetFile, generateAdCreatives, generateAdImages, generateAdBrandSpec, generateAdsViaAgentTracked, generateImages, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls, type AdImageResult } from '@/services/api';
+import { createProject, deleteProjectAssetFile, generateAdCreatives, generateAdImages, generateAdsViaAgentTracked, generateImages, interpretBatchesViaAgent, prepareAdsFromCampaignPayload, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls, type AdImageResult } from '@/services/api';
 import { toast } from 'sonner';
 import '@/components/landing/HeroLanding.css';
 
@@ -1150,14 +1150,21 @@ export default function AdCreatives() {
 
         if (!enabledFormats.length) throw new Error('No enabled ad formats selected.');
 
-        // Extract brand/store spec once before the loop — keeps image calls memory-safe
-        setGenerationStatus('Analyzing brand guidelines...');
-        const brandSpec = await generateAdBrandSpec({
+        // Interpret step — same pipeline as HTML mode, queries stores and produces rich spec per format
+        setGenerationStatus('Interpreting brand and campaign design guidelines...');
+        const prepared = await prepareAdsFromCampaignPayload({
           user_id: user.id,
           company_project_id: routeState.companyProjectId,
-          campaign_id: routeState.campaignId,
-          form_data: adDataForApi as Record<string, unknown>,
+          campaign_id: routeState.campaignId || 0,
+          form_overrides: adDataForApi as Record<string, unknown>,
         });
+        let batchSpecs: Array<{ label: string; spec: string }> = [];
+        try {
+          const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, enabledFormats);
+          batchSpecs = interpretation.batchSpecs || [];
+        } catch {
+          // non-fatal — image generation proceeds without spec
+        }
 
         const allImages: import('@/services/api').AdImageResult[] = [];
 
@@ -1179,12 +1186,15 @@ export default function AdCreatives() {
             })),
           };
 
+          const fmtSpec = batchSpecs.find(s =>
+            s.label?.toLowerCase() === fmtLabel.toLowerCase()
+          )?.spec || batchSpecs[fi]?.spec || "";
+
           const imageResult = await generateAdImages({
             user_id: user.id,
             company_project_id: routeState.companyProjectId,
             campaign_id: routeState.campaignId,
-            form_data: fmtFormData as Record<string, unknown>,
-            brand_spec: brandSpec || undefined,
+            form_data: { ...(fmtFormData as Record<string, unknown>), creative_plan: fmtSpec },
           });
           const fmtImages = (imageResult.images || []).filter((img) => img.imageUrl);
           allImages.push(...fmtImages);

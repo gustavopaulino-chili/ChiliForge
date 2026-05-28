@@ -32,7 +32,6 @@ $companyProjectId = (int)($body['company_project_id'] ?? 0);
 $campaignId       = (int)($body['campaign_id']        ?? 0);
 $formData         = is_array($body['form_data'] ?? null) ? $body['form_data'] : [];
 $generateAsImage  = !empty($formData['generate_as_image']);
-$brandSpecOnly    = !empty($formData['brand_spec_only']);
 
 if ($userId <= 0 || $companyProjectId <= 0) {
     http_response_code(400);
@@ -146,7 +145,7 @@ try {
         exit;
     }
 
-    if ($generateAsImage && !$brandSpecOnly && trim((string)$globalImageReferenceStore) === '') {
+    if ($generateAsImage && trim((string)$globalImageReferenceStore) === '') {
         http_response_code(409);
         echo json_encode([
             'error' => 'Global Ads Image Reference Store is missing. Upload at least one image ad example first.',
@@ -204,20 +203,11 @@ try {
         'accountType'                => $accountType,
     ];
 
-    if ($brandSpecOnly) {
-        $edgePayload['mode'] = 'extract_brand';
-        $result = agents_call_edge_function('agents-ads', $edgePayload, $passKey);
-        if (!empty($result['error'])) throw new RuntimeException('agents-ads error: ' . $result['error']);
-        header('Content-Type: application/json');
-        echo json_encode(['success' => true, 'brandSpec' => $result['brandSpec'] ?? ''], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-
     if ($generateAsImage) {
         $edgePayload['generateAsImage'] = true;
         $edgePayload['mode']            = 'image';
-        if (!empty($formData['brand_spec'])) {
-            $edgePayload['brandSpec'] = (string)$formData['brand_spec'];
+        if (!empty($formData['creative_plan'])) {
+            $edgePayload['creativePlan'] = (string)$formData['creative_plan'];
         }
     }
 

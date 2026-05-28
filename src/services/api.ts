@@ -1224,33 +1224,11 @@ export const generateAdImages = (payload: {
   company_project_id: number;
   campaign_id?: number;
   form_data: Record<string, unknown>;
-  brand_spec?: string;
 }): Promise<{ success: boolean; mode: "image"; images: AdImageResult[] }> =>
   agentsPost("generate-ads.php", {
     ...payload,
-    form_data: {
-      ...payload.form_data,
-      generate_as_image: true,
-      ...(payload.brand_spec ? { brand_spec: payload.brand_spec } : {}),
-    },
+    form_data: { ...payload.form_data, generate_as_image: true },
   });
-
-export const generateAdBrandSpec = async (payload: {
-  user_id: number;
-  company_project_id: number;
-  campaign_id?: number;
-  form_data: Record<string, unknown>;
-}): Promise<string> => {
-  try {
-    const result = await agentsPost<{ success: boolean; brandSpec: string }>(
-      "generate-ads.php",
-      { ...payload, form_data: { ...payload.form_data, brand_spec_only: true } },
-    );
-    return result.brandSpec || "";
-  } catch {
-    return "";
-  }
-};
 
 export type AdCopyResult = {
   mainHeadline: string;

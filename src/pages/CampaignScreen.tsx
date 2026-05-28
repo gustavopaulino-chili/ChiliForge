@@ -12,7 +12,7 @@ import {
   getCampaign, getAdCreatives, campaignChat, markGoodExamples, removeCampaignExample,
   getCreativesHtml, sendCreativeHtmlToGlobalStore, getProjectAssets, uploadProjectAssets, deleteProjectAssetFile,
   prepareAdsFromCampaignPayload, renderAdsBatchViaAgent, interpretBatchesViaAgent,
-  createGenerationJob, updateGenerationJob, getGenerationJob, generateAdImages, generateAdBrandSpec,
+  createGenerationJob, updateGenerationJob, getGenerationJob, generateAdImages,
   updateAdCreativeContent, convertImageAdToHtml,
   CampaignData, ChatMessage, CampaignChatResponse, CampaignExampleCreative,
   type ProjectAsset, type GenerationJob, type GenerationJobBatch, type AdImageResult,
@@ -1042,14 +1042,21 @@ export default function CampaignScreen() {
         // Sequential calls via PHP (set_time_limit=600) instead of one big parallel call.
         const allImages: import('@/services/api').AdImageResult[] = [];
 
-        // Extract brand/store spec once before the loop — keeps image calls memory-safe
-        setGenerationStatus('Analyzing brand guidelines...');
-        const brandSpec = await generateAdBrandSpec({
+        // Interpret step — same pipeline as HTML mode, queries stores and produces rich spec per format
+        setGenerationStatus('Interpreting brand and campaign design guidelines...');
+        const prepared = await prepareAdsFromCampaignPayload({
           user_id: user.id,
           company_project_id: resolvedCompanyProjectId,
           campaign_id: campaign.id,
-          form_data: nextFormData,
         });
+        const allFormats = batches.flatMap(b => b.formats);
+        let batchSpecs: Array<{ label: string; spec: string }> = [];
+        try {
+          const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, allFormats);
+          batchSpecs = interpretation.batchSpecs || [];
+        } catch {
+          // non-fatal — image generation proceeds without spec
+        }
 
         for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
           if (generationCancelRef.current) {
@@ -1077,13 +1084,16 @@ export default function CampaignScreen() {
             }),
           };
 
+          const batchSpec = batchSpecs.find(s =>
+            s.label?.toLowerCase() === batch.label?.toLowerCase()
+          )?.spec || batchSpecs[batchIndex]?.spec || "";
+
           try {
             const imageResult = await generateAdImages({
               user_id: user.id,
               company_project_id: resolvedCompanyProjectId,
               campaign_id: campaign.id,
-              form_data: batchFormData,
-              brand_spec: brandSpec || undefined,
+              form_data: { ...batchFormData, creative_plan: batchSpec },
             });
             const batchImages = (imageResult.images || []).filter(img => img.imageUrl);
             allImages.push(...batchImages);

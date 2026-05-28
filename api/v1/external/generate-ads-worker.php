@@ -452,26 +452,7 @@ try {
     agents_reconnect_mysqli_if_needed($conn);
     $batchSpecs = is_array($interpretResult['batchSpecs'] ?? null) ? $interpretResult['batchSpecs'] : [];
 
-    // ── 10. Brand spec extraction (image mode only) ───────────────────────
-
-    $brandSpec = '';
-    if ($generateAsImage) {
-        try {
-            $extractResult = agents_call_edge_function('agents-ads', [
-                'mode'                     => 'extract_brand',
-                'globalStoreName'          => $globalAdsStore,
-                'globalReferenceStoreName' => $globalRefStore ?: null,
-                'companyStoreName'         => $companyStoreName,
-                'campaignData'             => $campaignFormData,
-            ], $passKey);
-            agents_reconnect_mysqli_if_needed($conn);
-            $brandSpec = (string)($extractResult['brandSpec'] ?? '');
-        } catch (Throwable $extractErr) {
-            error_log('[generate-ads-worker] Brand spec extraction failed (non-fatal): ' . $extractErr->getMessage());
-        }
-    }
-
-    // ── 11. Render each batch ─────────────────────────────────────────────
+    // ── 10. Render each batch ────────────────────────────────────────────────
 
     $allCreatives     = [];
     $completedBatches = 0;
@@ -514,7 +495,6 @@ try {
                     'batchIndex'               => $batchIdx,
                     'totalBatches'             => $totalBatches,
                     'creativePlan'             => $spec,
-                    'brandSpec'               => $brandSpec,
                     'campaignData'             => $campaignFormData,
                     'generateAsImage'          => true,
                 ], $passKey);
