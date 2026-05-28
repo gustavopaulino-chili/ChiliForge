@@ -1160,7 +1160,7 @@ export default function AdCreatives() {
         });
         let batchSpecs: Array<{ label: string; spec: string }> = [];
         try {
-          const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, enabledFormats);
+          const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, enabledFormats, 'interpret_image');
           batchSpecs = interpretation.batchSpecs || [];
         } catch {
           // non-fatal — image generation proceeds without spec

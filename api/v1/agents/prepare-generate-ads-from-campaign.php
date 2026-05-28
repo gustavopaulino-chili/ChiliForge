@@ -119,6 +119,14 @@ try {
         $refStmt->fetch();
         $refStmt->close();
     }
+    $globalImageReferenceStore = '';
+    $imgRefStmt = $conn->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'gemini_global_ads_image_reference_store' LIMIT 1");
+    if ($imgRefStmt) {
+        $imgRefStmt->execute();
+        $imgRefStmt->bind_result($globalImageReferenceStore);
+        $imgRefStmt->fetch();
+        $imgRefStmt->close();
+    }
 
     if (trim((string)$globalStore) === '') {
         http_response_code(409);
@@ -205,6 +213,7 @@ try {
             ],
             'globalStoreName'           => $globalStore ?: null,
             'globalReferenceStoreName'  => $globalReferenceStore ?: null,
+            'imageReferenceStoreName'   => $globalImageReferenceStore ?: null,
             'companyStoreName'          => $companyStoreName,
             'campaignGoodExamplesStore' => $campaignGoodExamplesStore ?: null,
             'campaignMemoryStore'       => $campaignMemoryStore ?: null,

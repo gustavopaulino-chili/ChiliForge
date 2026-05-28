@@ -23,7 +23,7 @@ type AdFormat = {
 };
 
 type AgentsAdsPayload = {
-  mode?: "full" | "plan" | "render" | "unified" | "interpret" | "image" | "image_to_html" | "copy";
+  mode?: "full" | "plan" | "render" | "unified" | "interpret" | "interpret_image" | "image" | "image_to_html" | "copy";
   imageBase64?: string;
   mimeType?: string;
   format?: AdFormat;
@@ -661,6 +661,59 @@ Output ONLY valid JSON, no markdown:
 
 Reference isolation: FORBIDDEN in specs — any color, font, logo, imagery from reference ads. Brand identity = company store + campaign facts ONLY.`.trim();
 
+
+const INTERPRET_IMAGE_SYSTEM_PROMPT = `You are a visual art director specializing in raster advertising images. Your task:
+1. Query company store — extract: exact primary hex, secondary hex, accent hex, brand personality/tone, logo description, key brand visual rules.
+2. Query global image guidelines store — extract: composition rules, quality standards, visual hierarchy principles for image ads.
+3. Query image reference store — extract COMPOSITION PATTERNS ONLY (layout structure, focal point placement, text zone, product placement). FORBIDDEN from reference: colors, fonts, logos, brand names — these are COMPETITOR ADS.
+4. For EACH format write a visual spec using this EXACT format:
+
+Colors: primary #HEX, secondary #HEX, accent #HEX, text #HEX
+---
+Layout: [visual composition, e.g. "diagonal split — dark brand panel left 40%, product right 60%"]
+Hero: [product/hero image treatment, size, position, style]
+Logo: [placement, size, version — e.g. "top-left, 20% width, white version"]
+Headline: [size relative to canvas, weight, color, placement, treatment]
+Subheadline: [if applicable — size, color, placement]
+CTA: [shape, color, text treatment, anchor position]
+Mood: [2-3 adjectives describing the overall visual feel]
+Anti-clone: [how this format's composition differs from ALL other formats in this batch]
+
+Output ONLY valid JSON, no markdown:
+{"batchSpecs":[{"label":"...","spec":"Colors: primary #HEX...\\n---\\nLayout: ..."},...]}
+
+Reference isolation: FORBIDDEN in specs — any color, font, logo, imagery from reference ads. Brand identity = company store + campaign facts ONLY.`.trim();
+
+function buildInterpretImagePrompt(campaignFacts: string, formats: AdFormat[], formatNotes?: Record<string, string>): string {
+  const formatList = buildFormatsList(formats, formatNotes);
+
+  const compositionAssignments = formats.map((f, i) => {
+    const comp = COMPOSITION_POOL[i % COMPOSITION_POOL.length];
+    return `- ${f.label || `${f.width}×${f.height}`}: use "${comp.split(":")[0]}" composition`;
+  }).join("\n");
+
+  return [
+    "=== CAMPAIGN FACTS ===",
+    campaignFacts,
+    "",
+    "=== FORMATS (one spec per format) ===",
+    formatList,
+    "",
+    "=== MANDATORY COMPOSITION ASSIGNMENT (each format must use a different layout) ===",
+    compositionAssignments,
+    "Full composition descriptions for reference:",
+    COMPOSITION_POOL.join("\n"),
+    "",
+    "For each format: follow EXACTLY the spec format from the system prompt.",
+    "Colors line must include all key hex values from the brand.",
+    "Layout line must describe the visual composition in plain language (no CSS).",
+    "Mood line must capture the emotional tone of the ad.",
+    "Anti-clone must describe how this format's layout differs from every other format in the batch.",
+    "Reference image store: extract structural patterns ONLY — no brand identity elements.",
+    "",
+    "Output valid JSON only: {\"batchSpecs\":[{\"label\":\"...\",\"spec\":\"...\"},...]}",
+  ].filter((line) => line !== undefined).join("\n");
+}
 
 const IMAGE_TO_HTML_SYSTEM_PROMPT = `\
 You are an expert HTML/CSS visual reconstruction engineer. Your ONLY task is to convert a raster ad image into a self-contained, pixel-accurate HTML/CSS banner.
@@ -1686,6 +1739,33 @@ serve(async (req: Request) => {
       const parsed = extractInterpretJson(interpretResult.text);
       return new Response(
         JSON.stringify({ batchSpecs: parsed.batchSpecs || [], usedStores: fileSearchStores }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    if (mode === "interpret_image") {
+      const imageRefStore = payload.imageReferenceStoreName?.trim();
+      const imageFileSearchStores = [
+        globalStoreName,
+        imageRefStore || globalReferenceStoreName,
+        companyStoreName,
+        ...(useCampaignMemory && campaignMemoryStore ? [campaignMemoryStore] : []),
+        campaignGoodExamplesStore,
+      ].filter((s): s is string => Boolean(s?.trim()));
+
+      const interpretImageResult = await generateWithRetry(
+        INTERPRET_IMAGE_SYSTEM_PROMPT,
+        buildInterpretImagePrompt(campaignFacts, formats, campaignData.formatNotes),
+        agentConfig.model || "gemini-2.5-flash",
+        0.5,
+        8000,
+        apiKey,
+        imageFileSearchStores.length ? imageFileSearchStores : undefined,
+        undefined,
+      );
+      const parsed = extractInterpretJson(interpretImageResult.text);
+      return new Response(
+        JSON.stringify({ batchSpecs: parsed.batchSpecs || [], usedStores: imageFileSearchStores }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }

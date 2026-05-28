@@ -767,10 +767,11 @@ export const planAdsViaAgent = (
 export const interpretBatchesViaAgent = (
   edgePayload: PreparedAgentAdsRequest["edgePayload"],
   allFormats: AgentAdsResult["formats"],
+  mode: "interpret" | "interpret_image" = "interpret",
 ): Promise<{ batchSpecs: Array<{ label: string; spec: string }>; usedStores?: string[] }> =>
   invokeAiFunction<{ batchSpecs: Array<{ label: string; spec: string }>; usedStores?: string[] }>(
     "agents-ads",
-    { ...edgePayload, mode: "interpret", batchFormats: allFormats },
+    { ...edgePayload, mode, batchFormats: allFormats },
     { accountType: edgePayload.accountType || getStoredAccountType() },
   );
 
