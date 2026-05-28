@@ -1042,7 +1042,7 @@ export default function CampaignScreen() {
         // Sequential calls via PHP (set_time_limit=600) instead of one big parallel call.
         const allImages: import('@/services/api').AdImageResult[] = [];
 
-        // Interpret step — same pipeline as HTML mode, queries stores and produces rich spec per format
+        // Interpret step — uses image-specific stores and prompt (no CSS, visual composition only)
         setGenerationStatus('Interpreting brand and campaign design guidelines...');
         const prepared = await prepareAdsFromCampaignPayload({
           user_id: user.id,
@@ -1052,7 +1052,7 @@ export default function CampaignScreen() {
         const allFormats = batches.flatMap(b => b.formats);
         let batchSpecs: Array<{ label: string; spec: string }> = [];
         try {
-          const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, allFormats);
+          const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, allFormats, 'interpret_image');
           batchSpecs = interpretation.batchSpecs || [];
         } catch {
           // non-fatal — image generation proceeds without spec
