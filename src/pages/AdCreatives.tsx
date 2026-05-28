@@ -9,16 +9,17 @@ import { StepAdBrand } from '@/components/ad-generator/StepAdBrand';
 import { StepAdCopy } from '@/components/ad-generator/StepAdCopy';
 import { StepAdStrategy } from '@/components/ad-generator/StepAdStrategy';
 import { StepAdFormats } from '@/components/ad-generator/StepAdFormats';
+import { StepAdCopyAI } from '@/components/ad-generator/StepAdCopyAI';
 import { StepAdImages } from '@/components/ad-generator/StepAdImages';
 import { StepAdReview } from '@/components/ad-generator/StepAdReview';
 import { BannerLightbox } from '@/components/ad-generator/BannerLightbox';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { ArrowLeft, ArrowRight, Zap, FolderOpen, LogOut, Loader2, Wand2, RotateCcw, Check, Edit3, Download, ZoomIn } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Zap, FolderOpen, LogOut, Loader2, Wand2, RotateCcw, Check, Edit3, Download, ZoomIn, Image } from 'lucide-react';
 import logoResult from '@/assets/logo-result.png';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { useAuth } from '@/contexts/AuthContext';
-import { createProject, deleteProjectAssetFile, generateAdCreatives, generateAdsViaAgent, generateImages, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls } from '@/services/api';
+import { createProject, deleteProjectAssetFile, generateAdCreatives, generateAdImages, generateAdBrandSpec, generateAdsViaAgentTracked, generateImages, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls, type AdImageResult } from '@/services/api';
 import { toast } from 'sonner';
 import '@/components/landing/HeroLanding.css';
 
@@ -36,6 +37,8 @@ type GeneratedBanner = {
   height: number;
   variant?: string;
   html?: string;
+  imageUrl?: string;
+  is_image_mode?: boolean;
 };
 
 const STEPS: StepDef[] = [
@@ -43,9 +46,10 @@ const STEPS: StepDef[] = [
   { id: 'objective', label: 'Objective' },
   { id: 'platform',  label: 'Platforms' },
   { id: 'brand',     label: 'Brand' },
-  { id: 'copy',      label: 'Copy & Audience' },
+  { id: 'copy',      label: 'Offer & Audience' },
   { id: 'strategy',  label: 'Strategy' },
   { id: 'formats',   label: 'Formats & A/B' },
+  { id: 'ai_copy',   label: 'Ad Copy' },
   { id: 'images',    label: 'Images' },
   { id: 'review',    label: 'Review' },
 ];
@@ -335,6 +339,27 @@ BANNERS TO GENERATE:
 ${formatsList}`;
 }
 
+function escapeHtmlAttribute(value: string): string {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function buildImageCreativeHtml(image: AdImageResult): string {
+  const width = Number(image.width || 1080);
+  const height = Number(image.height || 1080);
+  const src = escapeHtmlAttribute(image.imageUrl || '');
+  const label = escapeHtmlAttribute(image.label || 'Ad image');
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:${width}px;height:${height}px;overflow:hidden;background:transparent}
+</style></head><body><div class="ad-banner" data-platform="${escapeHtmlAttribute(image.platform || 'banner')}" data-format="${escapeHtmlAttribute(image.format || 'ad')}" style="position:relative;width:${width}px;height:${height}px;overflow:hidden;background:#fff;"><img src="${src}" alt="${label}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;"></div></body></html>`;
+}
+
 function extractBanners(
   html: string,
   formats: Array<{ platform: string; format: string; label: string; width: number; height: number }>
@@ -620,11 +645,14 @@ export default function AdCreatives() {
   const [generationStatus, setGenerationStatus] = useState('');
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationLog, setGenerationLog] = useState<string[]>([]);
+  const [genBatches, setGenBatches] = useState<Array<{ label: string; status: 'queued' | 'running' | 'done' | 'failed' }>>([]);
   const [savedProjectId, setSavedProjectId] = useState<number | null>(() => {
     const id = Number(routeState?.savedProjectId ?? 0);
     return id > 0 ? id : null;
   });
   const [showResults, setShowResults] = useState(Boolean(routeState?.showResults));
+  const [generateAsImage, setGenerateAsImage] = useState(false);
+  const [generatedImages, setGeneratedImages] = useState<AdImageResult[]>([]);
   const [generatedHtml, setGeneratedHtml] = useState(routeState?.generatedHtml || '');
   const [generatedPublicUrl, setGeneratedPublicUrl] = useState(routeState?.generatedPublicUrl || '');
   const [generatedBanners, setGeneratedBanners] = useState<GeneratedBanner[]>(routeState?.generatedBanners || []);
@@ -641,6 +669,22 @@ export default function AdCreatives() {
   const recentPexelsUrlsRef = useRef<string[]>([]);
 
   const currentStepId = STEPS[currentStep]?.id;
+
+  const resetAndNew = useCallback(() => {
+    setShowResults(false);
+    setFormData(defaultAdCreativeFormData);
+    setCurrentStep(0);
+    setMaxVisitedStep(0);
+    setSavedProjectId(null);
+    setBrandBookFile(null);
+    setGeneratedHtml('');
+    setGeneratedPublicUrl('');
+    setGeneratedBanners([]);
+    setGeneratedImages([]);
+    setSelectedBannerIds(new Set());
+    setLightboxBanner(null);
+    setActivePlatform('all');
+  }, []);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -1030,7 +1074,15 @@ export default function AdCreatives() {
   };
 
   const handleBack = () => {
-    if (currentStep > 0) setCurrentStep(currentStep - 1);
+    if (currentStep > 0) {
+      setCurrentStep(currentStep - 1);
+      return;
+    }
+    if (routeState?.companyProjectId) {
+      navigate(`/projects/${routeState.companyProjectId}`);
+      return;
+    }
+    navigate('/projects');
   };
 
   const handleClear = () => {
@@ -1050,7 +1102,6 @@ export default function AdCreatives() {
     if (!formData.brandName) warnings.push('Brand name');
     if (!formData.productName) warnings.push('Product / service name');
     if (!formData.valueProposition) warnings.push('Value proposition');
-    if (!formData.ctaText) warnings.push('CTA text');
     if (!formData.selectedFormats.some(f => f.enabled)) warnings.push('Ad formats');
 
     if (warnings.length > 0) {
@@ -1066,6 +1117,7 @@ export default function AdCreatives() {
     setIsGenerating(true);
     setGenerationProgress(10);
     setGenerationLog([]);
+    setGenBatches([]);
 
     try {
       const formatGroups = buildAdFormatGroups(formData);
@@ -1090,13 +1142,142 @@ export default function AdCreatives() {
         assetBaseUrl: window.location.origin,
       };
 
-      const data = (routeState?.companyProjectId && user?.id)
-        ? await generateAdsViaAgent({
+      // IMAGE MODE: generate images via Gemini image model, skip HTML flow.
+      // One format per edge function call to stay within the 150s Supabase limit.
+      if (generateAsImage && routeState?.companyProjectId && user?.id) {
+        const enabledFormats = (adDataForApi.selectedFormats as Record<string, unknown>[] || [])
+          .filter((f) => f['enabled'] !== false && f['width'] && f['height']);
+
+        if (!enabledFormats.length) throw new Error('No enabled ad formats selected.');
+
+        // Extract brand/store spec once before the loop — keeps image calls memory-safe
+        setGenerationStatus('Analyzing brand guidelines...');
+        const brandSpec = await generateAdBrandSpec({
+          user_id: user.id,
+          company_project_id: routeState.companyProjectId,
+          campaign_id: routeState.campaignId,
+          form_data: adDataForApi as Record<string, unknown>,
+        });
+
+        const allImages: import('@/services/api').AdImageResult[] = [];
+
+        for (let fi = 0; fi < enabledFormats.length; fi++) {
+          const fmt = enabledFormats[fi];
+          const fmtLabel = String(fmt['label'] || `${fmt['width']}x${fmt['height']}`);
+          setGenerationStatus(`Generating ${fmtLabel} (${fi + 1}/${enabledFormats.length})...`);
+          setGenerationLog(prev => [...prev, `Generating format: ${fmtLabel}`]);
+          setGenerationProgress(30 + Math.round((fi / enabledFormats.length) * 48));
+
+          const fmtFormData = {
+            ...adDataForApi,
+            selectedFormats: (adDataForApi.selectedFormats as Record<string, unknown>[] || []).map((f) => ({
+              ...f,
+              enabled: f['platform'] === fmt['platform'] && f['format'] === fmt['format'] &&
+                       Number(f['width']) === Number(fmt['width']) && Number(f['height']) === Number(fmt['height'])
+                ? f['enabled'] !== false
+                : false,
+            })),
+          };
+
+          const imageResult = await generateAdImages({
             user_id: user.id,
             company_project_id: routeState.companyProjectId,
             campaign_id: routeState.campaignId,
-            form_data: adDataForApi as Record<string, unknown>,
-          })
+            form_data: fmtFormData as Record<string, unknown>,
+            brand_spec: brandSpec || undefined,
+          });
+          const fmtImages = (imageResult.images || []).filter((img) => img.imageUrl);
+          allImages.push(...fmtImages);
+        }
+
+        if (!allImages.length) throw new Error('AI did not return any ad images.');
+
+        setGenerationProgress(82);
+        setGenerationStatus('Saving image ads to campaign board...');
+        setGenerationLog(prev => [...prev, 'Saving image files as image creatives...']);
+        const bannerPayload = allImages.map((img, index) => ({
+          platform: img.platform || 'banner',
+          format: img.format || 'ad',
+          label: img.label || `Image Ad ${index + 1}`,
+          width: Number(img.width || 1080),
+          height: Number(img.height || 1080),
+          html: img.imageUrl || '',
+          is_image_mode: true,
+        }));
+
+        const slugBase = (formData.campaignName || formData.brandName || 'campaign')
+          .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const slug = `ad-${slugBase}-${Date.now()}`;
+        const projectIdForPublish = await ensureDraftProject();
+        const publishResponse = await fetch('/api/publishAdCreative.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            project_id: projectIdForPublish,
+            user_id: user.id,
+            name: formData.campaignName || `AD Creative - ${formData.brandName}`,
+            slug,
+            form_data: { ...formData, generate_as_image: true },
+            html: '',
+            current_step: STEPS.length - 1,
+            banners: bannerPayload,
+          }),
+        });
+
+        const saved = await publishResponse.json();
+        if (!saved?.success || !saved?.id) {
+          const msg = [saved?.error, saved?.details].filter(Boolean).join(' - ');
+          throw new Error(msg || 'Failed to save image ads');
+        }
+
+        const banners = Array.isArray(saved.banners)
+          ? saved.banners.map((banner: GeneratedBanner, index: number) => ({
+              ...banner,
+              imageUrl: banner.imageUrl || allImages[index]?.imageUrl || undefined,
+              is_image_mode: true,
+            }))
+          : [];
+        setSavedProjectId(Number(saved.id));
+        setGeneratedHtml('');
+        setGeneratedPublicUrl(saved.url || '');
+        setGeneratedBanners(banners);
+        setGeneratedImages([]);
+        setSelectedBannerIds(new Set(banners.map((b: { id: number }) => b.id)));
+        setIsGenerating(false);
+        setShowResults(true);
+        toast.success(`${banners.length} ad image${banners.length !== 1 ? 's' : ''} saved to the campaign board!`);
+        return;
+      }
+
+      const data = (routeState?.companyProjectId && user?.id)
+        ? await generateAdsViaAgentTracked(
+            {
+              user_id: user.id,
+              company_project_id: routeState.companyProjectId,
+              campaign_id: routeState.campaignId,
+              form_data: adDataForApi as Record<string, unknown>,
+            },
+            (event) => {
+              if (event.type === 'plan') {
+                setGenerationLog(prev => [...prev, 'Creative strategy planned.']);
+                setGenerationProgress(35);
+              } else if (event.type === 'batch_start') {
+                setGenerationProgress(40 + Math.round((event.batchIndex / Math.max(event.totalBatches, 1)) * 45));
+                setGenerationStatus(`Generating ${event.label} (${event.batchIndex + 1}/${event.totalBatches})...`);
+                setGenBatches(prev => {
+                  const arr = prev.length < event.totalBatches
+                    ? [...prev, ...Array(event.totalBatches - prev.length).fill({ label: '', status: 'queued' as const })]
+                    : [...prev];
+                  arr[event.batchIndex] = { label: event.label, status: 'running' };
+                  return arr;
+                });
+              } else if (event.type === 'batch_done') {
+                setGenBatches(prev => prev.map((b, i) => i === event.batchIndex ? { ...b, label: event.label, status: 'done' } : b));
+              } else if (event.type === 'batch_fail') {
+                setGenBatches(prev => prev.map((b, i) => i === event.batchIndex ? { ...b, label: event.label, status: 'failed' } : b));
+              }
+            },
+          )
         : await generateAdCreatives({
             prompt,
             businessName: formData.brandName || 'AD Creative',
@@ -1196,7 +1377,8 @@ export default function AdCreatives() {
       toast.success('AD Creatives generated successfully!');
     } catch (err) {
       console.error('AD Creative generation error:', err);
-      toast.error(err instanceof Error ? err.message : 'Generation failed');
+      const msg = err instanceof Error ? err.message : 'Generation failed';
+      toast.error(msg);
       setIsGenerating(false);
       setGenerationStatus('');
       setGenerationProgress(0);
@@ -1205,12 +1387,14 @@ export default function AdCreatives() {
 
   // Generating screen — mirrors LP generation screen style
   if (isGenerating) {
+    const doneCount = genBatches.filter(b => b.status === 'done').length;
+    const totalCount = genBatches.length;
     return (
       <div className="ad-creatives-theme premium-home min-h-screen bg-background relative flex flex-col overflow-hidden">
         <PremiumParticleBackground activeTone="accent" />
         <AdHeader onLogoClick={() => {}} onSignOut={signOut} />
         <main className="flex-1 flex items-center justify-center relative z-10 px-6">
-          <div className="max-w-md w-full text-center space-y-8">
+          <div className="max-w-lg w-full text-center space-y-8">
             <div className="relative inline-flex h-20 w-20 items-center justify-center mx-auto">
               <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
               <div className="relative h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center">
@@ -1232,7 +1416,42 @@ export default function AdCreatives() {
               <p className="text-xs text-muted-foreground">{generationProgress}%</p>
             </div>
 
-            {generationLog.length > 0 && (
+            {genBatches.length > 0 ? (
+              <div className="rounded-lg border border-border bg-card/50 p-4 text-left space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-foreground">Formats</p>
+                  <span className="text-xs text-muted-foreground">{doneCount}/{totalCount} generated</span>
+                </div>
+                <div className="space-y-1.5">
+                  {genBatches.map((batch, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full border shrink-0 ${
+                        batch.status === 'done'
+                          ? 'border-primary bg-primary/15 text-primary'
+                          : batch.status === 'failed'
+                          ? 'border-destructive bg-destructive/15 text-destructive'
+                          : batch.status === 'running'
+                          ? 'border-primary/50 bg-primary/5 text-primary'
+                          : 'border-border text-muted-foreground'
+                      }`}>
+                        {batch.status === 'done' && <Check className="h-3 w-3" />}
+                        {batch.status === 'failed' && <span className="text-[10px] font-bold leading-none">✕</span>}
+                        {batch.status === 'running' && <Loader2 className="h-3 w-3 animate-spin" />}
+                        {batch.status === 'queued' && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+                      </span>
+                      <p className={`text-xs ${
+                        batch.status === 'done' ? 'text-foreground' :
+                        batch.status === 'failed' ? 'text-destructive' :
+                        batch.status === 'running' ? 'text-foreground font-medium' :
+                        'text-muted-foreground'
+                      }`}>
+                        {batch.label || `Format ${i + 1}`}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : generationLog.length > 0 && (
               <div className="rounded-lg border border-border bg-card/50 p-4 text-left space-y-2">
                 <p className="text-xs font-medium text-foreground">Generation log</p>
                 <div className="space-y-1">
@@ -1241,16 +1460,16 @@ export default function AdCreatives() {
                       {(() => {
                         const isDone = generationProgress >= 100 || i < generationLog.length - 1;
                         return (
-                      <span className={`mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border shrink-0 ${
-                        isDone
-                          ? 'border-primary bg-primary/15 text-primary'
-                          : 'border-border text-muted-foreground'
-                      }`}>
-                        {isDone
-                          ? <Check className="h-3 w-3" />
-                          : <Loader2 className="h-3 w-3 animate-spin opacity-60" />
-                        }
-                      </span>
+                          <span className={`mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border shrink-0 ${
+                            isDone
+                              ? 'border-primary bg-primary/15 text-primary'
+                              : 'border-border text-muted-foreground'
+                          }`}>
+                            {isDone
+                              ? <Check className="h-3 w-3" />
+                              : <Loader2 className="h-3 w-3 animate-spin opacity-60" />
+                            }
+                          </span>
                         );
                       })()}
                       <p className="text-muted-foreground">{msg}</p>
@@ -1310,7 +1529,89 @@ export default function AdCreatives() {
     );
   }
 
-  // Results screen
+  // Image results screen
+  if (showResults && generatedImages.length > 0) {
+    const downloadImage = (img: AdImageResult) => {
+      const a = document.createElement('a');
+      a.href = img.imageUrl;
+      a.download = `${img.label.replace(/\s+/g, '-').toLowerCase()}.png`;
+      a.click();
+    };
+    const downloadAll = () => generatedImages.forEach(downloadImage);
+
+    return (
+      <div className="ad-creatives-theme premium-home min-h-screen bg-background relative flex flex-col overflow-hidden">
+        <PremiumParticleBackground activeTone="accent" />
+        <AdHeader onLogoClick={() => navigate('/')} onSignOut={signOut} />
+
+        <main className="flex-1 flex flex-col mx-auto max-w-6xl w-full px-6 py-6 relative z-10">
+          <div className="text-center mb-5">
+            <img src={logoResult} alt="ChiliForge" className="h-12 w-auto mx-auto object-contain mb-3" />
+            <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">
+              Your AD Images are ready!
+            </h2>
+            <p className="mt-1.5 text-muted-foreground text-sm max-w-xl mx-auto">
+              {generatedImages.length} image{generatedImages.length !== 1 ? 's' : ''} generated — download to use.
+            </p>
+          </div>
+
+          {/* Not-editable notice */}
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 mb-5 flex items-center gap-3">
+            <Image className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              <strong>Image mode:</strong> These ads were generated as images and cannot be edited in the visual editor. To get editable HTML banners, toggle off "Generate as images" and regenerate.
+            </p>
+          </div>
+
+          {/* Action bar */}
+          <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+            <Button variant="outline" size="sm" onClick={resetAndNew} className="gap-2">
+              <RotateCcw className="h-4 w-4" /> New generation
+            </Button>
+            <Button size="sm" onClick={downloadAll} className="gap-2">
+              <Download className="h-4 w-4" /> Download all ({generatedImages.length})
+            </Button>
+          </div>
+
+          {/* Images grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {generatedImages.map((img, i) => (
+              <div key={i} className="group rounded-xl border border-border bg-card/40 overflow-hidden flex flex-col">
+                <div className="relative bg-muted/50 flex items-center justify-center overflow-hidden" style={{ aspectRatio: `${img.width}/${img.height}`, maxHeight: 280 }}>
+                  {img.imageUrl ? (
+                    <img
+                      src={img.imageUrl}
+                      alt={img.label}
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 p-4 text-muted-foreground">
+                      <Image className="h-8 w-8 opacity-40" />
+                      <p className="text-xs">Generation failed</p>
+                    </div>
+                  )}
+                </div>
+                <div className="px-3 py-2 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium truncate">{img.label}</p>
+                    <p className="text-xs text-muted-foreground">{img.width}×{img.height}</p>
+                  </div>
+                  {img.imageUrl && (
+                    <Button size="sm" variant="outline" onClick={() => downloadImage(img)} className="shrink-0 h-7 px-2 text-xs gap-1">
+                      <Download className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </main>
+
+      </div>
+    );
+  }
+
+  // HTML Results screen
   if (showResults) {
     const PREVIEW_MAX_W = 340;
     const PREVIEW_MAX_H = 420;
@@ -1319,6 +1620,16 @@ export default function AdCreatives() {
       ? generatedBanners
       : generatedBanners.filter(b => b.platform === activePlatform);
     const allSelected = filteredBanners.length > 0 && filteredBanners.every(b => selectedBannerIds.has(b.id));
+    const boardCampaignId = routeState?.campaignId || generatedBanners.find(b => Number(b.campaign_id) > 0)?.campaign_id;
+    const boardCompanyProjectId = routeState?.companyProjectId;
+
+    const openCampaignBoard = () => {
+      if (boardCampaignId && boardCompanyProjectId) {
+        navigate(`/projects/${boardCompanyProjectId}/campaigns/${boardCampaignId}`);
+        return;
+      }
+      toast.error('Campaign board is not available for this creative yet.');
+    };
 
     const toggleBanner = (id: number) => {
       setSelectedBannerIds(prev => {
@@ -1326,19 +1637,6 @@ export default function AdCreatives() {
         s.has(id) ? s.delete(id) : s.add(id);
         return s;
       });
-    };
-
-    const resetAndNew = () => {
-      setShowResults(false);
-      setFormData(defaultAdCreativeFormData);
-      setCurrentStep(0);
-      setMaxVisitedStep(0);
-      setSavedProjectId(null);
-      setBrandBookFile(null);
-      setGeneratedBanners([]);
-      setSelectedBannerIds(new Set());
-      setLightboxBanner(null);
-      setActivePlatform('all');
     };
 
     return (
@@ -1368,11 +1666,11 @@ export default function AdCreatives() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open(`${window.location.origin}/ads-editor?projectId=${savedProjectId}`, '_blank', 'noopener,noreferrer')}
-                  disabled={!savedProjectId}
+                  onClick={openCampaignBoard}
+                  disabled={!boardCampaignId || !boardCompanyProjectId}
                   className="gap-2"
                 >
-                  <Edit3 className="h-4 w-4" /> Board no Editor
+                  <Edit3 className="h-4 w-4" /> Open Campaign Board
                 </Button>
                 {generatedBanners.length > 0 && (
                   <Button
@@ -1455,6 +1753,19 @@ export default function AdCreatives() {
                 const scaleLabel = `${Math.round(scale * 100)}%`;
                 const isSquare = banner.width === banner.height;
                 const isPortrait = banner.height > banner.width;
+                const bannerSrcDoc = (() => {
+                  const raw = banner.html?.trim();
+                  if (!raw) return undefined;
+                  let baseHref = '';
+                  try {
+                    const u = new URL(banner.url);
+                    baseHref = u.origin + u.pathname.replace(/\/[^/]*$/, '/');
+                  } catch { /* no base */ }
+                  const stripped = raw.replace(/<base\b[^>]*>/gi, '');
+                  return baseHref
+                    ? stripped.replace(/(<head\b[^>]*>)/i, `$1\n<base href="${baseHref}">`)
+                    : stripped;
+                })();
 
                 return (
                   <div
@@ -1482,7 +1793,7 @@ export default function AdCreatives() {
                       }}
                       onClick={e => { e.stopPropagation(); setLightboxBanner(banner); }}
                     >
-                      {/* Centered iframe container */}
+                      {/* Preview container */}
                       <div
                         style={{
                           width: previewW,
@@ -1494,21 +1805,29 @@ export default function AdCreatives() {
                           background: '#fff',
                         }}
                       >
-                        <iframe
-                          src={banner.url}
-                          title={banner.label}
-                          style={{
-                            width: banner.width,
-                            height: banner.height,
-                            transform: `scale(${scale.toFixed(4)})`,
-                            transformOrigin: 'top left',
-                            border: 'none',
-                            display: 'block',
-                            pointerEvents: 'none',
-                          }}
-                          scrolling="no"
-                          sandbox="allow-same-origin allow-scripts"
-                        />
+                        {banner.is_image_mode ? (
+                          <img
+                            src={banner.imageUrl || banner.url}
+                            alt=""
+                            style={{ width: previewW, height: previewH, objectFit: 'cover', display: 'block', pointerEvents: 'none' }}
+                          />
+                        ) : (
+                          <iframe
+                            {...(bannerSrcDoc ? { srcDoc: bannerSrcDoc } : { src: banner.url })}
+                            title={banner.label}
+                            style={{
+                              width: banner.width,
+                              height: banner.height,
+                              transform: `scale(${scale.toFixed(4)})`,
+                              transformOrigin: 'top left',
+                              border: 'none',
+                              display: 'block',
+                              pointerEvents: 'none',
+                            }}
+                            scrolling="no"
+                            sandbox="allow-same-origin allow-scripts"
+                          />
+                        )}
                       </div>
                       {/* Zoom overlay */}
                       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/25 cursor-zoom-in rounded-t-xl">
@@ -1544,15 +1863,17 @@ export default function AdCreatives() {
                           {isPortrait && <span className="ml-1.5 text-muted-foreground/70">portrait</span>}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        title="Edit in editor"
-                        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors shrink-0"
-                        onClick={e => { e.stopPropagation(); window.open(`/ads-editor?creativeId=${banner.creative_id || banner.id}`, '_blank', 'noopener,noreferrer'); }}
-                      >
-                        <Edit3 className="h-3.5 w-3.5" />
-                        Edit
-                      </button>
+                      {!banner.is_image_mode && (
+                        <button
+                          type="button"
+                          title="Edit in editor"
+                          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors shrink-0"
+                          onClick={e => { e.stopPropagation(); window.open(`/ads-editor?creativeId=${banner.creative_id || banner.id}`, '_blank', 'noopener,noreferrer'); }}
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                          Edit
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -1601,7 +1922,7 @@ export default function AdCreatives() {
             banners={filteredBanners}
             onClose={() => setLightboxBanner(null)}
             onNavigate={setLightboxBanner}
-            onEdit={b => window.open(`/ads-editor?creativeId=${b.creative_id || b.id}`, '_blank', 'noopener,noreferrer')}
+            onEdit={b => { if (!b.is_image_mode) window.open(`/ads-editor?creativeId=${b.creative_id || b.id}`, '_blank', 'noopener,noreferrer'); }}
           />
         )}
       </div>
@@ -1658,6 +1979,14 @@ export default function AdCreatives() {
           {currentStepId === 'formats' && (
             <StepAdFormats data={formData} onChange={updateForm} />
           )}
+          {currentStepId === 'ai_copy' && (
+            <StepAdCopyAI
+              data={formData}
+              onChange={updateForm}
+              companyProjectId={routeState?.companyProjectId}
+              userId={user?.id}
+            />
+          )}
           {currentStepId === 'images' && (
             <StepAdImages
               data={formData}
@@ -1671,13 +2000,45 @@ export default function AdCreatives() {
             />
           )}
           {currentStepId === 'review' && (
-            <StepAdReview data={formData} />
+            <>
+              <StepAdReview data={formData} />
+              {/* Output format toggle */}
+              <div className="mt-5 rounded-xl border border-border bg-card/40 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2.5">
+                    <Image className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium leading-none">Output format</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {generateAsImage
+                          ? 'Image — Gemini generates PNG images (not editable)'
+                          : 'HTML — editable banners in the visual editor'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setGenerateAsImage(v => !v)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none cursor-pointer ${
+                      generateAsImage ? 'bg-primary' : 'bg-muted-foreground/30'
+                    }`}
+                    aria-label="Toggle image generation mode"
+                  >
+                    <span className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transform transition-transform ${generateAsImage ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+                {generateAsImage && (
+                  <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 font-medium">
+                    ⚠ IMAGE MODE: The generated ads cannot be edited or customized after generation. Switch to HTML mode to get editable banners.
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
 
         <div className="mt-6 flex justify-between">
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={handleBack} disabled={currentStep === 0} className="gap-2">
+            <Button variant="ghost" onClick={handleBack} className="gap-2">
               <ArrowLeft className="h-4 w-4" /> Back
             </Button>
             <Button

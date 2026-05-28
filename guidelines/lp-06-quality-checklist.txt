@@ -1,0 +1,76 @@
+LANDING PAGE FINAL QUALITY CHECKLIST
+====================================
+
+KEYWORDS:
+quality-check, final-check, mobile, conversion, CTA, accessibility, polish,
+landing-page-validation, brandPersonality, toneOfVoice, visual-direction
+
+
+CONVERSION CHECK
+----------------
+
+- The visitor understands the offer within 5 seconds.
+- The primary CTA is visible above the fold.
+- CTA text matches the conversion goal.
+- Each section has a clear purpose.
+- Objections are handled before the final CTA.
+- No unsupported testimonials, metrics, or guarantees were invented.
+
+
+VISUAL CHECK
+------------
+
+- Page feels brand-specific, not generic.
+- Colors match company/campaign data.
+- Tone of voice and brand personality visibly affect design choices.
+- Typography hierarchy is clear.
+- Sections do not all look identical.
+- Images are treated intentionally.
+- There is enough whitespace.
+- CTA styling is consistent.
+- Hero, proof, benefits, features, and final CTA do not all use the same card-grid structure.
+- The first viewport clearly signals the product/service/place/brand, not only abstract marketing copy.
+
+
+MOBILE CHECK
+------------
+
+- Hero is readable on mobile.
+- CTA is easy to tap.
+- Text does not overflow.
+- Images do not crush content.
+- Section spacing is not excessive.
+- Forms are usable on small screens.
+
+
+ACCESSIBILITY CHECK
+-------------------
+
+- Text contrast is strong.
+- Buttons/links are identifiable.
+- Form fields have labels.
+- Images have useful alt text when meaningful.
+- Page is navigable without relying only on hover.
+
+
+COPY CHECK
+----------
+
+- Headline is specific.
+- Subheadline supports the headline.
+- Benefits are outcome-focused.
+- Features are tied to value.
+- CTA is short and action-oriented.
+- No filler sections.
+
+
+FAIL AND REVISE CONDITIONS
+--------------------------
+
+Revise before final output when:
+- the page could fit any generic company after changing the logo
+- tone/personality/preferredStyle do not visibly affect the layout
+- every section is a card grid
+- the hero is vague or does not show the actual offer/product/service
+- CTAs are visually weak or inconsistent
+- visual assets are provided but not used meaningfully

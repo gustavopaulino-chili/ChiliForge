@@ -281,8 +281,11 @@ export const getAdCreatives = async (projectId: number, userId: number) => {
     project_id: number;
     campaign_id: number;
     name: string;
+    generated_html?: string;
     public_url?: string;
     url?: string;
+    image_url?: string;
+    is_image_mode?: boolean;
     platform?: string;
     format?: string;
     label?: string;
@@ -574,7 +577,7 @@ export const generateLanding = async (payload: {
     return await invoke();
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (accountType === "user" && /status\s*546/i.test(message)) {
+    if (accountType === "user" && /\b546\b/i.test(message)) {
       // Testing key path may intermittently hit upstream gateway 546; retry once.
       await new Promise((resolve) => setTimeout(resolve, 2500));
       return await invoke();
@@ -719,6 +722,234 @@ export type AgentAdsResult = {
   groundingMetadata?: unknown;
 };
 
+export type PreparedAgentAdsRequest = {
+  success: boolean;
+  edgePayload: Record<string, unknown> & {
+    accountType?: "admin" | "user";
+    campaignData?: Record<string, unknown>;
+  };
+  campaignId?: number | null;
+  campaignMemoryStore?: string | null;
+};
+
+export type AgentAdsPlanResult = {
+  creativePlan: string;
+  formats: AgentAdsResult["formats"];
+  usedStores?: string[];
+  groundingMetadata?: unknown;
+};
+
+export const prepareAdsViaAgentPayload = (payload: {
+  user_id: number;
+  company_project_id: number;
+  campaign_id?: number;
+  form_data: Record<string, unknown>;
+}): Promise<PreparedAgentAdsRequest> =>
+  agentsPost("prepare-generate-ads.php", payload);
+
+export const prepareAdsFromCampaignPayload = (payload: {
+  user_id: number;
+  company_project_id: number;
+  campaign_id: number;
+  form_overrides?: Record<string, unknown>;
+}): Promise<PreparedAgentAdsRequest> =>
+  agentsPost("prepare-generate-ads-from-campaign.php", payload);
+
+export const planAdsViaAgent = (
+  edgePayload: PreparedAgentAdsRequest["edgePayload"],
+): Promise<AgentAdsPlanResult> =>
+  invokeAiFunction<AgentAdsPlanResult>(
+    "agents-ads",
+    { ...edgePayload, mode: "plan" },
+    { accountType: edgePayload.accountType || getStoredAccountType() },
+  );
+
+export const interpretBatchesViaAgent = (
+  edgePayload: PreparedAgentAdsRequest["edgePayload"],
+  allFormats: AgentAdsResult["formats"],
+): Promise<{ batchSpecs: Array<{ label: string; spec: string }>; usedStores?: string[] }> =>
+  invokeAiFunction<{ batchSpecs: Array<{ label: string; spec: string }>; usedStores?: string[] }>(
+    "agents-ads",
+    { ...edgePayload, mode: "interpret", batchFormats: allFormats },
+    { accountType: edgePayload.accountType || getStoredAccountType() },
+  );
+
+export const renderAdsBatchViaAgent = (
+  edgePayload: PreparedAgentAdsRequest["edgePayload"],
+  batchFormats: AgentAdsResult["formats"],
+  creativePlan: string,
+  batchIndex: number,
+  totalBatches: number,
+  mode: "render" | "unified" = "unified",
+): Promise<Omit<AgentAdsResult, "success">> =>
+  invokeAiFunction<Omit<AgentAdsResult, "success">>(
+    "agents-ads",
+    {
+      ...edgePayload,
+      mode,
+      creativePlan,
+      batchFormats,
+      batchIndex,
+      totalBatches,
+    },
+    { accountType: edgePayload.accountType || getStoredAccountType() },
+  );
+
+export type ConvertImageToHtmlParams = {
+  imageBase64: string;
+  mimeType: string;
+  format: { platform: string; format: string; label: string; width: number; height: number };
+  campaignData?: Record<string, unknown>;
+  creativePlan?: string;
+};
+
+export const convertImageAdToHtml = (
+  edgePayload: Record<string, unknown>,
+  params: ConvertImageToHtmlParams,
+): Promise<{ mode: "image_to_html"; html: string }> =>
+  invokeAiFunction<{ mode: "image_to_html"; html: string }>(
+    "agents-ads",
+    {
+      ...edgePayload,
+      mode: "image_to_html",
+      imageBase64: params.imageBase64,
+      mimeType: params.mimeType,
+      format: params.format,
+      creativePlan: params.creativePlan || "",
+      ...(params.campaignData ? { campaignData: params.campaignData } : {}),
+    },
+  );
+
+export const recordCampaignCreativePlan = (payload: {
+  user_id: number;
+  company_project_id: number;
+  campaign_id: number;
+  form_data: Record<string, unknown>;
+  creative_plan: string;
+  source: string;
+}): Promise<{ success: boolean }> =>
+  agentsPost("record-campaign-generation.php", payload);
+
+// ---------------------------------------------------------------------------
+// Async generation job tracking (A+B: async job + batch persistence)
+// ---------------------------------------------------------------------------
+
+export type GenerationJobBatch = {
+  id: number;
+  batch_index: number;
+  status: "queued" | "running" | "completed" | "failed";
+  label: string;
+  formats: Array<{ platform?: string; format?: string; label?: string; width?: number; height?: number; enabled?: boolean }>;
+  error: string | null;
+  attempts: number;
+  saved_count: number;
+};
+
+export type GenerationJob = {
+  id: number;
+  user_id: number;
+  company_project_id: number;
+  campaign_id: number | null;
+  project_id: number | null;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  creative_plan: string | null;
+  total_batches: number;
+  completed_batches: number;
+  failed_batches: number;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export const createGenerationJob = (payload: {
+  user_id: number;
+  company_project_id: number;
+  campaign_id?: number;
+  project_id?: number;
+  batches: Array<{ label: string; formats: GenerationJobBatch["formats"] }>;
+  creative_plan?: string;
+}): Promise<{ success: boolean; job_id: number; batches: GenerationJobBatch[] }> =>
+  agentsPost("create-generation-job.php", payload);
+
+export const updateGenerationJob = (payload: {
+  job_id: number;
+  user_id: number;
+  action: "save_batch" | "fail_batch" | "retry_batch" | "complete" | "cancel";
+  batch_index?: number;
+  saved_count?: number;
+  error?: string;
+}): Promise<{ success: boolean }> =>
+  agentsPost("update-generation-job.php", payload);
+
+export const getGenerationJob = (payload: {
+  user_id: number;
+  job_id?: number;
+  campaign_id?: number;
+}): Promise<{ job: GenerationJob | null; batches: GenerationJobBatch[] }> =>
+  agentsPost("get-generation-job.php", payload);
+
+const getEnabledAgentFormats = (edgePayload: PreparedAgentAdsRequest["edgePayload"]): AgentAdsResult["formats"] => {
+  const campaignData = edgePayload.campaignData || {};
+  const selected = Array.isArray(campaignData.selectedFormats) ? campaignData.selectedFormats : [];
+  return selected
+    .filter((format: any) => format && format.enabled !== false && format.width && format.height)
+    .map((format: any) => ({
+      platform: String(format.platform || "banner"),
+      format: String(format.format || "ad"),
+      label: String(format.label || `${format.width}x${format.height}`),
+      width: Number(format.width || 1080),
+      height: Number(format.height || 1080),
+    }));
+};
+
+const extractDocumentPart = (html: string, tagName: "style" | "body") => {
+  if (tagName === "style") {
+    return Array.from(html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi))
+      .map((match) => match[1])
+      .join("\n");
+  }
+  return html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] || html;
+};
+
+const combineAgentBatchHtml = (htmlList: string[]) => {
+  const styles = htmlList.map((html) => extractDocumentPart(html, "style")).filter(Boolean).join("\n");
+  const bodies = htmlList.map((html) => extractDocumentPart(html, "body")).filter(Boolean).join("\n");
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{box-sizing:border-box}body{margin:0;padding:0}${styles}</style></head><body>${bodies}</body></html>`;
+};
+
+const renderAllAgentBatches = async (
+  edgePayload: PreparedAgentAdsRequest["edgePayload"],
+  creativePlan: string,
+) => {
+  const formats = getEnabledAgentFormats(edgePayload);
+  const batches = formats.map((format) => [format]);
+  const results: Array<Omit<AgentAdsResult, "success">> = [];
+
+  for (let i = 0; i < batches.length; i++) {
+    try {
+      results.push(await renderAdsBatchViaAgent(edgePayload, batches[i], creativePlan, i, batches.length));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (/\b(504|546)\b|gateway|timed out|unavailable/i.test(msg)) {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        results.push(await renderAdsBatchViaAgent(edgePayload, batches[i], creativePlan, i, batches.length));
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  return {
+    html: combineAgentBatchHtml(results.map((result) => result.html).filter(Boolean)),
+    assets: Array.from(new Set(results.flatMap((result) => result.assets || []))),
+    slug: results[0]?.slug || "ad-creatives",
+    creativeCount: results.reduce((sum, result) => sum + Number(result.creativeCount || 0), 0),
+    formats,
+    usedStores: results[0]?.usedStores,
+    groundingMetadata: results.map((result) => result.groundingMetadata).filter(Boolean),
+  };
+};
+
 export const generateLandingViaAgent = (payload: {
   user_id: number;
   company_project_id: number;
@@ -745,34 +976,10 @@ export const generateAdsViaAgent = (payload: {
   campaign_id?: number;
   form_data: Record<string, unknown>;
 }): Promise<AgentAdsResult> => {
-  return agentsPost<{
-    success: boolean;
-    edgePayload: Record<string, unknown> & {
-      accountType?: "admin" | "user";
-      campaignData?: Record<string, unknown>;
-    };
-    campaignId?: number | null;
-    campaignMemoryStore?: string | null;
-  }>("prepare-generate-ads.php", payload).then(async (prepared) => {
-    const invokeEdge = () => invokeAiFunction<Omit<AgentAdsResult, "success">>(
-      "agents-ads",
-      prepared.edgePayload,
-      { accountType: prepared.edgePayload.accountType || getStoredAccountType() },
-    );
-    let edgeResult: Omit<AgentAdsResult, "success">;
-    try {
-      edgeResult = await invokeEdge();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      if (/status\s*546|gateway|timed out|unavailable/i.test(msg)) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        edgeResult = await invokeEdge();
-      } else {
-        throw err;
-      }
-    }
-
-    const creativePlan = edgeResult.creativePlan || "";
+  return prepareAdsViaAgentPayload(payload).then(async (prepared) => {
+    const plan = await planAdsViaAgent(prepared.edgePayload);
+    const creativePlan = plan.creativePlan || "";
+    const edgeResult = await renderAllAgentBatches(prepared.edgePayload, creativePlan);
     if (creativePlan.trim() && prepared.campaignId) {
       void agentsPost("record-campaign-generation.php", {
         user_id: payload.user_id,
@@ -790,6 +997,92 @@ export const generateAdsViaAgent = (payload: {
       success: true,
       ...edgeResult,
       creativePlan,
+      usedStores: plan.usedStores || edgeResult.usedStores,
+      groundingMetadata: [plan.groundingMetadata, edgeResult.groundingMetadata].filter(Boolean),
+    };
+  });
+};
+
+type TrackedProgressEvent =
+  | { type: "plan" }
+  | { type: "batch_start"; batchIndex: number; totalBatches: number; label: string }
+  | { type: "batch_done";  batchIndex: number; totalBatches: number; label: string }
+  | { type: "batch_fail";  batchIndex: number; totalBatches: number; label: string; error: string };
+
+export const generateAdsViaAgentTracked = (
+  payload: { user_id: number; company_project_id: number; campaign_id?: number; form_data: Record<string, unknown> },
+  onProgress: (event: TrackedProgressEvent) => void,
+): Promise<AgentAdsResult> => {
+  return prepareAdsViaAgentPayload(payload).then(async (prepared) => {
+    const formats = getEnabledAgentFormats(prepared.edgePayload);
+    const batches = formats.map((format) => [format]);
+
+    // 1. Interpret — queries stores once, writes per-format design specs
+    let batchSpecs: Array<{ label: string; spec: string }> = [];
+    onProgress({ type: "plan" });
+    try {
+      const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, formats);
+      batchSpecs = interpretation.batchSpecs || [];
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (/\b(504|546)\b|gateway|timed out|unavailable/i.test(msg)) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, formats);
+        batchSpecs = interpretation.batchSpecs || [];
+      } else throw err;
+    }
+
+    const jobResult = await createGenerationJob({
+      user_id: payload.user_id,
+      company_project_id: payload.company_project_id,
+      campaign_id: payload.campaign_id,
+      batches: batches.map((b, i) => ({ label: b[0]?.label || `Batch ${i + 1}`, formats: b })),
+      creative_plan: batchSpecs.map((s) => `[${s.label}]\n${s.spec}`).join("\n\n"),
+    });
+    const jobId = jobResult.job_id;
+
+    const results: Array<Omit<AgentAdsResult, "success">> = [];
+
+    // 2. Render each batch with its specific spec (no file search in render calls)
+    for (let i = 0; i < batches.length; i++) {
+      const label = batches[i][0]?.label || `Batch ${i + 1}`;
+      const spec = batchSpecs.find((s) => s.label === label)?.spec || batchSpecs[i]?.spec || "";
+      onProgress({ type: "batch_start", batchIndex: i, totalBatches: batches.length, label });
+      try {
+        let result: Omit<AgentAdsResult, "success">;
+        try {
+          result = await renderAdsBatchViaAgent(prepared.edgePayload, batches[i], spec, i, batches.length, "render");
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "";
+          if (/\b(504|546)\b|gateway|timed out|unavailable/i.test(msg)) {
+            await new Promise((r) => setTimeout(r, 4000));
+            result = await renderAdsBatchViaAgent(prepared.edgePayload, batches[i], spec, i, batches.length, "render");
+          } else throw err;
+        }
+        results.push(result);
+        void updateGenerationJob({ job_id: jobId, user_id: payload.user_id, action: "save_batch", batch_index: i, saved_count: 1 }).catch(() => {});
+        onProgress({ type: "batch_done", batchIndex: i, totalBatches: batches.length, label });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        void updateGenerationJob({ job_id: jobId, user_id: payload.user_id, action: "fail_batch", batch_index: i, error: errMsg }).catch(() => {});
+        onProgress({ type: "batch_fail", batchIndex: i, totalBatches: batches.length, label, error: errMsg });
+        void updateGenerationJob({ job_id: jobId, user_id: payload.user_id, action: "complete" }).catch(() => {});
+        throw err;
+      }
+    }
+
+    void updateGenerationJob({ job_id: jobId, user_id: payload.user_id, action: "complete" }).catch(() => {});
+
+    return {
+      success: true,
+      html: combineAgentBatchHtml(results.map((r) => r.html).filter(Boolean)),
+      assets: Array.from(new Set(results.flatMap((r) => r.assets || []))),
+      slug: results[0]?.slug || "ad-creatives",
+      creativeCount: results.reduce((sum, r) => sum + Number(r.creativeCount || 0), 0),
+      formats,
+      creativePlan: batchSpecs.map((s) => `[${s.label}]\n${s.spec}`).join("\n\n"),
+      usedStores: results[0]?.usedStores,
+      groundingMetadata: results.map((r) => r.groundingMetadata).filter(Boolean),
     };
   });
 };
@@ -897,10 +1190,89 @@ export const sendCreativeHtmlToGlobalStore = (
 ): Promise<{ success: boolean }> => {
   const fd = new FormData();
   fd.append("user_id", String(userId));
-  fd.append("store_type", "ads");
+  fd.append("store_type", "ads_reference");
   fd.append("display_name", label);
   fd.append("text", html);
   return syncGlobalStore(fd);
+};
+
+export const getGeminiKey = (userId: number): Promise<{ gemini_api_key: string | null; generate_as_image: boolean }> =>
+  postApi("getGeminiKey.php", { user_id: userId });
+
+export const saveGeminiKey = (
+  userId: number,
+  geminiApiKey: string,
+  generateAsImage?: boolean,
+): Promise<{ success: boolean }> =>
+  postApi("saveGeminiKey.php", {
+    user_id: userId,
+    gemini_api_key: geminiApiKey,
+    ...(generateAsImage !== undefined ? { generate_as_image: generateAsImage ? 1 : 0 } : {}),
+  });
+
+export type AdImageResult = {
+  imageUrl: string;
+  platform: string;
+  format: string;
+  label: string;
+  width: number;
+  height: number;
+};
+
+export const generateAdImages = (payload: {
+  user_id: number;
+  company_project_id: number;
+  campaign_id?: number;
+  form_data: Record<string, unknown>;
+  brand_spec?: string;
+}): Promise<{ success: boolean; mode: "image"; images: AdImageResult[] }> =>
+  agentsPost("generate-ads.php", {
+    ...payload,
+    form_data: {
+      ...payload.form_data,
+      generate_as_image: true,
+      ...(payload.brand_spec ? { brand_spec: payload.brand_spec } : {}),
+    },
+  });
+
+export const generateAdBrandSpec = async (payload: {
+  user_id: number;
+  company_project_id: number;
+  campaign_id?: number;
+  form_data: Record<string, unknown>;
+}): Promise<string> => {
+  try {
+    const result = await agentsPost<{ success: boolean; brandSpec: string }>(
+      "generate-ads.php",
+      { ...payload, form_data: { ...payload.form_data, brand_spec_only: true } },
+    );
+    return result.brandSpec || "";
+  } catch {
+    return "";
+  }
+};
+
+export type AdCopyResult = {
+  mainHeadline: string;
+  subheadline:  string;
+  ctaText:      string;
+  bodyText?:    string;
+  abVariants?:  Array<{ label: string; headline: string; cta: string }>;
+};
+
+export const generateAdCopy = async (payload: {
+  user_id:            number;
+  company_project_id: number;
+  form_data:          Record<string, unknown>;
+}): Promise<{ success: boolean; mode: "copy"; copy: AdCopyResult }> => {
+  const prepared = await agentsPost<{ success: boolean; edgePayload: Record<string, unknown> }>(
+    "generate-copy.php", payload,
+  );
+  return invokeAiFunction<{ success: boolean; mode: "copy"; copy: AdCopyResult }>(
+    "agents-ads",
+    { ...prepared.edgePayload, mode: "copy" },
+    { accountType: (prepared.edgePayload.accountType as "admin" | "user") || getStoredAccountType() },
+  );
 };
 
 export type GlobalStoreFile = {
@@ -917,13 +1289,13 @@ export type GlobalStoreFile = {
 
 export const listGlobalStoreFiles = (payload: {
   user_id: number;
-  store_type: "lp" | "ads";
+  store_type: "lp" | "ads" | "ads_reference";
 }): Promise<{ success: boolean; files: GlobalStoreFile[] }> =>
   agentsPost("list-global-store-files.php", payload);
 
 export const deleteGlobalStoreFile = (payload: {
   user_id: number;
-  store_type: "lp" | "ads";
+  store_type: "lp" | "ads" | "ads_reference";
   file_id: number;
 }): Promise<{ success: boolean; deletedDocument: boolean; deletedRecord: boolean }> =>
   agentsPost("delete-global-store-file.php", payload);
@@ -943,6 +1315,7 @@ export type CampaignExampleCreative = {
   name: string;
   url?: string;
   public_url?: string;
+  image_url?: string;
   platform?: string;
   format?: string;
   label?: string;
@@ -982,33 +1355,11 @@ export const generateFromCampaign = (payload: {
   campaign_id: number;
   form_overrides?: Record<string, unknown>;
 }): Promise<AgentAdsResult> => {
-  return agentsPost<{
-    success: boolean;
-    edgePayload: Record<string, unknown> & {
-      accountType?: "admin" | "user";
-      campaignData?: Record<string, unknown>;
-    };
-  }>("prepare-generate-ads-from-campaign.php", payload)
+  return prepareAdsFromCampaignPayload(payload)
     .then(async (prepared) => {
-      const invokeEdge = () => invokeAiFunction<Omit<AgentAdsResult, "success">>(
-        "agents-ads",
-        prepared.edgePayload,
-        { accountType: prepared.edgePayload.accountType || getStoredAccountType() },
-      );
-      let edgeResult: Omit<AgentAdsResult, "success">;
-      try {
-        edgeResult = await invokeEdge();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "";
-        if (/status\s*546|gateway|timed out|unavailable/i.test(msg)) {
-          await new Promise((resolve) => setTimeout(resolve, 3000));
-          edgeResult = await invokeEdge();
-        } else {
-          throw err;
-        }
-      }
-
-      const creativePlan = edgeResult.creativePlan || "";
+      const plan = await planAdsViaAgent(prepared.edgePayload);
+      const creativePlan = plan.creativePlan || "";
+      const edgeResult = await renderAllAgentBatches(prepared.edgePayload, creativePlan);
       if (creativePlan.trim()) {
         void agentsPost("record-campaign-generation.php", {
           user_id: payload.user_id,
@@ -1026,6 +1377,8 @@ export const generateFromCampaign = (payload: {
         success: true,
         ...edgeResult,
         creativePlan,
+        usedStores: plan.usedStores || edgeResult.usedStores,
+        groundingMetadata: [plan.groundingMetadata, edgeResult.groundingMetadata].filter(Boolean),
       };
     });
 };
@@ -1043,3 +1396,12 @@ export const campaignChat = (payload: {
   history: ChatMessage[];
 }): Promise<CampaignChatResponse> =>
   agentsPost("campaign-chat.php", payload);
+
+export type GlobalChatResponse = { type: "text"; message: string; usedStores?: string[] };
+
+export const globalChat = (payload: {
+  user_id: number;
+  message: string;
+  history: ChatMessage[];
+}): Promise<GlobalChatResponse> =>
+  agentsPost("global-chat.php", payload);

@@ -1,0 +1,191 @@
+GLOBAL ADS STORE RETRIEVAL INDEX
+================================
+
+Purpose:
+Help the model retrieve only the guideline sections that match the current ad
+generation request. This file is an index, not a design rulebook.
+
+Always start retrieval here, then retrieve only the matching rule files.
+
+
+STORE FILE MAP
+--------------
+
+ads-01-html-rendering-contract.txt
+Use for:
+- required HTML structure
+- absolute positioning
+- banner dimensions
+- image rendering
+- text containment
+- CTA element requirements
+- visual editor compatibility
+
+ads-02-format-safezones-and-layouts.txt
+Use for:
+- selectedFormats
+- width/height
+- safe zones
+- per-format composition constraints
+- mobile/social/display/email ad dimensions
+- distinguishing Story from Portrait 4:5
+
+ads-03-visual-design-system.txt
+Use for:
+- preferredStyle
+- toneOfVoice
+- brandPersonality
+- brandKeywords
+- colors
+- typography
+- hierarchy
+- image treatment
+- CTA design
+- logo placement
+- visual polish
+
+ads-04-copy-objectives-and-hooks.txt
+Use for:
+- campaignObjective
+- funnelStage
+- offer
+- discount
+- guarantee
+- urgencyLevel
+- mainHeadline
+- subheadline
+- ctaText
+- targetAudience
+
+ads-05-layout-variation-and-anti-clone.txt
+Use for:
+- generation inside campaigns
+- Generate More
+- examples marked by the user
+- abTestingEnabled
+- abTestFocus
+- avoiding repeated layouts across formats
+- Story vs Portrait anti-clone checks
+
+ads-06-quality-checklist.txt
+Use for:
+- final validation
+- preventing malformed banners
+- checking visual quality
+- checking non-cloned format variation
+- checking tone/personality impact
+
+ads-07-legacy-absolute-layout-and-render-pipeline.txt
+Use for:
+- legacy pre-store ad quality behavior
+- strict absolute layer contract
+- renderer-compatible .ad-banner HTML
+- exact asset URL usage
+- image art direction
+- per-format legacy archetypes
+- PHP PNG export compatibility
+- final repair checks before output
+
+
+QUERY KEYS FROM FORM DATA
+-------------------------
+
+Retrieve matching rules for every non-empty key below:
+
+campaignObjective=sales
+campaignObjective=lead-generation
+campaignObjective=awareness
+campaignObjective=product-launch
+campaignObjective=retargeting
+campaignObjective=engagement
+campaignObjective=app-install
+campaignObjective=whatsapp
+campaignObjective=traffic
+campaignObjective=event
+
+funnelStage=awareness
+funnelStage=consideration
+funnelStage=conversion
+funnelStage=retention
+
+preferredStyle=modern
+preferredStyle=minimal
+preferredStyle=premium
+preferredStyle=bold
+preferredStyle=playful
+preferredStyle=corporate
+preferredStyle=luxury
+preferredStyle=tech
+
+toneOfVoice=confident
+toneOfVoice=friendly
+toneOfVoice=premium
+toneOfVoice=urgent
+
+brandPersonality=modern
+brandPersonality=playful
+brandPersonality=trustworthy
+brandPersonality=luxury
+brandPersonality=bold
+brandPersonality=corporate
+brandPersonality=innovative
+
+creativeStrategy=benefit-led
+creativeStrategy=problem-solution
+creativeStrategy=offer-led
+creativeStrategy=social-proof
+creativeStrategy=urgency
+creativeStrategy=product-demo
+creativeStrategy=brand-awareness
+
+urgencyLevel=low
+urgencyLevel=medium
+urgencyLevel=high
+
+abTestFocus=headline
+abTestFocus=cta
+abTestFocus=visual
+abTestFocus=color
+abTestFocus=mixed
+
+format=1080x1080
+format=1080x1920
+format=1080x1350
+format=1200x628
+format=300x250
+format=336x280
+format=728x90
+format=970x250
+format=160x600
+format=320x50
+format=600x600
+
+
+MANDATORY CROSS-RETRIEVAL
+-------------------------
+
+For every ad generation request, retrieve:
+- ads-01-html-rendering-contract.txt
+- ads-07-legacy-absolute-layout-and-render-pipeline.txt
+
+When selected formats include Story (1080x1920) or Portrait 4:5 (1080x1350),
+retrieve:
+- ads-02-format-safezones-and-layouts.txt
+- ads-05-layout-variation-and-anti-clone.txt
+- ads-06-quality-checklist.txt
+- ads-07-legacy-absolute-layout-and-render-pipeline.txt
+
+When toneOfVoice, brandPersonality, preferredStyle, or brandKeywords are
+provided, retrieve:
+- ads-03-visual-design-system.txt
+
+
+RETRIEVAL RULE
+--------------
+
+Do not retrieve every file in full unless the user request is broad.
+Retrieve the specific sections matching the campaign objective, selected
+formats, visual style, creative strategy, urgency, and A/B focus.
+
+Campaign facts and exact user form values override every guideline.
+Company-specific brand knowledge overrides global style suggestions.

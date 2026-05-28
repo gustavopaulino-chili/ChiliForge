@@ -70,7 +70,9 @@ try {
             c.format,
             c.label,
             c.width,
-            c.height
+            c.height,
+            c.generated_html,
+            c.metadata
          FROM ads_campaign_examples e
          INNER JOIN ads_creatives c ON c.id = e.creative_id
          WHERE e.campaign_id = ?
@@ -81,9 +83,25 @@ try {
         $exampleStmt->execute();
         $exampleStmt->bind_result(
             $exampleId, $creativeId, $documentName, $exampleCreatedAt,
-            $creativeName, $creativeUrl, $platform, $format, $label, $width, $height
+            $creativeName, $creativeUrl, $platform, $format, $label, $width, $height,
+            $creativeHtml, $creativeMetadataJson
         );
         while ($exampleStmt->fetch()) {
+            $creativeMetadata = json_decode($creativeMetadataJson ?: '{}', true);
+            if (!is_array($creativeMetadata)) $creativeMetadata = [];
+            $exampleImageUrl = '';
+            foreach (['image_url', 'imageUrl', 'png_url', 'pngUrl', 'preview_url', 'previewUrl'] as $key) {
+                if (isset($creativeMetadata[$key]) && trim((string)$creativeMetadata[$key]) !== '') {
+                    $exampleImageUrl = trim((string)$creativeMetadata[$key]);
+                    break;
+                }
+            }
+            if ($exampleImageUrl === '' && preg_match('/^data:image\//i', trim((string)$creativeHtml))) {
+                $exampleImageUrl = trim((string)$creativeHtml);
+            }
+            if ($exampleImageUrl === '' && preg_match('/^(?:https?:\/\/|\/|\.?\/).+\.(?:png|jpe?g|webp|gif|avif)(?:\?.*)?$/i', trim((string)$creativeUrl))) {
+                $exampleImageUrl = trim((string)$creativeUrl);
+            }
             $examples[] = [
                 'id' => (int)$exampleId,
                 'creative_id' => (int)$creativeId,
@@ -92,6 +110,7 @@ try {
                 'name' => $creativeName,
                 'url' => $creativeUrl,
                 'public_url' => $creativeUrl,
+                'image_url' => $exampleImageUrl,
                 'platform' => $platform,
                 'format' => $format,
                 'label' => $label ?: $creativeName,

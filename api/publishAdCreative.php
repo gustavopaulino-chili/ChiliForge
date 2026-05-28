@@ -294,7 +294,21 @@ try {
     $reqBanners = isset($data["banners"]) && is_array($data["banners"]) ? $data["banners"] : [];
     $bannerHtmlList = [];
     foreach ($reqBanners as $banner) {
-        $candidateHtml = isset($banner["html"]) ? strip_editor_bridge_artifacts((string)$banner["html"]) : '';
+        $rawBannerHtml = isset($banner["html"]) ? (string)$banner["html"] : '';
+        // Skip strip_editor_bridge_artifacts for data URLs — running PCRE on multi-MB
+        // base64 strings triggers PCRE backtrack limit failures.
+        $isDataUrlBanner = strncasecmp(trim($rawBannerHtml), 'data:image/', 11) === 0;
+        $candidateHtml = ($isDataUrlBanner || !empty($banner['is_image_mode']))
+            ? trim($rawBannerHtml)
+            : strip_editor_bridge_artifacts($rawBannerHtml);
+        if ($candidateHtml === '') {
+            foreach (['imageUrl', 'image_url', 'url'] as $imageKey) {
+                if (!empty($banner[$imageKey]) && is_string($banner[$imageKey])) {
+                    $candidateHtml = trim((string)$banner[$imageKey]);
+                    break;
+                }
+            }
+        }
         foreach ($oldPrefixes as $oldPrefix) {
             $oldPrefix = normalize_project_public_prefix($oldPrefix);
             if ($oldPrefix !== '' && $oldPrefix !== $public_url) {
@@ -420,10 +434,16 @@ try {
         }
     }
     foreach ($reqBanners as $i => $banner) {
-        $bHtml = $bannerHtmlList[$i] ?? '';
-        $bHtml = replace_asset_paths($bHtml, $bannerAssetMap);
-        $bHtml = rewrite_any_project_asset_refs($bHtml, '../');
-        if (trim($bHtml) === '') continue;
+        $rawBHtml = trim((string)($bannerHtmlList[$i] ?? ''));
+        $isImageBanner = !empty($banner['is_image_mode'])
+            || (bool)preg_match('/^data:image\//i', $rawBHtml)
+            || (bool)preg_match('/^(https?:\/\/|\/|\.?\/).+\.(png|jpe?g|webp|gif|avif)(\?.*)?$/i', $rawBHtml);
+
+        if ($rawBHtml === '') continue;
+
+        $bHtml = $isImageBanner
+            ? $rawBHtml
+            : rewrite_any_project_asset_refs(replace_asset_paths($rawBHtml, $bannerAssetMap), '../');
 
         $bPlatform  = preg_replace('/[^a-z0-9\-]/', '', strtolower((string)($banner["platform"] ?? 'banner')));
         $bFormat    = preg_replace('/[^a-z0-9\-]/', '', strtolower((string)($banner["format"]   ?? 'ad')));
@@ -434,15 +454,53 @@ try {
         $sortOrder   = $sortOffset + $i;
         $bDirName    = "b{$sortOrder}";
         $bFolder     = $projectPath . DIRECTORY_SEPARATOR . $bDirName;
-        $bPublicUrl  = $public_url . $bDirName . '/';
+        $bFolderUrl  = $public_url . $bDirName . '/';
+        $bPublicUrl  = $bFolderUrl;
         $bName       = $name . ' - ' . $bLabel;
+        $bImageUrl   = "";
+
+        ensure_directory($bFolder);
+
+        if ($isImageBanner && strncasecmp($bHtml, 'data:image/', 11) === 0) {
+            // Use strpos/substr instead of PCRE — avoids backtrack limit on multi-MB data URLs.
+            $commaPos = strpos($bHtml, ',');
+            if ($commaPos !== false) {
+                $dataHeader = substr($bHtml, 0, $commaPos);   // "data:image/png;base64"
+                $base64Data = substr($bHtml, $commaPos + 1);  // raw base64 payload
+                if (preg_match('/^data:(image\/([a-zA-Z0-9+\-]+))/i', $dataHeader, $hdrMatch)) {
+                    $imgExt   = strtolower(str_replace('jpeg', 'jpg', $hdrMatch[2]));
+                    $imgBytes = base64_decode(str_replace(["\n", "\r", " ", "\t"], '', $base64Data));
+                    if ($imgBytes !== false && strlen($imgBytes) > 100) {
+                        $imgFile = 'image.' . $imgExt;
+                        if (file_put_contents($bFolder . DIRECTORY_SEPARATOR . $imgFile, $imgBytes) !== false) {
+                            $bImageUrl = $bFolderUrl . $imgFile;
+                        }
+                    }
+                }
+            }
+        } else if ($isImageBanner && preg_match('/^https?:\/\//i', $bHtml)) {
+            $downloadedImage = download_remote_asset($bHtml);
+            if ($downloadedImage !== null && isset($downloadedImage['body'])) {
+                $imgExt = extract_extension_from_url($bHtml, $downloadedImage['content_type'] ?? null);
+                if ($imgExt === '') $imgExt = 'png';
+                $imgFile = 'image.' . $imgExt;
+                file_put_contents($bFolder . DIRECTORY_SEPARATOR . $imgFile, $downloadedImage['body']);
+                $bImageUrl = $bFolderUrl . $imgFile;
+            }
+        } else if (!$isImageBanner) {
+            file_put_contents($bFolder . DIRECTORY_SEPARATOR . 'index.html', $bHtml);
+        }
+
+        // Store the local file path in generated_html for image banners, not the raw
+        // data URL — storing multi-MB base64 in MySQL can exceed max_allowed_packet.
+        $dbHtml = $isImageBanner ? $bImageUrl : $bHtml;
+
         $bMetadata   = json_encode([
             "variant" => isset($banner["variant"]) ? (string)$banner["variant"] : "",
             "source_index" => $sortOrder,
+            "is_image_mode" => $isImageBanner,
+            "image_url" => $bImageUrl,
         ], JSON_UNESCAPED_UNICODE);
-
-        ensure_directory($bFolder);
-        file_put_contents($bFolder . DIRECTORY_SEPARATOR . 'index.html', $bHtml);
 
         $bStmt = $conn->prepare(
             "INSERT INTO ads_creatives (project_id, campaign_id, name, platform, format, label, width, height, generated_html, public_url, sort_order, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())"
@@ -450,7 +508,7 @@ try {
         if (!$bStmt) {
             throw new RuntimeException('Erro ao preparar insert de criativo: ' . $conn->error);
         }
-        $bStmt->bind_param("iissssiissis", $project_id, $campaignId, $bName, $bPlatform, $bFormat, $bLabel, $bWidth, $bHeight, $bHtml, $bPublicUrl, $sortOrder, $bMetadata);
+        $bStmt->bind_param("iissssiissis", $project_id, $campaignId, $bName, $bPlatform, $bFormat, $bLabel, $bWidth, $bHeight, $dbHtml, $bPublicUrl, $sortOrder, $bMetadata);
         if ($bStmt->execute()) {
             $bId = (int)$conn->insert_id;
             $savedBanners[] = [
@@ -465,6 +523,8 @@ try {
                 "width"    => $bWidth,
                 "height"   => $bHeight,
                 "variant"  => isset($banner["variant"]) ? (string)$banner["variant"] : "",
+                "is_image_mode" => $isImageBanner,
+                "imageUrl" => $isImageBanner ? $bImageUrl : "",
             ];
         }
         $bStmt->close();

@@ -54,8 +54,67 @@ if (!function_exists('agents_is_jwt')) {
     }
 }
 
+if (!function_exists('agents_new_db_connection')) {
+    function agents_new_db_connection(): mysqli {
+        $host = agents_env_value('DB_HOST', 'localhost');
+        $user = agents_env_value('DB_USER', 'u427845891_forge_admin');
+        $pass = agents_env_value('DB_PASS', 'ChiliForge2026@');
+        $db   = agents_env_value('DB_NAME', 'u427845891_chiliforge');
+
+        $next = new mysqli($host, $user, $pass, $db);
+        if ($next->connect_error) {
+            throw new RuntimeException('Database reconnect error: ' . $next->connect_error);
+        }
+
+        $next->set_charset('utf8mb4');
+        @$next->query('SET SESSION wait_timeout = 28800');
+        @$next->query('SET SESSION interactive_timeout = 28800');
+        @$next->query('SET SESSION net_read_timeout = 300');
+        @$next->query('SET SESSION net_write_timeout = 300');
+        return $next;
+    }
+}
+
+if (!function_exists('agents_reconnect_mysqli_if_needed')) {
+    function agents_reconnect_mysqli_if_needed(mysqli &$conn): void {
+        $alive = false;
+        try {
+            $alive = @$conn->ping();
+        } catch (Throwable $e) {
+            $alive = false;
+        }
+
+        if ($alive) return;
+
+        try {
+            @$conn->close();
+        } catch (Throwable $e) {
+            // Ignore close failures; the connection is already unusable.
+        }
+
+        $conn = agents_new_db_connection();
+    }
+}
+
+if (!function_exists('agents_get_user_gemini_key')) {
+    function agents_get_user_gemini_key(mysqli $conn, int $userId): string {
+        if ($userId <= 0) return '';
+        $stmt = $conn->prepare("SELECT gemini_api_key FROM users WHERE id = ? LIMIT 1");
+        if (!$stmt) return '';
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $stmt->bind_result($key);
+        $stmt->fetch();
+        $stmt->close();
+        return is_string($key) ? trim($key) : '';
+    }
+}
+
 if (!function_exists('agents_call_edge_function')) {
-    function agents_call_edge_function(string $name, array $payload): array {
+    function agents_call_edge_function(string $name, array $payload, ?string $geminiApiKey = null): array {
+        if ($geminiApiKey !== null && trim($geminiApiKey) !== '') {
+            $payload['geminiApiKey'] = trim($geminiApiKey);
+        }
         $baseUrl = rtrim(agents_env_value('SUPABASE_URL', 'https://vehowvyqxhelyfdesmog.supabase.co'), '/');
         $key     = agents_env_value('SUPABASE_SERVICE_ROLE_KEY');
 
@@ -364,7 +423,8 @@ if (!function_exists('agents_sync_company_store')) {
         array $companyFormData,
         string $accountType,
         int $userId = 0,
-        ?string $existingStoreName = null
+        ?string $existingStoreName = null,
+        ?string $geminiApiKey = null
     ): string {
         $companyDocument = buildCompanyDocument($companyFormData);
 
@@ -375,7 +435,7 @@ if (!function_exists('agents_sync_company_store')) {
             'documentText'  => $companyDocument,
             'documentLabel' => 'Brand Guidelines',
             'accountType'   => $accountType,
-        ]);
+        ], $geminiApiKey);
 
         if (empty($storeResult['storeName'])) {
             throw new RuntimeException('agents-store did not return a storeName');
@@ -384,12 +444,15 @@ if (!function_exists('agents_sync_company_store')) {
         $storeName = (string)$storeResult['storeName'];
         $documentName = agents_extract_document_name($storeResult);
 
+        agents_reconnect_mysqli_if_needed($conn);
+
         $saveStmt = $conn->prepare("UPDATE projects SET gemini_store_name = ? WHERE id = ?");
         if (!$saveStmt) throw new RuntimeException('DB prepare error: ' . $conn->error);
         $saveStmt->bind_param('si', $storeName, $companyProjectId);
         $saveStmt->execute();
         $saveStmt->close();
 
+        agents_reconnect_mysqli_if_needed($conn);
         agents_upsert_company_profile_record($conn, $companyProjectId, $storeName, $documentName, $userId);
 
         return $storeName;
@@ -502,6 +565,10 @@ if (!function_exists('buildCompanyDocument')) {
 
         // Prescriptive rules for ad generation — consumed by the planner and HTML generator
         $adRules = [];
+        $adRules[] = $logo !== ''
+            ? "ABSOLUTE LOGO LOCK: Logo URL: {$logo} - every ad must contain at least one visible instance of this exact original logo asset as <img> with object-fit:contain. Reinterpreted logos are NOT logos: similar generated marks, redrawn symbols, monograms, recolored versions, decorative brand-like shapes, or fake logos do not count. Never redraw, recolor, stylize, warp, crop, add effects, replace, or invent a logo. A missing or altered logo is a failed creative."
+            : "ABSOLUTE LOGO LOCK: no logo asset was provided. Use brand name text only; never invent a fake logo, icon, monogram, seal, mascot, or abstract mark.";
+        $adRules[] = "SOCIAL MEDIA CTA LOCK: Instagram, Facebook, TikTok, LinkedIn, social feed, square social, story, reels, and social media placements must never use CTA buttons, pills, rounded rectangles, bordered buttons, app UI controls, or clickable blocks. Express CTA as footer text, underlined phrase, caption line, swipe/DM cue, offer line, or sticker words without a button container.";
         if ($logo !== '') {
             $adRules[] = "Logo URL: {$logo} — render as <img> with object-fit:contain in every banner.";
         }
@@ -548,6 +615,99 @@ if (!function_exists('buildCompanyDocument')) {
     }
 }
 
+if (!function_exists('agents_enrich_ad_form_with_company_data')) {
+    function agents_enrich_ad_form_with_company_data(array $formData, array $companyFormData): array {
+        $str = fn($v) => is_string($v) ? trim($v) : '';
+        $arr = fn($v) => is_array($v) ? array_values(array_filter(array_map('strval', $v))) : [];
+        $setIfEmpty = function (string $key, $value) use (&$formData) {
+            if ((is_string($value) && trim($value) === '') || $value === null) return;
+            if (!isset($formData[$key]) || (is_string($formData[$key]) && trim($formData[$key]) === '') || $formData[$key] === null) {
+                $formData[$key] = $value;
+            }
+        };
+
+        $theme = is_array($companyFormData['theme'] ?? null) ? $companyFormData['theme'] : [];
+        $images = is_array($companyFormData['images'] ?? null) ? $companyFormData['images'] : [];
+
+        $setIfEmpty('brandName', $str($companyFormData['businessName'] ?? $companyFormData['brandName'] ?? ''));
+        $setIfEmpty('industry', $str($companyFormData['businessCategory'] ?? $companyFormData['industry'] ?? ''));
+        $setIfEmpty('targetAudience', $str($companyFormData['targetAudience'] ?? ''));
+        $setIfEmpty('valueProposition', $str($companyFormData['valueProposition'] ?? ''));
+        $setIfEmpty('toneOfVoice', $str($companyFormData['toneOfVoice'] ?? ''));
+        $setIfEmpty('brandPersonality', $str($companyFormData['brandPersonality'] ?? ''));
+        $setIfEmpty('brandKeywords', $str($companyFormData['brandKeywords'] ?? ''));
+        $setIfEmpty('forbiddenWords', $str($companyFormData['forbiddenWords'] ?? ''));
+        $setIfEmpty('preferredStyle', $str($theme['style'] ?? $companyFormData['preferredStyle'] ?? ''));
+        $setIfEmpty('primaryColor', $str($theme['primary'] ?? $companyFormData['primaryColor'] ?? ''));
+        $setIfEmpty('secondaryColor', $str($theme['secondary'] ?? $companyFormData['secondaryColor'] ?? ''));
+        $setIfEmpty('accentColor', $str($theme['accent'] ?? $companyFormData['accentColor'] ?? ''));
+        $setIfEmpty('textColor', $str($theme['text'] ?? $companyFormData['textColor'] ?? ''));
+        $setIfEmpty('backgroundColor', $str($theme['background'] ?? $companyFormData['backgroundColor'] ?? ''));
+        $setIfEmpty('headingFont', $str($theme['headingFont'] ?? $companyFormData['headingFont'] ?? ''));
+        $setIfEmpty('bodyFont', $str($theme['bodyFont'] ?? $companyFormData['bodyFont'] ?? ''));
+        $setIfEmpty('language', $str($companyFormData['language'] ?? ''));
+
+        $logo = $str($images['logoUrl'] ?? $images['logo'] ?? $companyFormData['logoUrl'] ?? '');
+        $hero = $str($images['heroImage1'] ?? $images['hero'] ?? $images['heroImage2'] ?? '');
+        $productImages = $arr($images['productImages'] ?? []);
+        $product = $productImages[0] ?? $str($images['brandImage'] ?? $images['sectionImage1'] ?? '');
+        $setIfEmpty('logoUrl', $logo);
+        $setIfEmpty('backgroundImageUrl', $hero);
+        $setIfEmpty('productImageUrl', $product);
+
+        $services = $arr($companyFormData['services'] ?? []);
+        $differentiators = $arr($companyFormData['differentiators'] ?? []);
+        $companyProfile = [
+            'businessName'        => $str($companyFormData['businessName'] ?? $companyFormData['brandName'] ?? ''),
+            'industry'            => $str($companyFormData['businessCategory'] ?? $companyFormData['industry'] ?? ''),
+            'description'         => $str($companyFormData['businessDescription'] ?? ''),
+            'services'            => array_slice($services, 0, 8),
+            'differentiators'     => array_slice($differentiators, 0, 8),
+            'brandPersonality'    => $str($companyFormData['brandPersonality'] ?? ''),
+            'brandKeywords'       => $str($companyFormData['brandKeywords'] ?? ''),
+            'forbiddenWords'      => $str($companyFormData['forbiddenWords'] ?? ''),
+            'designNotes'         => $str($companyFormData['designNotes'] ?? ''),
+            'sourceWebsite'       => $str($companyFormData['sourceWebsite'] ?? ''),
+        ];
+        $companyProfile = array_filter($companyProfile, fn($v) => is_array($v) ? !empty($v) : trim((string)$v) !== '');
+        if (!empty($companyProfile)) {
+            $formData['companyProfile'] = $companyProfile;
+        }
+
+        return $formData;
+    }
+}
+
+if (!function_exists('agents_build_ad_example_fingerprint')) {
+    function agents_build_ad_example_fingerprint(string $html, string $platform, string $format, int $width, int $height): string {
+        $lower = strtolower($html);
+        preg_match_all('/<img\b/i', $html, $imgMatches);
+        preg_match_all('/class=["\'][^"\']*(ad-cta|cta|button)[^"\']*["\']/i', $html, $ctaMatches);
+        preg_match_all('/class=["\'][^"\']*(ad-logo|logo)[^"\']*["\']/i', $html, $logoMatches);
+        preg_match_all('/class=["\'][^"\']*(ad-headline|headline|title)[^"\']*["\']/i', $html, $headlineMatches);
+
+        $ratio = $height > 0 ? $width / $height : 1;
+        $family = $ratio < 0.7 ? 'vertical/story'
+            : ($ratio > 3 ? 'leaderboard'
+            : ($ratio > 1.2 ? 'landscape'
+            : 'square/rectangle'));
+
+        $signals = [];
+        $signals[] = "Format family: {$family}";
+        $signals[] = "Platform/format: {$platform}/{$format}";
+        $signals[] = "Dimensions: {$width}x{$height}";
+        $signals[] = "Image count: " . count($imgMatches[0] ?? []);
+        $signals[] = "CTA elements detected: " . count($ctaMatches[0] ?? []);
+        $signals[] = "Logo elements detected: " . count($logoMatches[0] ?? []);
+        $signals[] = "Headline elements detected: " . count($headlineMatches[0] ?? []);
+        $signals[] = "Uses background image or url(): " . (preg_match('/background[^;]*url\(|<img\b/i', $lower) ? 'yes' : 'no');
+        $signals[] = "Uses badges/stickers/proof chips: " . (preg_match('/badge|sticker|proof|tag|chip|pill|discount|off|new|limited/i', $html) ? 'yes' : 'no');
+        $signals[] = "Likely layout density: " . (strlen(strip_tags($html)) > 260 ? 'dense' : 'lean');
+
+        return "## Visual fingerprint\n\n- " . implode("\n- ", $signals) . "\n";
+    }
+}
+
 if (!function_exists('agents_lazy_init_store')) {
     function agents_lazy_init_store(
         mysqli $conn,
@@ -555,7 +715,8 @@ if (!function_exists('agents_lazy_init_store')) {
         ?string &$geminiStoreName,
         string $companyDocument,
         string $accountType,
-        int $userId = 0
+        int $userId = 0,
+        ?string $geminiApiKey = null
     ): void {
         if (!empty($geminiStoreName)) {
             agents_upsert_company_profile_record($conn, $companyProjectId, $geminiStoreName, null, $userId);
@@ -568,16 +729,18 @@ if (!function_exists('agents_lazy_init_store')) {
             'documentText'  => $companyDocument,
             'documentLabel' => 'Brand Guidelines',
             'accountType'   => $accountType,
-        ]);
+        ], $geminiApiKey);
 
         if (!empty($storeResult['storeName'])) {
             $geminiStoreName = (string)$storeResult['storeName'];
             $documentName = agents_extract_document_name($storeResult);
+            agents_reconnect_mysqli_if_needed($conn);
             $saveStmt = $conn->prepare("UPDATE projects SET gemini_store_name = ? WHERE id = ?");
             if (!$saveStmt) throw new RuntimeException('DB prepare error: ' . $conn->error);
             $saveStmt->bind_param('si', $geminiStoreName, $companyProjectId);
             $saveStmt->execute();
             $saveStmt->close();
+            agents_reconnect_mysqli_if_needed($conn);
             agents_upsert_company_profile_record($conn, $companyProjectId, $geminiStoreName, $documentName, $userId);
         }
     }

@@ -1,5 +1,8 @@
+import { useMemo } from 'react';
 import { AdCreativeFormData, AdFormatDimension, ALL_AD_FORMATS, AD_PLATFORM_LABELS, AdPlatform } from '@/types/adCreativeForm';
 import { Monitor, Smartphone, Mail, Layout } from 'lucide-react';
+import { RecommendationHint } from './RecommendationHint';
+import { formatKey, getRecommendedFormatKeys, recommendedOptionClass } from '@/lib/adRecommendations';
 
 interface Props {
   data: AdCreativeFormData;
@@ -52,6 +55,11 @@ const GROUPS = (['social', 'video', 'display', 'email'] as AdPlatform[]).map(pla
 }));
 
 export function StepAdPlatform({ data, onChange }: Props) {
+  const recommendedFormats = useMemo(
+    () => getRecommendedFormatKeys(data),
+    [data.campaignObjective, data.funnelStage],
+  );
+
   const isEnabled = (fmt: Omit<AdFormatDimension, 'enabled'>) =>
     data.selectedFormats.some(f => f.platform === fmt.platform && f.format === fmt.format && f.enabled);
 
@@ -97,6 +105,7 @@ export function StepAdPlatform({ data, onChange }: Props) {
           Select the dimensions you want to generate. Each unique size is one creative.
         </p>
       </div>
+      <RecommendationHint enabled={recommendedFormats.size > 0} />
 
       <div className="space-y-5">
         {GROUPS.map(({ platform, formats }) => {
@@ -142,6 +151,7 @@ export function StepAdPlatform({ data, onChange }: Props) {
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                   {formats.map(fmt => {
                     const enabled = isEnabled(fmt);
+                    const recommended = !enabled && recommendedFormats.has(formatKey(fmt));
                     return (
                       <button
                         key={`${fmt.format}-${fmt.width}x${fmt.height}`}
@@ -150,7 +160,9 @@ export function StepAdPlatform({ data, onChange }: Props) {
                         className={`flex flex-col items-center gap-2 rounded-xl border px-3 py-3 text-center transition-all ${
                           enabled
                             ? 'border-primary/50 bg-primary/5 ring-1 ring-primary/20'
-                            : 'border-border hover:border-muted-foreground/30 hover:bg-muted/30'
+                            : recommended
+                              ? recommendedOptionClass
+                              : 'border-border hover:border-muted-foreground/30 hover:bg-muted/30'
                         }`}
                       >
                         <AspectPreview width={fmt.width} height={fmt.height} enabled={enabled} />
@@ -161,6 +173,11 @@ export function StepAdPlatform({ data, onChange }: Props) {
                           <div className="text-xs text-muted-foreground mt-0.5 font-mono">
                             {fmt.width}×{fmt.height}
                           </div>
+                          {recommended && (
+                            <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                              Recommended
+                            </div>
+                          )}
                         </div>
                       </button>
                     );

@@ -31,6 +31,8 @@ $userId           = (int)($body['user_id']            ?? 0);
 $companyProjectId = (int)($body['company_project_id'] ?? 0);
 $campaignId       = (int)($body['campaign_id']        ?? 0);
 $formData         = is_array($body['form_data'] ?? null) ? $body['form_data'] : [];
+$generateAsImage  = !empty($formData['generate_as_image']);
+$brandSpecOnly    = !empty($formData['brand_spec_only']);
 
 if ($userId <= 0 || $companyProjectId <= 0) {
     http_response_code(400);
@@ -109,8 +111,51 @@ try {
         $settingStmt->fetch();
         $settingStmt->close();
     }
+    $globalReferenceStore = '';
+    $refStmt = $conn->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'gemini_global_ads_reference_store' LIMIT 1");
+    if ($refStmt) {
+        $refStmt->execute();
+        $refStmt->bind_result($globalReferenceStore);
+        $refStmt->fetch();
+        $refStmt->close();
+    }
+    $globalImageReferenceStore = '';
+    $imgRefStmt = $conn->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'gemini_global_ads_image_reference_store' LIMIT 1");
+    if ($imgRefStmt) {
+        $imgRefStmt->execute();
+        $imgRefStmt->bind_result($globalImageReferenceStore);
+        $imgRefStmt->fetch();
+        $imgRefStmt->close();
+    }
 
-    // 5. Determine account type
+    if (trim((string)$globalStore) === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Global Ads Store is missing. Upload/sync the global ads guidelines first.',
+            'code'  => 'GLOBAL_ADS_STORE_MISSING',
+        ]);
+        exit;
+    }
+
+    if (!$generateAsImage && trim((string)$globalReferenceStore) === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Global Ads Reference Store is missing. Upload at least one ad example via "Send to Store" first.',
+            'code'  => 'GLOBAL_ADS_REFERENCE_STORE_MISSING',
+        ]);
+        exit;
+    }
+
+    if ($generateAsImage && !$brandSpecOnly && trim((string)$globalImageReferenceStore) === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Global Ads Image Reference Store is missing. Upload at least one image ad example first.',
+            'code'  => 'GLOBAL_ADS_IMAGE_REFERENCE_STORE_MISSING',
+        ]);
+        exit;
+    }
+
+    // 5. Determine account type + load user Gemini key
     $emailStmt = $conn->prepare("SELECT email FROM users WHERE id = ? LIMIT 1");
     $emailStmt->bind_param('i', $userId);
     $emailStmt->execute();
@@ -120,24 +165,27 @@ try {
     $accountTypeResult = resolve_account_type_by_domain($userEmail ?? '', 'user');
     $accountType = $accountTypeResult['accountType'];
 
-    // 6. Inject company logo into form_data if missing
-    $images = is_array($companyFormData['images'] ?? null) ? $companyFormData['images'] : [];
-    if (empty($formData['logoUrl']) && !empty($images['logo'])) {
-        $formData['logoUrl'] = $images['logo'];
+    // 6. Inject structured company facts directly. Stores remain for long-form
+    // brand docs instead of basic colors/assets/facts.
+    $formData = agents_enrich_ad_form_with_company_data($formData, $companyFormData);
+
+    // 8. Create the company store only if it is missing. Avoid re-indexing on
+    // every generation; company saves are responsible for refreshing knowledge.
+    $companyDocument = buildCompanyDocument($companyFormData);
+    $passKey = null; // Internal generation always uses the platform's Gemini key
+    agents_lazy_init_store($conn, $companyProjectId, $geminiStoreName, $companyDocument, $accountType, $userId, $passKey);
+
+    if (trim((string)$geminiStoreName) === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Company brand store not found. Save the company profile first to generate the brand guide.',
+            'code'  => 'COMPANY_STORE_MISSING',
+        ]);
+        exit;
     }
 
-    // 8. Sync company store (always refresh so store reflects current company data)
-    $geminiStoreName = agents_sync_company_store(
-        $conn,
-        $companyProjectId,
-        $companyFormData,
-        $accountType,
-        $userId,
-        $geminiStoreName ?: null
-    );
-
     // 9. Call agents-ads edge function
-    $result = agents_call_edge_function('agents-ads', [
+    $edgePayload = [
         'agentConfig' => [
             'systemPrompt' => $systemPrompt,
             'model'        => $model,
@@ -146,16 +194,48 @@ try {
             'version'      => (int)$agentVersion,
         ],
         'globalStoreName'            => $globalStore ?: null,
+        'globalReferenceStoreName'   => $globalReferenceStore ?: null,
+        'imageReferenceStoreName'    => $globalImageReferenceStore ?: null,
         'companyStoreName'           => $geminiStoreName ?? '',
         'campaignGoodExamplesStore'  => $campaignGoodExamplesStore ?: null,
         'campaignMemoryStore'        => $campaignMemoryStore ?: null,
         'useCampaignMemory'          => $campaignId > 0,
         'campaignData'               => $formData,
         'accountType'                => $accountType,
-    ]);
+    ];
+
+    if ($brandSpecOnly) {
+        $edgePayload['mode'] = 'extract_brand';
+        $result = agents_call_edge_function('agents-ads', $edgePayload, $passKey);
+        if (!empty($result['error'])) throw new RuntimeException('agents-ads error: ' . $result['error']);
+        header('Content-Type: application/json');
+        echo json_encode(['success' => true, 'brandSpec' => $result['brandSpec'] ?? ''], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($generateAsImage) {
+        $edgePayload['generateAsImage'] = true;
+        $edgePayload['mode']            = 'image';
+        if (!empty($formData['brand_spec'])) {
+            $edgePayload['brandSpec'] = (string)$formData['brand_spec'];
+        }
+    }
+
+    $result = agents_call_edge_function('agents-ads', $edgePayload, $passKey);
 
     if (!empty($result['error'])) {
         throw new RuntimeException('agents-ads error: ' . $result['error']);
+    }
+
+    // IMAGE MODE: return images immediately, no background indexing needed
+    if ($generateAsImage) {
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => true,
+            'mode'    => 'image',
+            'images'  => $result['images'] ?? [],
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
     }
 
     // Reconnect if connection dropped during long generation
@@ -216,7 +296,7 @@ try {
                 'displayName'   => "campaign-{$campaignId}-memory",
                 'documentText'  => $brief,
                 'documentLabel' => 'Campaign Brief ' . date('Y-m-d'),
-            ]);
+            ], $passKey);
 
             $planDoc = "# Creative Plan — " . date('Y-m-d H:i') . "\n\n" . $creativePlanText;
             $storeResult = agents_call_edge_function('agents-store', [
@@ -225,7 +305,7 @@ try {
                 'displayName'   => "campaign-{$campaignId}-memory",
                 'documentText'  => $planDoc,
                 'documentLabel' => 'Creative Plan ' . date('Y-m-d H:i'),
-            ]);
+            ], $passKey);
 
             if (!empty($storeResult['storeName']) && $storeResult['storeName'] !== $campaignMemoryStore) {
                 $upd = $conn->prepare("UPDATE ads_campaign SET gemini_memory_store = ? WHERE id = ?");

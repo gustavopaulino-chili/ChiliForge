@@ -81,7 +81,11 @@ type AdCreativePayload = {
 
 const env = (globalThis as any).Deno?.env;
 const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
-const GEMINI_IMAGE_MODEL_CHAIN = ["gemini-2.5-flash-image-preview", "gemini-2.0-flash-preview-image-generation"];
+const GEMINI_IMAGE_MODEL_CHAIN = ["gemini-2.5-flash-image"];
+
+function isRetiredGeminiImageModel(model: string): boolean {
+  return /^gemini-2\.0-.*image/i.test(model) || /^gemini-2\.5-.*image-preview$/i.test(model);
+}
 
 const PEXELS_STOP_WORDS = new Set([
   "a", "an", "and", "the", "for", "with", "without", "from", "into", "onto", "over", "under", "of", "to", "in", "on", "at", "by",
@@ -249,7 +253,7 @@ async function generateGeminiFallbackImage(prompt: string, accountType: unknown)
   const models = unique([
     ...parseGeminiModelList(env?.get("GEMINI_IMAGE_MODELS") || env?.get("GEMINI_IMAGE_MODEL")),
     ...GEMINI_IMAGE_MODEL_CHAIN,
-  ]).slice(0, 4);
+  ]).filter((model) => !isRetiredGeminiImageModel(model)).slice(0, 4);
 
   for (const key of keys) {
     for (const model of models) {

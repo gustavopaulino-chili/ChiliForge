@@ -19,48 +19,80 @@ type Props = {
 };
 
 const CODE_CURL = (key: string, domain: string) =>
-  `curl -X POST ${domain}/api/v1/ads/generate.php \\
+  `curl -X POST ${domain}/api/v1/external/generate-ads.php \\
   -H "Authorization: Bearer ${key}" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "brief": "Nike Air Max 270 — modern sportswear for young adults"
+    "phone": "+5511999999999",
+    "gemini_api_key": "AIza...",
+    "generate_as_image": false,
+    "company": {
+      "name": "Marca X",
+      "primary_color": "#FF0000",
+      "logo_url": "https://example.com/logo.png"
+    },
+    "campaign": {
+      "name": "Campanha Verão",
+      "objective": "conversão",
+      "offer": "30% off",
+      "cta_text": "Comprar Agora",
+      "product_image_url": "https://example.com/product.jpg"
+    },
+    "formats": ["instagram-feed-square", "instagram-story"]
   }'`;
 
 const CODE_JS = (key: string, domain: string) =>
-  `const res = await fetch('${domain}/api/v1/ads/generate.php', {
+  `// 1. Start the job (returns 202 in <5s)
+const res = await fetch('${domain}/api/v1/external/generate-ads.php', {
   method: 'POST',
-  headers: {
-    'Authorization': 'Bearer ${key}',
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Authorization': 'Bearer ${key}', 'Content-Type': 'application/json' },
   body: JSON.stringify({
-    brief: 'Nike Air Max 270 — modern sportswear for young adults',
+    phone: '+5511999999999',
+    gemini_api_key: 'AIza...',   // your Gemini key — omit to use platform default
+    generate_as_image: false,    // true → rendered PNG, false → HTML
+    company: { name: 'Marca X', primary_color: '#FF0000' },
+    campaign: { name: 'Campanha Verão', offer: '30% off', cta_text: 'Comprar Agora' },
+    formats: ['instagram-feed-square', 'instagram-story'],
   }),
 });
+const { job_id } = await res.json(); // res.status === 202
 
-const data = await res.json();
-// data.banners[].image_url  → PNG ready to use
-// data.banners[].html_url   → interactive HTML version
-console.log(data.banners);`;
+// 2. Poll until completed
+let creatives = [];
+while (true) {
+  await new Promise(r => setTimeout(r, 8000));
+  const poll = await fetch(
+    \`${domain}/api/v1/external/job-status.php?api_key=${key}&job_id=\${job_id}\`
+  );
+  const status = await poll.json();
+  if (status.status === 'completed') { creatives = status.creatives; break; }
+  if (status.status === 'failed')    { throw new Error(status.error); }
+}
+console.log(creatives); // creatives[].html_url / image_url`;
 
 const CODE_PYTHON = (key: string, domain: string) =>
   `import requests
 
 response = requests.post(
-    '${domain}/api/v1/ads/generate.php',
+    '${domain}/api/v1/external/generate-ads.php',
     headers={
         'Authorization': 'Bearer ${key}',
         'Content-Type': 'application/json',
     },
     json={
-        'brief': 'Nike Air Max 270 — modern sportswear for young adults',
+        'phone': '+5511999999999',
+        'gemini_api_key': 'AIza...',    # your Gemini key — omit to use platform default
+        'generate_as_image': False,     # True → rendered PNG, False → HTML
+        'company': {'name': 'Marca X', 'primary_color': '#FF0000'},
+        'campaign': {'name': 'Campanha Verão', 'offer': '30% off', 'cta_text': 'Comprar Agora'},
+        'formats': ['instagram-feed-square', 'instagram-story'],
     },
-    timeout=120,
+    timeout=300,
 )
 
 data = response.json()
-for banner in data['banners']:
-    print(banner['label'], banner['image_url'])`;
+job_id = data['job_id']  # poll /api/v1/external/job-status.php?job_id={job_id}
+print('Job started:', job_id)`;
 
 export function ApiKeyModal({ open, onClose }: Props) {
   const { user } = useAuth();
@@ -164,17 +196,29 @@ export function ApiKeyModal({ open, onClose }: Props) {
             )}
           </div>
 
-          {/* Endpoint info */}
+          {/* Endpoints */}
           <div>
-            <p className="text-sm font-medium text-foreground mb-2">Endpoint</p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 bg-muted border border-border rounded-lg px-4 py-2.5 text-sm font-mono truncate">
-                POST {domain}/api/v1/ads/generate.php
-              </code>
-              <Button size="sm" variant="outline" className="shrink-0 gap-1.5" onClick={() => copyText(`${domain}/api/v1/ads/generate.php`, 'url')}>
-                {copied === 'url' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                {copied === 'url' ? 'Copied' : 'Copy'}
-              </Button>
+            <p className="text-sm font-medium text-foreground mb-2">Endpoints</p>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <span className="shrink-0 text-xs font-bold text-primary bg-primary/10 rounded px-1.5 py-0.5">POST</span>
+                <code className="flex-1 bg-muted border border-border rounded-lg px-3 py-2 text-xs font-mono truncate">
+                  {domain}/api/v1/external/generate-ads.php
+                </code>
+                <Button size="sm" variant="outline" className="shrink-0 gap-1.5 h-8" onClick={() => copyText(`${domain}/api/v1/external/generate-ads.php`, 'url')}>
+                  {copied === 'url' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="shrink-0 text-xs font-bold text-green-600 bg-green-500/10 rounded px-1.5 py-0.5">GET</span>
+                <code className="flex-1 bg-muted border border-border rounded-lg px-3 py-2 text-xs font-mono truncate">
+                  {domain}/api/v1/external/job-status.php?api_key=…&job_id=…
+                </code>
+                <Button size="sm" variant="outline" className="shrink-0 gap-1.5 h-8" onClick={() => copyText(`${domain}/api/v1/external/job-status.php`, 'url2')}>
+                  {copied === 'url2' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">The POST returns <code className="text-foreground">202</code> instantly with a <code className="text-foreground">job_id</code>. Poll the GET endpoint every 5–10 s until <code className="text-foreground">status = "completed"</code> — then read <code className="text-foreground">creatives[]</code>.</p>
             </div>
           </div>
 
@@ -182,30 +226,37 @@ export function ApiKeyModal({ open, onClose }: Props) {
           <div>
             <p className="text-sm font-medium text-foreground mb-2">Request body</p>
             <div className="bg-muted border border-border rounded-lg p-4 text-xs font-mono text-muted-foreground space-y-1 leading-relaxed">
-              <div><span className="text-foreground font-semibold">brief</span> <span className="text-primary">string</span> — Text describing the brand, product and audience. The AI extracts all campaign details automatically.</div>
-              <div><span className="text-foreground font-semibold">form_data</span> <span className="text-primary">object</span> — Structured fields (brandName, productName, ctaText, logoUrl, brandColors…). Overrides anything extracted from the brief.</div>
-              <div className="pt-1 text-muted-foreground/70">At least one of <span className="text-foreground">brief</span> or <span className="text-foreground">form_data</span> is required. Both can be combined.</div>
+              <div><span className="text-foreground font-semibold">phone</span> <span className="text-primary">string*</span> — Company phone number. Same phone reuses the existing brand store.</div>
+              <div><span className="text-foreground font-semibold">company</span> <span className="text-primary">object*</span> — Brand data: name, industry, description, primary_color, logo_url, tone_of_voice…</div>
+              <div><span className="text-foreground font-semibold">campaign</span> <span className="text-primary">object*</span> — Campaign data: name, objective, offer, cta_text, product_image_url, funnel_stage…</div>
+              <div><span className="text-foreground font-semibold">formats</span> <span className="text-primary">string[]*</span> — Preset names: instagram-feed-square, instagram-story, facebook-feed-square, tiktok-feed…</div>
+              <div><span className="text-foreground font-semibold">gemini_api_key</span> <span className="text-muted-foreground">string</span> — Your Google Gemini API key. When provided, generation uses your key and quota.</div>
+              <div><span className="text-foreground font-semibold">generate_as_image</span> <span className="text-muted-foreground">boolean</span> — <code className="text-foreground">true</code> to get rendered PNG images, <code className="text-foreground">false</code> (default) for HTML creatives.</div>
+              <div className="pt-1 text-muted-foreground/70">* required fields</div>
             </div>
           </div>
 
           {/* Response */}
           <div>
-            <p className="text-sm font-medium text-foreground mb-2">Response</p>
+            <p className="text-sm font-medium text-foreground mb-2">Response — POST generate-ads</p>
             <div className="bg-muted border border-border rounded-lg p-4 text-xs font-mono text-muted-foreground leading-relaxed">
               <pre className="whitespace-pre-wrap">{`{
-  "success": true,
-  "campaign_url": "${domain}/projects/my-campaign/",
-  "banners": [
+  "job_id": 123,
+  "status": "completed",
+  "company_id": 456,
+  "campaign_id": 789,
+  "creative_count": 2,
+  "creatives": [
     {
-      "image_url": "${domain}/projects/my-campaign/images/b0.png",
-      "html_url":  "${domain}/projects/my-campaign/b0/",
-      "platform":  "instagram",
-      "format":    "square",
-      "label":     "Instagram Square 1080x1080",
-      "width":     1080,
-      "height":    1080
+      "id": 1,
+      "platform": "instagram",
+      "format": "square",
+      "label": "Instagram Feed Square",
+      "width": 1080,
+      "height": 1080,
+      "html_url":  "${domain}/projects/marca-x/campanha-verao/1/index.html",
+      "image_url": "${domain}/projects/marca-x/campanha-verao/1/banner.png"
     }
-    // ...more banners
   ]
 }`}</pre>
             </div>
@@ -244,7 +295,7 @@ export function ApiKeyModal({ open, onClose }: Props) {
                   {copied === 'code' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 </button>
               </div>
-              <p className="text-xs text-muted-foreground mt-2">Generation takes ~30–60 s. Set your HTTP client timeout accordingly.</p>
+              <p className="text-xs text-muted-foreground mt-2">POST returns 202 in &lt;5 s. Generation takes ~60–300 s. Poll job-status every 5–10 s until <code>status = "completed"</code>.</p>
             </div>
           )}
         </div>

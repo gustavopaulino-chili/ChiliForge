@@ -1,0 +1,93 @@
+LANDING PAGE HTML RENDERING CONTRACT
+====================================
+
+KEYWORDS:
+html, rendering, responsive, landing-page, accessibility, images, cta, forms,
+mobile, semantic-html
+
+
+CORE OUTPUT
+-----------
+
+Generate one complete landing page experience using semantic HTML and CSS.
+The page must be responsive across mobile, tablet, and desktop.
+
+Use:
+- semantic sections
+- accessible buttons/links/forms
+- responsive CSS
+- readable typography
+- optimized image sizing
+
+Avoid:
+- broken layouts on mobile
+- hidden CTAs
+- overlapping text
+- low contrast
+- decorative clutter without conversion purpose
+
+
+PAGE STRUCTURE
+--------------
+
+Recommended order:
+1. Hero
+2. Trust/proof strip
+3. Benefits or problem/solution
+4. Features/services
+5. How it works/process
+6. Social proof/testimonials/case proof
+7. Offer/pricing/lead magnet
+8. FAQ/objection handling
+9. Final CTA/contact
+
+Use only sections that match the requested project. Do not force pricing,
+testimonials, or FAQ if the data does not support them.
+
+
+CTA RULES
+---------
+
+Every page must have:
+- one primary CTA
+- repeated CTA placement at natural decision points
+- CTA text matching the conversion goal
+
+CTA must be visually distinct and clickable-looking.
+
+For WhatsApp/call goals, use contact-first CTA language.
+For lead generation, reduce friction and state what happens after submission.
+
+
+FORMS
+-----
+
+If using a form:
+- keep fields minimal
+- label every input
+- include a clear submit button
+- include trust/privacy reassurance when appropriate
+
+Do not ask for excessive information above the fold.
+
+
+IMAGE RULES
+-----------
+
+Provided company images, product images, logos, and hero images must be used
+when relevant.
+
+Use:
+- object-fit:cover for atmospheric/hero backgrounds
+- object-fit:contain for logos/product cutouts
+- overlays behind text on images
+
+Never stretch a logo or place unreadable text directly over a busy image.
+
+
+RESPONSIVE RULE
+---------------
+
+Mobile is not a compressed desktop layout. Re-stack sections, reduce type
+scale, and keep CTAs visible. Text must never overflow its container.
+

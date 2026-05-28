@@ -1,0 +1,130 @@
+LANDING PAGE INDUSTRY AND OBJECTIVE PATTERNS
+============================================
+
+KEYWORDS:
+industry, objective, SaaS, ecommerce, services, local business, healthcare,
+education, real estate, finance, event, app, restaurant, fitness, agency
+
+
+SaaS / Software
+---------------
+
+Best sections:
+- hero with product value
+- product screenshot or interface visual
+- benefits
+- feature grid
+- integrations/proof
+- demo CTA
+- FAQ
+
+Copy angle:
+Save time, reduce friction, improve workflow, increase visibility/control.
+
+
+Ecommerce / Product
+-------------------
+
+Best sections:
+- product-led hero
+- benefit bullets
+- product details
+- reviews/proof
+- offer/pricing
+- guarantee/shipping
+- FAQ
+
+Copy angle:
+Show product value fast. Use visuals and concrete benefits.
+
+
+Local Service
+-------------
+
+Best sections:
+- location-aware hero
+- services
+- why choose us
+- reviews
+- process
+- contact/booking CTA
+
+Copy angle:
+Trust, speed, local reliability, easy next step.
+
+
+Healthcare / Wellness
+---------------------
+
+Best sections:
+- calm hero
+- credibility
+- services/treatments
+- process
+- testimonials if real
+- FAQ
+- appointment CTA
+
+Copy angle:
+Trust, care, relief, professionalism. Avoid aggressive hype.
+
+
+Education / Course
+------------------
+
+Best sections:
+- transformation hero
+- who it is for
+- curriculum/outcomes
+- instructor proof
+- testimonials
+- enrollment CTA
+
+Copy angle:
+Skill gain, confidence, career/result transformation.
+
+
+Real Estate
+-----------
+
+Best sections:
+- property/service hero
+- location/value
+- benefits
+- gallery
+- proof/agent credibility
+- contact/booking CTA
+
+Copy angle:
+Lifestyle, location, trust, urgency if inventory is limited.
+
+
+Finance
+-------
+
+Best sections:
+- trust-first hero
+- problem/solution
+- process
+- credentials
+- FAQ
+- consultation CTA
+
+Copy angle:
+Clarity, confidence, risk reduction. Avoid unsupported guarantees.
+
+
+Event
+-----
+
+Best sections:
+- event hero with date
+- why attend
+- speakers/agenda
+- venue/online details
+- urgency
+- registration CTA
+
+Copy angle:
+Date, benefit, scarcity, community.
+

@@ -116,34 +116,24 @@ export function ImageUploadField({
         </div>
       )}
 
-      {/* Show preview or uploaded indicator */}
-      {value && (
-        <div className="flex items-center gap-2 p-2 rounded bg-muted">
-          {isUploaded ? (
-            <>
-              <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
-              <span className="text-xs text-muted-foreground">Uploaded image (will be used on site)</span>
-            </>
-          ) : isValid ? (
-            <>
-              <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
-              <span className="text-xs text-muted-foreground truncate">{value}</span>
-            </>
-          ) : null}
-          {value && (
-            <button
-              onClick={() => onChange('')}
-              className="ml-auto text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
+      {/* Image preview */}
+      {isValid && (
+        <div className="relative rounded-lg overflow-hidden border border-border bg-muted/30 h-24 flex items-center justify-center group">
+          <img
+            src={value}
+            alt={label}
+            className="max-h-full max-w-full object-contain"
+            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+          <button
+            onClick={() => onChange('')}
+            className="absolute top-1 right-1 rounded-full bg-background/80 p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:text-foreground"
+            title="Remove image"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
-
-      <p className="text-xs text-muted-foreground">
-        {isUploaded && '✓ This image will be automatically used on your landing page'}
-      </p>
     </div>
   );
 }

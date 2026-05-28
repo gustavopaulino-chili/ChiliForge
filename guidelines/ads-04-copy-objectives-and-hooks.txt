@@ -1,0 +1,151 @@
+AD COPY, OBJECTIVES, AND HOOKS
+==============================
+
+KEYWORDS:
+campaignObjective, funnelStage, copy, headline, cta, offer, urgency, sales,
+lead-generation, awareness, product-launch, retargeting, app-install, whatsapp,
+traffic, event
+
+
+COPY RULES
+----------
+
+Use the campaign language and tone.
+If exact copy is provided, preserve it.
+If AI copy is allowed, write short ad copy designed for the selected format.
+
+Good ad copy is specific:
+- clear audience
+- clear benefit
+- clear next step
+- one primary idea
+
+Avoid:
+- generic marketing filler
+- long paragraphs
+- multiple competing CTAs
+- claims not supported by campaign data
+
+
+campaignObjective=sales
+-----------------------
+
+Primary job: convert now.
+Use offer, price, discount, guarantee, scarcity, or product benefit.
+
+Visual/copy direction:
+- CTA is strong and visible
+- headline should make the value obvious
+- use offer badges when discount/scarcity exists
+- show product/service clearly
+
+CTA examples:
+Shop Now, Get Offer, Claim Deal, Start Today, Buy Now
+
+
+campaignObjective=lead-generation
+----------------------------------
+
+Primary job: reduce friction and make the form/lead action feel valuable.
+
+Visual/copy direction:
+- lead magnet, consultation, quote, demo, checklist, audit
+- trust indicators are useful
+- CTA should promise a low-risk action
+
+CTA examples:
+Get Free Quote, Book a Call, Download Guide, Get My Audit
+
+
+campaignObjective=awareness
+---------------------------
+
+Primary job: memory and recognition.
+
+Visual/copy direction:
+- brand statement
+- aspirational headline
+- strong logo/color presence
+- less hard-sell urgency
+
+CTA examples:
+Learn More, Discover, See How
+
+
+campaignObjective=product-launch
+--------------------------------
+
+Primary job: make newness obvious.
+
+Visual/copy direction:
+- "New", "Introducing", "Now available"
+- product is hero
+- badge/sticker can be used
+- make benefit immediate
+
+
+campaignObjective=retargeting
+-----------------------------
+
+Primary job: bring back people who already know the offer.
+
+Visual/copy direction:
+- familiar product/brand imagery
+- reminder angle
+- proof, guarantee, urgency, or objection handling
+- CTA can be more direct
+
+
+campaignObjective=app-install
+-----------------------------
+
+Primary job: show the app value fast.
+
+Visual/copy direction:
+- app screen or UI visual if available
+- benefit in one line
+- rating/proof if provided
+- CTA is install/open focused
+
+
+campaignObjective=whatsapp
+--------------------------
+
+Primary job: start a conversation.
+
+Visual/copy direction:
+- direct, human, low-friction
+- CTA should feel immediate
+- use "message", "chat", "talk" language
+
+
+campaignObjective=event
+-----------------------
+
+Primary job: communicate date, reason to attend, and urgency.
+
+Visual/copy direction:
+- date/time/location prominent if provided
+- speaker/benefit/proof if provided
+- urgency badge if seats or deadline exists
+
+
+FUNNEL STAGE
+------------
+
+funnelStage=awareness
+- emotional or curiosity hook
+- lighter CTA
+- brand memory matters
+
+funnelStage=consideration
+- benefits, differentiators, proof
+- explain why this solution
+
+funnelStage=conversion
+- offer, guarantee, urgency, action
+- CTA must be visually clear
+
+funnelStage=retention
+- loyalty, upgrade, repeat purchase, community
+

@@ -1,0 +1,178 @@
+LAYOUT VARIATION AND ANTI-CLONE RULES
+=====================================
+
+KEYWORDS:
+variation, anti-clone, campaign, Generate More, examples, approved examples,
+abTestingEnabled, abTestFocus, same layout, format variation
+
+
+CORE RULE
+---------
+
+Never create multiple formats by resizing the same design.
+Every selected format needs a composition that fits its natural shape.
+
+The campaign may share:
+- same offer
+- same visual language
+- same brand colors
+- same product/hero asset
+- same campaign promise
+
+But it must vary:
+- focal point placement
+- image crop
+- copy block shape
+- CTA placement
+- logo placement
+- background treatment
+- use of badges or proof
+
+
+FORMAT VARIATION REQUIREMENT
+----------------------------
+
+Between square, story, landscape, leaderboard, rectangle, and skyscraper,
+at least three of these must change:
+
+1. focal point location
+2. headline block position
+3. CTA position
+4. image crop or size
+5. background treatment
+6. logo placement
+7. badge/proof placement
+
+
+CREATIVE FREEDOM REQUIREMENT
+----------------------------
+
+Do not default to the safest balanced layout. Select a composition that feels
+like a designed ad for the specific brand, objective, image asset, and format.
+
+Before writing HTML, decide a concrete creative plan:
+- concept
+- headline and CTA
+- visual hierarchy
+- background treatment
+- product treatment
+- image role
+- text safe zone
+- product crop strategy
+- background overlay/readability strategy
+- visual focal point
+- biggest layout risk
+- logo treatment
+- color and typography treatment
+- A/B hypothesis when relevant
+
+The final banner must visibly execute that plan. A generic plan should be
+treated as a failed plan.
+
+For non-strip formats, choose one distinctive composition technique:
+- diagonal split
+- editorial poster
+- product cutout over depth layers
+- full-bleed image with gradient overlay
+- framed image panel
+- asymmetrical type block
+- offer badge / proof chip as a designed element
+- bold color-blocked product stage
+
+The selected technique should change when the ratio changes. Story, portrait,
+square, landscape, and rectangle should not share the same visual skeleton.
+
+
+STORY VS PORTRAIT ANTI-CLONE
+----------------------------
+
+Story 1080x1920:
+- immersive vertical mobile ad
+- full-screen rhythm
+- CTA can live near bottom safe area
+- larger vertical spacing
+- image may be full-bleed
+
+Portrait 4:5 1080x1350:
+- feed ad, not a story crop
+- more editorial/card-like
+- CTA usually lower third, not bottom edge
+- image crop or product panel should feel native to feed
+
+Never generate Story by stretching Portrait 4:5.
+Never generate Portrait 4:5 by cropping a Story.
+
+
+CAMPAIGN GENERATION
+-------------------
+
+When generating more creatives inside an existing campaign:
+- preserve the campaign promise
+- preserve approved learnings
+- do not replace old creatives conceptually
+- produce new design angles
+- avoid repeating the latest layout plan
+
+If previous creative plans are present, use them as history, not as templates.
+
+
+APPROVED EXAMPLES
+-----------------
+
+Approved examples are performance references.
+Do not copy exact HTML, exact coordinates, or exact composition.
+
+Analyze:
+- focal point
+- visual hierarchy
+- CTA treatment
+- color use
+- spacing density
+- format fit
+- what likely made the ad work
+
+Then remix:
+- keep the winning principle
+- change the arrangement
+- adapt to the requested format
+- make the result fresh
+
+
+A/B VARIATION
+-------------
+
+abTestFocus=headline
+- same layout family
+- different headline angle
+- do not change too many visual elements
+
+abTestFocus=cta
+- vary CTA text, CTA shape/color, or action framing
+- keep main message stable
+
+abTestFocus=visual
+- vary composition, crop, product position, or background treatment
+- keep copy stable
+
+abTestFocus=color
+- vary color dominance and CTA color
+- keep layout stable enough for comparison
+
+abTestFocus=mixed
+- vary headline, CTA, and one visual feature
+- make each variant meaningfully distinct
+
+
+ANTI-PATTERNS
+-------------
+
+Do not:
+- center everything in every format
+- place CTA bottom center in every format
+- use same split-panel across all ratios
+- use same crop for story and landscape
+- use square poster layout for 300x250
+- use story safe-zone layout for portrait 4:5
+- use portrait feed-card layout for story
+- generate a mini landing page
+- use decorative elements that do not support the message

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -16,6 +16,7 @@ import CampaignScreen from "./pages/CampaignScreen.tsx";
 import Auth from "./pages/Auth.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import GlobalStoreAdmin from "./pages/GlobalStoreAdmin.tsx";
+import { GlobalChatButton } from "@/components/GlobalChatButton";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,31 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AppRoutes() {
+  const { pathname } = useLocation();
+  const isCampaignPage = /^\/projects\/\d+\/campaigns\/\d+/.test(pathname);
+  return (
+    <>
+      <Routes>
+        <Route path="/auth" element={<Auth />} />
+        <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+        <Route path="/projects/new" element={<ProtectedRoute><ProjectSetup /></ProtectedRoute>} />
+        <Route path="/projects/:id" element={<ProtectedRoute><CompanyPage /></ProtectedRoute>} />
+        <Route path="/projects/:companyId/campaigns/:campaignId" element={<ProtectedRoute><CampaignScreen /></ProtectedRoute>} />
+        <Route path="/projects" element={<ProtectedRoute><History /></ProtectedRoute>} />
+        <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
+        <Route path="/visual-editor" element={<ProtectedRoute><VisualEditorPage /></ProtectedRoute>} />
+        <Route path="/ads-editor" element={<ProtectedRoute><AdsEditorPage /></ProtectedRoute>} />
+        <Route path="/ad-creatives" element={<ProtectedRoute><AdCreatives /></ProtectedRoute>} />
+        <Route path="/admin/global-stores" element={<ProtectedRoute><GlobalStoreAdmin /></ProtectedRoute>} />
+        {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+      {!isCampaignPage && <GlobalChatButton />}
+    </>
+  );
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -41,21 +67,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <Routes>
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-            <Route path="/projects/new" element={<ProtectedRoute><ProjectSetup /></ProtectedRoute>} />
-            <Route path="/projects/:id" element={<ProtectedRoute><CompanyPage /></ProtectedRoute>} />
-            <Route path="/projects/:companyId/campaigns/:campaignId" element={<ProtectedRoute><CampaignScreen /></ProtectedRoute>} />
-            <Route path="/projects" element={<ProtectedRoute><History /></ProtectedRoute>} />
-            <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
-            <Route path="/visual-editor" element={<ProtectedRoute><VisualEditorPage /></ProtectedRoute>} />
-            <Route path="/ads-editor" element={<ProtectedRoute><AdsEditorPage /></ProtectedRoute>} />
-            <Route path="/ad-creatives" element={<ProtectedRoute><AdCreatives /></ProtectedRoute>} />
-            <Route path="/admin/global-stores" element={<ProtectedRoute><GlobalStoreAdmin /></ProtectedRoute>} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <AppRoutes />
         </BrowserRouter>
       </TooltipProvider>
     </AuthProvider>

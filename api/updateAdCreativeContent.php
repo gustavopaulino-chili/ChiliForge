@@ -117,10 +117,15 @@ if (!$stmt->fetch()) {
 }
 $stmt->close();
 
+$targetPublicUrl = (string)$publicUrl;
+if (preg_match('/\.(png|jpe?g|webp|gif)(\?.*)?$/i', $targetPublicUrl)) {
+    $targetPublicUrl = preg_replace('/[^\/?#]+(?:\?.*)?$/', '', $targetPublicUrl);
+}
+
 $html = rewrite_project_asset_refs_for_ad_creative($html, (string)$projectPublicUrl, '../');
 
-$update = $conn->prepare("UPDATE ads_creatives SET generated_html = ?, updated_at = NOW() WHERE id = ?");
-$update->bind_param("si", $html, $creativeId);
+$update = $conn->prepare("UPDATE ads_creatives SET generated_html = ?, public_url = ?, updated_at = NOW() WHERE id = ?");
+$update->bind_param("ssi", $html, $targetPublicUrl, $creativeId);
 if (!$update->execute()) {
     http_response_code(500);
     echo json_encode(["error" => "Failed to update creative", "details" => $update->error]);
@@ -131,9 +136,9 @@ if (!$update->execute()) {
 $update->close();
 
 $writeWarning = null;
-if (is_string($publicUrl) && trim($publicUrl) !== '') {
+if (trim($targetPublicUrl) !== '') {
     try {
-        $creativeDir = resolve_ad_creative_directory_from_public_url((string)$publicUrl);
+        $creativeDir = resolve_ad_creative_directory_from_public_url($targetPublicUrl);
         ensure_directory($creativeDir);
         file_put_contents($creativeDir . DIRECTORY_SEPARATOR . 'index.html', $html);
     } catch (Throwable $error) {
@@ -144,7 +149,7 @@ if (is_string($publicUrl) && trim($publicUrl) !== '') {
 echo json_encode([
     "success" => true,
     "id" => $creativeId,
-    "url" => $publicUrl,
+    "url" => $targetPublicUrl,
     "warning" => $writeWarning,
 ]);
 

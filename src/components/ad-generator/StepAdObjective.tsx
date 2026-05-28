@@ -1,4 +1,7 @@
+import { useMemo } from 'react';
 import { AdCreativeFormData, CampaignObjective, FunnelStage } from '@/types/adCreativeForm';
+import { RecommendationHint } from './RecommendationHint';
+import { getRecommendedObjectives, recommendedOptionClass } from '@/lib/adRecommendations';
 
 interface Props {
   data: AdCreativeFormData;
@@ -53,6 +56,11 @@ const FUNNEL_STAGES: {
 ];
 
 export function StepAdObjective({ data, onChange }: Props) {
+  const recommendedObjectives = useMemo(
+    () => getRecommendedObjectives(data.funnelStage),
+    [data.funnelStage],
+  );
+
   return (
     <div className="space-y-8">
       <div>
@@ -112,23 +120,36 @@ export function StepAdObjective({ data, onChange }: Props) {
       <div className="space-y-3">
         <h4 className="text-sm font-semibold text-foreground">Campaign Objective</h4>
         <p className="text-xs text-muted-foreground">The main goal — used to optimize messaging and creative direction.</p>
+        <RecommendationHint enabled={recommendedObjectives.size > 0} />
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {OBJECTIVES.map(obj => (
-            <button
-              key={obj.value}
-              type="button"
-              onClick={() => onChange({ campaignObjective: data.campaignObjective === obj.value ? '' : obj.value })}
-              className={`rounded-lg border p-3 text-left transition-all ${
-                data.campaignObjective === obj.value
-                  ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                  : 'border-border hover:border-muted-foreground/30 bg-card'
-              }`}
-            >
-              <div className="text-lg mb-1">{obj.icon}</div>
-              <div className="font-medium text-xs text-foreground">{obj.label}</div>
-              <div className="text-xs text-muted-foreground mt-0.5 leading-tight">{obj.desc}</div>
-            </button>
-          ))}
+          {OBJECTIVES.map(obj => {
+            const selected = data.campaignObjective === obj.value;
+            const recommended = !selected && recommendedObjectives.has(obj.value);
+
+            return (
+              <button
+                key={obj.value}
+                type="button"
+                onClick={() => onChange({ campaignObjective: selected ? '' : obj.value })}
+                className={`rounded-lg border p-3 text-left transition-all ${
+                  selected
+                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                    : recommended
+                      ? recommendedOptionClass
+                      : 'border-border hover:border-muted-foreground/30 bg-card'
+                }`}
+              >
+                <div className="text-lg mb-1">{obj.icon}</div>
+                <div className="font-medium text-xs text-foreground">{obj.label}</div>
+                <div className="text-xs text-muted-foreground mt-0.5 leading-tight">{obj.desc}</div>
+                {recommended && (
+                  <div className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                    Recommended
+                  </div>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

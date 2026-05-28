@@ -1,0 +1,115 @@
+AD FINAL QUALITY CHECKLIST
+==========================
+
+KEYWORDS:
+quality-check, final-check, validate, visual-quality, non-cloned, text-fit,
+cta-visible, image-used, contrast, story, portrait-4-5, brand-personality
+
+Before final output, silently check every banner:
+
+
+TECHNICAL CHECK
+---------------
+
+- .ad-banner exists
+- BANNER_START/BANNER_END wrappers exist
+- width and height match requested format
+- all child elements are absolute positioned
+- .ad-banner root uses position:relative
+- .ad-banner root does not use flex/grid as the primary layout system
+- required layer classes exist when relevant: .ad-bg, .ad-logo, .ad-headline,
+  .ad-subheadline, .ad-media.ad-product, .ad-cta
+- every primary non-background layer has both horizontal and vertical
+  coordinates
+- no important content bleeds outside the frame
+- no external dependency is required except provided image/font URLs
+- every provided image URL appears verbatim in the final HTML
+- every .ad-banner can be extracted as its own standalone HTML document
+
+
+VISUAL CHECK
+------------
+
+- banner looks like a real paid ad
+- there is one clear focal point
+- headline is readable at final size
+- CTA is visible and clickable-looking
+- CTA is proportional to the format: not oversized, not tiny, one-line text
+- logo is visible but not overpowering
+- colors match company/campaign palette
+- tone of voice and brand personality are visible in the design
+- contrast is strong
+- images are not stretched or distorted
+- provided images are art-directed, not dumped raw into the center
+- background images have a readable text protection system
+- at least one ad-like design signal is present: offer badge, proof chip,
+  strong crop, designed CTA, layered depth, or distinctive composition
+
+
+COPY CHECK
+----------
+
+- headline is short enough for the format
+- CTA matches campaign objective
+- exact user copy is preserved when provided
+- no unsupported claim is introduced
+- no forbidden word is used
+
+
+FORMAT CHECK
+------------
+
+- story uses immersive vertical mobile composition
+- portrait 4:5 uses feed-ad composition, not story safe zones
+- leaderboard uses horizontal rhythm
+- mobile banner is extremely concise
+- medium rectangle is compact and not cluttered
+- square has strong poster hierarchy
+- landscape uses horizontal balance or cinematic crop
+
+
+VARIATION CHECK
+---------------
+
+Across formats, do not reuse the same:
+- headline coordinates
+- CTA coordinates
+- product crop
+- logo position
+- background treatment
+
+If two banners look like resized copies, revise one before final output.
+
+If story and portrait 4:5 look like resized versions of each other, revise both:
+story should feel immersive and full-screen; portrait 4:5 should feel like a
+premium in-feed ad.
+
+
+FAIL AND RETRY CONDITIONS
+-------------------------
+
+Retry or revise when:
+- no .ad-banner element is present
+- no image is used even though image asset was provided
+- a provided image URL is missing or replaced by a placeholder
+- a required primary layer is not position:absolute
+- .ad-banner relies on flex/grid, normal flow, margins, or wrapper layout for
+  the main composition
+- no CTA appears for conversion/lead/sales objectives
+- CTA is much too large, too small, clipped, or visually dominates the ad
+- text is invisible, overlaps, or appears outside the canvas
+- the same composition is repeated across ratios
+- leaderboard/mobile banners contain too much copy
+- story and portrait 4:5 use each other's layout logic
+- tone/personality/preferredStyle do not visibly affect the design
+- the result feels generic, template-like, or visually unfinished
+
+
+EXAMPLES CHECK
+--------------
+
+If approved examples exist:
+- use their winning principles
+- do not copy exact layout
+- do not copy exact HTML
+- adapt the idea to the requested format

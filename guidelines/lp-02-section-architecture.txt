@@ -1,0 +1,138 @@
+LANDING PAGE SECTION ARCHITECTURE
+=================================
+
+KEYWORDS:
+sections, hero, benefits, features, process, proof, testimonials, pricing,
+faq, contact, final-cta
+
+
+HERO SECTION
+------------
+
+Job:
+Explain who this is for, what is offered, and why the visitor should act.
+
+Required:
+- clear headline
+- supporting subheadline
+- primary CTA
+- brand/product/service visual signal
+
+Good hero patterns:
+- product/service visual as background or focal point
+- immersive image-backed hero when the offer depends on visual inspection
+- operational/product UI hero when the user needs to understand a tool
+- editorial hero when the brand is premium, luxury, or authority-led
+- concise value proposition
+- one trust/proof element if available
+- secondary action only if it helps
+
+Avoid:
+- vague headline
+- generic marketing language
+- hero that explains features before value
+- split text/media hero that feels like a template when a stronger full-bleed
+  or product-first hero would better communicate the offer
+
+
+TRUST / PROOF STRIP
+-------------------
+
+Use when available:
+- client logos
+- ratings
+- number of customers
+- years in business
+- certifications
+- guarantees
+- press mentions
+
+Keep proof compact and scannable.
+
+
+BENEFITS SECTION
+----------------
+
+Benefits answer: "What changes for me?"
+
+Use 3-6 benefit cards or rows.
+Each benefit should include:
+- outcome
+- short explanation
+- optional icon/visual
+
+Avoid turning benefits into generic features.
+Vary the section structure from the hero and features sections. Do not make
+every section a repeated card grid.
+
+
+FEATURES / SERVICES SECTION
+---------------------------
+
+Features answer: "What do I get?"
+
+For service businesses:
+- group services by customer need
+- emphasize results and deliverables
+
+For software/products:
+- show key capabilities
+- tie each feature to a user benefit
+- use real UI/product/service visuals when provided instead of abstract icons only
+
+
+PROCESS SECTION
+---------------
+
+Use when the buyer needs confidence.
+
+Pattern:
+1. First step / onboarding
+2. Main service/product experience
+3. Result / next action
+
+Keep process simple: 3-5 steps.
+
+
+SOCIAL PROOF SECTION
+--------------------
+
+Use testimonials, case metrics, before/after, reviews, or short proof blocks.
+
+If no real proof is provided, do not invent testimonials.
+Use softer proof such as guarantees, credentials, or process clarity.
+
+
+PRICING / OFFER SECTION
+-----------------------
+
+Use when pricing, discount, package, trial, quote, or offer is provided.
+
+Make the offer visually clear:
+- what is included
+- price or starting point
+- urgency/bonus if real
+- CTA
+
+
+FAQ SECTION
+-----------
+
+FAQ should handle objections:
+- price concerns
+- time required
+- who it is for
+- what happens after CTA
+- guarantees or cancellation
+
+Do not use FAQ for filler.
+
+
+FINAL CTA
+---------
+
+Summarize the promise and make action easy.
+Final CTA should match the primary conversion goal.
+Its tone should match the brand personality: premium final CTAs should feel
+calm and confident; urgent offers should feel direct; playful brands can use
+warmer language and shape.

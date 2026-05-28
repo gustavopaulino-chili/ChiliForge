@@ -101,12 +101,22 @@ export default function AdsEditorPage() {
   const [unsaved, setUnsaved] = useState(false);
   const originalHtmlRef = useRef('');
 
+  const hasSameOriginReferrer = () => {
+    try {
+      if (!document.referrer) return false;
+      const referrer = new URL(document.referrer);
+      return referrer.origin === window.location.origin && referrer.href !== window.location.href;
+    } catch {
+      return false;
+    }
+  };
+
   const navigateBackSafely = () => {
-    if (window.history.length > 1) {
+    if (window.history.length > 1 && hasSameOriginReferrer()) {
       navigate(-1);
       return;
     }
-    navigate('/ad-creatives');
+    navigate('/projects');
   };
 
   useEffect(() => {
@@ -255,8 +265,8 @@ export default function AdsEditorPage() {
   if (loadError || !project || !html) {
     return (
       <div className="min-h-screen bg-background p-6">
-        <Button variant="ghost" onClick={() => navigate('/ad-creatives')}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Ads
+        <Button variant="ghost" onClick={navigateBackSafely}>
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Projects
         </Button>
         <div className="mt-6 max-w-md">
           <p className="text-sm font-medium text-destructive mb-1">Could not open Ads Editor</p>

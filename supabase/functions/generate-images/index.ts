@@ -7,9 +7,11 @@ const corsHeaders = {
 };
 
 const DEFAULT_GEMINI_IMAGE_MODELS = [
-  "gemini-2.5-flash-image-preview",
-  "gemini-2.0-flash-preview-image-generation",
+  "gemini-2.5-flash-image",
 ];
+function isRetiredGeminiImageModel(model: string): boolean {
+  return /^gemini-2\.0-.*image/i.test(model) || /^gemini-2\.5-.*image-preview$/i.test(model);
+}
 
 const GEMINI_IMAGE_MODELS = Array.from(new Set([
   ...(Deno.env.get("GEMINI_IMAGE_MODELS") || Deno.env.get("GEMINI_IMAGE_MODEL") || "")
@@ -17,7 +19,7 @@ const GEMINI_IMAGE_MODELS = Array.from(new Set([
     .map((value: string) => value.trim())
     .filter(Boolean),
   ...DEFAULT_GEMINI_IMAGE_MODELS,
-])).slice(0, 5);
+])).filter((model) => !isRetiredGeminiImageModel(model)).slice(0, 5);
 
 const OPENAI_IMAGE_MODELS = (Deno.env.get("OPENAI_IMAGE_MODELS") || "gpt-image-1,dall-e-3")
   .split(",")

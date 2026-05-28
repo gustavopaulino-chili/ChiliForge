@@ -2,20 +2,24 @@ import { useState, useEffect, useRef, useCallback, type CSSProperties } from 're
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft, Sparkles, Download, Star, Send, Loader2, Check,
-  ZoomIn, Edit3, MessageSquare, LayoutGrid, FileText, Megaphone, Trash2, ImageIcon, Upload,
+  ZoomIn, Edit3, MessageSquare, LayoutGrid, FileText, Megaphone, Trash2, ImageIcon, Upload, RotateCcw, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  getCampaign, getAdCreatives, generateFromCampaign, campaignChat, markGoodExamples, removeCampaignExample,
+  getCampaign, getAdCreatives, campaignChat, markGoodExamples, removeCampaignExample,
   getCreativesHtml, sendCreativeHtmlToGlobalStore, getProjectAssets, uploadProjectAssets, deleteProjectAssetFile,
-  CampaignData, CampaignPlan, ChatMessage, CampaignChatResponse, CampaignExampleCreative,
-  type ProjectAsset,
+  prepareAdsFromCampaignPayload, renderAdsBatchViaAgent, interpretBatchesViaAgent,
+  createGenerationJob, updateGenerationJob, getGenerationJob, generateAdImages, generateAdBrandSpec,
+  updateAdCreativeContent, convertImageAdToHtml,
+  CampaignData, ChatMessage, CampaignChatResponse, CampaignExampleCreative,
+  type ProjectAsset, type GenerationJob, type GenerationJobBatch, type AdImageResult,
 } from '@/services/api';
 import { AD_PLATFORM_LABELS } from '@/types/adCreativeForm';
 import { toast } from 'sonner';
+import { Switch } from '@/components/ui/switch';
 
 const PREVIEW_MAX_W = 320;
 const PREVIEW_MAX_H = 400;
@@ -30,7 +34,61 @@ type GeneratedBanner = {
   width: number;
   height: number;
   html?: string;
+  imageUrl?: string;
+  is_image_mode?: boolean;
 };
+
+type AdFormatForBatch = {
+  platform: string;
+  format: string;
+  label: string;
+  width: number;
+  height: number;
+  enabled?: boolean;
+};
+
+type GenerationBatchState = {
+  id: string;
+  label: string;
+  formats: AdFormatForBatch[];
+  status: 'queued' | 'running' | 'saved' | 'failed' | 'cancelled';
+  savedCount?: number;
+  error?: string;
+};
+
+type CampaignGenerationJob = {
+  edgePayload: Record<string, unknown> & { accountType?: 'admin' | 'user'; campaignData?: Record<string, unknown> };
+  creativePlan: string;
+  batchSpecs: Array<{ label: string; spec: string }>;
+  formData: Record<string, unknown>;
+  projectId: number;
+  slugBase: string;
+  batches: GenerationBatchState[];
+  jobId?: number;
+};
+
+function getEnabledFormatsFromData(formData: Record<string, unknown>): AdFormatForBatch[] {
+  const selected = Array.isArray(formData.selectedFormats) ? formData.selectedFormats : [];
+  return selected
+    .filter((format: any) => format && format.enabled !== false && format.width && format.height)
+    .map((format: any) => ({
+      platform: String(format.platform || 'banner'),
+      format: String(format.format || 'ad'),
+      label: String(format.label || `${format.width}x${format.height}`),
+      width: Number(format.width || 1080),
+      height: Number(format.height || 1080),
+      enabled: true,
+    }));
+}
+
+function createFormatBatches(formData: Record<string, unknown>): GenerationBatchState[] {
+  return getEnabledFormatsFromData(formData).map((format, index) => ({
+    id: `${format.platform}-${format.format}-${format.width}x${format.height}-${index}`,
+    label: `${format.label || format.format} (${format.width}x${format.height})`,
+    formats: [format],
+    status: 'queued',
+  }));
+}
 
 function formatDate(iso: string) {
   if (!iso) return '';
@@ -85,6 +143,56 @@ function colorWithAlpha(color: string | undefined, alpha: number, fallback: stri
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
   return fallback;
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function isImageModeBanner(html: string | undefined, is_image_mode?: boolean): boolean {
+  if (is_image_mode) return true;
+  if (!html) return false;
+  const source = html.trim();
+  return /src=["']data:image\//.test(source)
+    || /<img[^>]+src=["'][^"']+\.(png|jpe?g|webp|gif)(\?[^"']*)?["']/i.test(source)
+    || /^data:image\//i.test(source)
+    || /^(https?:\/\/|\/).+\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(source);
+}
+
+function resolveImageBannerSource(banner: GeneratedBanner): string {
+  const candidates = [banner.imageUrl, banner.html, banner.url]
+    .map(value => String(value || '').trim())
+    .filter(Boolean);
+
+  for (const value of candidates) {
+    if (/^data:image\//i.test(value)) return value;
+    const srcMatch = value.match(/src=["'](data:image\/[^"']+|[^"']+\.(?:png|jpe?g|webp|gif)(?:\?[^"']*)?)["']/i);
+    if (srcMatch) return srcMatch[1];
+    if (/^(https?:\/\/|\/).+/i.test(value) && !/<[a-z][\s\S]*>/i.test(value)) return value;
+  }
+
+  return '';
+}
+
+function isImageBanner(banner: GeneratedBanner): boolean {
+  return isImageModeBanner(banner.html, banner.is_image_mode)
+    || isImageModeBanner(banner.imageUrl, false)
+    || isImageModeBanner(banner.url, false);
+}
+
+function extractImageDataFromHtml(raw: string): { base64: string; mimeType: string } | null {
+  const trimmed = raw.trim();
+  // Raw data URL stored directly (no HTML wrapper)
+  const rawMatch = trimmed.match(/^data:(image\/[^;]+);base64,([\s\S]{20,})$/);
+  if (rawMatch) return { mimeType: rawMatch[1], base64: rawMatch[2].trim() };
+  // Embedded inside HTML: <img src="data:image/...">
+  const htmlMatch = trimmed.match(/src=["'](data:(image\/[^;]+);base64,([^"']{20,}))["']/);
+  if (htmlMatch) return { mimeType: htmlMatch[2], base64: htmlMatch[3] };
+  return null;
 }
 
 function campaignPalette(formData: Record<string, unknown>) {
@@ -162,11 +270,15 @@ function ExampleCard({
   const scale = Math.min(220 / width, 180 / height, 1);
   const previewW = Math.round(width * scale);
   const previewH = Math.round(height * scale);
+  const exampleUrl = example.url || example.public_url || '';
+  const exampleImageUrl = example.image_url || '';
+  const isImageExample = Boolean(exampleImageUrl) || isImageModeBanner(exampleUrl, false);
+  const examplePreviewUrl = isImageExample ? (exampleImageUrl || exampleUrl) : exampleUrl;
 
   return (
     <div className="rounded-xl border border-border/50 bg-card/50 overflow-hidden">
       <div className="h-48 bg-black/80 flex items-center justify-center relative">
-        {example.url || example.public_url ? (
+        {examplePreviewUrl ? (
           <div
             style={{
               width: previewW,
@@ -177,21 +289,29 @@ function ExampleCard({
               boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
             }}
           >
-            <iframe
-              src={example.url || example.public_url}
-              title={example.label || example.name}
-              style={{
-                width,
-                height,
-                transform: `scale(${scale.toFixed(4)})`,
-                transformOrigin: 'top left',
-                border: 'none',
-                display: 'block',
-                pointerEvents: 'none',
-              }}
-              scrolling="no"
-              sandbox="allow-same-origin allow-scripts"
-            />
+            {isImageExample ? (
+              <img
+                src={examplePreviewUrl}
+                alt=""
+                style={{ width: previewW, height: previewH, objectFit: 'cover', display: 'block', pointerEvents: 'none' }}
+              />
+            ) : (
+              <iframe
+                src={examplePreviewUrl}
+                title={example.label || example.name}
+                style={{
+                  width,
+                  height,
+                  transform: `scale(${scale.toFixed(4)})`,
+                  transformOrigin: 'top left',
+                  border: 'none',
+                  display: 'block',
+                  pointerEvents: 'none',
+                }}
+                scrolling="no"
+                sandbox="allow-same-origin allow-scripts"
+              />
+            )}
           </div>
         ) : (
           <Star className="h-8 w-8 text-white/40" />
@@ -276,18 +396,63 @@ ${styles}
   }
 }
 
+function ImageBannerPreview({ banner, width, height }: { banner: GeneratedBanner; width: number; height: number }) {
+  const [src, setSrc] = useState<string | null>(() => resolveImageBannerSource(banner) || null);
+
+  useEffect(() => {
+    const directSource = resolveImageBannerSource(banner);
+    if (directSource) {
+      setSrc(directSource);
+      return;
+    }
+    if (src || !banner.url) return;
+    // Direct image file URL — use as-is without fetching content
+    if (/\.(png|jpe?g|webp)(\?|$)/i.test(banner.url)) {
+      setSrc(banner.url);
+      return;
+    }
+    fetch(banner.url)
+      .then(r => r.text())
+      .then(text => {
+        const trimmed = text.trim();
+        if (trimmed.startsWith('data:image/')) { setSrc(trimmed); return; }
+        const m = trimmed.match(/src=["'](data:image\/[^"']+)["']/);
+        if (m) setSrc(m[1]);
+      })
+      .catch(() => {});
+  }, [banner, src]);
+
+  if (!src) return (
+    <div style={{ width, height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <Loader2 className="h-5 w-5 animate-spin text-white/30" />
+    </div>
+  );
+
+  return (
+    <img
+      src={src}
+      alt=""
+      style={{ width, height, objectFit: 'cover', display: 'block', pointerEvents: 'none' }}
+    />
+  );
+}
+
 function BannerGrid({
   banners,
   selectedIds,
   newIds,
   onToggle,
   onSeen,
+  onConvert,
+  convertingId,
 }: {
   banners: GeneratedBanner[];
   selectedIds: Set<number>;
   newIds: Set<number>;
   onToggle: (id: number) => void;
   onSeen: (id: number) => void;
+  onConvert?: (banner: GeneratedBanner) => void;
+  convertingId?: number | null;
 }) {
   const [lightbox, setLightbox] = useState<GeneratedBanner | null>(null);
 
@@ -353,21 +518,25 @@ function BannerGrid({
                     background: '#fff',
                   }}
                 >
-                  <iframe
-                    src={banner.url}
-                    title={banner.label}
-                    style={{
-                      width: banner.width,
-                      height: banner.height,
-                      transform: `scale(${scale.toFixed(4)})`,
-                      transformOrigin: 'top left',
-                      border: 'none',
-                      display: 'block',
-                      pointerEvents: 'none',
-                    }}
-                    scrolling="no"
-                    sandbox="allow-same-origin allow-scripts"
-                  />
+                  {isImageBanner(banner) ? (
+                    <ImageBannerPreview banner={banner} width={previewW} height={previewH} />
+                  ) : (
+                    <iframe
+                      src={banner.url}
+                      title={banner.label}
+                      style={{
+                        width: banner.width,
+                        height: banner.height,
+                        transform: `scale(${scale.toFixed(4)})`,
+                        transformOrigin: 'top left',
+                        border: 'none',
+                        display: 'block',
+                        pointerEvents: 'none',
+                      }}
+                      scrolling="no"
+                      sandbox="allow-same-origin allow-scripts"
+                    />
+                  )}
                 </div>
                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/25 cursor-zoom-in rounded-t-xl">
                   <div className="flex items-center gap-1.5 bg-black/70 text-white text-xs px-3 py-1.5 rounded-full backdrop-blur-sm shadow">
@@ -400,19 +569,39 @@ function BannerGrid({
                     </span>
                   </p>
                 </div>
-                <button
-                  type="button"
-                  title="Edit in editor"
-                  className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors shrink-0"
-                  onClick={e => {
-                    e.stopPropagation();
-                    onSeen(banner.id);
-                    window.open(`/ads-editor?creativeId=${banner.creative_id || banner.id}`, '_blank', 'noopener,noreferrer');
-                  }}
-                >
-                  <Edit3 className="h-3.5 w-3.5" />
-                  Edit
-                </button>
+                {isImageBanner(banner) ? (
+                  onConvert && (
+                    <button
+                      type="button"
+                      title="Convert to editable HTML"
+                      disabled={convertingId === banner.id}
+                      className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 transition-colors shrink-0 disabled:opacity-50"
+                      onClick={e => {
+                        e.stopPropagation();
+                        onConvert(banner);
+                      }}
+                    >
+                      {convertingId === banner.id
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Sparkles className="h-3.5 w-3.5" />}
+                      {convertingId === banner.id ? 'Converting…' : 'To HTML'}
+                    </button>
+                  )
+                ) : (
+                  <button
+                    type="button"
+                    title="Edit in editor"
+                    className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors shrink-0"
+                    onClick={e => {
+                      e.stopPropagation();
+                      onSeen(banner.id);
+                      window.open(`/ads-editor?creativeId=${banner.creative_id || banner.id}`, '_blank', 'noopener,noreferrer');
+                    }}
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                    Edit
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -426,13 +615,21 @@ function BannerGrid({
           onClick={() => setLightbox(null)}
         >
           <div className="relative max-w-full max-h-full overflow-auto" onClick={e => e.stopPropagation()}>
-            <iframe
-              src={lightbox.url}
-              title={lightbox.label}
-              style={{ width: lightbox.width, height: lightbox.height, border: 'none', display: 'block', maxWidth: '90vw', maxHeight: '85vh' }}
-              scrolling="no"
-              sandbox="allow-same-origin allow-scripts"
-            />
+            {isImageBanner(lightbox) ? (
+              <ImageBannerPreview
+                banner={lightbox}
+                width={Math.min(lightbox.width, window.innerWidth * 0.9)}
+                height={Math.min(lightbox.height, window.innerHeight * 0.85)}
+              />
+            ) : (
+              <iframe
+                src={lightbox.url}
+                title={lightbox.label}
+                style={{ width: lightbox.width, height: lightbox.height, border: 'none', display: 'block', maxWidth: '90vw', maxHeight: '85vh' }}
+                scrolling="no"
+                sandbox="allow-same-origin allow-scripts"
+              />
+            )}
             <button
               className="absolute top-2 right-2 bg-black/70 text-white rounded-full h-7 w-7 flex items-center justify-center hover:bg-black transition-colors"
               onClick={() => setLightbox(null)}
@@ -488,9 +685,18 @@ export default function CampaignScreen() {
   const [campaign, setCampaign] = useState<CampaignData | null>(null);
   const [loading, setLoading] = useState(true);
   const [banners, setBanners] = useState<GeneratedBanner[]>([]);
+  const [convertingBannerId, setConvertingBannerId] = useState<number | null>(null);
+  const [isConvertingAll, setIsConvertingAll] = useState(false);
+  const [convertAllProgress, setConvertAllProgress] = useState({ done: 0, total: 0 });
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [newBannerIds, setNewBannerIds] = useState<Set<number>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationStatus, setGenerationStatus] = useState('');
+  const [generationBatches, setGenerationBatches] = useState<GenerationBatchState[]>([]);
+  const [generationPaused, setGenerationPaused] = useState(false);
+  const [generateAsImage, setGenerateAsImage] = useState(false);
+  const [resumableJob, setResumableJob] = useState<{ job: GenerationJob; batches: GenerationJobBatch[] } | null>(null);
   const [isMarkingExample, setIsMarkingExample] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSendingToStore, setIsSendingToStore] = useState(false);
@@ -501,6 +707,8 @@ export default function CampaignScreen() {
   const [uploadingAssets, setUploadingAssets] = useState(false);
   const [deletingAssetName, setDeletingAssetName] = useState<string | null>(null);
   const assetFileRef = useRef<HTMLInputElement>(null);
+  const generationCancelRef = useRef(false);
+  const generationJobRef = useRef<CampaignGenerationJob | null>(null);
 
   // Chat
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -538,16 +746,24 @@ export default function CampaignScreen() {
         if (data.project_id) {
           getAdCreatives(data.project_id, user.id).then((creatives: any[]) => {
             if (Array.isArray(creatives) && creatives.length) {
-              setBanners(creatives.map((c: any) => ({
-                id: c.id,
-                creative_id: c.creative_id || c.id,
-                url: c.public_url || c.url || '',
-                platform: c.platform || 'banner',
-                format: c.format || 'ad',
-                label: c.label || c.name || `Creative ${c.id}`,
-                width: c.width || 1080,
-                height: c.height || 1080,
-              })));
+              setBanners(creatives.map((c: any) => {
+                const url = c.public_url || c.url || '';
+                const source = c.image_url || c.generated_html || url;
+                const isImage = Boolean(c.is_image_mode) || isImageModeBanner(source, false);
+                return {
+                  id: c.id,
+                  creative_id: c.creative_id || c.id,
+                  url,
+                  platform: c.platform || 'banner',
+                  format: c.format || 'ad',
+                  label: c.label || c.name || `Creative ${c.id}`,
+                  width: c.width || 1080,
+                  height: c.height || 1080,
+                  is_image_mode: isImage,
+                  html: isImage ? (c.generated_html || '') : undefined,
+                  imageUrl: isImage ? (source || undefined) : undefined,
+                };
+              }));
             }
           }).catch(() => {});
         }
@@ -555,6 +771,19 @@ export default function CampaignScreen() {
       .catch(err => toast.error(err.message || 'Failed to load campaign'))
       .finally(() => setLoading(false));
   }, [user?.id, campaignId, loadAssets]);
+
+  // Check for a resumable in-progress job whenever the campaign loads
+  useEffect(() => {
+    if (!user?.id || !campaignId || isGenerating) return;
+    getGenerationJob({ user_id: user.id, campaign_id: Number(campaignId) })
+      .then(({ job, batches }) => {
+        if (job && (job.status === 'running' || job.status === 'queued')) {
+          const hasUnfinished = batches.some(b => b.status === 'queued' || b.status === 'failed');
+          if (hasUnfinished) setResumableJob({ job, batches });
+        }
+      })
+      .catch(() => {});
+  }, [user?.id, campaignId, isGenerating]);
 
   const toggleBanner = useCallback((id: number) => {
     setSelectedIds(prev => {
@@ -573,99 +802,442 @@ export default function CampaignScreen() {
     });
   }, []);
 
+  const updateGenerationBatch = useCallback((index: number, patch: Partial<GenerationBatchState>) => {
+    setGenerationBatches(prev => prev.map((batch, i) => i === index ? { ...batch, ...patch } : batch));
+  }, []);
+
+  const publishGeneratedBatch = useCallback(async (
+    job: CampaignGenerationJob,
+    result: any,
+    batchIndex: number,
+  ) => {
+    if (!user?.id || !campaign) throw new Error('Campaign is not available.');
+    if (!result.html?.trim()) throw new Error('AI did not return HTML.');
+
+    const rawHtml = result.html.trim();
+    const finalHtml = /<!DOCTYPE|<html/i.test(rawHtml)
+      ? rawHtml
+      : `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AD Creatives - ${campaign.name}</title><style>${result.css || ''}</style></head><body>${rawHtml}<script>${result.js || ''}<\/script></body></html>`;
+    const bannerPayload = extractBanners(finalHtml, Array.isArray(result.formats) ? result.formats : job.batches[batchIndex].formats);
+    if (!bannerPayload.length) throw new Error('No banner was found in this batch.');
+
+    const publishResponse = await fetch('/api/publishAdCreative.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project_id: job.projectId,
+        user_id: user.id,
+        name: campaign.name,
+        slug: `ad-${job.slugBase || 'campaign'}-${Date.now()}`,
+        form_data: job.formData,
+        html: finalHtml,
+        current_step: 8,
+        banners: bannerPayload,
+        append_banners: true,
+      }),
+    });
+
+    const saved = await publishResponse.json();
+    if (!saved?.success) {
+      const message = [saved?.error, saved?.details].filter(Boolean).join(' - ');
+      throw new Error(message || 'Failed to save creatives.');
+    }
+
+    const newBanners: GeneratedBanner[] = Array.isArray(saved.banners)
+      ? saved.banners.map((banner: GeneratedBanner, index: number) => ({
+          ...banner,
+          html: bannerPayload[index]?.html || banner.html || '',
+        }))
+      : [];
+
+    setBanners(prev => [...newBanners, ...prev]);
+    setNewBannerIds(prev => {
+      const next = new Set(prev);
+      newBanners.forEach((banner) => next.add(banner.id));
+      return next;
+    });
+
+    return newBanners.length;
+  }, [campaign, user?.id]);
+
+  const publishGeneratedImageAds = useCallback(async (
+    images: AdImageResult[],
+    formData: Record<string, unknown>,
+  ) => {
+    if (!user?.id || !campaign) throw new Error('Campaign is not available.');
+    const validImages = images.filter((image) => image.imageUrl);
+    if (!validImages.length) throw new Error('AI did not return any ad images.');
+
+    const bannerPayload = validImages.map((image, index) => ({
+      platform: image.platform || 'banner',
+      format: image.format || 'ad',
+      label: image.label || `Image Ad ${index + 1}`,
+      width: Number(image.width || 1080),
+      height: Number(image.height || 1080),
+      html: image.imageUrl || '',
+      is_image_mode: true,
+    }));
+
+    const slugBase = (campaign.name || 'campaign')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    const publishResponse = await fetch('/api/publishAdCreative.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project_id: campaign.project_id,
+        user_id: user.id,
+        name: campaign.name,
+        slug: `ad-${slugBase || 'campaign'}-${Date.now()}`,
+        form_data: { ...formData, generate_as_image: true },
+        html: '',
+        current_step: 8,
+        banners: bannerPayload,
+        append_banners: true,
+      }),
+    });
+
+    const saved = await publishResponse.json();
+    if (!saved?.success) {
+      const message = [saved?.error, saved?.details].filter(Boolean).join(' - ');
+      throw new Error(message || 'Failed to save image creatives.');
+    }
+
+    const newBanners: GeneratedBanner[] = Array.isArray(saved.banners)
+      ? saved.banners.map((banner: GeneratedBanner, index: number) => ({
+          ...banner,
+          imageUrl: banner.imageUrl || validImages[index]?.imageUrl || undefined,
+          is_image_mode: true,
+        }))
+      : [];
+
+    setBanners(prev => [...newBanners, ...prev]);
+    setNewBannerIds(prev => {
+      const next = new Set(prev);
+      newBanners.forEach((banner) => next.add(banner.id));
+      return next;
+    });
+
+    return newBanners.length;
+  }, [campaign, user?.id]);
+
+  const runCampaignGenerationJob = useCallback(async (job: CampaignGenerationJob, onlyBatchIndex?: number) => {
+    const indexes = typeof onlyBatchIndex === 'number'
+      ? [onlyBatchIndex]
+      : job.batches.map((_, index) => index).filter(index => job.batches[index].status !== 'saved');
+
+    setIsGenerating(true);
+    setGenerationPaused(false);
+
+    for (const batchIndex of indexes) {
+      if (generationCancelRef.current) {
+        updateGenerationBatch(batchIndex, { status: 'cancelled' });
+        setGenerationStatus('Generation cancelled.');
+        setGenerationPaused(true);
+        setIsGenerating(false);
+        return;
+      }
+
+      const batch = job.batches[batchIndex];
+      updateGenerationBatch(batchIndex, { status: 'running', error: undefined });
+      setGenerationStatus(`Generating ${batch.label}...`);
+
+      try {
+        const spec = job.batchSpecs.find((s) => s.label === batch.label)?.spec
+          || job.batchSpecs[batchIndex]?.spec
+          || "";
+        const result = await renderAdsBatchViaAgent(
+          job.edgePayload,
+          batch.formats,
+          spec,
+          batchIndex,
+          job.batches.length,
+          "render",
+        );
+        const savedCount = await publishGeneratedBatch(job, result, batchIndex);
+        job.batches[batchIndex] = { ...job.batches[batchIndex], status: 'saved', savedCount };
+        updateGenerationBatch(batchIndex, { status: 'saved', savedCount });
+
+        if (job.jobId && user?.id) {
+          void updateGenerationJob({ job_id: job.jobId, user_id: user.id, action: 'save_batch', batch_index: batchIndex, saved_count: savedCount }).catch(() => {});
+        }
+
+        const savedTotal = job.batches.filter(item => item.status === 'saved').length;
+        setGenerationProgress(Math.round(20 + (savedTotal / job.batches.length) * 80));
+      } catch (err: any) {
+        const message = err?.message || 'Batch failed.';
+        job.batches[batchIndex] = { ...job.batches[batchIndex], status: 'failed', error: message };
+        updateGenerationBatch(batchIndex, { status: 'failed', error: message });
+        setGenerationStatus(`Batch failed: ${batch.label}`);
+        setGenerationPaused(true);
+        toast.error(message);
+
+        if (job.jobId && user?.id) {
+          void updateGenerationJob({ job_id: job.jobId, user_id: user.id, action: 'fail_batch', batch_index: batchIndex, error: message }).catch(() => {});
+        }
+        return;
+      }
+    }
+
+    const failed = job.batches.filter(item => item.status === 'failed').length;
+    const saved = job.batches.filter(item => item.status === 'saved').length;
+    if (failed === 0 && saved === job.batches.length) {
+      setGenerationProgress(100);
+      setGenerationStatus('All batches saved.');
+      setIsGenerating(false);
+      setGenerationPaused(false);
+      setResumableJob(null);
+      if (job.jobId && user?.id) {
+        void updateGenerationJob({ job_id: job.jobId, user_id: user.id, action: 'complete' }).catch(() => {});
+      }
+      const freshCampaign = user?.id ? await getCampaign(campaign!.id, user.id).catch(() => null) : null;
+      if (freshCampaign) setCampaign(freshCampaign);
+      toast.success(`${saved} batch${saved > 1 ? 'es' : ''} generated and saved.`);
+    }
+  }, [campaign, publishGeneratedBatch, updateGenerationBatch, user?.id]);
+
+  const handleRetryBatch = useCallback(async (batchIndex: number) => {
+    const job = generationJobRef.current;
+    if (!job) return;
+    generationCancelRef.current = false;
+    job.batches[batchIndex] = { ...job.batches[batchIndex], status: 'queued', error: undefined };
+    updateGenerationBatch(batchIndex, { status: 'queued', error: undefined });
+    if (job.jobId && user?.id) {
+      void updateGenerationJob({ job_id: job.jobId, user_id: user.id, action: 'retry_batch', batch_index: batchIndex }).catch(() => {});
+    }
+    await runCampaignGenerationJob(job);
+  }, [runCampaignGenerationJob, updateGenerationBatch, user?.id]);
+
+  const handleCancelGeneration = useCallback(() => {
+    generationCancelRef.current = true;
+    setGenerationStatus('Cancelling after the current batch...');
+    const job = generationJobRef.current;
+    if (job?.jobId && user?.id) {
+      void updateGenerationJob({ job_id: job.jobId, user_id: user.id, action: 'cancel' }).catch(() => {});
+    }
+  }, [user?.id]);
+
   const handleGenerate = useCallback(async (formOverrides?: Record<string, unknown>) => {
     if (!user?.id || !campaign) return;
     setIsGenerating(true);
+    setGenerationPaused(false);
+    setGenerationProgress(3);
+    setGenerationStatus('Preparing campaign generation...');
+    generationCancelRef.current = false;
+    generationJobRef.current = null;
+
     try {
       const resolvedCompanyProjectId = campaign.company_project_id || Number(companyId) || 0;
       const nextFormData = {
         ...campaign.form_data,
         ...(formOverrides || {}),
       };
-      const result = await generateFromCampaign({
+      const batches = createFormatBatches(nextFormData);
+      if (!batches.length) throw new Error('No enabled ad formats found.');
+      setGenerationBatches(batches);
+
+      if (generateAsImage) {
+        // Generate one format per edge function call to stay within the 150s Supabase limit.
+        // Sequential calls via PHP (set_time_limit=600) instead of one big parallel call.
+        const allImages: import('@/services/api').AdImageResult[] = [];
+
+        // Extract brand/store spec once before the loop — keeps image calls memory-safe
+        setGenerationStatus('Analyzing brand guidelines...');
+        const brandSpec = await generateAdBrandSpec({
+          user_id: user.id,
+          company_project_id: resolvedCompanyProjectId,
+          campaign_id: campaign.id,
+          form_data: nextFormData,
+        });
+
+        for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+          if (generationCancelRef.current) {
+            updateGenerationBatch(batchIndex, { status: 'cancelled' });
+            setGenerationStatus('Generation cancelled.');
+            setGenerationPaused(true);
+            setIsGenerating(false);
+            return;
+          }
+
+          const batch = batches[batchIndex];
+          updateGenerationBatch(batchIndex, { status: 'running' });
+          setGenerationStatus(`Generating ${batch.label}...`);
+          setGenerationProgress(18 + Math.round((batchIndex / batches.length) * 58));
+
+          // Build form data with only this batch's format enabled
+          const batchFormData = {
+            ...nextFormData,
+            selectedFormats: (nextFormData.selectedFormats as Record<string, unknown>[] || []).map((f) => {
+              const isTarget = batch.formats.some(
+                (bf) => bf.platform === f['platform'] && bf.format === f['format'] &&
+                        Number(bf.width) === Number(f['width']) && Number(bf.height) === Number(f['height'])
+              );
+              return { ...f, enabled: isTarget ? f['enabled'] !== false : false };
+            }),
+          };
+
+          try {
+            const imageResult = await generateAdImages({
+              user_id: user.id,
+              company_project_id: resolvedCompanyProjectId,
+              campaign_id: campaign.id,
+              form_data: batchFormData,
+              brand_spec: brandSpec || undefined,
+            });
+            const batchImages = (imageResult.images || []).filter(img => img.imageUrl);
+            allImages.push(...batchImages);
+            updateGenerationBatch(batchIndex, { status: 'saved', savedCount: batchImages.length });
+          } catch (err: any) {
+            const message = err?.message || 'Image generation failed.';
+            updateGenerationBatch(batchIndex, { status: 'failed', error: message });
+            setGenerationStatus(`Failed: ${batch.label}`);
+            setGenerationPaused(true);
+            setIsGenerating(false);
+            toast.error(`${batch.label}: ${message}`);
+            return;
+          }
+        }
+
+        if (!allImages.length) {
+          toast.error('No images were generated. Try again.');
+          setIsGenerating(false);
+          return;
+        }
+
+        setGenerationProgress(78);
+        setGenerationStatus('Saving image ads to the campaign board...');
+        const savedCount = await publishGeneratedImageAds(allImages, nextFormData);
+        setGenerationProgress(100);
+        setGenerationStatus('Image ads saved.');
+        setIsGenerating(false);
+        setGenerationPaused(false);
+        const freshCampaign = await getCampaign(campaign.id, user.id).catch(() => null);
+        if (freshCampaign) setCampaign(freshCampaign);
+        toast.success(`${savedCount} image ad${savedCount !== 1 ? 's' : ''} generated and saved.`);
+        return;
+      }
+
+      const prepared = await prepareAdsFromCampaignPayload({
         user_id: user.id,
         company_project_id: resolvedCompanyProjectId,
         campaign_id: campaign.id,
         form_overrides: formOverrides,
       });
-      if (!result.html?.trim()) {
-        throw new Error('AI did not return HTML.');
+
+      setGenerationProgress(10);
+      setGenerationStatus('Interpreting brand and design guidelines...');
+      let batchSpecs: Array<{ label: string; spec: string }> = [];
+      try {
+        const allFormats = batches.flatMap(b => b.formats);
+        const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, allFormats);
+        batchSpecs = interpretation.batchSpecs || [];
+      } catch (err: any) {
+        const msg = err?.message || '';
+        if (/\b(504|546)\b|gateway|timed out|unavailable/i.test(msg)) {
+          await new Promise((r) => setTimeout(r, 4000));
+          const allFormats = batches.flatMap(b => b.formats);
+          const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, allFormats);
+          batchSpecs = interpretation.batchSpecs || [];
+        } else throw err;
       }
 
-      const rawHtml = result.html.trim();
-      const resultAny = result as any;
-      const finalHtml = /<!DOCTYPE|<html/i.test(rawHtml)
-        ? rawHtml
-        : `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AD Creatives - ${campaign.name}</title><style>${resultAny.css || ''}</style></head><body>${rawHtml}<script>${resultAny.js || ''}<\/script></body></html>`;
-      const bannerPayload = extractBanners(finalHtml, Array.isArray(result.formats) ? result.formats : []);
-      if (!bannerPayload.length) {
-        throw new Error('No banner was found in the generated HTML.');
-      }
+      setGenerationProgress(18);
+      setGenerationStatus('Creating generation job...');
+      const jobResult = await createGenerationJob({
+        user_id: user.id,
+        company_project_id: resolvedCompanyProjectId,
+        campaign_id: campaign.id,
+        project_id: campaign.project_id || undefined,
+        batches: batches.map(b => ({ label: b.label, formats: b.formats })),
+        creative_plan: batchSpecs.map(s => `[${s.label}]\n${s.spec}`).join('\n\n'),
+      });
+      setResumableJob(null);
 
       const slugBase = (campaign.name || 'campaign')
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '');
-      const publishResponse = await fetch('/api/publishAdCreative.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          project_id: campaign.project_id,
-          user_id: user.id,
-          name: campaign.name,
-          slug: `ad-${slugBase || 'campaign'}-${Date.now()}`,
-          form_data: nextFormData,
-          html: finalHtml,
-          current_step: 8,
-          banners: bannerPayload,
-          append_banners: true,
-        }),
-      });
 
-      const saved = await publishResponse.json();
-      if (!saved?.success) {
-        const message = [saved?.error, saved?.details].filter(Boolean).join(' - ');
-        throw new Error(message || 'Failed to save creatives.');
-      }
-
-      const newBanners: GeneratedBanner[] = Array.isArray(saved.banners)
-        ? saved.banners.map((banner: GeneratedBanner, index: number) => ({
-            ...banner,
-            html: bannerPayload[index]?.html || banner.html || '',
-          }))
-        : [];
-
-      setBanners(prev => [...newBanners, ...prev]);
-      setNewBannerIds(prev => {
-        const next = new Set(prev);
-        newBanners.forEach((banner) => next.add(banner.id));
-        return next;
-      });
-      const generatedPlan: CampaignPlan | null = result.creativePlan?.trim()
-        ? {
-            date: new Date().toISOString(),
-            plan: result.creativePlan.trim(),
-            formats: Array.isArray(result.formats) ? result.formats.map((format) => format.label).filter(Boolean) : [],
-            source: 'campaign_chat',
-          }
-        : null;
-      const freshCampaign = await getCampaign(campaign.id, user.id).catch(() => null);
-      if (freshCampaign) {
-        setCampaign(
-          generatedPlan && freshCampaign.creative_plans.length === 0
-            ? { ...freshCampaign, creative_plans: [generatedPlan] }
-            : freshCampaign
-        );
-      } else if (generatedPlan) {
-        setCampaign(prev => prev ? { ...prev, creative_plans: [generatedPlan, ...prev.creative_plans] } : prev);
-      }
-      toast.success(`${newBanners.length} creative${newBanners.length > 1 ? 's' : ''} generated!`);
+      const job: CampaignGenerationJob = {
+        edgePayload: prepared.edgePayload,
+        creativePlan: batchSpecs.map(s => `[${s.label}]\n${s.spec}`).join('\n\n'),
+        batchSpecs,
+        formData: prepared.edgePayload.campaignData || nextFormData,
+        projectId: campaign.project_id,
+        slugBase,
+        batches,
+        jobId: jobResult.job_id,
+      };
+      generationJobRef.current = job;
+      setGenerationProgress(20);
+      await runCampaignGenerationJob(job);
     } catch (err: any) {
       toast.error(err.message || 'Failed to generate creatives');
-    } finally {
-      setIsGenerating(false);
+      setGenerationStatus(err.message || 'Generation failed.');
+      setGenerationPaused(true);
+      if (!generationJobRef.current) setIsGenerating(false);
     }
-  }, [user?.id, campaign, companyId]);
+  }, [user?.id, campaign, companyId, generateAsImage, publishGeneratedImageAds, runCampaignGenerationJob]);
+
+  const handleResumeJob = useCallback(async () => {
+    if (!user?.id || !campaign || !resumableJob) return;
+    const { job, batches: dbBatches } = resumableJob;
+    setResumableJob(null);
+    setIsGenerating(true);
+    setGenerationPaused(false);
+    setGenerationProgress(5);
+    setGenerationStatus('Resuming — re-preparing campaign...');
+    generationCancelRef.current = false;
+
+    try {
+      const resolvedCompanyProjectId = campaign.company_project_id || Number(companyId) || 0;
+      const prepared = await prepareAdsFromCampaignPayload({
+        user_id: user.id,
+        company_project_id: resolvedCompanyProjectId,
+        campaign_id: campaign.id,
+      });
+
+      // Map DB batch statuses back to React state
+      const restoredBatches: GenerationBatchState[] = dbBatches.map((db, i) => ({
+        id: `resume-batch-${i}`,
+        label: db.label || `Batch ${i + 1}`,
+        formats: db.formats as AdFormatForBatch[],
+        status: db.status === 'completed' ? 'saved' : db.status === 'failed' ? 'failed' : 'queued',
+        savedCount: db.saved_count || 0,
+        error: db.error || undefined,
+      }));
+      setGenerationBatches(restoredBatches);
+
+      const creativePlan = job.creative_plan || '';
+      const slugBase = (campaign.name || 'campaign').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+      const savedSpecs = creativePlan
+        ? creativePlan.split(/\n\n(?=\[)/).map((block) => {
+            const labelMatch = block.match(/^\[([^\]]+)\]/);
+            return { label: labelMatch?.[1] || '', spec: block.replace(/^\[[^\]]+\]\n/, '') };
+          })
+        : [];
+      const resumeJob: CampaignGenerationJob = {
+        edgePayload: prepared.edgePayload,
+        creativePlan,
+        batchSpecs: savedSpecs,
+        formData: prepared.edgePayload.campaignData || campaign.form_data || {},
+        projectId: job.project_id || campaign.project_id,
+        slugBase,
+        batches: restoredBatches,
+        jobId: job.id,
+      };
+      generationJobRef.current = resumeJob;
+      setGenerationProgress(20);
+      await runCampaignGenerationJob(resumeJob);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to resume generation');
+      setGenerationStatus(err.message || 'Resume failed.');
+      setGenerationPaused(true);
+      if (!generationJobRef.current) setIsGenerating(false);
+    }
+  }, [user?.id, campaign, companyId, resumableJob, runCampaignGenerationJob]);
 
   const handleMarkExample = useCallback(async () => {
     if (!user?.id || !campaign || selectedIds.size === 0) return;
@@ -848,6 +1420,236 @@ export default function CampaignScreen() {
     }
   }, [user?.id, selectedIds, banners]);
 
+  const handleConvertImageToHtml = useCallback(async (banner: GeneratedBanner) => {
+    if (!user?.id || !campaign) return;
+
+    // Priority: in-memory imageUrl → stored html → fetch from URL
+    let rawSource = banner.imageUrl || banner.html || '';
+    if (!rawSource && banner.url) {
+      try {
+        if (/\.(png|jpe?g|webp)(\?|$)/i.test(banner.url)) {
+          // Banner is stored as a real image file — fetch as blob and convert to data URL
+          const res = await fetch(banner.url);
+          const blob = await res.blob();
+          rawSource = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } else {
+          rawSource = await fetch(banner.url).then(r => r.text());
+        }
+      } catch {
+        toast.error('Could not load banner content.');
+        return;
+      }
+    }
+
+    const imageData = extractImageDataFromHtml(rawSource);
+    if (!imageData) { toast.error('Could not extract image data from this banner.'); return; }
+
+    const resolvedCompanyProjectId = campaign.company_project_id || Number(companyId) || 0;
+    if (!resolvedCompanyProjectId) { toast.error('Company data not found.'); return; }
+
+    setConvertingBannerId(banner.id);
+    toast.info('Converting image to HTML — this may take 15–30 seconds…');
+
+    try {
+      const prepared = await prepareAdsFromCampaignPayload({
+        user_id: user.id,
+        company_project_id: resolvedCompanyProjectId,
+        campaign_id: campaign.id,
+      });
+
+      const result = await convertImageAdToHtml(prepared.edgePayload as Record<string, unknown>, {
+        imageBase64: imageData.base64,
+        mimeType: imageData.mimeType,
+        format: {
+          platform: banner.platform,
+          format: banner.format,
+          label: banner.label,
+          width: banner.width,
+          height: banner.height,
+        },
+        campaignData: prepared.edgePayload.campaignData as Record<string, unknown>,
+        creativePlan: '',
+      });
+
+      if (!result.html?.trim()) throw new Error('Conversion returned empty HTML.');
+
+      let updatedUrl = banner.url;
+      try {
+        const updateResult = await updateAdCreativeContent({ id: banner.creative_id || banner.id, user_id: user.id, html: result.html });
+        updatedUrl = updateResult?.url || updatedUrl;
+      } catch {
+        toast.warning('Converted but could not save to database. Refreshing may lose changes.');
+      }
+
+      setBanners(prev => prev.map(b => b.id === banner.id ? { ...b, url: updatedUrl, html: result.html, imageUrl: undefined, is_image_mode: false } : b));
+      toast.success('Converted to HTML! Banner is now editable.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to convert image to HTML.');
+    } finally {
+      setConvertingBannerId(null);
+    }
+  }, [user?.id, campaign, companyId]);
+
+  const handleConvertAllImageBanners = useCallback(async () => {
+    if (!user?.id || !campaign) return;
+    const currentFiltered = activePlatform === 'all' ? banners : banners.filter(b => b.platform === activePlatform);
+    const imageBannerList = currentFiltered.filter(isImageBanner);
+    if (!imageBannerList.length) return;
+    const resolvedCompanyProjectId = campaign.company_project_id || Number(companyId) || 0;
+    if (!resolvedCompanyProjectId) { toast.error('Company data not found.'); return; }
+
+    setIsConvertingAll(true);
+    setConvertAllProgress({ done: 0, total: imageBannerList.length });
+
+    let prepared: any;
+    try {
+      prepared = await prepareAdsFromCampaignPayload({
+        user_id: user.id,
+        company_project_id: resolvedCompanyProjectId,
+        campaign_id: campaign.id,
+      });
+    } catch (err: any) {
+      toast.error('Failed to prepare campaign data.');
+      setIsConvertingAll(false);
+      return;
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const banner of imageBannerList) {
+      setConvertingBannerId(banner.id);
+      try {
+        let rawSource = banner.imageUrl || banner.html || '';
+        if (!rawSource && banner.url) {
+          try {
+            if (/\.(png|jpe?g|webp)(\?|$)/i.test(banner.url)) {
+              const res = await fetch(banner.url);
+              const blob = await res.blob();
+              rawSource = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+            } else {
+              rawSource = await fetch(banner.url).then(r => r.text());
+            }
+          } catch { rawSource = ''; }
+        }
+        const imageData = extractImageDataFromHtml(rawSource);
+        if (!imageData) throw new Error('Could not extract image data');
+
+        const result = await convertImageAdToHtml(prepared.edgePayload as Record<string, unknown>, {
+          imageBase64: imageData.base64,
+          mimeType: imageData.mimeType,
+          format: { platform: banner.platform, format: banner.format, label: banner.label, width: banner.width, height: banner.height },
+          campaignData: prepared.edgePayload.campaignData as Record<string, unknown>,
+          creativePlan: '',
+        });
+        if (!result.html?.trim()) throw new Error('Empty HTML');
+        let updatedUrl = banner.url;
+        try {
+          const updateResult = await updateAdCreativeContent({ id: banner.creative_id || banner.id, user_id: user.id, html: result.html });
+          updatedUrl = updateResult?.url || updatedUrl;
+        } catch {}
+        setBanners(prev => prev.map(b => b.id === banner.id ? { ...b, url: updatedUrl, html: result.html, imageUrl: undefined, is_image_mode: false } : b));
+        successCount++;
+      } catch {
+        failCount++;
+      }
+      setConvertAllProgress(p => ({ ...p, done: p.done + 1 }));
+    }
+
+    setConvertingBannerId(null);
+    setIsConvertingAll(false);
+    if (successCount > 0 && failCount === 0) toast.success(`All ${successCount} banners converted to HTML!`);
+    else if (successCount > 0) toast.warning(`${successCount} converted, ${failCount} failed.`);
+    else toast.error('All conversions failed. Try converting individually.');
+  }, [user?.id, campaign, companyId, banners, activePlatform]);
+
+  const handleConvertSelectedBanners = useCallback(async () => {
+    if (!user?.id || !campaign) return;
+    const selectedImageBanners = banners.filter(b => selectedIds.has(b.id) && isImageBanner(b));
+    if (!selectedImageBanners.length) return;
+    const resolvedCompanyProjectId = campaign.company_project_id || Number(companyId) || 0;
+    if (!resolvedCompanyProjectId) { toast.error('Company data not found.'); return; }
+
+    setIsConvertingAll(true);
+    setConvertAllProgress({ done: 0, total: selectedImageBanners.length });
+
+    let prepared: any;
+    try {
+      prepared = await prepareAdsFromCampaignPayload({
+        user_id: user.id,
+        company_project_id: resolvedCompanyProjectId,
+        campaign_id: campaign.id,
+      });
+    } catch {
+      toast.error('Failed to prepare campaign data.');
+      setIsConvertingAll(false);
+      return;
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const banner of selectedImageBanners) {
+      setConvertingBannerId(banner.id);
+      try {
+        let rawSource = banner.imageUrl || banner.html || '';
+        if (!rawSource && banner.url) {
+          try {
+            if (/\.(png|jpe?g|webp)(\?|$)/i.test(banner.url)) {
+              const res = await fetch(banner.url);
+              const blob = await res.blob();
+              rawSource = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+            } else {
+              rawSource = await fetch(banner.url).then(r => r.text());
+            }
+          } catch { rawSource = ''; }
+        }
+        const imageData = extractImageDataFromHtml(rawSource);
+        if (!imageData) throw new Error('Could not extract image data');
+
+        const result = await convertImageAdToHtml(prepared.edgePayload as Record<string, unknown>, {
+          imageBase64: imageData.base64,
+          mimeType: imageData.mimeType,
+          format: { platform: banner.platform, format: banner.format, label: banner.label, width: banner.width, height: banner.height },
+          campaignData: prepared.edgePayload.campaignData as Record<string, unknown>,
+          creativePlan: '',
+        });
+        if (!result.html?.trim()) throw new Error('Empty HTML');
+        let updatedUrl = banner.url;
+        try {
+          const updateResult = await updateAdCreativeContent({ id: banner.creative_id || banner.id, user_id: user.id, html: result.html });
+          updatedUrl = updateResult?.url || updatedUrl;
+        } catch {}
+        setBanners(prev => prev.map(b => b.id === banner.id ? { ...b, url: updatedUrl, html: result.html, imageUrl: undefined, is_image_mode: false } : b));
+        successCount++;
+      } catch {
+        failCount++;
+      }
+      setConvertAllProgress(p => ({ ...p, done: p.done + 1 }));
+    }
+
+    setConvertingBannerId(null);
+    setIsConvertingAll(false);
+    if (successCount > 0 && failCount === 0) toast.success(`${successCount} banner${successCount > 1 ? 's' : ''} converted to HTML!`);
+    else if (successCount > 0) toast.warning(`${successCount} converted, ${failCount} failed.`);
+    else toast.error('All conversions failed. Try converting individually.');
+  }, [user?.id, campaign, companyId, banners, selectedIds]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -860,7 +1662,7 @@ export default function CampaignScreen() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
         <p className="text-muted-foreground">Campaign not found.</p>
-        <Button variant="outline" onClick={() => navigate(-1)}>Back</Button>
+        <Button variant="outline" onClick={() => navigate('/projects')}>Back</Button>
       </div>
     );
   }
@@ -883,6 +1685,8 @@ export default function CampaignScreen() {
   } as CSSProperties;
   const platforms = ['all', ...Array.from(new Set(banners.map(b => b.platform)))];
   const filteredBanners = activePlatform === 'all' ? banners : banners.filter(b => b.platform === activePlatform);
+  const campaignCompanyProjectId = Number(campaign.company_project_id || companyId || 0);
+  const campaignBackTarget = campaignCompanyProjectId > 0 ? `/projects/${campaignCompanyProjectId}` : '/projects';
 
   return (
     <div className="relative min-h-screen bg-background" style={campaignShellStyle}>
@@ -896,12 +1700,12 @@ export default function CampaignScreen() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
-            <Button variant="ghost" size="sm" onClick={() => navigate(`/projects/${companyId}`)} className="shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => navigate(campaignBackTarget)} className="shrink-0">
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                <Link to={`/projects/${companyId}`} className="hover:text-foreground transition-colors">Company</Link>
+                <Link to={campaignBackTarget} className="hover:text-foreground transition-colors">Company</Link>
                 <span>/</span>
                 <span className="text-foreground font-medium truncate">{campaign.name}</span>
               </div>
@@ -916,15 +1720,27 @@ export default function CampaignScreen() {
               </div>
             </div>
           </div>
-          <Button
-            onClick={() => handleGenerate()}
-            disabled={isGenerating}
-            className="shrink-0"
-            style={{ background: uiColor, borderColor: uiColor }}
-          >
-            {isGenerating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
-            Generate More
-          </Button>
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-card/55 px-3 py-2">
+              <ImageIcon className="h-4 w-4 text-muted-foreground" />
+              <span className="text-xs font-medium">{generateAsImage ? 'Image' : 'HTML'}</span>
+              <Switch
+                checked={generateAsImage}
+                onCheckedChange={setGenerateAsImage}
+                disabled={isGenerating}
+                aria-label="Generate as image"
+              />
+            </div>
+            <Button
+              onClick={() => handleGenerate()}
+              disabled={isGenerating}
+              className="shrink-0"
+              style={{ background: uiColor, borderColor: uiColor }}
+            >
+              {isGenerating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
+              Generate More
+            </Button>
+          </div>
         </div>
 
         {/* Main layout: left panel + chat */}
@@ -980,6 +1796,19 @@ export default function CampaignScreen() {
                         {isDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Download className="h-3.5 w-3.5 mr-1" />}
                         Download ZIP
                       </Button>
+                      {banners.some(b => selectedIds.has(b.id) && isImageBanner(b)) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
+                          onClick={handleConvertSelectedBanners}
+                          disabled={isConvertingAll || convertingBannerId !== null}
+                        >
+                          {isConvertingAll
+                            ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />{convertAllProgress.done}/{convertAllProgress.total}</>
+                            : <><Sparkles className="h-3.5 w-3.5 mr-1" />Convert to HTML</>}
+                        </Button>
+                      )}
                       {user?.accountType === 'admin' && (
                         <Button
                           size="sm"
@@ -1026,20 +1855,80 @@ export default function CampaignScreen() {
                   </div>
                 )}
 
-                {isGenerating && (
-                  <div className="flex items-center justify-center gap-3 py-12 text-muted-foreground">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                    <span className="text-sm">Generating creatives...</span>
+                {resumableJob && !isGenerating && (
+                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-amber-400">Incomplete generation found</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {resumableJob.batches.filter(b => b.status === 'completed').length}/{resumableJob.batches.length} batches completed — resume from where it stopped.
+                      </p>
+                    </div>
+                    <Button size="sm" variant="outline" className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10" onClick={handleResumeJob}>
+                      <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                      Resume
+                    </Button>
                   </div>
                 )}
 
-                {!isGenerating && (
+                {isGenerating && (
+                  <div className="rounded-xl border border-border/50 bg-card/70 p-4 mb-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">Generating campaign creatives</p>
+                        <p className="text-xs text-muted-foreground mt-1">{generationStatus || 'Preparing batches...'}</p>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={handleCancelGeneration}>
+                        <X className="h-3.5 w-3.5 mr-1.5" />
+                        Cancel
+                      </Button>
+                    </div>
+                    <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${Math.max(3, Math.min(100, generationProgress))}%` }}
+                      />
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">{generationProgress}% complete</p>
+                    {generationBatches.length > 0 && (
+                      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {generationBatches.map((batch, index) => (
+                          <div key={batch.id} className="rounded-lg border border-border/50 bg-background/50 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-xs font-medium">{batch.label}</p>
+                                <p className="text-[11px] text-muted-foreground capitalize">
+                                  {batch.status === 'saved' && `${batch.savedCount || 0} saved`}
+                                  {batch.status === 'running' && 'Generating...'}
+                                  {batch.status === 'queued' && 'Queued'}
+                                  {batch.status === 'failed' && 'Failed'}
+                                  {batch.status === 'cancelled' && 'Cancelled'}
+                                </p>
+                              </div>
+                              {batch.status === 'running' && <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />}
+                              {batch.status === 'saved' && <Check className="h-4 w-4 text-primary shrink-0" />}
+                              {batch.status === 'failed' && (
+                                <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => handleRetryBatch(index)} disabled={!generationPaused}>
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                            </div>
+                            {batch.error && <p className="mt-2 line-clamp-2 text-[11px] text-destructive">{batch.error}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {(!isGenerating || banners.length > 0) && (
                   <BannerGrid
                     banners={filteredBanners}
                     selectedIds={selectedIds}
                     newIds={newBannerIds}
                     onToggle={toggleBanner}
                     onSeen={markBannerSeen}
+                    onConvert={handleConvertImageToHtml}
+                    convertingId={convertingBannerId}
                   />
                 )}
               </TabsContent>

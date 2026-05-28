@@ -1,0 +1,224 @@
+AD FORMAT SAFE ZONES AND LAYOUT GUIDANCE
+========================================
+
+KEYWORDS:
+selectedFormats, format, safe-zone, 1080x1080, 1080x1920, 1080x1350,
+1200x628, 300x250, 336x280, 728x90, 970x250, 160x600, 320x50, 600x600
+
+These are constraints and composition suggestions, not templates. Do not reuse
+the same element positions across multiple ratios.
+
+
+format=1080x1080 SQUARE
+-----------------------
+
+Safe zone: 54px all sides.
+Best use: poster-like hierarchy, product stage, offer tile, bold headline.
+
+Legacy absolute-zone starting map:
+- logo: left 6%, top 5%, max-width 22%, max-height 10%
+- headline: left 7%, top 12%, width 86%
+- subheadline: left 10%, top 31%, width 80%
+- product/hero: centered around top 43%, max-width 54%, max-height 34%
+- CTA: centered, bottom 8%, max-width 72%
+
+Recommended patterns:
+- large focal image with headline block opposite it
+- central product with angled badges and bottom CTA
+- type-led poster with compact product/logo accent
+- editorial split: one half visual, one half type/CTA
+- offer badge: product plus discount or benefit callout
+
+Avoid:
+- tiny product in the center
+- all text stacked in the middle
+- using the same layout as 300x250
+
+
+format=1080x1920 STORY
+----------------------
+
+Safe zone:
+- top 250px
+- bottom 250px
+- left/right 54px
+
+Best use: immersive mobile story.
+
+Legacy absolute-zone starting map:
+- background: full bleed
+- logo: left 6%, top 6%, max-width 38%
+- headline: left 7%, bottom 18%, width 86%
+- CTA: left 7%, bottom 8%
+- all primary copy below 65% canvas height
+- no subheadline unless the brief absolutely requires it
+
+Recommended patterns:
+- full-screen image or product scene with strong gradient overlay
+- hook in upper or middle third, product/hero in the visual center, CTA above bottom UI
+- diagonal split, floating product cutout, editorial poster, or cinematic depth layers
+- small urgency/proof badge near the headline or CTA when relevant
+
+Story-specific rules:
+- Do NOT treat Story as a taller feed portrait.
+- CTA can sit lower than portrait 4:5, but never inside the unsafe bottom UI area.
+- Use large mobile-readable type and strong vertical rhythm.
+- Keep top/bottom breathing room for platform UI.
+
+Avoid:
+- horizontal split layout
+- CTA too close to bottom UI area
+- copying square composition
+- using 4:5 feed-card structure
+
+
+format=1080x1350 PORTRAIT
+-------------------------
+
+Safe zone: 54px all sides.
+Best use: premium feed ad with more vertical room than square.
+
+Legacy absolute-zone starting map:
+- logo: left 6%, top 5%, max-width 25%, max-height 9%
+- product/hero: right 4%, top 14%, max-width 58%, max-height 38%
+- headline: left 7%, bottom 28%, width 86%
+- subheadline: left 7%, bottom 18%, width 80%
+- CTA: left 7%, bottom 8%, max-width 70%
+
+Recommended patterns:
+- editorial feed composition: brand/proof header, strong image crop, headline block, CTA near lower third
+- product or service panel occupying 45-60% of the canvas
+- asymmetric headline block with offer badge or proof chip
+- image-led composition with readable text panel over/next to the visual
+
+Portrait 4:5-specific rules:
+- Do NOT use Story safe-zone structure.
+- CTA should usually sit in the lower third, not at the extreme bottom edge.
+- The ad should feel scroll-stopping in feed: polished crop, compact copy, strong CTA.
+- Keep all copy within central safe area; images can bleed, text cannot.
+
+Avoid:
+- full-screen story-like CTA placement
+- overly tall empty space above or below the message
+- using the same layout as 1080x1920 Story
+
+
+format=1200x628 LANDSCAPE
+-------------------------
+
+Safe zone: 48px all sides.
+Best use: horizontal message plus strong visual.
+
+Legacy absolute-zone starting map:
+- logo: left 5%, top 7%, max-width 16%, max-height 13%
+- headline: left 6%, top 28%, width 48%
+- subheadline: left 6%, top 55%, width 44%
+- CTA: left 6%, bottom 9%, max-width 35%
+- product/hero: right 5%, top 12%, max-width 38%, max-height 78%
+
+Recommended patterns:
+- left copy/right product
+- full-bleed cinematic background with lower-third CTA
+- image-led crop with compact copy panel
+- split canvas: image panel on one side, brand-color message panel on the other
+
+Avoid:
+- too many lines of copy
+- square-like centered poster layout
+
+
+format=300x250 MEDIUM RECTANGLE
+-------------------------------
+
+Safe zone: 18px all sides.
+Best use: compact offer, single focal, one CTA.
+
+Recommended patterns:
+- top logo, central headline, bottom CTA
+- product cropped on one side with short copy block
+- badge + product + CTA in a tight diagonal rhythm
+
+Avoid:
+- more than one short headline and one CTA
+- small decorative clutter
+- long subheadline
+
+
+format=336x280 LARGE RECTANGLE
+------------------------------
+
+Safe zone: 20px all sides.
+Best use: medium rectangle with slightly more copy or visual room.
+
+Recommended patterns:
+- product/visual side crop plus CTA block
+- headline-led card with small proof badge
+- offer sticker near focal image
+
+
+format=728x90 LEADERBOARD
+-------------------------
+
+Safe zone: 18px top/bottom, 28px left/right.
+Best use: fast horizontal rhythm.
+
+Legacy absolute-zone starting map:
+- logo: left 4%, top 50%, translateY(-50%), max-width 120px
+- headline: left 22%, top 50%, translateY(-50%), width 44%, single line
+- CTA: right 4%, top 50%, translateY(-50%)
+- product: optional small side accent only when it does not reduce readability
+
+Density:
+- headline max 4 words
+- no subheadline
+- CTA max 2 words
+
+Recommended pattern:
+logo -> headline -> offer/proof -> CTA
+
+Avoid:
+- vertical stacking
+- large product image that leaves no room for copy
+- more than 7 words of headline
+
+
+format=970x250 BILLBOARD
+------------------------
+
+Safe zone: 32px all sides.
+Best use: wide premium display.
+
+Recommended patterns:
+- large image crop on one side, generous copy on the other
+- cinematic background with CTA on the far right
+- modular panels across the width
+
+
+format=160x600 SKYSCRAPER
+-------------------------
+
+Safe zone: 16px all sides.
+Best use: vertical brand recall and simple action.
+
+Recommended pattern:
+logo top -> short hook -> product/visual -> CTA bottom
+
+Avoid:
+- long words that cannot fit
+- dense paragraphs
+- wide horizontal product images
+
+
+format=320x50 MOBILE BANNER
+---------------------------
+
+Safe zone: 8px top/bottom, 12px left/right.
+Best use: one-line hook and CTA.
+
+Recommended pattern:
+logo/icon -> 3-5 word headline -> compact CTA
+
+Avoid:
+- subheadline
+- detailed imagery
+- more than two visual elements

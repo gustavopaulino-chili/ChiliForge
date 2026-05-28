@@ -104,33 +104,48 @@ try {
         $settingStmt->fetch();
         $settingStmt->close();
     }
+    $globalReferenceStore = '';
+    $refStmt = $conn->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'gemini_global_ads_reference_store' LIMIT 1");
+    if ($refStmt) {
+        $refStmt->execute();
+        $refStmt->bind_result($globalReferenceStore);
+        $refStmt->fetch();
+        $refStmt->close();
+    }
 
     if (trim((string)$globalStore) === '') {
         http_response_code(409);
-        echo json_encode(['error' => 'Global Ads Store is missing. Upload/sync the global ads store first.']);
+        echo json_encode([
+            'error' => 'Global Ads Store is missing. Upload/sync the global ads guidelines first.',
+            'code'  => 'GLOBAL_ADS_STORE_MISSING',
+        ]);
         exit;
     }
 
     if (trim((string)$companyStoreName) === '') {
         http_response_code(409);
-        echo json_encode(['error' => 'Company store is missing. Sync company knowledge before generating more campaign creatives.']);
+        echo json_encode([
+            'error' => 'Company store is missing. Sync company knowledge before generating more campaign creatives.',
+            'code'  => 'COMPANY_STORE_MISSING',
+        ]);
         exit;
     }
 
-    $emailStmt = $conn->prepare("SELECT email FROM users WHERE id = ? LIMIT 1");
+    $emailStmt = $conn->prepare("SELECT email, gemini_api_key FROM users WHERE id = ? LIMIT 1");
     $emailStmt->bind_param('i', $userId);
     $emailStmt->execute();
-    $emailStmt->bind_result($userEmail);
+    $emailStmt->bind_result($userEmail, $userGeminiKey);
     $emailStmt->fetch();
     $emailStmt->close();
 
     $accountTypeResult = resolve_account_type_by_domain($userEmail ?? '', 'user');
     $accountType = $accountTypeResult['accountType'];
+    $userKey = is_string($userGeminiKey) ? trim($userGeminiKey) : '';
+    $geminiApiKey = $userKey !== '' ? $userKey : agents_env_value('GEMINI_API_KEY_PRODUCTION');
 
-    $images = is_array($companyFormData['images'] ?? null) ? $companyFormData['images'] : [];
-    if (empty($formData['logoUrl']) && !empty($images['logo'])) {
-        $formData['logoUrl'] = $images['logo'];
-    }
+    // Keep core company facts in the direct payload. File Search remains useful
+    // for brand books/docs, but colors/assets/facts should be deterministic.
+    $formData = agents_enrich_ad_form_with_company_data($formData, $companyFormData);
 
     $creativePlans = json_decode($creativePlansJson ?: '[]', true);
     if (is_array($creativePlans) && !empty($creativePlans)) {
@@ -180,12 +195,14 @@ try {
                 'version'      => (int)$agentVersion,
             ],
             'globalStoreName'           => $globalStore ?: null,
+            'globalReferenceStoreName'  => $globalReferenceStore ?: null,
             'companyStoreName'          => $companyStoreName,
             'campaignGoodExamplesStore' => $campaignGoodExamplesStore ?: null,
             'campaignMemoryStore'       => $campaignMemoryStore ?: null,
             'useCampaignMemory'         => true,
             'campaignData'              => $formData,
             'accountType'               => $accountType,
+            'geminiApiKey'              => $geminiApiKey ?: null,
         ],
     ], JSON_UNESCAPED_UNICODE);
 

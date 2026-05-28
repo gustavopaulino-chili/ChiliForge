@@ -2,6 +2,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { AdCreativeFormData } from '@/types/adCreativeForm';
 import { FieldLabel } from '@/components/generator/FieldLabel';
+import { RecommendationHint } from './RecommendationHint';
+import { getRecommendedToneOfVoice, getRecommendedUrgencyLevels, recommendedOptionClass } from '@/lib/adRecommendations';
 
 interface Props {
   data: AdCreativeFormData;
@@ -32,11 +34,14 @@ const GENDER_OPTIONS: { value: AdCreativeFormData['gender']; label: string }[] =
 ];
 
 export function StepAdCopy({ data, onChange }: Props) {
+  const recommendedTones = getRecommendedToneOfVoice(data);
+  const recommendedUrgencies = getRecommendedUrgencyLevels(data);
+
   return (
     <div className="space-y-7">
       <div>
-        <h3 className="form-section-title">Copy & Audience</h3>
-        <p className="form-section-desc">Offer, messaging, and target audience profile</p>
+        <h3 className="form-section-title">Offer & Audience</h3>
+        <p className="form-section-desc">Offer details, messaging direction, and target audience profile</p>
       </div>
 
       {/* Product & Offer */}
@@ -212,45 +217,65 @@ export function StepAdCopy({ data, onChange }: Props) {
       {/* Tone & Urgency */}
       <div className="space-y-4">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tone & Urgency</h4>
+        <RecommendationHint enabled={recommendedTones.size > 0 || recommendedUrgencies.size > 0} />
 
         <div className="space-y-3">
           <FieldLabel hint="Communication tone in the ads.">Tone of Voice</FieldLabel>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {TONE_OPTIONS.map(opt => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => onChange({ toneOfVoice: opt.value })}
-                className={`rounded-lg border p-3 text-left transition-all ${
-                  data.toneOfVoice === opt.value
-                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                    : 'border-border hover:border-muted-foreground/30'
-                }`}
-              >
-                <div className="font-medium text-foreground text-xs">{opt.label}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">{opt.desc}</div>
-              </button>
-            ))}
+            {TONE_OPTIONS.map(opt => {
+              const selected = data.toneOfVoice === opt.value;
+              const recommended = !selected && recommendedTones.has(opt.value);
+
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => onChange({ toneOfVoice: opt.value })}
+                  className={`rounded-lg border p-3 text-left transition-all ${
+                    selected
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                      : recommended
+                        ? recommendedOptionClass
+                        : 'border-border hover:border-muted-foreground/30'
+                  }`}
+                >
+                  <div className="font-medium text-foreground text-xs">{opt.label}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{opt.desc}</div>
+                  {recommended && (
+                    <div className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                      Recommended
+                    </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
         <div className="space-y-3">
           <FieldLabel hint="Urgency level — influences FOMO and conversion.">Urgency Level</FieldLabel>
           <div className="flex gap-2">
-            {URGENCY_OPTIONS.map(opt => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => onChange({ urgencyLevel: opt.value })}
-                className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-all ${
-                  data.urgencyLevel === opt.value
-                    ? 'border-primary bg-primary/5 text-primary ring-1 ring-primary'
-                    : 'border-border text-muted-foreground hover:border-muted-foreground/30'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+            {URGENCY_OPTIONS.map(opt => {
+              const selected = data.urgencyLevel === opt.value;
+              const recommended = !selected && recommendedUrgencies.has(opt.value);
+
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => onChange({ urgencyLevel: opt.value })}
+                  className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-all ${
+                    selected
+                      ? 'border-primary bg-primary/5 text-primary ring-1 ring-primary'
+                      : recommended
+                        ? recommendedOptionClass
+                        : 'border-border text-muted-foreground hover:border-muted-foreground/30'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

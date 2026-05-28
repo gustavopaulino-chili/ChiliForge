@@ -1,0 +1,159 @@
+CHILIFORGE — FORM DECISIONS GUIDE
+Last updated: 2026-05-28
+
+This guide helps users understand each form field in ChiliForge and make good decisions
+when filling out the Ad Creative or Landing Page generator forms.
+
+=== CAMPAIGN STRATEGY ===
+
+CAMPAIGN OBJECTIVE
+What do you want to achieve with this campaign?
+- Awareness: Introduce your brand/product to new audiences. Focus on bold visuals and memorable brand elements. No hard sell. Best for: new product launches, brand building, entering a new market.
+- Consideration: Get people interested enough to learn more. Drive clicks, video views, sign-ups. Best for: lead generation, webinar registrations, free trial offers, content downloads.
+- Conversion: Drive a specific action (purchase, subscription, download). Use strong CTAs, urgency, and social proof. Best for: e-commerce sales, subscription sign-ups, limited-time offers.
+- Retention: Re-engage existing customers. Use personalized messaging and loyalty rewards. Best for: win-back campaigns, upsell, renewal reminders, loyalty programs.
+
+FUNNEL STAGE (ToFU / MoFU / BoFU)
+The funnel stage describes where your audience is in the buying journey:
+- Top of Funnel (ToFU / Awareness): Audience doesn't know you yet. Use broad appeal, problem-aware messaging, and emotional hooks. Avoid jargon or deep product details. Goal: generate interest.
+- Middle of Funnel (MoFU / Consideration): Audience knows the problem and is evaluating solutions. Highlight differentiators, benefits, social proof, and comparisons. Offer demos, free trials, or gated content. Goal: build trust.
+- Bottom of Funnel (BoFU / Conversion): Audience is ready to decide. Use strong CTAs, urgency, guarantees, and risk-reversal. Remove friction and overcome final objections. Goal: close the sale.
+
+Tip: Matching objective to funnel stage matters. Awareness + ToFU = brand campaigns. Conversion + BoFU = direct response.
+
+=== AUDIENCE & OFFER ===
+
+VALUE PROPOSITION
+The single most compelling reason your product exists. Answer: "Why should this specific person choose this product right now?"
+Good format: "[Product] helps [audience] [achieve desired outcome] without [main obstacle]."
+Example: "ChiliForge helps marketers create professional ad creatives in minutes without any design skills."
+Tip: Focus on the transformation/outcome, not just the feature. "Lose 10kg in 30 days" beats "our diet program."
+
+PAIN POINTS
+Frustrations, problems, or fears your audience has RIGHT NOW that your product solves.
+Be specific and emotional — not "doesn't have time" but "spends 3 hours manually editing banners only to get mediocre results."
+Use the audience's own language, not marketing speak.
+Examples: "Can't afford a designer," "Previous ads wasted budget with no conversions," "Overwhelmed by too many tools."
+
+DESIRES / ASPIRATIONS
+What your audience WANTS to achieve, be, have, or feel after using your product.
+Not the feature, but the transformation: not "faster exports" but "launching campaigns before competitors."
+Examples: "A business that runs without me," "More time for family," "Recognition as an expert in my niche."
+
+PRODUCT / SERVICE NAME
+Be specific. Use the exact name users will recognize.
+If you're promoting a specific offer within a product, use the offer name. E.g., "Premium Plan — Annual" vs just "ChiliForge."
+
+PRICING
+Be specific. "$297/mo" is better than "affordable."
+If you have multiple tiers, use the most relevant one for this campaign's audience.
+Leave blank if you're not featuring price in the creative — e.g., awareness campaigns.
+
+OFFER / PROMOTION
+The main hook: what's the deal? "50% off this weekend only," "Free bonus course included," "Early-bird pricing."
+This is what makes people act NOW vs later.
+
+GUARANTEE
+Reduces perceived risk for the buyer. Examples: "30-day money-back guarantee," "Cancel anytime," "See results in 7 days or full refund."
+A strong guarantee can significantly increase conversion rates. Always use it if you have one.
+
+SCARCITY
+Creates urgency by limiting availability. Must be REAL — fake scarcity destroys trust and brand credibility.
+Examples: "Only 12 spots left in the cohort," "Offer ends Sunday at midnight," "First 50 customers get 40% off."
+If you don't have real scarcity, leave it blank and rely on the offer strength instead.
+
+=== TONE & URGENCY ===
+
+TONE OF VOICE
+Choose the tone that matches your brand identity AND resonates with your specific audience:
+- Conversational: friendly, natural, like a recommendation from a friend. Best for: lifestyle brands, consumer products, personal brands.
+- Casual: relaxed, laid-back, uses informal language. Best for: youth-oriented brands, entertainment, wellness, apps.
+- Inspirational: motivating, aspirational, focuses on transformation. Best for: fitness, coaching, personal development, causes.
+- Authoritative: expert, data-driven, confident with facts. Best for: B2B, SaaS, finance, health, education.
+- Formal: professional, polished, institutional language. Best for: enterprise, legal, financial services, medical.
+- Urgent: time-sensitive, action-driven, FOMO-based. Use carefully — effective for limited promotions but fatigues audiences if overused.
+- Empathetic: understanding, caring, acknowledges feelings first. Best for: mental health, social causes, healthcare, parenting.
+
+URGENCY LEVEL
+How much time pressure to apply in the creative:
+- None: Evergreen creative, no time pressure. Good for brand awareness or always-on acquisition campaigns.
+- Low: Subtle nudge ("while supplies last," "limited availability"). Good for conversion ads not tied to a specific promotion.
+- Medium: Clear but not aggressive ("Limited time offer," "This week only," "Don't miss out"). Most common setting for conversion campaigns.
+- High: Strong FOMO ("24 hours left," "Last chance," "Only 3 spots remaining"). Use for flash sales, countdowns, and hard deadline-driven offers.
+
+=== AD FORMATS ===
+
+Which format should I choose?
+- Story / Reels (1080x1920, vertical 9:16): Best for mobile-first platforms: Instagram Stories, Facebook Stories, TikTok, Reels. Very high engagement. Focus on bold visuals and minimal text — you have 2-3 seconds. Works best with motion-like design, strong colors, and a clear CTA at the bottom.
+- Square Post (1080x1080, 1:1): Versatile, works across feed placements on Instagram and Facebook. Safe default for social media campaigns.
+- Landscape (1200x628, 1.91:1): Standard for Facebook/Instagram feed, LinkedIn feed, and Google Display. News-feed style, more room for copy and context.
+- Reels/TikTok (1080x1920): Same dimensions as Story but optimized for TikTok and Instagram Reels feed context.
+- Pinterest Pin (1000x1500, 2:3): Tall format optimized for Pinterest. Great for products with strong visual appeal: fashion, food, home decor, DIY.
+- Twitter/X Post (1200x675, 16:9): Standard Twitter/X ad format. Works like a landscape card.
+- LinkedIn Post (1200x627, ~1.91:1): LinkedIn's standard image ad. Professional context — use authoritative or formal tone.
+- YouTube Thumbnail (1280x720, 16:9): Clickable thumbnail for YouTube. Should feature a face showing emotion, clear product, or compelling text hook. High contrast, easy to read at small size.
+- Leaderboard (728x90): Top or bottom of desktop web pages. Very limited space — use brand name + one punchy message.
+- Banner (468x60): Classic web display format. Minimal real estate — brand + call to action only.
+- Medium Rectangle (300x250): The most common display format globally. High Google Display Network inventory. Works for most campaign types.
+- Large Rectangle (336x280): Slightly larger rectangle. Good CTR on content pages.
+- Half Page (300x600): Premium display placement. Large format allows for storytelling. Good for brand campaigns and detailed offers.
+- Wide Skyscraper (160x600): Tall, narrow format for desktop sidebars. Long-form vertical storytelling.
+- Mobile Banner (320x50): Very small mobile format. Simple brand + CTA only.
+
+=== A/B TESTING ===
+
+When to enable A/B testing:
+- Use when you want to test different messaging angles for the same audience in the same campaign
+- Most valuable for campaigns with significant budget where small conversion improvements matter
+- Good when you're unsure between two positioning approaches (emotional vs rational, pain vs desire)
+- Less necessary for quick exploratory generations or early-stage campaigns without traffic data
+
+How many variants to choose:
+- 2 variants: Compare 2 headline approaches head-to-head (e.g., pain-focused vs desire-focused, question vs statement)
+- 3 variants: Add a third angle to widen the test (e.g., benefit-focused, pain-focused, and social-proof-focused)
+
+What gets varied in ChiliForge:
+A/B testing varies the headline and CTA text per variant while keeping the same visual layout. This isolates copy as the variable so you can clearly identify which message performs best.
+
+=== BRAND COLORS ===
+
+Primary Color: Your main brand color — typically used for main backgrounds, headline text, and CTA buttons. Should be immediately recognizable as "your brand."
+Secondary Color: Supporting brand color — used for accents, dividers, secondary text, and complementary design elements.
+Accent Color: High-attention color — used specifically for CTAs, price badges, offers, and elements you want people to notice first. Often a contrasting color.
+Text Color: Body copy and label text color. Usually dark (#1F2937 or similar) on light backgrounds, light (#FFFFFF or similar) on dark backgrounds.
+Background Color: The base canvas color of the ad creative. Determines the overall feel: dark backgrounds feel premium/bold, light backgrounds feel clean/professional.
+
+Tip: Contrast is critical. Ensure your text color has sufficient contrast against your background (minimum 4.5:1 ratio for readability). Avoid combining colors that are too similar in brightness.
+
+=== IMAGES ===
+
+Logo: Upload your brand logo (PNG with transparent background strongly recommended). It will appear on all generated creatives automatically. Keep it clean — complex logos can get lost at banner sizes.
+Product Image: The hero visual of your product or service. Higher resolution = better quality generation. Clean backgrounds or natural context shots both work well. The AI analyzes the image and incorporates it into the ad layout composition.
+
+Tip: For image-mode ads, provide a product image that clearly shows what you're selling. Lifestyle images (showing the product in use) tend to perform better than plain product shots for social media.
+
+=== CAMPAIGN NAMING ===
+Name your campaign so you can find it weeks or months later when reviewing results.
+Recommended format: "[Brand] — [Offer or Theme] — [Month Year]"
+Examples:
+- "ACME Fitness — Black Friday 50% Off — Nov 2026"
+- "LegalPro — Lead Gen Q1 — Jan 2026"
+- "StyleBox — Spring Collection — Mar 2026"
+
+=== AUDIENCE DESCRIPTION ===
+A brief profile of who will see this ad. Include:
+- Demographics: age range, gender if relevant, location if specific
+- Interests and behaviors: what they consume, follow, engage with
+- Psychographics: mindset, values, aspirations
+Example: "Digital entrepreneurs 25-40, interested in marketing automation, follow business/growth creators, want to scale without hiring a team."
+
+=== AGE RANGE ===
+The primary age range of your target audience for this specific campaign.
+Be realistic — broader ranges (25-45) are common for general products; narrower ranges (18-24) for youth-specific offers.
+This helps the AI calibrate language complexity, cultural references, and visual style appropriately.
+
+=== GENDER ===
+- All: No gender-specific targeting or messaging. Good default for most products.
+- Female: Creative will be calibrated with messaging and visual cues that resonate more with female audiences.
+- Male: Creative will use messaging and visual styles that tend to resonate more with male audiences.
+Choose based on your actual customer data, not assumptions. Most products perform better with "All."

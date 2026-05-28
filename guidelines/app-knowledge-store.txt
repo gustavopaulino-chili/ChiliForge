@@ -1,0 +1,112 @@
+CHILIFORGE — APP KNOWLEDGE BASE
+Last updated: 2026-05-28
+
+=== WHAT IS CHILIFORGE ===
+ChiliForge is an AI-powered creative platform that generates two types of marketing assets:
+1. Ad Creatives — HTML/CSS banner ads for social media and display networks
+2. Landing Pages — Full HTML/CSS landing pages optimized for conversion
+
+Both generators are powered by Google Gemini AI and use a structured multi-step form wizard
+to capture campaign context, brand guidelines, and creative direction.
+
+=== AD CREATIVE GENERATOR ===
+The Ad Creative Generator creates responsive HTML/CSS banners in multiple formats simultaneously.
+
+WORKFLOW (9 steps):
+1. Platform — Select target ad platforms (Meta/Instagram, Google Display, TikTok/Reels, LinkedIn, Pinterest, etc.)
+2. Strategy — Define campaign objective, funnel stage, and campaign name
+3. Brand — Upload brand assets (logo, product images), set colors, typography
+4. Offer & Audience — Product name, pricing, offer, guarantee, scarcity, value proposition, target audience, pain points, desires, tone of voice, urgency level
+5. Copy (AI) — AI generates headline, subheadline, CTA, and A/B variants; user can edit any field or regenerate
+6. Ad Strategy — Creative direction: visual style, layout preferences, reference images
+7. Platform Review — Review selected formats and their dimensions
+8. Review — Final overview of all form data before generation
+9. Generate — AI generates all selected ad formats simultaneously as HTML/CSS
+
+FORMATS SUPPORTED:
+- Social: Story (1080x1920), Square Post (1080x1080), Landscape (1200x628), Reels/TikTok (1080x1920), Pinterest Pin (1000x1500), Twitter/X Post (1200x675), LinkedIn Post (1200x627)
+- Display: Leaderboard (728x90), Banner (468x60), Large Rectangle (336x280), Half Page (300x600), Medium Rectangle (300x250), Wide Skyscraper (160x600), Mobile Banner (320x50)
+- Video: YouTube Thumbnail (1280x720)
+Users can also select individual formats to generate just one specific size.
+
+KEY FEATURES:
+- A/B Testing: generates 2-3 headline/CTA variant combinations per ad set
+- Image Mode: generates ads with embedded product images using Gemini vision analysis
+- Visual Editor: drag-and-drop editor to tweak generated banners (text, colors, images, positions)
+- Global Store: approved creatives can be sent to a global knowledge base for future AI reference
+- Campaign Memory: each campaign accumulates creative history and approved examples over time
+
+=== LANDING PAGE GENERATOR ===
+The Landing Page Generator creates full single-page HTML/CSS landing pages.
+
+WORKFLOW:
+1. Brand — Company name, industry, colors, typography, logo upload
+2. Campaign — Objective, target audience, value proposition, offer details
+3. Pages — Select/configure page sections (Hero, Benefits, Social Proof, CTA, Pricing, FAQ, etc.) or use AI to auto-suggest the optimal section structure
+4. Content — Detailed copy: headlines, body copy, testimonials, FAQ, CTAs
+5. Generate — AI creates the complete landing page as a single HTML file
+
+LANDING PAGE FEATURES:
+- Section-based architecture (Hero, Benefits, Testimonials, FAQ, CTA, Countdown, Gallery, etc.)
+- Presets: Standard, Black Friday, Webinar, Lead Capture, Product Launch, App Download
+- Visual Editor support for fine-tuning after generation
+- FTP publish directly to Hostinger or download as HTML
+
+=== CAMPAIGNS ===
+A Campaign is a persistent workspace for a set of ad creatives tied to a specific brand/project.
+- Each campaign stores its own form data, generation history, approved examples, and AI memory
+- The Campaign Chat (visible on the campaign page) allows users to ask questions and trigger new generations using natural language
+- Campaigns are nested under Company Projects
+- Users can accumulate many generations within a single campaign
+
+=== COMPANY PROJECTS ===
+A Company Project stores the brand identity shared across all campaigns for that brand:
+colors, logo, value proposition, industry, target audience, brand voice.
+One company can have multiple campaigns. The company data is used to enrich every generation.
+
+=== AI KNOWLEDGE STORES (Gemini File Search) ===
+Stores are Gemini File Search corpora that give the AI persistent, searchable knowledge:
+- Global Ads Store: technical HTML/CSS rules for generating banner ads
+- Global Ads Reference Store: approved banner HTML examples for visual inspiration
+- Global LP Store: landing page guidelines, section architecture, conversion best practices
+- Global App Knowledge Store: knowledge about ChiliForge itself (this file)
+- Global Form Decisions Store: guidance on how to fill in the form fields effectively
+- Company Store: brand-specific knowledge (auto-synced when the company project is saved)
+- Campaign Memory Store: learnings accumulated after each generation round
+- Campaign Good Examples Store: creatives manually approved by the user as examples
+
+=== VISUAL EDITOR ===
+After generation, users can open the Visual Editor to fine-tune any creative:
+- Click to select elements: text blocks, images, shapes, containers
+- Edit text content, font size, font weight, color
+- Replace images and logos
+- Adjust background colors, gradients, and overlays
+- Move and resize elements
+- Save changes and re-export
+
+=== EXPORT & PUBLISH ===
+- Download ZIP: download all generated banners packaged as HTML files
+- FTP Publish (Landing Pages): deploy directly to Hostinger/cPanel hosting via FTP
+- Preview: view generated creatives inline in the browser before downloading
+- Visual Editor: open any creative for manual editing before exporting
+
+=== GLOBAL STORE ADMIN (Admin only) ===
+Administrators can manage the global knowledge stores:
+- Upload guidelines as TXT, PDF, or HTML files
+- Upload reference creatives (HTML banners) and image references
+- Sync existing files to update store content
+- These stores inform every generation for all users on the platform
+
+=== USER ROLES ===
+- User: full access to all generators, campaigns, and company projects
+- Admin: additional access to Global Store management page (/admin/global-stores) and internal admin tools
+
+=== NAVIGATION ===
+Main pages and their routes:
+- Home (LP Generator): / — the landing page wizard
+- Ad Creatives (Ad Generator): /ad-creatives — the ad creative wizard
+- Projects / History: /projects or /history — list of all company projects and campaigns
+- Company Project: /projects/:id — brand settings and campaign list
+- Campaign: /projects/:companyId/campaigns/:campaignId — campaign creatives and chat
+- Global Store Admin: /admin/global-stores (admin only)
+- New Project: /projects/new

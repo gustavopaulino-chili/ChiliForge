@@ -82,6 +82,9 @@ try {
     $accountTypeResult = resolve_account_type_by_domain($userEmail ?? '', 'user');
     $accountType = $accountTypeResult['accountType'];
 
+    // LP generation uses the platform key from .env
+    $passKey = agents_env_value('GEMINI_API_KEY_PRODUCTION') ?: agents_env_value('GEMINI_API_KEY_TESTING') ?: null;
+
     // 4. Read global LP store from system_settings
     $globalStore = '';
     $settingStmt = $conn->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'gemini_global_lp_store' LIMIT 1");
@@ -92,11 +95,29 @@ try {
         $settingStmt->close();
     }
 
+    if (trim((string)$globalStore) === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Global LP Store is missing. Upload/sync the global LP guidelines first.',
+            'code'  => 'GLOBAL_LP_STORE_MISSING',
+        ]);
+        exit;
+    }
+
     // 5. Build company document (fallback text + store upload)
     $companyDocument = buildCompanyDocument($companyFormData);
 
     // 6. Lazy init File Search Store
-    agents_lazy_init_store($conn, $companyProjectId, $geminiStoreName, $companyDocument, $accountType, $userId);
+    agents_lazy_init_store($conn, $companyProjectId, $geminiStoreName, $companyDocument, $accountType, $userId, $passKey);
+
+    if (trim((string)$geminiStoreName) === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Company brand store not found. Save the company profile first to generate the brand guide.',
+            'code'  => 'COMPANY_STORE_MISSING',
+        ]);
+        exit;
+    }
 
     // 7. Build generation choices. User form fields define WHAT to generate;
     // global/company File Search stores define HOW to apply reusable guidelines.
@@ -198,7 +219,7 @@ try {
         'generationChoices'      => $generationChoices,
         'customSlug'             => !empty($body['custom_slug']) ? $body['custom_slug'] : null,
         'accountType'            => $accountType,
-    ]);
+    ], $passKey);
 
     if (!empty($result['error'])) {
         throw new RuntimeException('agents-lp error: ' . $result['error']);

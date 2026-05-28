@@ -1,0 +1,155 @@
+GLOBAL LP STORE RETRIEVAL INDEX
+===============================
+
+Purpose:
+Help the model retrieve only the landing page guideline sections that match the
+current generation request. This file is an index, not a full rulebook.
+
+
+STORE FILE MAP
+--------------
+
+lp-01-html-rendering-contract.txt
+Use for:
+- valid HTML structure
+- responsive sections
+- image rendering
+- CTA/link behavior
+- performance and accessibility basics
+
+lp-02-section-architecture.txt
+Use for:
+- hero
+- proof
+- benefits
+- features
+- process
+- testimonials
+- pricing
+- FAQ
+- contact
+- final CTA
+
+lp-03-conversion-copy-and-offers.txt
+Use for:
+- objective
+- conversion goal
+- audience
+- offer
+- urgency
+- objections
+- CTA copy
+- lead capture
+
+lp-04-visual-design-system.txt
+Use for:
+- preferredStyle
+- toneOfVoice
+- brandPersonality
+- colors
+- typography
+- spacing
+- section rhythm
+- imagery
+- premium/modern/minimal/bold/corporate styles
+
+lp-05-industry-and-objective-patterns.txt
+Use for:
+- SaaS
+- services
+- ecommerce
+- local business
+- healthcare
+- education
+- real estate
+- finance
+- events
+- app/product
+
+lp-06-quality-checklist.txt
+Use for:
+- final validation
+- mobile check
+- copy check
+- CTA check
+- visual quality check
+- brand-specific visual direction check
+
+
+QUERY KEYS FROM FORM DATA
+-------------------------
+
+Retrieve matching rules for every non-empty key below:
+
+objective=lead-generation
+objective=sales
+objective=appointment
+objective=booking
+objective=download
+objective=waitlist
+objective=event-registration
+objective=product-launch
+objective=brand-awareness
+
+conversion_goal=form-submit
+conversion_goal=call
+conversion_goal=whatsapp
+conversion_goal=checkout
+conversion_goal=demo
+conversion_goal=signup
+conversion_goal=download
+
+preferredStyle=modern
+preferredStyle=minimal
+preferredStyle=premium
+preferredStyle=bold
+preferredStyle=playful
+preferredStyle=corporate
+preferredStyle=luxury
+preferredStyle=tech
+
+toneOfVoice=confident
+toneOfVoice=friendly
+toneOfVoice=premium
+toneOfVoice=urgent
+
+brandPersonality=modern
+brandPersonality=playful
+brandPersonality=trustworthy
+brandPersonality=luxury
+brandPersonality=bold
+brandPersonality=corporate
+brandPersonality=innovative
+
+industry=saas
+industry=software
+industry=ecommerce
+industry=local-service
+industry=healthcare
+industry=education
+industry=real-estate
+industry=finance
+industry=event
+industry=restaurant
+industry=fitness
+industry=agency
+
+section=hero
+section=benefits
+section=features
+section=social-proof
+section=testimonials
+section=pricing
+section=faq
+section=contact
+section=final-cta
+
+
+RETRIEVAL RULE
+--------------
+
+Do not retrieve every file in full. Retrieve sections matching the landing page
+objective, conversion goal, industry, visual style, and requested sections.
+
+Business facts and user-provided copy override every global guideline.
+Company store knowledge overrides general style suggestions.

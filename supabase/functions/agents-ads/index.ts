@@ -23,8 +23,16 @@ type AdFormat = {
 };
 
 type AgentsAdsPayload = {
+  mode?: "full" | "plan" | "render" | "unified" | "interpret" | "image" | "image_to_html" | "copy" | "extract_brand";
+  imageBase64?: string;
+  mimeType?: string;
+  format?: AdFormat;
+  generateAsImage?: boolean;
+  geminiApiKey?: string;
   agentConfig: AgentConfig;
   globalStoreName?: string;
+  globalReferenceStoreName?: string;
+  imageReferenceStoreName?: string;
   companyStoreName: string;
   campaignGoodExamplesStore?: string;
   campaignMemoryStore?: string;
@@ -61,12 +69,45 @@ type AgentsAdsPayload = {
     formatNotes?: Record<string, string>;
     [key: string]: any;
   };
+  batchFormats?: AdFormat[];
+  batchIndex?: number;
+  totalBatches?: number;
+  creativePlan?: string;
+  brandSpec?: string;
   accountType?: "admin" | "user";
   useCampaignMemory?: boolean;
 };
 
 const env = (globalThis as any).Deno?.env;
-const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
+const PLAN_MODEL_CHAIN   = ["gemini-3.5-flash", "gemini-2.5-pro"];
+const RENDER_MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
+const MODEL_CHAIN        = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
+
+const COPY_SYSTEM_PROMPT = `You are an expert direct-response ad copywriter. Generate concise, conversion-focused copy based on campaign data. Output ONLY valid JSON matching the schema.
+Rules: mainHeadline max 40 chars — punchy hook/promise. subheadline max 55 chars — reinforces value or specificity. ctaText 2–5 words — action-first verb. bodyText optional supporting line. If abTestingEnabled and abVariantCount > 1, generate abVariants testing the declared abTestFocus.`;
+
+const COPY_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    mainHeadline: { type: "string" },
+    subheadline:  { type: "string" },
+    ctaText:      { type: "string" },
+    bodyText:     { type: "string" },
+    abVariants: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          label:    { type: "string" },
+          headline: { type: "string" },
+          cta:      { type: "string" },
+        },
+        required: ["label", "headline", "cta"],
+      },
+    },
+  },
+  required: ["mainHeadline", "subheadline", "ctaText"],
+};
 
 function asList(value: unknown): string[] {
   return Array.isArray(value)
@@ -74,8 +115,114 @@ function asList(value: unknown): string[] {
     : [];
 }
 
-function getApiKey(): string {
+function getApiKey(userKey?: string): string {
+  if (userKey?.trim()) return userKey.trim();
   return env?.get("GEMINI_API_KEY_PRODUCTION") || env?.get("GEMINI_API_KEY_TESTING") || "";
+}
+
+function isRetiredGeminiImageModel(model: string): boolean {
+  return /^gemini-2\.0-.*image/i.test(model) || /^gemini-2\.5-.*image-preview$/i.test(model);
+}
+
+const GEMINI_IMAGE_MODELS = [
+  ...(env?.get("GEMINI_IMAGE_MODELS") || env?.get("GEMINI_IMAGE_MODEL") || "")
+    .split(",")
+    .map((value: string) => value.trim())
+    .filter(Boolean),
+  "gemini-2.5-flash-image",
+].filter((model, index, list) => !isRetiredGeminiImageModel(model) && list.indexOf(model) === index);
+
+function buildImageApiUrl(model: string, key: string): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+}
+
+function extractImageDataUrl(payload: unknown): string | null {
+  const parts = (payload as any)?.candidates?.[0]?.content?.parts ?? [];
+  for (const part of parts) {
+    const inlineData = part?.inlineData ?? part?.inline_data;
+    const mimeType = inlineData?.mimeType ?? inlineData?.mime_type;
+    const data = inlineData?.data;
+    if (typeof mimeType === "string" && mimeType.startsWith("image/") && typeof data === "string" && data) {
+      return `data:${mimeType};base64,${data}`;
+    }
+  }
+  return null;
+}
+
+function summarizeGeminiImagePayload(payload: unknown): string {
+  const parts = (payload as any)?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return "response had no candidate parts";
+  const summary = parts.map((part: any) => {
+    if (typeof part?.text === "string") return `text:${part.text.slice(0, 160)}`;
+    const inlineData = part?.inlineData ?? part?.inline_data;
+    const mimeType = inlineData?.mimeType ?? inlineData?.mime_type;
+    if (mimeType) return `inline:${mimeType}`;
+    return Object.keys(part || {}).join(",");
+  }).filter(Boolean).join(" | ");
+  return summary || "candidate parts were empty";
+}
+
+async function generateAdImage(
+  prompt: string,
+  refImages: Array<{ data: string; mimeType: string }>,
+  apiKey: string,
+  aspectRatio?: string,
+): Promise<string | null> {
+  const parts: unknown[] = [{ text: prompt }];
+  for (const img of refImages) {
+    parts.push({ inline_data: { mime_type: img.mimeType, data: img.data } });
+  }
+  let lastError = "";
+  for (const model of GEMINI_IMAGE_MODELS) {
+    const configVariants = [
+      {
+        responseModalities: ["TEXT", "IMAGE"],
+        ...(aspectRatio ? { imageConfig: { aspectRatio } } : {}),
+      },
+      { responseModalities: ["TEXT", "IMAGE"] },
+    ];
+    for (const generationConfig of configVariants) {
+      let attempt = 0;
+      while (attempt < 3) {
+        try {
+          const res = await fetch(buildImageApiUrl(model, apiKey), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts }],
+              generationConfig,
+            }),
+          });
+          const bodyText = await res.text();
+          if (!res.ok) {
+            const isTransient = res.status === 503 || res.status === 502 || res.status === 529;
+            if (isTransient && attempt < 2) {
+              await new Promise(r => setTimeout(r, 3000 + attempt * 2000));
+              attempt++;
+              continue;
+            }
+            lastError = `Gemini image ${model} returned ${res.status}: ${bodyText.slice(0, 500)}`;
+            break;
+          }
+          let data: unknown = null;
+          try {
+            data = JSON.parse(bodyText);
+          } catch {
+            lastError = `Gemini image ${model} returned invalid JSON: ${bodyText.slice(0, 240)}`;
+            break;
+          }
+          const url = data ? extractImageDataUrl(data) : null;
+          if (url) return url;
+          lastError = `Gemini image ${model} returned no image part: ${summarizeGeminiImagePayload(data)}`;
+          break;
+        } catch (error) {
+          lastError = error instanceof Error ? error.message : String(error);
+          break;
+        }
+      }
+    }
+  }
+  throw new Error(lastError || "Gemini image generation returned no image");
 }
 
 function buildAiUrl(model: string): string {
@@ -100,11 +247,106 @@ function extractAssets(html: string): string[] {
 }
 
 function getEnabledFormats(payload: AgentsAdsPayload): AdFormat[] {
-  return (payload.campaignData?.selectedFormats || []).filter((f) => f.enabled !== false && f.width && f.height);
+  const source = Array.isArray(payload.batchFormats) && payload.batchFormats.length
+    ? payload.batchFormats
+    : payload.campaignData?.selectedFormats || [];
+  return source.filter((f) => f.enabled !== false && f.width && f.height);
+}
+
+function imageAspectRatioForFormat(format: AdFormat): string {
+  const width = Number(format.width || 1);
+  const height = Number(format.height || 1);
+  const ratio = width / Math.max(1, height);
+  const options = [
+    { value: "1:1", ratio: 1 },
+    { value: "4:5", ratio: 4 / 5 },
+    { value: "9:16", ratio: 9 / 16 },
+    { value: "16:9", ratio: 16 / 9 },
+    { value: "3:2", ratio: 3 / 2 },
+    { value: "2:3", ratio: 2 / 3 },
+    { value: "3:4", ratio: 3 / 4 },
+    { value: "4:3", ratio: 4 / 3 },
+    { value: "21:9", ratio: 21 / 9 },
+  ];
+  return options.reduce((best, item) =>
+    Math.abs(item.ratio - ratio) < Math.abs(best.ratio - ratio) ? item : best,
+  ).value;
+}
+
+function buildBrandConsistencyRules(data: AgentsAdsPayload["campaignData"]): string {
+  const cta = String(data.ctaText || "CTA").trim();
+  const hasLogo = Boolean(String(data.logoUrl || "").trim())
+    || (Array.isArray(data.logoVariants) && data.logoVariants.some((v: any) => String(v?.url || "").trim()));
+  return [
+    "NON-NEGOTIABLE BRAND AND CAMPAIGN LOCK",
+    "- Treat the form fields as the source of truth. The final creative must visibly reflect brand name, offer/value proposition, target audience, tone of voice, brand personality, objective, colors, CTA, and provided assets.",
+    hasLogo
+      ? "- ABSOLUTE LOGO LOCK: The company logo is a protected legal/brand asset. Reinterpreted logos are NOT logos. A similar mark, redrawn mark, generated monogram, stylized substitute, recolored version, traced icon, simplified version, or logo-like decoration does not satisfy the logo requirement. It is forbidden to redraw, regenerate, recolor, restyle, warp, crop into unreadability, add effects to, trace, simplify, substitute, or invent a replacement logo. If a logo URL or logo reference image exists, every creative MUST include at least one visible instance of that exact original logo asset with original proportions and original colors. HTML mode must use the exact logo URL in an <img> element. Image mode must place the attached/provided logo unchanged; if the model cannot reproduce it exactly, leave a clean logo-safe area and do not invent any mark."
+      : "- ABSOLUTE LOGO LOCK: If no logo asset is provided, use brand name text only. Do not invent a fake symbol, seal, icon, monogram, mascot, or fake logo.",
+    "- LOGO PRESENCE CHECK: Before final output, verify the logo is visible when provided. Missing logo, altered logo, or fake logo is a failed creative.",
+    "- CTA SYSTEM LOCK: Use one campaign CTA system across all formats: same wording unless an explicit A/B CTA variant is provided, same accent color, same typography weight, and proportional emphasis.",
+    "- SOCIAL MEDIA CTA LOCK: For Instagram, Facebook, TikTok, LinkedIn, social feed, social square, social story, and social media formats, NEVER draw a button, pill button, rounded rectangle button, bordered button, app button, or any clickable UI control — and NEVER underline text or use visual affordances that simulate a clickable link. The CTA must be expressed as organic ad copy integrated into the creative: a caption-style phrase at the bottom (e.g., 'Available now · Link in bio', 'Visit our store today', 'DM us for a free quote'), an offer phrase woven into the body, action text set as a typographic element (bold, isolated line, or color-highlighted), or a directional cue ('Swipe up', 'See more below'). Think organic post copy, not app UI. Display/banner formats may use styled buttons; social media formats may not.",
+    `- Default CTA text: "${cta}". If A/B focus is not cta, keep this CTA text unchanged across variants and formats.`,
+    "- CROSS-FORMAT CONSISTENCY: All formats must feel like one campaign family: same palette roles, same logo treatment, same CTA treatment, same headline/copy tone, same offer hierarchy, and same product/background art direction. Adapt layout to ratio, not identity.",
+    "- FORMAT ADAPTATION RULE: Recompose for each ratio while preserving the campaign system. Story, portrait, square, landscape, and display may move zones, but CTA, logo behavior, colors, and message hierarchy must stay consistent.",
+    "- A/B CONTROL RULE: Variants must test one named variable only. Keep the campaign system, logo, palette, CTA style, product treatment, and general composition family stable unless that exact variable is the declared focus.",
+  ].join("\n");
+}
+
+function buildCampaignFactsForImage(data: AgentsAdsPayload["campaignData"]): string {
+  const full = buildCampaignFacts(data);
+  return full.replace(
+    /\nAssets:\n[\s\S]*?(?=\n\n|$)/,
+    "\nAssets: All logo, product, and background assets are attached as INLINE REFERENCE IMAGES — use them directly from the attached images. NEVER render URLs, domain names, file paths, or any URL string as visible text in the image.",
+  );
+}
+
+function buildImageVariantTasks(formats: AdFormat[], data: AgentsAdsPayload["campaignData"]) {
+  const isAbTest = Boolean(data.abTestingEnabled) && Number(data.abVariantCount || 2) > 1;
+  const variantCount = isAbTest ? Math.min(3, Math.max(2, Number(data.abVariantCount || 2))) : 1;
+  const labels = ["A", "B", "C"];
+  const focus = String(data.abTestFocus || "mixed").trim() || "mixed";
+  return formats.flatMap((format) =>
+    Array.from({ length: variantCount }, (_, variantIndex) => {
+      const variantLabel = isAbTest ? labels[variantIndex] : "";
+      const headline = isAbTest ? String((data.headlineVariants || [])[variantIndex] || "").trim() : "";
+      const cta = isAbTest ? String((data.ctaVariants || [])[variantIndex] || "").trim() : "";
+      const focusInstruction = !isAbTest
+        ? "No A/B variant. Generate the canonical campaign creative for this format."
+        : [
+            `A/B VARIANT ${variantLabel}. Focus: ${focus}.`,
+            headline ? `Use this variant headline/hook: "${headline}".` : "",
+            cta ? `Use this variant CTA text: "${cta}".` : "",
+            "Keep every non-tested variable consistent with sibling variants: logo treatment, CTA visual style, palette roles, product treatment, background style, and overall campaign family.",
+            focus === "cta"
+              ? "CTA test: only CTA text/urgency may change. The CTA button visual style must stay the same."
+              : focus === "headline"
+                ? "Headline test: change the hook/copy angle only. CTA text and visual treatment stay locked."
+                : focus === "visual"
+                  ? "Visual test: change crop/focal emphasis only while preserving the same CTA system, logo treatment, color roles, and copy intent."
+                  : focus === "color"
+                    ? "Color test: rotate emphasis only inside the provided brand palette. Do not invent new colors and do not change CTA shape/typography."
+                    : "Mixed test: change one major variable intentionally, not the whole design.",
+          ].filter(Boolean).join("\n");
+      return { format, variantLabel, variantIndex, focusInstruction };
+    })
+  );
 }
 
 function buildCampaignFacts(data: AgentsAdsPayload["campaignData"]): string {
   const lines: string[] = [];
+
+  // — Language (MUST come first — all ad copy must follow this) —
+  const LANGUAGE_NAMES: Record<string, string> = {
+    pt: "Portuguese (Brazilian)", en: "English", es: "Spanish", fr: "French",
+    de: "German", it: "Italian", ja: "Japanese", zh: "Chinese",
+  };
+  const langCode = typeof data.language === "string" ? data.language.trim().toLowerCase() : "";
+  const langLabel = langCode && langCode !== "auto" ? (LANGUAGE_NAMES[langCode] || langCode) : "";
+  if (langLabel) {
+    lines.push(`⚠️ LANGUAGE MANDATE: ALL copy (headlines, subheadlines, CTA, body text, offer text, disclaimers) MUST be written in ${langLabel}. No mixing of languages. Zero exceptions.`);
+  }
+  lines.push("⚠️ SPELLING & GRAMMAR MANDATE: Every word of copy must be 100% free of spelling, grammar, and typographical errors. Proofread every text element before output. A single typo is a failed creative.");
 
   // — Campaign identity —
   if (data.campaignName) lines.push(`Campaign: ${data.campaignName}`);
@@ -137,6 +379,7 @@ function buildCampaignFacts(data: AgentsAdsPayload["campaignData"]): string {
   if (data.desires) lines.push(`Desires: ${data.desires}`);
   if (data.forbiddenWords) lines.push(`Forbidden words: ${data.forbiddenWords}`);
   if (data.brandKeywords) lines.push(`Required keywords: ${data.brandKeywords}`);
+  if (data.brandPersonality) lines.push(`Brand personality: ${data.brandPersonality}`);
 
   // — Exact copy (override AI copy when provided) —
   if (!data.useAiCopy && (data.mainHeadline || data.subheadline)) {
@@ -152,6 +395,7 @@ function buildCampaignFacts(data: AgentsAdsPayload["campaignData"]): string {
   if (data.preferredLogoStrategy) lines.push(`  logo-strategy: ${data.preferredLogoStrategy}`);
   if (data.preferredStyle) lines.push(`  visual-style: ${data.preferredStyle}`);
   if (data.toneOfVoice) lines.push(`  tone-of-voice: ${data.toneOfVoice}`);
+  if (data.brandPersonality) lines.push(`  brand-personality: ${data.brandPersonality}`);
   if (data.creativeStrategy) lines.push(`  creative-strategy: ${data.creativeStrategy}${data.creativeStrategyOther ? ` (${data.creativeStrategyOther})` : ""}`);
   if (data.urgencyLevel) lines.push(`  urgency-level: ${data.urgencyLevel}`);
   if (data.imageFallbackMode) lines.push(`  image-fallback: ${data.imageFallbackMode}`);
@@ -171,6 +415,7 @@ function buildCampaignFacts(data: AgentsAdsPayload["campaignData"]): string {
     ["creative-strategy", data.creativeStrategy],
     ["visual-style", data.preferredStyle],
     ["tone-of-voice", data.toneOfVoice],
+    ["brand-personality", data.brandPersonality],
     ["urgency-level", data.urgencyLevel],
     ["logo-strategy", data.preferredLogoStrategy],
     ["image-fallback", data.imageFallbackMode],
@@ -195,6 +440,9 @@ function buildCampaignFacts(data: AgentsAdsPayload["campaignData"]): string {
   if (data.brandBookExtractedData && typeof data.brandBookExtractedData === "object" && Object.keys(data.brandBookExtractedData).length) {
     lines.push(`Brand book data: ${JSON.stringify(data.brandBookExtractedData).slice(0, 1000)}`);
   }
+  if (data.companyProfile && typeof data.companyProfile === "object" && Object.keys(data.companyProfile).length) {
+    lines.push(`Company profile facts: ${JSON.stringify(data.companyProfile).slice(0, 1600)}`);
+  }
 
   // — Assets —
   lines.push("");
@@ -212,6 +460,9 @@ function buildCampaignFacts(data: AgentsAdsPayload["campaignData"]): string {
   if (bgVariants.length) lines.push(`  BACKGROUND VARIANTS: ${bgVariants.join(" | ")}`);
   if (data.imageFallbackPrompt) lines.push(`  FALLBACK PROMPT: ${data.imageFallbackPrompt}`);
 
+  lines.push("");
+  lines.push(buildBrandConsistencyRules(data));
+
   // — A/B —
   if (data.abTestingEnabled) {
     lines.push("");
@@ -221,6 +472,30 @@ function buildCampaignFacts(data: AgentsAdsPayload["campaignData"]): string {
   }
 
   return lines.filter((l) => l !== undefined).join("\n");
+}
+
+function buildRetrievalHints(data: AgentsAdsPayload["campaignData"], formats: AdFormat[]): string {
+  const hints: string[] = ["ads-00-retrieval-index"];
+  const add = (label: string, value: unknown) => {
+    if (typeof value === "string" && value.trim()) hints.push(`${label}=${value.trim()}`);
+  };
+
+  add("campaignObjective", data.campaignObjective);
+  add("funnelStage", data.funnelStage);
+  add("preferredStyle", data.preferredStyle);
+  add("toneOfVoice", data.toneOfVoice);
+  add("brandPersonality", data.brandPersonality);
+  add("creativeStrategy", data.creativeStrategy);
+  add("urgencyLevel", data.urgencyLevel);
+  if (data.abTestingEnabled) add("abTestFocus", data.abTestFocus || "mixed");
+
+  for (const f of formats) {
+    if (f.width && f.height) hints.push(`format=${f.width}x${f.height}`);
+    if (f.platform) hints.push(`platform=${f.platform}`);
+    if (f.format) hints.push(`formatName=${f.format}`);
+  }
+
+  return [...new Set(hints)].join("\n- ");
 }
 
 function buildFormatsList(formats: AdFormat[], formatNotes?: Record<string, string>): string {
@@ -288,6 +563,67 @@ function getLayoutSeed(): string {
   return LAYOUT_STRATEGIES[Math.floor(Math.random() * LAYOUT_STRATEGIES.length)];
 }
 
+function buildRendererSourceOrchestration(hasApprovedExamples = false, isUnified = false): string {
+  return [
+    isUnified
+      ? "Source hierarchy: (1) Campaign facts — highest priority. (2) Company store — brand identity and assets. (3) Global store — design rules and HTML standards. (4) Reference store — COMPETITOR ADS from other brands, for abstract layout structure only."
+      : "Source hierarchy: (1) Campaign facts below - highest priority. (2) Creative plan created from global/company/campaign stores. (3) Attached stores during render for final rule checks, brand identity, CTA sizing, and image treatment.",
+    isUnified
+      ? "STEP 1 — Query stores BEFORE generating HTML: retrieve brand identity (colors, fonts, logo) from company store, design and layout rules from global store. Only after brand identity is locked in, optionally query reference store for abstract structural inspiration — see isolation rule below."
+      : "Renderer rule: use the approved creative plan, direct campaign/company facts, and attached File Search stores. Re-check global guidelines for the exact format, CTA sizing, image treatment, and brand personality before writing HTML.",
+    "Asset rule: if LOGO, PRODUCT, or BACKGROUND URL is listed in campaign facts, render it as an <img> element. Never replace a provided image with a color block.",
+    "Reference store brand isolation: The reference store contains ADS FROM COMPETITOR BRANDS — never this brand. PROHIBITED: carrying over any color palette, font choice, logo, product imagery, or brand voice from reference ads. ALLOWED: abstract structural principles only — composition skeleton, CTA anchoring, text-to-image ratio, visual hierarchy pattern. This brand's visual identity comes ONLY from the company store and campaign facts.",
+    hasApprovedExamples
+      ? "Approved examples were already analyzed in the creative plan. Use their winning principles, not their exact layout or coordinates."
+      : "",
+    "Anti-clone rule: never produce multiple formats by resizing the same design. Same campaign concept is allowed; same positions, same crop, same centered stack, and same CTA placement across ratios are not allowed.",
+  ].filter(Boolean).join("\n");
+}
+
+function buildReferenceRetrievalGuide(
+  campaignData: AgentsAdsPayload["campaignData"],
+  formats: AdFormat[],
+): string {
+  const searches: string[] = [];
+
+  // Format/dimension — highest specificity
+  const formatNames = [...new Set(formats.map((f) => f.format).filter(Boolean))];
+  const dims = [...new Set(
+    formats.map((f) => (f.width && f.height ? `${f.width}x${f.height}` : null)).filter(Boolean),
+  )];
+  if (formatNames.length) searches.push(`format: ${formatNames.join(" OR ")}`);
+  if (dims.length) searches.push(`dimensions: ${dims.join(" OR ")}`);
+
+  // A/B testing
+  if (campaignData.abTestingEnabled) {
+    const focus = campaignData.abTestFocus || "mixed";
+    searches.push(`AB testing ${focus} variant`);
+  }
+
+  // Objective + funnel
+  if (campaignData.campaignObjective) searches.push(`objective: ${campaignData.campaignObjective}`);
+  if (campaignData.funnelStage) searches.push(`funnel: ${campaignData.funnelStage}`);
+
+  // Style + urgency + strategy
+  if (campaignData.preferredStyle) searches.push(`style: ${campaignData.preferredStyle}`);
+  if (campaignData.urgencyLevel && campaignData.urgencyLevel !== "none") {
+    searches.push(`urgency: ${campaignData.urgencyLevel}`);
+  }
+  if (campaignData.creativeStrategy) searches.push(`strategy: ${campaignData.creativeStrategy}`);
+
+  if (!searches.length) return "";
+
+  return [
+    "=== ADS REFERENCE STORE — TARGETED RETRIEVAL GUIDE ===",
+    "The reference store contains real example ads. Use SPECIFIC targeted searches — do NOT retrieve broadly:",
+    searches.map((q, i) => `  ${i + 1}. Search "${q}" — find layout/composition examples matching this`).join("\n"),
+    "Priority order: format/dimensions first → objective/funnel → style.",
+    "From retrieved examples extract ONLY: layout technique, z-index layering, CTA zone placement, text-to-image ratio, spacing rhythm, composition shape.",
+    "FORBIDDEN from reference examples: colors, hex values, fonts, brand logos, brand names, copy text, imagery. Structure only.",
+  ].join("\n");
+}
+
+
 function getAbFocusDescription(focus: string): string {
   const descriptions: Record<string, string> = {
     headline: "vary headline angle, subheadline, and body copy — keep the same visual layout and colors",
@@ -305,7 +641,160 @@ function extractPlanSection(plan: string, category: string): string {
   return match ? match[0].trim() : plan;
 }
 
-function buildPlanPrompt(campaignFacts: string, formatGroups: AdFormat[][], layoutSeed: string, formatNotes?: Record<string, string>, hasApprovedExamples = false): string {
+const INTERPRET_SYSTEM_PROMPT = `You are a brand design strategist and art director. Your task:
+1. Query company store — extract: primary hex, secondary hex, accent hex, exact font family names and weights available (e.g. Roboto 900/700/400), logo style, brand voice.
+2. Query global store — extract: HTML/CSS layout rules, spacing guidelines, visual quality standards.
+3. Query reference store — extract abstract structural patterns ONLY (composition, CTA zone, text-to-image ratio). FORBIDDEN from reference: colors, fonts, logos, brand names — these are COMPETITOR ADS.
+4. For EACH format write a spec using this EXACT format:
+
+BRAND_CSS_VARS: --primary:#HEX;--secondary:#HEX;--accent:#HEX;--font-headline:'Family',sans-serif;--fw-headline:900;--fw-body:400;--fw-cta:700
+BRAND_FONT_URL: https://fonts.googleapis.com/css2?family=FAMILY:wght@400;700;900&display=swap
+---
+Layout: [specific CSS technique, e.g. "clip-path:polygon(0 0,60% 0,40% 100%,0 100%) diagonal overlay on left panel"]
+Text: [sizes+weights+legibility, e.g. "headline 36px fw-headline, text-shadow:0 2px 8px rgba(0,0,0,.7)"]
+Assets: [logo/product/bg positions with % sizes]
+CTA: [button bg, text, box-shadow, border-radius, anchor position]
+Shapes: [geometric accents if any — clip-path values, max 20% of product image coverage]
+Anti-clone: [how this format differs from ALL other formats in this batch]
+
+Output ONLY valid JSON, no markdown:
+{"batchSpecs":[{"label":"...","spec":"BRAND_CSS_VARS: ...\\nBRAND_FONT_URL: ...\\n---\\nLayout: ..."},...]}
+
+Reference isolation: FORBIDDEN in specs — any color, font, logo, imagery from reference ads. Brand identity = company store + campaign facts ONLY.`.trim();
+
+const IMAGE_BRAND_EXTRACT_SYSTEM_PROMPT = `You are a brand visual analyst. Query the provided stores and extract the brand's visual identity for raster image ad generation.
+
+Return ONLY a plain-text block in this exact format (no JSON, no markdown, no bullet symbols):
+
+PRIMARY_COLOR: <hex> (<color name e.g. "deep navy blue">)
+SECONDARY_COLOR: <hex> (<color name>)
+ACCENT_COLOR: <hex> (<color name>)
+BACKGROUND_COLOR: <hex or "white" or "black">
+HEADLINE_FONT_STYLE: <style descriptor e.g. "bold geometric sans-serif", "elegant serif", "strong condensed">
+BODY_FONT_STYLE: <style descriptor>
+VISUAL_STYLE: <2-4 word descriptor e.g. "bold minimalist luxury", "vibrant energetic playful">
+MOOD: <2-3 word descriptor e.g. "confident and premium", "warm and approachable">
+LOGO_TREATMENT: <instruction e.g. "white logo on dark backgrounds, color logo on light backgrounds">
+BRAND_RULES: <1-2 sentences of the most critical visual rules from the company store>
+CAMPAIGN_GUIDELINES: <1-2 sentences of campaign-specific instructions if present in store>
+
+If a field has no data in the stores, omit that line. Do not invent values.`.trim();
+
+const IMAGE_TO_HTML_SYSTEM_PROMPT = `\
+You are an expert HTML/CSS visual reconstruction engineer. Your ONLY task is to convert a raster ad image into a self-contained, pixel-accurate HTML/CSS banner.
+
+IDENTITY: You are NOT generating creative ideas. You are PURELY reading pixels and translating visual structure into code.
+
+RECONSTRUCTION RULES:
+1. DIMENSIONS: The root div must use exactly the specified pixel dimensions. Never use percentages for the root width/height.
+2. POSITIONING: Every child element MUST use position:absolute with explicit top/left/right/bottom in px or %. Root .ad-banner uses position:relative;overflow:hidden.
+3. TEXT — VERBATIM: Read every visible character exactly. Do not paraphrase or improve copy. Every word, comma, period, exclamation mark must match.
+4. COLORS — PRECISE: Sample hex values directly from pixels. Use exact #rrggbb notation. Never approximate to "dark blue" — use the actual sampled value.
+5. FONT SIZES — PROPORTIONAL: Estimate in px proportional to banner height. Headline ~8% of height, subheadline ~5%, body ~4%, CTA ~4.5%. Round to nearest integer.
+6. FONT WEIGHTS: thin=300, regular=400, medium=500, semibold=600, bold=700, extrabold=800, black=900.
+7. BACKGROUND: Reconstruct exactly — solid color:background-color, gradient:CSS gradient with sampled stop colors, full-bleed image:position:absolute img tag.
+8. LAYERS (Z-INDEX): background=0, overlay=1, product/hero=5-10, shapes/decorative=11-15, text=20-30, CTA/button=40.
+9. SHAPES AND DECORATIVE: Reproduce using CSS clip-path, border-radius, transform:rotate(), colored divs. Do not use SVG unless necessary.
+10. BUTTONS: Exact background color, border-radius px, padding, font-size, font-weight, text color from image.
+11. OVERLAYS: Semi-transparent divs with rgba() background at correct opacity.
+12. LOGO: If visible and a URL is provided in context, render as <img src="[URL]" style="position:absolute;...;object-fit:contain">. Otherwise reproduce brand name as text.
+13. NO EXTERNAL RESOURCES: Do not reference any image URLs except the logo URL if explicitly provided. Do NOT embed the source image — reconstruct as CSS.
+14. SELF-CONTAINED: All CSS inline (style="..."). No external stylesheets. No <link> tags. No JavaScript.
+
+OUTPUT FORMAT — output ONLY this, nothing before or after:
+<!-- BANNER_START -->
+<div class="ad-banner" data-platform="PLATFORM" data-format="FORMAT" style="position:relative;width:WIDTHpx;height:HEIGHTpx;overflow:hidden;[background]">
+  <!-- layers -->
+</div>
+<!-- BANNER_END -->`.trim();
+
+const COMPOSITION_POOL = [
+  "diagonal-split: clip-path:polygon(0 0,62% 0,42% 100%,0 100%) dark overlay on left, product right",
+  "hero-full-bleed: product as full background, gradient overlay bottom 50%, text+CTA stacked bottom",
+  "top-image-bottom-text: product image top 55% height, brand color panel bottom 45% with text+CTA",
+  "left-panel-right-image: solid brand panel left 42%, product image right 58%, logo+text in panel",
+  "centered-minimal: product center, headline above, CTA below, geometric accent shape behind product",
+  "bold-headline-first: oversized headline top 40%, product mid 40%, CTA bottom 20%, minimal bg",
+  "frame-product: product centered with geometric frame/border accent, brand color corners, text at edges",
+];
+
+function buildInterpretPrompt(campaignFacts: string, formats: AdFormat[], formatNotes?: Record<string, string>, referenceGuide?: string): string {
+  const formatList = buildFormatsList(formats, formatNotes);
+  const fontLimits = formats.map((f) => {
+    const h = f.height ?? 0;
+    const maxH = h < 250 ? 16 : h < 500 ? 26 : h < 900 ? 38 : 52;
+    return `- ${f.label || `${f.width}×${f.height}`} (${f.width}×${f.height}px): headline≤${maxH}px`;
+  }).join("\n");
+
+  // Assign a unique composition to each format from the pool
+  const compositionAssignments = formats.map((f, i) => {
+    const comp = COMPOSITION_POOL[i % COMPOSITION_POOL.length];
+    return `- ${f.label || `${f.width}×${f.height}`}: use "${comp.split(":")[0]}" composition`;
+  }).join("\n");
+
+  return [
+    "=== CAMPAIGN FACTS ===",
+    campaignFacts,
+    "",
+    "=== FORMATS (one spec per format) ===",
+    formatList,
+    "",
+    "=== FONT SIZE LIMITS ===",
+    fontLimits,
+    "",
+    "=== MANDATORY COMPOSITION ASSIGNMENT (each format gets a different layout) ===",
+    compositionAssignments,
+    "Full composition descriptions for reference:",
+    COMPOSITION_POOL.join("\n"),
+    "",
+    referenceGuide || "",
+    "",
+    "For each format: follow EXACTLY the spec format from the system prompt.",
+    "BRAND_CSS_VARS must include all --primary, --secondary, --accent, --font-headline, --fw-headline, --fw-body, --fw-cta.",
+    "BRAND_FONT_URL must be a valid Google Fonts URL importing all needed weights.",
+    "Layout line must include the specific CSS property/value to use (clip-path, grid-template-areas, etc.).",
+    "Reference principles from reference store: structural patterns only, NO brand identity elements.",
+    "",
+    "Output valid JSON only: {\"batchSpecs\":[{\"label\":\"...\",\"spec\":\"...\"},...]}",
+  ].filter((line) => line !== undefined).join("\n");
+}
+
+function extractBrandTokens(spec: string): { cssVars: string; fontUrl: string; cleanSpec: string } {
+  const cssVarsMatch = spec.match(/^BRAND_CSS_VARS:\s*(.+)$/m);
+  const fontUrlMatch = spec.match(/^BRAND_FONT_URL:\s*(.+)$/m);
+  const cleanSpec = spec
+    .replace(/^BRAND_CSS_VARS:.*\n?/m, "")
+    .replace(/^BRAND_FONT_URL:.*\n?/m, "")
+    .replace(/^---\s*\n?/m, "")
+    .trim();
+  return {
+    cssVars: cssVarsMatch?.[1]?.trim() || "",
+    fontUrl: fontUrlMatch?.[1]?.trim() || "",
+    cleanSpec,
+  };
+}
+
+function injectBrandTokens(html: string, cssVars: string, fontUrl: string): string {
+  if (!cssVars && !fontUrl) return html;
+  const fontImport = fontUrl ? `@import url('${fontUrl}');` : "";
+  const vars = cssVars ? `:root{${cssVars}}` : "";
+  const styleBlock = `<style>${fontImport}${vars}</style>`;
+  return html.includes("</head>")
+    ? html.replace("</head>", `${styleBlock}\n</head>`)
+    : styleBlock + html;
+}
+
+function extractInterpretJson(raw: string): { batchSpecs: Array<{ label: string; spec: string }> } {
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return { batchSpecs: [] };
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch {
+    return { batchSpecs: [] };
+  }
+}
+
+function buildPlanPrompt(campaignFacts: string, formatGroups: AdFormat[][], layoutSeed: string, retrievalHints: string, referenceGuide: string, formatNotes?: Record<string, string>, hasApprovedExamples = false): string {
   const groupsSummary = formatGroups.map((g) => {
     const cat = deriveFormatCategory(g[0]);
     const items = buildFormatsList(g, formatNotes);
@@ -321,6 +810,11 @@ function buildPlanPrompt(campaignFacts: string, formatGroups: AdFormat[][], layo
     "=== CAMPAIGN ===",
     campaignFacts,
     "",
+    "=== TARGETED STORE RETRIEVAL HINTS ===",
+    "- " + retrievalHints,
+    "",
+    referenceGuide || "",
+    "",
     "=== FORMAT GROUPS ===",
     groupsSummary,
     "",
@@ -331,6 +825,7 @@ function buildPlanPrompt(campaignFacts: string, formatGroups: AdFormat[][], layo
     hasApprovedExamples
       ? "APPROVED EXAMPLES TASK - Query the campaign good examples first. Extract: winning layout structure, focal point, CTA treatment, visual hierarchy, color use, spacing, and format fit. Reuse the principles, not the exact arrangement."
       : "",
+    "REFERENCE STORE TASK — Follow the targeted retrieval guide above when querying the reference store. Extract structural/compositional patterns only — never brand identity.",
     "VARIATION TASK - Give each exact format a distinct composition recipe. Do not scale or crop the same layout across ratios.",
     "OPEN LAYOUT TASK - Decide the final layout yourself like an art director. Use the global store for constraints, but choose the most persuasive composition for the exact objective, asset set, and format.",
     "STEP 1 — Query stores: for each design parameter listed in campaign facts, retrieve the rule and write one line.",
@@ -373,8 +868,336 @@ function injectAdSafetyCss(html: string): string {
 .ad-banner *{box-sizing:border-box}
 .ad-banner img{max-width:100%;display:block}
 .ad-banner{overflow:hidden;position:relative}
+.ad-banner h1,.ad-banner h2,.ad-banner h3,.ad-banner h4{margin:0;padding:0;line-height:1.2}
+.ad-banner p,.ad-banner span,.ad-banner h1,.ad-banner h2,.ad-banner h3,.ad-banner h4,.ad-banner div{text-overflow:clip!important;-webkit-line-clamp:unset!important}
 </style>`;
   return html.replace(/<\/head>/i, `${safetyCss}\n</head>`);
+}
+
+function clampHeadingSizes(html: string, format: AdFormat): string {
+  const h = format.height ?? 500;
+  const maxH1 = h < 250 ? 14 : h < 500 ? 22 : h < 900 ? 34 : 48;
+  const maxH2 = Math.round(maxH1 * 0.78);
+  const clampStyle = `<style>.ad-banner h1{font-size:${maxH1}px!important;max-width:100%}.ad-banner h2{font-size:${maxH2}px!important}</style>`;
+  return html.includes("</head>")
+    ? html.replace("</head>", `${clampStyle}\n</head>`)
+    : clampStyle + html;
+}
+
+function injectButtonSafetyCss(html: string, format: AdFormat): string {
+  const w = format.width ?? 300;
+  const h = format.height ?? 250;
+  if (isSocialMediaFormat(format)) {
+    const socialCss = `<style>
+.ad-banner .ad-cta,.ad-banner button,.ad-banner a[class*="cta" i],.ad-banner [class*="button" i]{
+  background:transparent!important;border:0!important;box-shadow:none!important;border-radius:0!important;padding:0!important;
+}
+</style>`;
+    return html.includes("</head>")
+      ? html.replace("</head>", `${socialCss}\n</head>`)
+      : socialCss + html;
+  }
+  const isStrip = h <= 120 || w > h * 3;
+  const isSmall = !isStrip && h < 320;
+  const isLarge = h >= 700;
+  const font = isStrip ? Math.max(10, Math.min(14, Math.round(h * 0.14)))
+    : isSmall ? Math.max(12, Math.min(16, Math.round(h * 0.058)))
+    : isLarge ? Math.max(16, Math.min(22, Math.round(h * 0.026)))
+    : Math.max(13, Math.min(18, Math.round(h * 0.04)));
+  const padY = isStrip ? 5 : isSmall ? 7 : isLarge ? 12 : 9;
+  const padX = isStrip ? 10 : isSmall ? 13 : isLarge ? 22 : 16;
+  const maxWidth = Math.round(w * (isStrip ? 0.3 : isSmall ? 0.54 : isLarge ? 0.46 : 0.44));
+  const maxHeight = Math.max(24, Math.round(h * (isStrip ? 0.42 : isSmall ? 0.2 : isLarge ? 0.08 : 0.16)));
+  const minHeight = Math.max(24, Math.min(maxHeight, maxHeight - 12));
+  const radius = isStrip ? 4 : isSmall ? 8 : isLarge ? 16 : 10;
+  const css = `<style>
+.ad-banner .ad-cta,.ad-banner button,.ad-banner a[class*="cta" i],.ad-banner [class*="cta" i],.ad-banner [class*="button" i]{
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;
+  width:auto!important;min-width:0!important;max-width:${maxWidth}px!important;
+  min-height:${minHeight}px!important;max-height:${maxHeight}px!important;
+  padding:${padY}px ${padX}px!important;border-radius:${radius}px!important;
+  font-size:${font}px!important;line-height:1!important;font-weight:700!important;
+  white-space:nowrap!important;text-align:center!important;text-decoration:none!important;
+  overflow:visible!important;text-overflow:clip!important;
+}
+</style>`;
+  return html.includes("</head>")
+    ? html.replace("</head>", `${css}\n</head>`)
+    : css + html;
+}
+
+function buildCopyRule(format: AdFormat): string {
+  if (isSocialMediaFormat(format)) {
+    const socialLabel = format.label || `${format.width ?? 300}x${format.height ?? 250}`;
+    return `COPY RULE [${socialLabel}]: headline + short CTA text, but CTA must be integrated into the copy/layout and must not be a button. No button-shaped container. Maximum 3 text elements.`;
+  }
+  const w = format.width ?? 300;
+  const h = format.height ?? 250;
+  const label = format.label || `${w}×${h}`;
+  const isStrip = h <= 120 || (w >= 600 && h <= 120);   // leaderboard, banner strips
+  const isSmall = !isStrip && h < 320;                   // medium-rectangle, small squares
+  const isLarge = h >= 800;                              // stories, tall portraits
+
+  if (isStrip) {
+    return `COPY RULE [${label}]: headline ONLY — max 5 words, single line. CTA text max 3 words. Subheadline, body copy, and extra labels are FORBIDDEN — no space for them.`;
+  }
+  if (isSmall) {
+    return `COPY RULE [${label}]: headline (max 6 words) + CTA button (max 3 words). Subheadline only if it fits on ONE line without overlap — otherwise omit it. No body copy, no bullet lists.`;
+  }
+  if (isLarge) {
+    return `COPY RULE [${label}]: headline (max 8 words) + subheadline OR body (max 14 words, not both) + CTA (max 4 words). Maximum 3 text elements. No bullet lists or multiple paragraphs.`;
+  }
+  // medium: squares, landscape banners 300–800px tall
+  return `COPY RULE [${label}]: headline (max 7 words) + optionally ONE of subheadline (max 8 words) OR body (max 10 words) — never both + CTA (max 4 words). Maximum 3 text elements. No bullet lists.`;
+}
+
+function buildFontSizeRule(format: AdFormat): string {
+  const w = format.width ?? 300;
+  const h = format.height ?? 250;
+  const label = format.label || `${w}×${h}`;
+  const isWideStrip = w > h * 3;
+  const raw = h < 250 ? 16 : h < 500 ? 26 : h < 900 ? 38 : 52;
+  const maxH = isWideStrip ? Math.round(raw * 0.6) : raw;
+  const maxBody = Math.round(maxH * 0.45);
+  const maxCta = Math.round(maxH * 0.5);
+  return `FONT SIZE RULE [${label}]: headline max ${maxH}px, body max ${maxBody}px, CTA max ${maxCta}px. Always use px — never em/rem/%. h1/h2 elements MUST have explicit font-size set.`;
+}
+
+function isSocialMediaFormat(format: AdFormat): boolean {
+  const name = `${format.platform || ""} ${format.format || ""} ${format.label || ""}`.toLowerCase();
+  return /(instagram|facebook|tiktok|linkedin|social|feed|story|reels|shorts)/i.test(name)
+    && !/(display|leaderboard|rectangle|banner|skyscraper)/i.test(name);
+}
+
+function buildButtonRule(format: AdFormat): string {
+  if (isSocialMediaFormat(format)) {
+    const socialLabel = format.label || `${format.width ?? 300}x${format.height ?? 250}`;
+    return `SOCIAL CTA NO-BUTTON RULE [${socialLabel}]: CTA must be visible text but never a button, pill, rounded rectangle, bordered block, or app UI control. Use footer action text, underlined phrase, caption line, swipe/DM cue, offer line, or sticker words without a button container.`;
+  }
+  const w = format.width ?? 300;
+  const h = format.height ?? 250;
+  const label = format.label || `${w}×${h}`;
+  const isStrip = h <= 120 || w > h * 3;
+  const isSmall = !isStrip && h < 320;
+  const isLarge = h >= 700;
+  const fontMin = isStrip ? 10 : isSmall ? 12 : isLarge ? 16 : 13;
+  const fontMax = isStrip ? 14 : isSmall ? 16 : isLarge ? 22 : 18;
+  const maxWidth = isStrip ? "30%" : isSmall ? "54%" : isLarge ? "46%" : "44%";
+  const maxHeight = isStrip ? "42%" : isSmall ? "20%" : isLarge ? "8%" : "16%";
+  return `CTA BUTTON SIZE RULE [${label}]: CTA must be proportional, never oversized or tiny. Use font-size ${fontMin}-${fontMax}px, one-line text, max-width ${maxWidth}, max-height ${maxHeight}, and compact padding. It should look clickable but not become the main visual block unless the objective is direct conversion.`;
+}
+
+function buildFormatRules(format: AdFormat): string[] {
+  const w = format.width ?? 300;
+  const h = format.height ?? 250;
+  const label = format.label || `${w}×${h}`;
+  const isStrip = h <= 100;
+  const isSmall = !isStrip && h < 320;
+  const isLarge = h >= 700;
+
+  if (isStrip) {
+    return [
+      buildFontSizeRule(format),
+      buildButtonRule(format),
+      buildCopyRule(format),
+      `LAYOUT RULE [${label}]: Single horizontal row — logo left | headline center | CTA right. No vertical stacking of any kind. All elements on one line within the banner height.`,
+      `TYPOGRAPHY RULE [${label}]: 2 font-weight levels only — headline bold (700+), CTA semibold (600). No body text needed.`,
+      `VISUAL POLISH [${label}]: Solid or gradient background. CTA: inline text or minimal button (border-radius:3-4px, no large box-shadow). Keep everything compact — no large padding, no decorative elements.`,
+      `SHAPES RULE [${label}]: No geometric shapes or decorative elements — strip format has no space.`,
+    ];
+  }
+  if (isSmall) {
+    return [
+      buildFontSizeRule(format),
+      buildButtonRule(format),
+      buildCopyRule(format),
+      `LAYOUT NO-OVERLAP RULE [${label}]: Stack elements vertically (flexbox column, gap:8px minimum). Headline top, CTA bottom. If subheadline is included, it must fit between headline and CTA without touching either — otherwise omit it.`,
+      `TYPOGRAPHY RULE [${label}]: 2-3 font-weight levels. Headline: 700-900. CTA: 600-700. Body (if used): 400.`,
+      `VISUAL POLISH [${label}]: Gradient or solid color background. CTA: border-radius:4-6px, subtle box-shadow. Headline: letter-spacing:0.2px. Text on image: text-shadow:0 1px 6px rgba(0,0,0,.7).`,
+      `SHAPES RULE [${label}]: Small accent shapes only (corner element, small circle). Must not overlap product. Max 10% of banner area.`,
+    ];
+  }
+  if (isLarge) {
+    return [
+      buildFontSizeRule(format),
+      buildButtonRule(format),
+      buildCopyRule(format),
+      `LAYOUT NO-OVERLAP RULE [${label}]: Divide the tall canvas into clear zones (top: logo/image, mid: headline+body, bottom: CTA). Use flexbox or absolute positioning with generous vertical spacing. At least 20px between each zone.`,
+      `TYPOGRAPHY RULE [${label}]: 3+ distinct font-weight levels — headline: 800-900, subheadline/body: 400-500, CTA: 700. Use weight contrast expressively to build hierarchy.`,
+      `VISUAL POLISH [${label}]: Full-bleed background image or gradient. CTA: large button (border-radius:10px+, box-shadow:0 6px 20px rgba(0,0,0,.35), letter-spacing:0.8px, padding:14px 28px+). Headline: letter-spacing:0.5px+, line-height:1.1. Text on image: strong text-shadow or semi-transparent panel behind text.`,
+      `SHAPES RULE [${label}]: Geometric shapes encouraged — diagonal strips, circles, clip-path accents. Shapes must not cover more than 20% of any product or logo image.`,
+    ];
+  }
+  // medium: squares, landscape banners
+  return [
+    buildFontSizeRule(format),
+    buildButtonRule(format),
+    buildCopyRule(format),
+    `LAYOUT NO-OVERLAP RULE [${label}]: Use flexbox (column or grid). Minimum 10px gap between each text element and between text and CTA. Never overlap two text blocks. Remove the least important element if overlap is unavoidable.`,
+    `TYPOGRAPHY RULE [${label}]: 3 distinct font-weight levels — headline: 800+, body/subheadline: 400, CTA: 700. Headline letter-spacing: 0.3px+.`,
+    `VISUAL POLISH [${label}]: Background: gradient or image overlay. CTA: border-radius:6-8px, box-shadow:0 4px 16px rgba(0,0,0,.3), letter-spacing:0.5px. Text on image: text-shadow:0 2px 8px rgba(0,0,0,.6) or semi-transparent panel. @import font URL from spec as first CSS line.`,
+    `SHAPES RULE [${label}]: Geometric shapes encouraged (clip-path polygons, diagonal strips, circles). Must not cover more than 20% of product image. Shapes frame — they do not block.`,
+  ];
+}
+
+function stripTextTruncation(html: string): string {
+  return html
+    .replace(/text-overflow\s*:\s*ellipsis\s*;?/gi, "")
+    .replace(/-webkit-line-clamp\s*:\s*[^;}"]+;?/gi, "")
+    .replace(/display\s*:\s*-webkit-box\s*;?/gi, "display:block;")
+    .replace(/-webkit-box-orient\s*:\s*vertical\s*;?/gi, "");
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function visibleTextLength(html: string): number {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .length;
+}
+
+function injectAfterBannerOpen(html: string, injection: string): string {
+  return html.replace(
+    /(<div\b[^>]*class=["'][^"']*\bad-banner\b[^"']*["'][^>]*>)/i,
+    `$1${injection}`,
+  );
+}
+
+function ensureProvidedAssetVisible(html: string, data: AgentsAdsPayload["campaignData"], format: AdFormat): string {
+  const imageUrl = String(data.productImageUrl || data.backgroundImageUrl || "").trim();
+  if (!imageUrl || !/^https?:\/\//i.test(imageUrl) || html.includes(imageUrl)) return html;
+
+  const h = format.height ?? 500;
+  const isStrip = h <= 120;
+  const objectFit = isStrip ? "contain" : "cover";
+  const opacity = isStrip ? ".32" : ".86";
+  const injection = [
+    `<img src="${escapeHtml(imageUrl)}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:${objectFit};z-index:0;opacity:${opacity};">`,
+    `<div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.62),rgba(0,0,0,.18));z-index:1;"></div>`,
+  ].join("");
+  return injectAfterBannerOpen(html, injection);
+}
+
+function ensureMinimumAdCopy(html: string, data: AgentsAdsPayload["campaignData"], format: AdFormat): string {
+  if (visibleTextLength(html) >= 18) return html;
+
+  const w = format.width ?? 1080;
+  const h = format.height ?? 1080;
+  const isStrip = h <= 120;
+  const headline = escapeHtml(data.mainHeadline || data.offer || data.valueProposition || data.productName || data.campaignName || "Limited offer");
+  const cta = escapeHtml(data.ctaText || "Get Started");
+  const headlineSize = isStrip ? Math.max(12, Math.min(22, Math.round(h * 0.28))) : Math.max(22, Math.min(52, Math.round(h * 0.072)));
+  const ctaSize = isStrip ? Math.max(10, Math.min(15, Math.round(h * 0.16))) : Math.max(14, Math.min(24, Math.round(h * 0.036)));
+
+  const injection = isStrip
+    ? [
+        `<div style="position:absolute;left:${Math.round(w * 0.06)}px;top:50%;transform:translateY(-50%);width:${Math.round(w * 0.58)}px;z-index:30;color:#fff;font-family:Arial,sans-serif;font-size:${headlineSize}px;line-height:1.05;font-weight:900;text-shadow:0 2px 8px rgba(0,0,0,.65);">${headline}</div>`,
+        `<div class="ad-cta" style="position:absolute;right:${Math.round(w * 0.04)}px;top:50%;transform:translateY(-50%);z-index:40;background:#fff;color:#111;padding:6px 12px;border-radius:4px;font-family:Arial,sans-serif;font-size:${ctaSize}px;font-weight:800;">${cta}</div>`,
+      ].join("")
+    : [
+        `<div style="position:absolute;left:7%;top:10%;width:76%;z-index:30;color:#fff;font-family:Arial,sans-serif;font-size:${headlineSize}px;line-height:1.05;font-weight:900;text-shadow:0 3px 12px rgba(0,0,0,.62);">${headline}</div>`,
+        `<div class="ad-cta" style="position:absolute;left:7%;bottom:8%;z-index:40;background:#fff;color:#111;padding:12px 20px;border-radius:14px;font-family:Arial,sans-serif;font-size:${ctaSize}px;font-weight:800;box-shadow:0 8px 24px rgba(0,0,0,.22);">${cta}</div>`,
+      ].join("");
+
+  return injectAfterBannerOpen(html, injection);
+}
+
+function polishGeneratedBanner(html: string, data: AgentsAdsPayload["campaignData"], format: AdFormat, cssVars: string, fontUrl: string): string {
+  return injectButtonSafetyCss(
+    injectBrandTokens(
+      ensureMinimumAdCopy(
+        ensureProvidedAssetVisible(
+          clampHeadingSizes(stripTextTruncation(html), format),
+          data,
+          format,
+        ),
+        data,
+        format,
+      ),
+      cssVars,
+      fontUrl,
+    ),
+    format,
+  );
+}
+
+async function convertImageToHtml(
+  imageBase64: string,
+  mimeType: string,
+  format: AdFormat,
+  campaignData: AgentsAdsPayload["campaignData"],
+  creativePlan: string,
+  apiKey: string,
+): Promise<string> {
+  const { cssVars, fontUrl } = extractBrandTokens(creativePlan);
+  const w = format.width ?? 1080;
+  const h = format.height ?? 1080;
+  const platform = format.platform || "banner";
+  const formatName = format.format || "ad";
+  const logoUrl = String(campaignData.logoUrl || "").trim();
+  const brandName = String(campaignData.brandName || "").trim();
+
+  const contextLines = [
+    `BANNER DIMENSIONS: ${w}px wide × ${h}px tall`,
+    `PLATFORM: ${platform}  FORMAT: ${formatName}`,
+    brandName ? `BRAND NAME: ${brandName}` : "",
+    logoUrl
+      ? `LOGO URL (use this exact URL if a logo is visible in the image): ${logoUrl}`
+      : "LOGO: No URL provided — if a brand mark is visible, reproduce as CSS/text.",
+    campaignData.ctaText ? `KNOWN CTA TEXT: "${campaignData.ctaText}" — use verbatim if visible` : "",
+    campaignData.mainHeadline ? `KNOWN HEADLINE: "${campaignData.mainHeadline}" — use verbatim if matches what you see` : "",
+  ].filter(Boolean);
+
+  const userMessage = [
+    "Reconstruct the attached ad image as pixel-accurate HTML/CSS following the system rules.",
+    "",
+    "=== CAMPAIGN CONTEXT (reference only — do not override what you actually see in the image) ===",
+    ...contextLines,
+    "",
+    "Steps:",
+    "1. Read every visible text character verbatim.",
+    "2. Sample exact hex colors from background, text, buttons, shapes, overlays.",
+    "3. Estimate font sizes proportional to banner height.",
+    "4. Identify all layers (background, overlay, product, shapes, text, CTA).",
+    "5. Reconstruct with position:absolute for every element.",
+    `6. Output with data-platform="${platform}" data-format="${formatName}" style="width:${w}px;height:${h}px".`,
+    "7. Wrap output in <!-- BANNER_START --> ... <!-- BANNER_END --> markers.",
+  ].join("\n");
+
+  const referenceImages: ReferenceImage[] = [{
+    label: `Source ad image (${w}x${h})`,
+    mimeType,
+    data: imageBase64,
+    role: "source_to_reconstruct",
+  }];
+
+  const result = await generateWithRetry(
+    IMAGE_TO_HTML_SYSTEM_PROMPT,
+    userMessage,
+    "gemini-2.5-pro",
+    0.2,
+    16000,
+    apiKey,
+    undefined,
+    referenceImages,
+  );
+
+  const snippets = extractBannerSnippets(result.text);
+  if (!snippets.length) {
+    throw new Error("Vision model returned no valid banner snippet. The image may be unclear or the model failed to reconstruct it.");
+  }
+  const [snippet] = enforceAllBannerDimensions(snippets, [format]);
+  return polishGeneratedBanner(snippet, campaignData, format, cssVars, fontUrl);
 }
 
 function extractBannerSnippets(raw: string): string[] {
@@ -401,6 +1224,7 @@ type ReferenceImage = {
   label: string;
   mimeType: string;
   data: string;
+  role?: "reference" | "source_to_reconstruct";
 };
 
 async function fetchImageBase64(url: string): Promise<{ mimeType: string; data: string } | null> {
@@ -409,6 +1233,10 @@ async function fetchImageBase64(url: string): Promise<{ mimeType: string; data: 
     if (!res.ok) return null;
     const mime = res.headers.get("content-type")?.split(";")[0].trim() ?? "image/jpeg";
     if (!mime.startsWith("image/")) return null;
+    // Gemini inline image parts do not accept SVG. Keep SVG URLs in campaign
+    // facts so the generated HTML can render them, but do not send SVG bytes
+    // as visual reference input.
+    if (mime === "image/svg+xml") return null;
     const buf = await res.arrayBuffer();
     const bytes = new Uint8Array(buf);
     let bin = "";
@@ -419,6 +1247,74 @@ async function fetchImageBase64(url: string): Promise<{ mimeType: string; data: 
   }
 }
 
+type GeminiCallOptions = {
+  thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  responseMimeType?: string;
+  responseSchema?: Record<string, unknown>;
+};
+
+type GenerateOptions = GeminiCallOptions & {
+  modelChain?: string[];
+};
+
+type CreativeGroupPlan = {
+  groupKey: string;
+  formats: string[];
+  headline: string;
+  subheadline?: string;
+  cta: string;
+  bodyText?: string;
+  offer?: string;
+  layoutNotes: string;
+  colorNotes?: string;
+  imageNotes?: string;
+  abVariants?: Array<{ label: string; headline: string; cta: string }>;
+};
+
+type CreativePlanJson = {
+  groups: CreativeGroupPlan[];
+  globalNotes?: string;
+};
+
+const CREATIVE_PLAN_JSON_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    groups: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          groupKey:    { type: "string" },
+          formats:     { type: "array", items: { type: "string" } },
+          headline:    { type: "string" },
+          subheadline: { type: "string" },
+          cta:         { type: "string" },
+          bodyText:    { type: "string" },
+          offer:       { type: "string" },
+          layoutNotes: { type: "string" },
+          colorNotes:  { type: "string" },
+          imageNotes:  { type: "string" },
+          abVariants: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                label:    { type: "string" },
+                headline: { type: "string" },
+                cta:      { type: "string" },
+              },
+              required: ["label", "headline", "cta"],
+            },
+          },
+        },
+        required: ["groupKey", "formats", "headline", "cta", "layoutNotes"],
+      },
+    },
+    globalNotes: { type: "string" },
+  },
+  required: ["groups"],
+};
+
 async function callGemini(
   systemPrompt: string,
   userMessage: string,
@@ -427,12 +1323,13 @@ async function callGemini(
   maxTokens: number,
   apiKey: string,
   fileSearchStores?: string[],
-  referenceImages?: ReferenceImage[]
+  referenceImages?: ReferenceImage[],
+  options?: GeminiCallOptions
 ): Promise<GeminiResult> {
   const effectiveSystemPrompt = [
     systemPrompt,
     fileSearchStores?.length
-      ? "MANDATORY: You MUST query the File Search stores in order before generating any output: first the global ads store for design rules, HTML technical standards, and copy principles; then the company store for brand identity, logo URL, colors, and image assets; then any campaign stores for campaign memory, previous creative plans, and approved examples. Campaign facts override company guidance when they conflict, and company guidance overrides global rules."
+      ? "MANDATORY: Query the attached File Search stores before planning: global ads guidelines for rules; global ad references for visual inspiration only; company store for long-form brand docs; campaign stores for memory and approved examples. Campaign facts override company guidance when they conflict, and company guidance overrides global rules."
       : "",
     fileSearchStores?.length
       ? "For every non-empty form option in the mandatory guideline lookup checklist, retrieve the matching global guideline and visibly apply it in the plan and HTML. If a field has no exact rule, infer from the closest global rule and state the adaptation in the plan."
@@ -440,21 +1337,38 @@ async function callGemini(
     fileSearchStores?.length
       ? "If approved campaign examples are available, treat them as performance references: infer their winning layout principles, CTA treatment, hierarchy, and visual hooks. Do not clone them; create a new composition that preserves what worked."
       : "",
+    fileSearchStores?.length
+      ? "Global ad reference store rule: The reference store contains ADS FROM COMPETITOR BRANDS — not this brand. FORBIDDEN: any color scheme, logo, product image, brand name, font choice, or visual identity element from reference ads. ALLOWED: abstract layout principles only — composition skeleton, whitespace ratio, CTA button treatment, text-to-image balance, visual hierarchy structure. This brand's identity comes ONLY from the company store and campaign facts, never from reference ads."
+      : "",
   ].filter(Boolean).join("\n\n");
 
   const parts: unknown[] = [];
   if (referenceImages?.length) {
     for (const img of referenceImages) {
-      parts.push({ text: `VISUAL REFERENCE — ${img.label} (use this image in the ad as instructed):` });
+      const labelText = img.role === "source_to_reconstruct"
+        ? `ANALYZE THIS IMAGE AND RECONSTRUCT AS HTML/CSS — ${img.label}:`
+        : `VISUAL REFERENCE — ${img.label} (use this image in the ad as instructed):`;
+      parts.push({ text: labelText });
       parts.push({ inline_data: { mime_type: img.mimeType, data: img.data } });
     }
   }
   parts.push({ text: userMessage });
 
+  const generationConfig: Record<string, unknown> = { temperature, maxOutputTokens: maxTokens };
+  if (options?.thinkingLevel) {
+    generationConfig.thinkingConfig = { thinkingLevel: options.thinkingLevel };
+  }
+  if (options?.responseMimeType) {
+    generationConfig.responseMimeType = options.responseMimeType;
+    if (options.responseSchema) {
+      generationConfig.responseSchema = options.responseSchema;
+    }
+  }
+
   const body: Record<string, unknown> = {
     systemInstruction: { parts: [{ text: effectiveSystemPrompt }] },
     contents: [{ parts }],
-    generationConfig: { temperature, maxOutputTokens: maxTokens },
+    generationConfig,
   };
 
   if (fileSearchStores?.length) {
@@ -489,20 +1403,32 @@ async function generateWithRetry(
   maxTokens: number,
   apiKey: string,
   fileSearchStores?: string[],
-  referenceImages?: ReferenceImage[]
+  referenceImages?: ReferenceImage[],
+  options?: GenerateOptions
 ): Promise<GeminiResult> {
-  const chain = [preferredModel, ...MODEL_CHAIN.filter((m) => m !== preferredModel)];
+  const chainBase = options?.modelChain ?? MODEL_CHAIN;
+  const chain = [preferredModel, ...chainBase.filter((m) => m !== preferredModel)];
   let lastError: Error | null = null;
 
   for (const model of chain) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        return await callGemini(systemPrompt, userMessage, model, temperature, maxTokens, apiKey, fileSearchStores, referenceImages);
+        return await callGemini(
+          systemPrompt, userMessage, model, temperature, maxTokens,
+          apiKey, fileSearchStores, referenceImages,
+          { thinkingLevel: options?.thinkingLevel, responseMimeType: options?.responseMimeType, responseSchema: options?.responseSchema }
+        );
       } catch (e) {
         lastError = e instanceof Error ? e : new Error(String(e));
         const status = lastError.message.match(/returned (\d+)/)?.[1];
-        if (status === "429" || status === "503") {
-          await new Promise((r) => setTimeout(r, attempt === 0 ? 3000 : 8000));
+        if (model !== preferredModel || attempt > 0) {
+          console.warn(
+            `[agents-ads][model-fallback] preferred=${preferredModel} current=${model} ` +
+            `attempt=${attempt + 1}/2 status=${status ?? "non-http"} error="${lastError.message.slice(0, 120)}"`
+          );
+        }
+        if (status === "429" || status === "502" || status === "503" || status === "546") {
+          await new Promise((r) => setTimeout(r, attempt === 0 ? 4000 : 10000));
         } else {
           break;
         }
@@ -518,6 +1444,55 @@ serve(async (req: Request) => {
 
   try {
     const payload = await req.json() as AgentsAdsPayload;
+    const mode = payload.mode || "full";
+
+    // ── IMAGE_TO_HTML MODE ────────────────────────────────────────────────────
+    // Runs before all other guards — this mode does not need agentConfig,
+    // formats, companyStoreName, or globalStoreName.
+    if (mode === "image_to_html") {
+      const imageBase64 = typeof payload.imageBase64 === "string" ? payload.imageBase64.trim() : "";
+      const mimeType = typeof payload.mimeType === "string" ? payload.mimeType.trim() : "image/png";
+      const fmt: AdFormat | undefined = payload.format || payload.campaignData?.selectedFormats?.[0];
+
+      if (!imageBase64) {
+        return new Response(JSON.stringify({ error: "imageBase64 is required for image_to_html mode" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!fmt?.width || !fmt?.height) {
+        return new Response(JSON.stringify({ error: "format with width and height is required for image_to_html mode" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const convertKey = getApiKey(typeof payload.geminiApiKey === "string" ? payload.geminiApiKey : undefined);
+      if (!convertKey) {
+        return new Response(JSON.stringify({ error: "Gemini API key not configured" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      try {
+        const bannerHtml = await convertImageToHtml(
+          imageBase64,
+          mimeType,
+          fmt,
+          payload.campaignData || {},
+          String(payload.creativePlan || ""),
+          convertKey,
+        );
+        const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
+        return new Response(JSON.stringify({ mode: "image_to_html", html: fullHtml }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (convErr) {
+        return new Response(
+          JSON.stringify({ error: convErr instanceof Error ? convErr.message : "Image-to-HTML conversion failed" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
+    // ── END IMAGE_TO_HTML MODE ────────────────────────────────────────────────
 
     if (!payload.agentConfig?.systemPrompt) {
       return new Response(JSON.stringify({ error: "agentConfig.systemPrompt is required" }), {
@@ -532,8 +1507,8 @@ serve(async (req: Request) => {
       });
     }
 
-    const { agentConfig, globalStoreName, companyStoreName, campaignGoodExamplesStore, campaignMemoryStore, campaignData, useCampaignMemory } = payload;
-    const apiKey = getApiKey();
+    const { agentConfig, globalStoreName, globalReferenceStoreName, companyStoreName, campaignGoodExamplesStore, campaignMemoryStore, campaignData, useCampaignMemory } = payload;
+    const apiKey = getApiKey(typeof payload.geminiApiKey === "string" ? payload.geminiApiKey : undefined);
 
     if (!apiKey) {
       return new Response(JSON.stringify({ error: "Gemini API key not configured" }), {
@@ -543,34 +1518,105 @@ serve(async (req: Request) => {
 
     const fileSearchStores = [
       globalStoreName,
+      globalReferenceStoreName,
       companyStoreName,
       ...(useCampaignMemory && campaignMemoryStore ? [campaignMemoryStore] : []),
       campaignGoodExamplesStore,
     ].filter((s): s is string => Boolean(s?.trim()));
 
-    if (!companyStoreName?.trim()) {
-      return new Response(JSON.stringify({ error: "companyStoreName is required. Sync the company store before generation." }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // ── EXTRACT_BRAND MODE ───────────────────────────────────────────────────
+    // Lightweight store query that returns a plain-text brand spec for image prompts.
+    // Callers run this ONCE before the image generation loop to avoid doing it inside
+    // each image call (which would exceed memory limits in the V8 isolate).
+    if (mode === "extract_brand") {
+      let brandSpec = "";
+      if (fileSearchStores.length) {
+        try {
+          const extractUserMsg = [
+            "Query all stores and extract the visual brand spec for this campaign.",
+            buildCampaignFactsForImage(campaignData),
+          ].join("\n\n");
+          const extractResult = await generateWithRetry(
+            IMAGE_BRAND_EXTRACT_SYSTEM_PROMPT,
+            extractUserMsg,
+            "gemini-2.5-flash",
+            0.2,
+            600,
+            apiKey,
+            fileSearchStores,
+          );
+          brandSpec = extractResult.text.trim().slice(0, 1200);
+        } catch {
+          // return empty string — caller will proceed without brand context
+        }
+      }
+      return new Response(JSON.stringify({ mode: "extract_brand", brandSpec }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ── COPY MODE ────────────────────────────────────────────────────────────
+    // Copy mode uses no file_search stores — skip store validation entirely.
+    if (mode === "copy") {
+      const isAb = Boolean(campaignData.abTestingEnabled);
+      const variantCount = isAb
+        ? Math.min(3, Math.max(2, Number(campaignData.abVariantCount || 2)))
+        : 0;
+
+      // Strip any locked copy so buildCampaignFacts never injects "EXACT COPY — do not change"
+      const copyData = { ...campaignData, useAiCopy: true };
+
+      const userMessage = [
+        buildCampaignFacts(copyData),
+        isAb
+          ? `A/B TESTING: generate ${variantCount} variants testing: ${campaignData.abTestFocus || "mixed"}`
+          : "No A/B testing — generate single canonical copy.",
+        "Generate the best possible, compelling copy for this campaign.",
+      ].join("\n\n");
+
+      const copyResult = await generateWithRetry(
+        COPY_SYSTEM_PROMPT, userMessage,
+        "gemini-2.5-flash", 0.9, 2000, apiKey,
+        undefined, // file_search conflicts with JSON structured output mode
+        undefined,
+        { responseMimeType: "application/json", responseSchema: COPY_JSON_SCHEMA },
+      );
+
+      let copyJson: unknown;
+      try { copyJson = JSON.parse(copyResult.text); } catch { copyJson = { mainHeadline: "", subheadline: "", ctaText: "" }; }
+
+      return new Response(
+        JSON.stringify({ mode: "copy", copy: copyJson }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    if (!companyStoreName?.trim()) {
+      return new Response(
+        JSON.stringify({ error: "companyStoreName is required. Sync the company store before generation." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     if (!globalStoreName?.trim()) {
-      return new Response(JSON.stringify({ error: "globalStoreName is required. Upload the global ads store first in the admin panel." }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "globalStoreName is required. Upload the global ads store first in the admin panel." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     const hasApprovedExamples = Boolean(campaignGoodExamplesStore?.trim());
+    const isUnified = mode === "unified";
     const formatsList = buildFormatsList(formats, campaignData.formatNotes);
     const campaignFacts = buildCampaignFacts(campaignData);
-    const sourceOrchestration = buildSourceOrchestration(hasApprovedExamples);
+    const sourceOrchestration = buildRendererSourceOrchestration(hasApprovedExamples, isUnified);
     const layoutSeed = getLayoutSeed();
-    const storeNotice = fileSearchStores.length
-      ? "Consult the File Search stores before designing. Retrieve rules for every design parameter listed in the campaign facts."
-      : "";
+    const storeNotice = "";
 
     // Group formats by category early — used in both plan and generation
     const formatGroups = groupFormatsByCategory(formats);
+    const retrievalHints = buildRetrievalHints(campaignData, formats);
+    const referenceGuide = buildReferenceRetrievalGuide(campaignData, formats);
 
     // Fetch reference images in parallel — model sees the actual images
     const logoUrl = campaignData.logoUrl;
@@ -588,29 +1634,147 @@ serve(async (req: Request) => {
     );
     const referenceImages: ReferenceImage[] = fetchedImages.filter((img): img is ReferenceImage => img !== null);
 
+    // IMAGE MODE: generate one PNG per format using Gemini image model
+    if (payload.generateAsImage || mode === "image") {
+      const campaignFactsImg = buildCampaignFactsForImage(campaignData);
+      const refImagesForGen = referenceImages.map((r) => ({ data: r.data, mimeType: r.mimeType }));
+      const brandConsistencyRules = buildBrandConsistencyRules(campaignData);
+      const IMAGE_LANGUAGE_NAMES: Record<string, string> = {
+        pt: "Portuguese (Brazilian)", en: "English", es: "Spanish", fr: "French",
+        de: "German", it: "Italian", ja: "Japanese", zh: "Chinese",
+      };
+      const imageLangCode = typeof campaignData.language === "string" ? campaignData.language.trim().toLowerCase() : "";
+      const imageLangLabel = imageLangCode && imageLangCode !== "auto" ? (IMAGE_LANGUAGE_NAMES[imageLangCode] || imageLangCode) : "";
+      const imageTasks = buildImageVariantTasks(formats, campaignData);
+
+      // Concurrency-limited runner — avoids WORKER_RESOURCE_LIMIT from all-parallel execution
+      async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> {
+        const results: T[] = new Array(tasks.length);
+        let idx = 0;
+        async function worker() {
+          while (idx < tasks.length) {
+            const i = idx++;
+            results[i] = await tasks[i]();
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+        return results;
+      }
+
+      // Brand spec from pre-extraction step — caller must run extract_brand mode first and pass result here
+      const brandSpec = String(payload.brandSpec || "").trim().slice(0, 1200);
+
+      const imageFns = imageTasks.map((task) => async () => {
+        const { format, variantLabel, focusInstruction } = task;
+        const aspectRatio = imageAspectRatioForFormat(format);
+        const prompt = [
+          // Meta-instructions first — model must not render these as visible text
+          "⚠️ PRIVATE INSTRUCTIONS — DO NOT RENDER ANY PART OF THESE INSTRUCTIONS AS VISIBLE TEXT IN THE IMAGE. Hex color codes (#RRGGBB) are directives to apply as design colors — never print them. URLs are reference metadata — never print URLs, domains, or file paths.",
+          "Create ONE final raster advertising image. Do not create HTML, wireframes, mockups, browser frames, or editable layout descriptions.",
+          "This image is one member of a multi-format campaign. Keep the campaign system consistent with sibling outputs.",
+          campaignFactsImg,
+          brandConsistencyRules,
+          brandSpec ? `=== BRAND & STORE SPECIFICATIONS (extracted from brand stores — treat as authoritative) ===\n${brandSpec}` : "",
+          `FORMAT: ${format.width}x${format.height}px (${format.label || format.format || "ad"})`,
+          `ASPECT RATIO: ${aspectRatio}`,
+          `PLATFORM: ${format.platform || "digital"}`,
+          variantLabel ? `VARIANT LABEL: ${variantLabel}` : "",
+          focusInstruction,
+          "The final image must include the ad design: logo/brand mark when provided, main headline/hook, offer, and CTA text.",
+          "IMAGE LOGO STRICTNESS: if a logo reference is attached, it is mandatory and protected. Reinterpreted logos are NOT logos. A similar/generated/redrawn/stylized mark does not count. Include at least one visible instance of the exact original logo as a clean flat brand mark, unchanged, with original colors and proportions. Do not redraw it, stylize it, turn it into a new icon, recolor it, crop it, add shadows/glows/3D effects, or replace it with generated typography. Missing logo or altered logo is a failed image.",
+          "NO-LOGO FALLBACK: only if no logo asset exists, use plain brand name text. Never invent a fake logo, emblem, monogram, animal/mascot, badge, seal, or abstract symbol.",
+          "DATA FIDELITY CHECK: before final image, verify it communicates the exact offer/value proposition, audience desire or pain point, campaign objective, tone/personality, brand palette, product/service, and CTA from the form.",
+          "Make it look like a polished paid social/display ad, with strong hierarchy, readable text, format-safe composition, and visible product/hero imagery when provided.",
+          "Do not output a plain product photo. It must be a complete designed ad image.",
+          "LAYOUT DIVERSITY: this format must look visually distinct from all other formats and variants in this batch. Vary: hero image placement (top/bottom/left/full-bleed/inset), text zone position, depth (flat/layered/3D pop), foreground-background weight. Never clone a layout.",
+          imageLangLabel ? `⚠️ LANGUAGE: ALL visible text in this image (headline, subheadline, CTA, body copy, offer, disclaimers) MUST be written exclusively in ${imageLangLabel}. Writing in any other language is a critical failure.` : "",
+          "⚠️ SPELLING & PROOFREADING: Every visible word must be spelled correctly in the target language. Check every letter before rendering. Typos, wrong accents, or malformed words are a critical failure. Re-read every text element from left to right before finalizing.",
+        ].filter(Boolean).join("\n");
+        const imageUrl = await generateAdImage(prompt, refImagesForGen, apiKey, aspectRatio);
+        return {
+          imageUrl: imageUrl ?? "",
+          platform: format.platform || "other",
+          format: format.format || "ad",
+          label: `${format.label || `${format.width}x${format.height}`}${variantLabel ? ` - Variant ${variantLabel}` : ""}`,
+          width: format.width || 1080,
+          height: format.height || 1080,
+          variant: variantLabel || null,
+        };
+      });
+
+      const images = await runWithConcurrency(imageFns, 1);
+      return new Response(JSON.stringify({ mode: "image", images }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Plan is text-only — images not needed and waste bandwidth/tokens
-    const planResult = await generateWithRetry(
-      "You are a senior performance ad creative director. Create concise planning notes only. Do not generate HTML.",
-      buildPlanPrompt(campaignFacts, formatGroups, layoutSeed, campaignData.formatNotes, hasApprovedExamples),
-      agentConfig.model || "gemini-2.5-flash",
-      0.65,
-      8000,
-      apiKey,
-      fileSearchStores.length ? fileSearchStores : undefined,
-      undefined
-    );
-    const creativePlan = planResult.text.trim().slice(0, 12000);
+    const groundingMetadata: unknown[] = [];
+    let creativePlan = String(payload.creativePlan || "").trim();
+    const { cssVars, fontUrl, cleanSpec } = extractBrandTokens(creativePlan);
+    if (cleanSpec) creativePlan = cleanSpec;
+
+    if (mode === "interpret") {
+      const interpretResult = await generateWithRetry(
+        INTERPRET_SYSTEM_PROMPT,
+        buildInterpretPrompt(campaignFacts, formats, campaignData.formatNotes, referenceGuide),
+        agentConfig.model || "gemini-2.5-flash",
+        0.5,
+        8000,
+        apiKey,
+        fileSearchStores.length ? fileSearchStores : undefined,
+        undefined,
+      );
+      const parsed = extractInterpretJson(interpretResult.text);
+      return new Response(
+        JSON.stringify({ batchSpecs: parsed.batchSpecs || [], usedStores: fileSearchStores }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    if (mode !== "render" && mode !== "unified") {
+      const planResult = await generateWithRetry(
+        "You are a senior performance ad creative director. Create concise planning notes only. Do not generate HTML.",
+        buildPlanPrompt(campaignFacts, formatGroups, layoutSeed, retrievalHints, referenceGuide, campaignData.formatNotes, hasApprovedExamples),
+        "gemini-3.5-flash",
+        0.65,
+        8000,
+        apiKey,
+        fileSearchStores.length ? fileSearchStores : undefined,
+        undefined,
+        { modelChain: PLAN_MODEL_CHAIN, thinkingLevel: "medium", responseMimeType: "application/json", responseSchema: CREATIVE_PLAN_JSON_SCHEMA },
+      );
+      creativePlan = planResult.text.trim().slice(0, 12000);
+      if (planResult.groundingMetadata) groundingMetadata.push(planResult.groundingMetadata);
+    }
+
+    if (mode === "plan") {
+      return new Response(
+        JSON.stringify({
+          creativePlan,
+          formats,
+          usedStores: fileSearchStores,
+          groundingMetadata: groundingMetadata.length ? groundingMetadata : null,
+          generationMode: "planned_only",
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // creativePlan may be empty when using interpret+render flow; renderer falls back to campaign facts
 
     const isAbTest = Boolean(campaignData.abTestingEnabled) && (campaignData.abVariantCount ?? 2) > 1;
     const variantCount = isAbTest ? (campaignData.abVariantCount ?? 2) : 1;
     const abTestFocus = campaignData.abTestFocus || "mixed";
     const snippets: string[] = [];
-    const groundingMetadata: unknown[] = [planResult.groundingMetadata].filter(Boolean);
 
-    const groupResults = await Promise.all(formatGroups.map(async (group, groupIndex) => {
+    const renderGroups = [formats];
+    const groupResults = await Promise.all(renderGroups.map(async (group, groupIndex) => {
       const groupFormatsList = buildFormatsList(group, campaignData.formatNotes);
       const totalBannersInGroup = group.length * variantCount;
-      const groupCategory = deriveFormatCategory(group[0]);
+      const groupCategory = mode === "render"
+        ? `batch-${(payload.batchIndex ?? groupIndex) + 1}-of-${payload.totalBatches ?? renderGroups.length}`
+        : "all-formats";
 
       const outputInstruction = isAbTest
         ? [
@@ -618,6 +1782,7 @@ serve(async (req: Request) => {
             `A/B TESTING — For EACH format in this group, produce ${variantCount} distinct variants.`,
             `Variation focus: ${abTestFocus} — ${getAbFocusDescription(abTestFocus)}`,
             "Variants of the same format must differ meaningfully in the focus area, not just minor tweaks.",
+            "Variants of the same format must still share the same campaign system: logo treatment, CTA visual style, palette roles, product treatment, and general composition family. If focus is cta, change CTA text/urgency only; keep button style locked.",
             `Total output: ${totalBannersInGroup} banners (${group.length} format${group.length > 1 ? "s" : ""} × ${variantCount} variants).`,
             `Wrap EACH banner with: <!-- BANNER_START --> (complete banner HTML) <!-- BANNER_END -->`,
           ].join("\n")
@@ -626,30 +1791,44 @@ serve(async (req: Request) => {
             `Wrap EACH banner with: <!-- BANNER_START --> (complete banner HTML) <!-- BANNER_END -->`,
           ].join("\n");
 
-      const planSection = extractPlanSection(creativePlan, groupCategory);
+      const planSection = creativePlan;
 
       const groupMessage = [
         storeNotice,
         sourceOrchestration,
         "",
+        referenceGuide || "REFERENCE STORE TASK - If a global ad reference store is attached, query it for structural patterns only (layout, CTA zone, spacing). Never copy colors, fonts, logos, or brand identity from reference ads.",
+        "",
+        cssVars ? `=== BRAND CSS TOKENS (inject as :root vars — use var(--primary) etc.) ===\n<style>:root{${cssVars}}</style>${fontUrl ? `\n@import: ${fontUrl}` : ""}` : "",
+        "",
         "=== CAMPAIGN ===",
         campaignFacts,
+        buildBrandConsistencyRules(campaignData),
         "",
         `=== CREATIVE PLAN — ${groupCategory.toUpperCase()} ===`,
         planSection,
         "",
-        `=== FORMAT GROUP ${groupIndex + 1}/${formatGroups.length}: ${groupCategory} ===`,
+        `=== FORMAT GROUP ${groupIndex + 1}/${renderGroups.length}: ${groupCategory} ===`,
         groupFormatsList,
-        hasApprovedExamples ? "Before writing HTML, retrieve and analyze the approved examples for this campaign. Use their winning principles as references, but do not copy their exact layout, dimensions, or element positions." : "",
+        hasApprovedExamples ? "Approved examples were already analyzed in the creative plan. Use their winning principles as references, but do not copy their exact layout, dimensions, or element positions." : "",
+        "MANDATORY COPY RULE: every banner must contain visible human-readable ad copy. Use campaign headline/value prop/offer to write a concise headline, plus the CTA text. Never return a banner with only shapes, logo, or image.",
+        "MANDATORY LOGO RULE: if a logo URL exists in campaign facts, every banner must include at least one visible <img class=\"ad-logo\"> that uses the exact original logo URL with object-fit:contain. Reinterpreted logos are NOT logos. Similar marks, generated marks, recolored marks, redrawn symbols, monograms, or decorative logo-like shapes do not count. Never redraw, recolor, filter, mask, crop, replace, or invent a logo. If no logo URL exists, use brand name text only and never invent a fake mark.",
+        "MANDATORY ASSET RULE: if PRODUCT or BACKGROUND asset URL exists in campaign facts, every banner must include at least one of those URLs in a visible <img>. Do not replace provided images with abstract blocks.",
+        "MANDATORY CTA SIZE RULE: every CTA must be proportionate to the exact canvas. It must look clickable but never dominate the ad. Use compact padding, one-line text, and keep it inside the lower-third/action zone.",
+        "SOCIAL MEDIA NO-BUTTON RULE: for Instagram, Facebook, TikTok, LinkedIn, social feed, square social, story, reels, and any social media placement, the CTA must NOT be a button/pill/rounded rectangle/bordered clickable block. Use CTA text integrated into the design as footer copy, underlined action text, caption line, swipe/DM cue, or sticker text without a button container. This overrides any generic CTA button guidance.",
+        "VISUAL QUALITY GATE: before final output, verify the banner reads like a real paid ad: clear hook, strong focal image, visible CTA, readable hierarchy, enough contrast, no overlapping text, no empty center, no generic centered stack unless the format is too small.",
+        "LAYOUT VARIETY GATE: for non-strip formats, choose one distinctive composition technique: diagonal split, product cutout, editorial poster, framed image panel, price/offer badge, asymmetrical text block, or full-bleed image overlay.",
         "Generate one banner per format listed above. Same campaign concept, but a distinct composition recipe for each exact size. Do not reuse the same logo/headline/product/CTA positions across ratios.",
-        "Mandatory variation axes across formats: focal point, image crop, copy block shape, CTA placement, and background treatment. At least three of these must change between square, story, landscape, leaderboard, and rectangle.",
         groupIndex > 0 ? `Vary the visual composition from earlier groups — different focal point, crop, panel shape, or layout rhythm.` : "",
+        "CSS TEXT RULE: NEVER use text-overflow:ellipsis, -webkit-line-clamp, or overflow:hidden on any text element. All text must be fully visible. If copy is too long for the space, reduce font-size or shorten the copy — do not truncate.",
+        ...buildFormatRules(group[0]),
+        "COMPOSITION RULE: Follow the layout technique in the creative plan exactly — use the CSS property specified (clip-path, grid-template-areas, flexbox direction, etc.). Do not default to a centered stack.",
         outputInstruction,
       ].filter(Boolean).join("\n");
 
       // Scale max tokens: base per format × formats in group × variants
       const baseTokens = agentConfig.maxTokens ?? 16000;
-      const effectiveMaxTokens = Math.min(baseTokens * group.length * variantCount, 65536);
+      const effectiveMaxTokens = Math.min(baseTokens * group.length * variantCount, 52000);
 
       const result = await generateWithRetry(
         agentConfig.systemPrompt,
@@ -659,11 +1838,16 @@ serve(async (req: Request) => {
         effectiveMaxTokens,
         apiKey,
         fileSearchStores.length ? fileSearchStores : undefined,
-        referenceImages.length ? referenceImages : undefined
+        referenceImages.length ? referenceImages : undefined,
+        { modelChain: RENDER_MODEL_CHAIN },
       );
 
+      const rawSnippets = enforceAllBannerDimensions(extractBannerSnippets(result.text), group);
       return {
-        snippets: enforceAllBannerDimensions(extractBannerSnippets(result.text), group),
+        snippets: rawSnippets.map((s, i) => {
+          const fmt = group[i] ?? group[0];
+          return polishGeneratedBanner(s, campaignData, fmt, cssVars, fontUrl);
+        }),
         groundingMetadata: result.groundingMetadata,
       };
     }));
@@ -684,6 +1868,7 @@ serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         html: finalHtml,
+        snippets,
         assets: extractAssets(finalHtml),
         slug: `ad-${slugify(brandName)}`,
         creativeCount: snippets.length,
@@ -691,7 +1876,9 @@ serve(async (req: Request) => {
         usedStores: fileSearchStores,
         groundingMetadata: groundingMetadata.length ? groundingMetadata : null,
         creativePlan,
-        generationMode: "planned_per_format",
+        generationMode: mode === "render" ? "planned_batch_render" : "planned_per_format",
+        batchIndex: payload.batchIndex ?? null,
+        totalBatches: payload.totalBatches ?? null,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

@@ -1,0 +1,340 @@
+LEGACY ADS ABSOLUTE LAYOUT AND RENDER PIPELINE
+==============================================
+
+KEYWORDS:
+legacy-generator, absolute-layers, renderer-compatible, png-export,
+extract-ad-banner, asset-mirroring, exact-url, creative-plan, image-compliance,
+layout-archetype, render-pipeline
+
+Purpose:
+Preserve the strongest behavior from the pre-store ads generator. These rules
+exist so Gemini produces banners that can be extracted, saved as individual
+HTML files, mirrored to local assets, rendered to PNG, and returned as creative
+images without visual breakage.
+
+
+CORE RENDERER CONTRACT
+----------------------
+
+The output must be compatible with a downstream PHP renderer that:
+1. parses the combined HTML with DOMDocument
+2. extracts every element with class="ad-banner"
+3. matches each banner by data-platform and data-format
+4. wraps each banner in its own HTML document
+5. mirrors remote image assets into /assets/
+6. renders each individual banner to PNG
+
+Therefore every creative must be self-contained inside its root .ad-banner.
+Do not rely on surrounding wrappers, scripts, external class CSS, or normal
+document flow to make the banner look correct.
+
+
+ROOT BANNER REQUIREMENTS
+------------------------
+
+Each creative must have exactly one root:
+
+<div class="ad-banner"
+     data-platform="{platform}"
+     data-format="{format}"
+     data-variant="{A|B|C when applicable}"
+     style="width:{W}px;height:{H}px;position:relative;overflow:hidden;box-sizing:border-box;isolation:isolate;">
+  ...
+</div>
+
+Rules:
+- width and height must exactly match the requested format
+- class="ad-banner" is mandatory
+- data-platform and data-format are mandatory
+- data-variant is mandatory only for A/B variants
+- root .ad-banner must use position:relative
+- root .ad-banner must not use display:flex, display:grid, inline-flex,
+  inline-grid, align-items, justify-content, gap, or flex-direction for the
+  primary layout
+- all primary visible elements must be absolutely positioned layers
+
+
+ABSOLUTE LAYER CONTRACT
+-----------------------
+
+The banner is a fixed creative canvas, not a responsive web page. Every primary
+element must be an independent absolute layer.
+
+Required layer classes:
+- .ad-bg: background layer, position:absolute; inset:0; z-index:0
+- .ad-logo: logo image, position:absolute; z-index:20
+- .ad-headline: primary headline, position:absolute; z-index:30
+- .ad-subheadline: support copy, position:absolute; z-index:30
+- .ad-cta: CTA button, position:absolute; z-index:40
+- .ad-media.ad-product: product or hero image, position:absolute; z-index:15
+  or z-index:25 depending on the composition
+
+Every primary layer except .ad-bg must define:
+- position:absolute
+- explicit horizontal coordinate: left or right
+- explicit vertical coordinate: top or bottom
+- explicit width or max-width
+- z-index
+
+Use percentages for placement and canvas-relative sizing. Use pixels for font
+sizes, line-height, border-radius, shadows, and padding.
+
+Allowed exception:
+Small spans or decorative elements inside one already absolute text/button
+layer may use inline layout, but they must not control the primary banner
+composition.
+
+
+ASSET URL COMPLIANCE
+--------------------
+
+Provided image URLs are hard requirements.
+
+If a logo URL is provided:
+- the final HTML must contain the exact URL string verbatim
+- render it as <img src="URL" class="ad-logo" ...>
+- use object-fit:contain
+- preserve aspect ratio
+- never crop it
+- use width:auto and height:auto, with max-width and max-height constraints
+- logo must be visible but never the hero element
+
+If a product or hero URL is provided:
+- the final HTML must contain the exact URL string verbatim
+- render it as <img src="URL" class="ad-media ad-product" ...>
+- it must be visibly integrated into the composition
+- do not replace it with a placeholder, generated image, or stock image
+
+If a background URL is provided:
+- the final HTML must contain the exact URL string verbatim
+- use it on .ad-bg as background-image:url('URL') or as a full-canvas img
+- add a readability overlay if text overlaps it
+
+For A/B variants:
+- variant-specific image URLs override default image URLs
+- use the exact variant URL, not the default URL
+
+No provided image:
+- build a rich layered gradient/geometric background
+- never output a flat single-color rectangle
+
+
+IMAGE ART DIRECTION
+-------------------
+
+Before rendering, classify each attached/provided image:
+- logo
+- product packshot
+- lifestyle/person
+- UI screenshot
+- texture/background
+- abstract/brand image
+
+Then choose the layout based on the image role.
+
+Product images must be treated intentionally. Use one of:
+- floating cutout with shadow
+- masked frame
+- angled card
+- side crop
+- corner anchor
+- split-panel hero
+- centered showcase with depth
+
+Never dump a raw square product photo in the center without design treatment.
+
+Background images require a readability system:
+- gradient overlay
+- solid text panel
+- vignette
+- blur panel
+- split layout
+- dark/light mask
+
+Define a clear text safe zone and keep headline/CTA away from the visual focal
+point.
+
+
+LEGACY FORMAT ARCHETYPES
+------------------------
+
+Use these as starting archetypes, not as rigid templates. Pick one that fits
+the format, brand personality, campaign objective, and available images.
+
+Leaderboard:
+- MINIMAL-ROW: logo left, single-line headline center, compact CTA right
+- ACCENT-BAR: brand color vertical bar left, message center, CTA right
+- FULL-STRIP: small logo, oversized one-line headline, CTA at right edge
+
+Landscape:
+- SPLIT-CANVAS: visual panel on one side, brand-color copy panel on the other
+- FULL-BLEED-OVERLAY: image fills canvas with directional gradient overlay
+- EDITORIAL-BAND: image band plus solid color message band
+- PRODUCT-HERO: product on clean stage, bold type opposite it
+
+Square:
+- CENTERED-SHOWCASE: product centered with headline top and CTA bottom
+- EDITORIAL-SPLIT: half type panel, half visual panel
+- TYPE-FORWARD: oversized headline as main visual anchor
+- OFFER-BADGE: product plus prominent discount/benefit badge
+- DARK-LUXURY: dark background, dramatic product lighting, minimal copy
+
+Portrait 4:5:
+- VERTICAL-STACK: image/product top, solid copy panel bottom
+- LIFESTYLE-TOP: lifestyle/product image top, bottom text panel
+- GRADIENT-SPLIT: bold diagonal gradient, headline left-center, CTA bottom
+- DARK-EDITORIAL: high-contrast dark composition, strong headline lower half
+- OFFER-FOCUSED: benefit/discount badge as the hero with controlled image use
+
+Story:
+- CINEMATIC: full-bleed image, logo top, headline lower third, CTA above bottom
+- LIFESTYLE-IMMERSIVE: bright full-bleed photo with bottom gradient text zone
+- UGC-STYLE: product centered with simple top/bottom brand strips
+- BOLD-TEXT: solid brand color, oversized headline, product as secondary accent
+
+
+FORMAT DENSITY RULES
+--------------------
+
+Leaderboard:
+- headline max 4 words
+- headline must stay on one line
+- no subheadline
+- CTA max 2 words
+- logo max 120px wide and about 40px tall
+- reduce font size before allowing overflow
+
+Landscape:
+- headline max 6 words, 1-2 lines
+- subheadline max 10 words
+- CTA max 3 words
+
+Square:
+- headline max 8 words
+- subheadline max 12 words, optional
+- CTA max 3 words
+
+Portrait 4:5:
+- headline max 9 words, 2-3 lines
+- subheadline max 14 words
+- CTA max 4 words
+
+Story:
+- headline max 5 words
+- headline should be 30px or larger when possible
+- no subheadline unless the brief absolutely requires it
+- CTA max 3 words
+- all text must stay inside the bottom 35% safe zone
+
+All formats:
+- shorten copy before shrinking into unreadability
+- never clip text
+- never let CTA, headline, logo, and product fight for the same zone
+
+
+SUGGESTED NON-OVERLAPPING ZONES
+-------------------------------
+
+Use these zones as a safe starting point. Adjust creatively only when the final
+result remains non-overlapping and format-native.
+
+Leaderboard:
+- logo: left 4%, top 50%, translateY(-50%), max width 120px
+- headline: left 22%, top 50%, width 44%, single line
+- CTA: right 4%, top 50%, translateY(-50%)
+- product: optional small side accent only
+
+Landscape:
+- logo: left 5%, top 7%, max-width 16%, max-height 13%
+- headline: left 6%, top 28%, width 48%
+- subheadline: left 6%, top 55%, width 44%
+- CTA: left 6%, bottom 9%, max-width 35%
+- product: right 5%, top 12%, max-width 38%, max-height 78%
+
+Square:
+- logo: left 6%, top 5%, max-width 22%, max-height 10%
+- headline: left 7%, top 12%, width 86%, centered when appropriate
+- subheadline: left 10%, top 31%, width 80%
+- product: centered around top 43%, max-width 54%, max-height 34%
+- CTA: centered, bottom 8%, max-width 72%
+
+Portrait 4:5:
+- logo: left 6%, top 5%, max-width 25%, max-height 9%
+- product: right 4%, top 14%, max-width 58%, max-height 38%
+- headline: left 7%, bottom 28%, width 86%
+- subheadline: left 7%, bottom 18%, width 80%
+- CTA: left 7%, bottom 8%, max-width 70%
+
+Story:
+- background: full bleed
+- logo: top 6%, left 6%, max-width 38%
+- headline: left 7%, bottom 18%, width 86%
+- CTA: left 7%, bottom 8%
+- all primary copy below 65% canvas height
+- keep platform UI safe zones clear
+
+
+VISUAL DEPTH REQUIREMENTS
+-------------------------
+
+Every non-tiny format should include at least two depth signals:
+- multi-stop gradient or image overlay
+- geometric accent shape
+- inner vignette
+- text shadow on image/dark background
+- CTA shadow
+- drop-shadow on product/logo
+- foreground/background layering
+
+The design should feel like a finished paid-media creative, not a centered
+wireframe.
+
+
+CREATIVE PLAN BEFORE HTML
+-------------------------
+
+Before writing HTML, decide and follow a concrete creative plan. The plan must
+answer:
+- concept
+- headline
+- subheadline
+- CTA
+- layout instruction
+- visual hierarchy
+- background treatment
+- product treatment
+- image role
+- text safe zone
+- product crop strategy
+- background overlay strategy
+- visual focal point
+- readability plan
+- layout risk
+- logo treatment
+- color treatment
+- typography treatment
+- A/B hypothesis when relevant
+- asset usage for logo, product, and background
+- compliance notes
+
+The final HTML should visibly execute this plan. Do not make the plan generic.
+
+
+REPAIR CHECK BEFORE FINAL OUTPUT
+--------------------------------
+
+Before final answer, check silently:
+- every provided image URL appears verbatim in the final HTML
+- every .ad-banner has exact width and height
+- .ad-banner uses position:relative and does not use flex/grid as primary layout
+- required classes are present when their asset/content exists
+- every primary layer is position:absolute
+- every primary non-background layer has horizontal and vertical coordinates
+- logo is not clipped and not oversized
+- CTA is visible, one-line, and proportional
+- text is not clipped, invisible, or overlapping
+- Story and Portrait 4:5 do not share the same layout logic
+- the banner can be extracted as an .ad-banner element without relying on
+  external wrappers
+
+If any check fails, revise the banner before final output.

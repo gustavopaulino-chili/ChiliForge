@@ -131,6 +131,7 @@ try {
         $exampleDoc .= "- Preserve the winning principles when generating future creatives for the same campaign.\n";
         $exampleDoc .= "- Do not duplicate the exact HTML, exact element positions, exact crop, or exact composition.\n";
         $exampleDoc .= "- When creating a new format, adapt the idea to the natural layout pattern of that format instead of scaling this creative.\n\n";
+        $exampleDoc .= agents_build_ad_example_fingerprint($adHtml, (string)($platform ?: ''), (string)($format ?: ''), (int)$width ?: 1080, (int)$height ?: 1080) . "\n";
         $exampleDoc .= "## Example analysis hints\n\n";
         $ratio = ((int)$height > 0) ? ((int)$width / (int)$height) : 1;
         if ($ratio < 0.7) {
