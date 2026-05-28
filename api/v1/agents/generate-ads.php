@@ -155,14 +155,16 @@ try {
     }
 
     // 5. Determine account type + load user Gemini key
-    $emailStmt = $conn->prepare("SELECT email FROM users WHERE id = ? LIMIT 1");
+    $emailStmt = $conn->prepare("SELECT email, gemini_api_key FROM users WHERE id = ? LIMIT 1");
     $emailStmt->bind_param('i', $userId);
     $emailStmt->execute();
-    $emailStmt->bind_result($userEmail);
+    $emailStmt->bind_result($userEmail, $userGeminiKey);
     $emailStmt->fetch();
     $emailStmt->close();
     $accountTypeResult = resolve_account_type_by_domain($userEmail ?? '', 'user');
     $accountType = $accountTypeResult['accountType'];
+    $userKeyTrimmed = is_string($userGeminiKey) ? trim($userGeminiKey) : '';
+    $passKey = $userKeyTrimmed !== '' ? $userKeyTrimmed : null;
 
     // 6. Inject structured company facts directly. Stores remain for long-form
     // brand docs instead of basic colors/assets/facts.
@@ -171,7 +173,6 @@ try {
     // 8. Create the company store only if it is missing. Avoid re-indexing on
     // every generation; company saves are responsible for refreshing knowledge.
     $companyDocument = buildCompanyDocument($companyFormData);
-    $passKey = null; // Internal generation always uses the platform's Gemini key
     agents_lazy_init_store($conn, $companyProjectId, $geminiStoreName, $companyDocument, $accountType, $userId, $passKey);
 
     if (trim((string)$geminiStoreName) === '') {
