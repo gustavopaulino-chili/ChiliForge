@@ -12,7 +12,7 @@ import { HeroLanding } from '@/components/landing/HeroLanding';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { VisualEditor } from '@/components/editor/VisualEditor';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, FolderOpen, LogOut, User, Server, Edit3, Key } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sparkles, Copy, Check, ExternalLink, Loader2, Wand2, Link2, RotateCcw, FolderOpen, LogOut, User, Server, Edit3 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { downloadProjectZip, generateImages, generateLanding, generateLandingViaAgent, searchImages, updateProjectContent, updateProjectFormState, getProjectById, uploadProjectAssetsFromUrls, uploadProjectAssets } from '@/services/api';
 import { isUploadedImage } from '@/services/imageUpload';
@@ -20,7 +20,6 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { safeGetJSON, safeSetJSON, safeRemove } from '@/lib/safeStorage';
 import { FtpDeployModal } from '@/components/generator/FtpDeployModal';
-import { ApiKeyModal } from '@/components/ApiKeyModal';
 
 type StepDef = { id: string; label: string };
 
@@ -282,7 +281,6 @@ const Index = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [showFtpDeploy, setShowFtpDeploy] = useState(false);
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [generatedLandingUrl, setGeneratedLandingUrl] = useState(routeState?.generatedLandingUrl ?? '');
   const [generatedHtml, setGeneratedHtml] = useState(routeState?.generatedHtml ?? '');
@@ -336,6 +334,10 @@ const Index = () => {
 
     if (routeState?.folderPath) {
       setCurrentProjectFolderPath(routeState.folderPath);
+    }
+
+    if (routeState?.projectPublicUrl && !routeState?.generatedLandingUrl) {
+      setGeneratedLandingUrl(routeState.projectPublicUrl);
     }
   }, [routeState]);
 
@@ -1928,11 +1930,6 @@ const Index = () => {
                 <Button variant="ghost" size="sm" onClick={() => { if (!confirmLeaveGeneration()) return; navigate('/projects'); }} className="gap-2 text-muted-foreground hover:text-foreground">
                   <FolderOpen className="h-4 w-4" /> Projects
                 </Button>
-                {user?.accountType === 'admin' && (
-                  <Button variant="ghost" size="sm" onClick={() => setShowApiKeyModal(true)} className="gap-2 text-muted-foreground hover:text-foreground">
-                    <Key className="h-4 w-4" /> API Key
-                  </Button>
-                )}
                 <Button variant="ghost" size="sm" onClick={signOut} className="gap-2 text-muted-foreground hover:text-foreground">
                   <LogOut className="h-4 w-4" /> Log out
                 </Button>
@@ -1941,7 +1938,6 @@ const Index = () => {
           </header>
           <HeroLanding onStartGenerator={() => navigate('/projects/new')} onStartAdCreatives={() => navigate('/ad-creatives')} />
         </div>
-        <ApiKeyModal open={showApiKeyModal} onClose={() => setShowApiKeyModal(false)} />
         {showRestoreDialog && pendingRestore && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
             <div className="bg-background border border-border rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 flex flex-col gap-5">

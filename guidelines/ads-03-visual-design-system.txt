@@ -1,0 +1,276 @@
+AD VISUAL DESIGN SYSTEM
+=======================
+
+KEYWORDS:
+preferredStyle, colors, typography, hierarchy, logo-strategy, image-treatment,
+cta-style, premium, modern, minimal, bold, playful, corporate, luxury, tech,
+toneOfVoice, brandPersonality, brandKeywords, art-direction
+
+
+CORE QUALITY BAR
+----------------
+
+The banner must look like a finished paid ad, not a rough layout or miniature
+landing page. Use a clear focal point, decisive spacing, high contrast, and a
+CTA that feels intentionally designed.
+
+The company tone and brand personality must change the visual direction, not
+only the wording. Translate personality into typography, spacing, image crop,
+CTA shape, amount of contrast, decorative energy, and composition.
+
+
+COLOR USE
+---------
+
+Campaign/company colors are mandatory when provided.
+
+Primary color:
+- large brand expression
+- background block, overlay, major shape, or dominant accent
+
+Secondary color:
+- supporting surfaces, dividers, panels, depth shapes
+
+Accent color:
+- CTA and conversion highlights
+- do not scatter accent everywhere
+
+Text color:
+- use only when contrast is strong
+- otherwise choose white or near-black for readability
+
+
+VISUAL HIERARCHY
+----------------
+
+Every banner needs one dominant focal point.
+
+Hierarchy order:
+1. focal visual or headline
+2. main headline
+3. offer/proof/subheadline
+4. CTA
+5. logo/brand mark
+
+CTA is important but should not visually fight with the headline or product.
+
+
+IMAGE TREATMENT
+---------------
+
+Provided images should be treated like ad assets:
+- crop intentionally
+- use masks, panels, shadows, or overlays
+- create depth with foreground/background layering
+- avoid dropping images flat in the center without design treatment
+
+First classify the image role:
+- logo
+- product packshot
+- lifestyle/person
+- UI screenshot
+- texture/background
+- abstract brand image
+
+Then choose a treatment that fits the role. Product and hero images should use
+one deliberate art-direction technique: floating cutout, masked frame, angled
+card, side crop, corner anchor, split-panel hero, or centered showcase with
+depth. Background images need a readability system such as gradient overlay,
+solid text panel, vignette, blur panel, or split layout.
+
+If the image is low quality, make it smaller, mask it, or use it as a textured
+background with overlay. Do not stretch or pixelate it.
+
+
+STYLE KEYS
+----------
+
+preferredStyle=premium
+- generous spacing
+- strong type contrast
+- restrained decorative elements
+- elegant CTA
+- avoid clutter
+
+preferredStyle=modern
+- clean geometry
+- crisp panels
+- bold but readable typography
+- strong brand color use
+
+preferredStyle=minimal
+- fewer elements
+- large whitespace or solid color fields
+- one strong message
+- precise alignment
+
+preferredStyle=bold
+- large type
+- strong color blocking
+- oversized product crop
+- badges/stickers allowed
+
+preferredStyle=playful
+- rounded shapes
+- energetic badges
+- expressive color accents
+- friendly copy rhythm
+
+preferredStyle=corporate
+- structured layout
+- trustworthy typography
+- proof/benefit emphasis
+- restrained color use
+
+preferredStyle=luxury
+- high contrast
+- elegant typography
+- subtle texture/depth
+- avoid loud badges unless offer requires it
+
+preferredStyle=tech
+- modular panels
+- clean gradients
+- interface-like shapes
+- product/UI screenshots can be focal
+
+
+TONE AND PERSONALITY TRANSLATION
+--------------------------------
+
+toneOfVoice=confident
+- assertive headline scale
+- strong CTA contrast
+- decisive geometric structure
+- avoid timid small type
+
+toneOfVoice=friendly
+- approachable spacing
+- warmer shapes
+- softer CTA corners
+- clear benefit-led copy
+
+toneOfVoice=premium
+- restrained copy density
+- elegant negative space
+- refined typography contrast
+- image crop should feel editorial
+
+toneOfVoice=urgent
+- sharper CTA treatment
+- visible offer/urgency badge
+- high contrast and direct hierarchy
+- avoid luxury-level understatement
+
+brandPersonality=modern
+- crisp panels, confident whitespace, clean crop
+
+brandPersonality=playful
+- asymmetry, expressive badges, rounded or unexpected shapes
+
+brandPersonality=trustworthy
+- clean hierarchy, proof chip, calmer layout, less visual noise
+
+brandPersonality=luxury
+- high contrast, refined type, subtle depth, minimal badges
+
+brandPersonality=bold
+- oversized type, strong color blocking, dramatic crop
+
+If multiple personality words are provided, choose one dominant visual mood and
+one secondary accent. Do not average everything into a generic layout.
+
+
+AD-LIKE DESIGN DETAILS
+----------------------
+
+Every banner should include at least two of these ad design signals when space
+allows:
+- offer badge or proof chip
+- intentional image crop or mask
+- CTA button with strong contrast
+- layered foreground/background depth
+- diagonal split or asymmetric panel
+- typographic contrast between headline and support copy
+- subtle shadow, glow, or overlay that improves readability
+
+Avoid:
+- flat centered logo + centered headline + centered CTA in every format
+- unstyled image dropped in the middle
+- generic landing-page card layout
+- too many equal-weight text blocks
+
+
+LOGO STRATEGY
+-------------
+
+The company logo is locked when provided.
+
+Reinterpreted logos are not logos. A similar generated mark, redrawn symbol,
+stylized monogram, recolored version, simplified icon, decorative brand-like
+shape, or fake logo does not satisfy the logo requirement.
+
+Never redraw, recolor, restyle, regenerate, warp, crop into unreadability,
+trace, simplify, add effects to, or replace the company logo. Use the exact
+provided logo asset with original proportions and original colors.
+
+If a logo asset is provided, every creative must include at least one visible
+instance of the original logo. A missing logo, altered logo, fake logo,
+invented icon, or brand mark borrowed from a reference ad is a failed creative.
+
+If no logo asset is provided, use brand name text only. Do not invent a symbol,
+seal, monogram, mascot, emblem, or abstract fake logo.
+
+logo-strategy=auto
+- choose best placement for contrast and composition
+
+logo-strategy=full-color
+- use full color logo on neutral or light/dark panel
+
+logo-strategy=light
+- use on dark image/color areas
+
+logo-strategy=dark
+- use on light backgrounds
+
+logo-strategy=monochrome
+- use when visual style is premium, minimal, or high contrast
+
+
+CTA DESIGN
+----------
+
+CTA must look clickable:
+- strong contrast
+- readable type
+- clear padding
+- not hidden near edges
+
+Social media formats are the exception:
+- Instagram, Facebook, TikTok, LinkedIn, social feed, social square, stories,
+  reels, and any social media placement must never use CTA buttons.
+- Do not use a button, pill button, rounded rectangle, bordered button, app UI
+  control, or large clickable block in social media layouts.
+- Express CTA as integrated ad copy instead: footer action text, underlined
+  phrase, caption line, swipe/DM cue, offer line, or sticker text without a
+  button container.
+
+Display/banner formats may use button, pill, tag, or action block treatments.
+
+For small display formats, CTA should be the cleanest object on the banner.
+
+CTA PROPORTION RULE
+-------------------
+
+The CTA must be proportional to the exact format. It should never look like a
+giant banner inside the banner, and it should never be so small that it feels
+like a label.
+
+Use these ranges unless a format-specific rule says otherwise:
+- strip/leaderboard: compact right-side CTA, 10-14px label, max 30% width
+- medium rectangle: 12-16px label, max 54% width, compact padding
+- square/feed: 13-18px label, max 44% width
+- story/portrait: 16-22px label, max 46% width, lower-third placement
+
+CTA text should stay on one line. If the CTA is too long, shorten the copy
+instead of enlarging the button.

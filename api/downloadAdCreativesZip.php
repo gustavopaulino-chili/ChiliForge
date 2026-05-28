@@ -64,11 +64,7 @@ try {
     }
 
     $tempPngFiles = [];
-    $browserBinary = find_browser_binary();
-    if ($browserBinary === '') {
-        throw new RuntimeException('No headless browser found. Install Chrome, Chromium, or Edge on the server to export creatives as PNG images.');
-    }
-
+    $browserBinary = null; // resolved lazily when first HTML banner is encountered
     $addedCount = 0;
     foreach ($projectIds as $pid) {
         $stmt = $conn->prepare(
@@ -94,6 +90,43 @@ try {
         $publicUrl  = (string)($publicUrl  ?? '');
         $rowName    = (string)($rowName    ?? "Banner {$pid}");
 
+        $label = sanitize_filename_component(basename($rowName));
+        if ($label === '') $label = "banner-{$pid}";
+
+        // Image-mode banners: public_url points directly to the image file
+        $isImageCreative = (bool)preg_match('/\.(png|jpe?g|webp)$/i', rtrim($publicUrl, '/'));
+
+        if ($isImageCreative) {
+            try {
+                $imagePath = resolve_ad_creative_directory_from_public_url($publicUrl);
+            } catch (Throwable $e) {
+                error_log("[ChiliForge] downloadAdCreativesZip: could not resolve image path for {$pid}: " . $e->getMessage());
+                continue;
+            }
+
+            if (!file_exists($imagePath) || !is_file($imagePath)) continue;
+
+            $imgExt   = strtolower(pathinfo($imagePath, PATHINFO_EXTENSION)) ?: 'png';
+            $fileName = $label . '.' . $imgExt;
+            $suffix   = 1;
+            while ($zip->locateName($fileName) !== false) {
+                $fileName = $label . '-' . $suffix . '.' . $imgExt;
+                $suffix++;
+            }
+
+            $zip->addFile($imagePath, $fileName);
+            $addedCount++;
+            continue;
+        }
+
+        // HTML banners: render via headless browser (resolved lazily)
+        if ($browserBinary === null) {
+            $browserBinary = find_browser_binary();
+            if ($browserBinary === '') {
+                throw new RuntimeException('No headless browser found. Install Chrome, Chromium, or Edge on the server to export creatives as PNG images.');
+            }
+        }
+
         try {
             $bannerPath = resolve_ad_creative_directory_from_public_url($publicUrl);
         } catch (Throwable $e) {
@@ -103,9 +136,6 @@ try {
 
         $indexFile = $bannerPath . DIRECTORY_SEPARATOR . 'index.html';
         if (!file_exists($indexFile) || !is_file($indexFile)) continue;
-
-        $label = sanitize_filename_component(basename($rowName));
-        if ($label === '') $label = "banner-{$pid}";
 
         $pngPath = tempnam(sys_get_temp_dir(), 'chiliforge_ad_png_');
         if ($pngPath === false) throw new RuntimeException('Could not create temp PNG file');

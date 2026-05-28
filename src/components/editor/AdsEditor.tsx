@@ -1429,6 +1429,7 @@ export function AdsEditor({
   const latestHtmlRef = useRef(html);
   const skipHistoryRecordRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const initialZoomAppliedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const bgFileInputRef = useRef<HTMLInputElement | null>(null);
   const fileFolderInputRef = useRef<HTMLInputElement | null>(null);
@@ -1525,6 +1526,25 @@ export function AdsEditor({
       }
 
       injectBridgeIntoDocument(doc);
+
+      // Auto-fit canvasZoom on first open so the full ad banner is visible
+      if (!initialZoomAppliedRef.current) {
+        requestAnimationFrame(() => {
+          const adEl = doc.querySelector('.ad-banner, .creative-frame, .creative-scale') as HTMLElement | null;
+          const container = iframeRef.current?.parentElement;
+          if (!adEl || !container) return;
+          const adW = adEl.scrollWidth || adEl.offsetWidth;
+          const adH = adEl.scrollHeight || adEl.offsetHeight;
+          const rect = container.getBoundingClientRect();
+          if (adW > 50 && adH > 50 && rect.width > 0 && rect.height > 0) {
+            const fit = parseFloat(Math.min(rect.width / adW, rect.height / adH).toFixed(2));
+            if (fit < 0.95) {
+              setCanvasZoom(fit);
+              initialZoomAppliedRef.current = true;
+            }
+          }
+        });
+      }
 
       const docWithHandler = doc as Document & {
         __cfParentSelectionHandler?: EventListener;

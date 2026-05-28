@@ -27,7 +27,7 @@ $userId = (int)($body['user_id'] ?? 0);
 $storeType = (string)($body['store_type'] ?? '');
 $fileId = (int)($body['file_id'] ?? 0);
 
-if ($userId <= 0 || $fileId <= 0 || !in_array($storeType, ['lp', 'ads'], true)) {
+if ($userId <= 0 || $fileId <= 0 || !in_array($storeType, ['lp', 'ads', 'ads_reference', 'ads_image_reference'], true)) {
     http_response_code(400);
     echo json_encode(['error' => 'user_id, store_type and file_id are required']);
     exit;

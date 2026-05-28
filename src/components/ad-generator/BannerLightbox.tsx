@@ -12,6 +12,9 @@ type Banner = {
   label: string;
   width: number;
   height: number;
+  html?: string;
+  imageUrl?: string;
+  is_image_mode?: boolean;
 };
 
 type Props = {
@@ -55,6 +58,20 @@ export function BannerLightbox({ banner, banners, onClose, onNavigate, onEdit }:
   const platformLabel = AD_PLATFORM_LABELS[banner.platform as keyof typeof AD_PLATFORM_LABELS] || banner.platform;
   const scalePercent = Math.round(scale * 100);
 
+  const srcDoc = (() => {
+    const raw = banner.html?.trim();
+    if (!raw) return undefined;
+    let baseHref = '';
+    try {
+      const u = new URL(banner.url);
+      baseHref = u.origin + u.pathname.replace(/\/[^/]*$/, '/');
+    } catch { /* no base */ }
+    const stripped = raw.replace(/<base\b[^>]*>/gi, '');
+    return baseHref
+      ? stripped.replace(/(<head\b[^>]*>)/i, `$1\n<base href="${baseHref}">`)
+      : stripped;
+  })();
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -79,14 +96,16 @@ export function BannerLightbox({ banner, banners, onClose, onNavigate, onEdit }:
             <span className="text-xs text-white/40 tabular-nums">{scalePercent}%</span>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5 border-white/20 bg-white/10 hover:bg-white/20 text-white text-xs"
-              onClick={() => onEdit(banner)}
-            >
-              <Edit3 className="h-3.5 w-3.5" /> Editar
-            </Button>
+            {!banner.is_image_mode && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-white/20 bg-white/10 hover:bg-white/20 text-white text-xs"
+                onClick={() => onEdit(banner)}
+              >
+                <Edit3 className="h-3.5 w-3.5" /> Editar
+              </Button>
+            )}
             <button
               onClick={onClose}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors text-white"
@@ -109,21 +128,29 @@ export function BannerLightbox({ banner, banners, onClose, onNavigate, onEdit }:
           <div
             style={{ width: displayW, height: displayH, overflow: 'hidden', borderRadius: 12, flexShrink: 0, background: '#111', boxShadow: '0 32px 80px rgba(0,0,0,.6)' }}
           >
-            <iframe
-              key={banner.id}
-              src={banner.url}
-              title={banner.label}
-              style={{
-                width: banner.width,
-                height: banner.height,
-                transform: `scale(${scale.toFixed(4)})`,
-                transformOrigin: 'top left',
-                border: 'none',
-                display: 'block',
-              }}
-              scrolling="no"
-              sandbox="allow-same-origin allow-scripts"
-            />
+            {banner.is_image_mode ? (
+              <img
+                src={banner.imageUrl || banner.url}
+                alt={banner.label}
+                style={{ width: displayW, height: displayH, objectFit: 'cover', display: 'block', borderRadius: 12 }}
+              />
+            ) : (
+              <iframe
+                key={banner.id}
+                {...(srcDoc ? { srcDoc } : { src: banner.url })}
+                title={banner.label}
+                style={{
+                  width: banner.width,
+                  height: banner.height,
+                  transform: `scale(${scale.toFixed(4)})`,
+                  transformOrigin: 'top left',
+                  border: 'none',
+                  display: 'block',
+                }}
+                scrolling="no"
+                sandbox="allow-same-origin allow-scripts"
+              />
+            )}
           </div>
 
           <button

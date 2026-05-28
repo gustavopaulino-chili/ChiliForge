@@ -105,6 +105,40 @@ try {
         $settingStmt->fetch();
         $settingStmt->close();
     }
+    $globalReferenceStore = '';
+    $refStmt = $conn->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'gemini_global_ads_reference_store' LIMIT 1");
+    if ($refStmt) {
+        $refStmt->execute();
+        $refStmt->bind_result($globalReferenceStore);
+        $refStmt->fetch();
+        $refStmt->close();
+    }
+    $globalImageReferenceStore = '';
+    $imgRefStmt = $conn->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'gemini_global_ads_image_reference_store' LIMIT 1");
+    if ($imgRefStmt) {
+        $imgRefStmt->execute();
+        $imgRefStmt->bind_result($globalImageReferenceStore);
+        $imgRefStmt->fetch();
+        $imgRefStmt->close();
+    }
+
+    if (trim((string)$globalStore) === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Global Ads Store is missing. Upload/sync the global ads guidelines first.',
+            'code'  => 'GLOBAL_ADS_STORE_MISSING',
+        ]);
+        exit;
+    }
+
+    if (trim((string)$globalReferenceStore) === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Global Ads Reference Store is missing. Upload at least one ad example via "Send to Store" first.',
+            'code'  => 'GLOBAL_ADS_REFERENCE_STORE_MISSING',
+        ]);
+        exit;
+    }
 
     $emailStmt = $conn->prepare("SELECT email FROM users WHERE id = ? LIMIT 1");
     $emailStmt->bind_param('i', $userId);
@@ -116,14 +150,21 @@ try {
     $accountTypeResult = resolve_account_type_by_domain($userEmail ?? '', 'user');
     $accountType = $accountTypeResult['accountType'];
 
-    $images = is_array($companyFormData['images'] ?? null) ? $companyFormData['images'] : [];
-    if (empty($formData['logoUrl']) && !empty($images['logo'])) {
-        $formData['logoUrl'] = $images['logo'];
-    }
+    $passKey = null; // Internal generation always uses the platform's Gemini key
+    $formData = agents_enrich_ad_form_with_company_data($formData, $companyFormData);
 
     // Create the company store only if it does not exist. Re-indexing it here can push Hostinger/proxy into 503.
     $companyDocument = buildCompanyDocument($companyFormData);
-    agents_lazy_init_store($conn, $companyProjectId, $geminiStoreName, $companyDocument, $accountType, $userId);
+    agents_lazy_init_store($conn, $companyProjectId, $geminiStoreName, $companyDocument, $accountType, $userId, $passKey);
+
+    if (trim((string)$geminiStoreName) === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Company store is missing. Sync company knowledge before generating more campaign creatives.',
+            'code'  => 'COMPANY_STORE_MISSING',
+        ]);
+        exit;
+    }
 
     $result = agents_call_edge_function('agents-ads', [
         'agentConfig' => [
@@ -134,13 +175,15 @@ try {
             'version'      => (int)$agentVersion,
         ],
         'globalStoreName'           => $globalStore ?: null,
+        'globalReferenceStoreName'  => $globalReferenceStore ?: null,
+        'imageReferenceStoreName'   => $globalImageReferenceStore ?: null,
         'companyStoreName'          => $geminiStoreName ?? '',
         'campaignGoodExamplesStore' => $campaignGoodExamplesStore ?: null,
         'campaignMemoryStore'       => $campaignMemoryStore ?: null,
         'useCampaignMemory'         => true,
         'campaignData'              => $formData,
         'accountType'               => $accountType,
-    ]);
+    ], $passKey);
 
     if (!empty($result['error'])) {
         throw new RuntimeException('agents-ads error: ' . $result['error']);
@@ -209,7 +252,7 @@ try {
                 'displayName'   => "campaign-{$campaignId}-memory",
                 'documentText'  => $brief,
                 'documentLabel' => 'Campaign Brief (Chat) ' . date('Y-m-d'),
-            ]);
+            ], $passKey);
 
             $storeResult = agents_call_edge_function('agents-store', [
                 'action'        => 'get_or_create',
@@ -217,7 +260,7 @@ try {
                 'displayName'   => "campaign-{$campaignId}-memory",
                 'documentText'  => $planDoc,
                 'documentLabel' => 'Creative Plan (Chat) ' . date('Y-m-d H:i'),
-            ]);
+            ], $passKey);
 
             if (!empty($storeResult['storeName']) && $storeResult['storeName'] !== $campaignMemoryStore) {
                 $upd = $conn->prepare("UPDATE ads_campaign SET gemini_memory_store = ? WHERE id = ?");

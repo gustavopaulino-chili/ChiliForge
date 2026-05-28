@@ -1,0 +1,166 @@
+LANDING PAGE VISUAL DESIGN SYSTEM
+=================================
+
+KEYWORDS:
+visual design, preferredStyle, colors, typography, spacing, premium, modern,
+minimal, bold, playful, corporate, luxury, tech, toneOfVoice,
+brandPersonality, art-direction
+
+
+CORE DESIGN BAR
+---------------
+
+The landing page must feel like a polished brand experience, not a stack of
+generic cards. Every section should have a clear job and visual hierarchy.
+
+Brand personality must affect the page visually, not only the copy. Translate
+tone and personality into section rhythm, image treatment, typography, spacing,
+CTA shape, contrast, and amount of decorative energy.
+
+
+COLOR USE
+---------
+
+Use company colors when provided.
+
+Primary:
+- hero accents
+- key section backgrounds
+- important visual elements
+
+Accent:
+- CTAs
+- key highlights
+- selected states
+
+Background:
+- page or section base
+
+Text:
+- use only when contrast is strong
+
+Do not make the whole page one color family unless the brand requires it.
+
+
+TYPOGRAPHY
+----------
+
+Use strong type hierarchy:
+- H1: clear and dominant
+- H2: section promise
+- body: readable and concise
+- CTA: short and assertive
+
+Avoid:
+- huge headings inside small cards
+- tiny body copy
+- low contrast text
+- negative letter spacing
+
+
+SECTION RHYTHM
+--------------
+
+Alternate section density:
+- hero: high impact
+- proof: compact
+- benefits/features: scannable
+- process/proof: reassuring
+- final CTA: focused
+
+Avoid repetitive card grids in every section.
+Avoid using the same card radius, shadow, icon treatment, and section layout
+throughout the entire page unless the brand specifically requires strict
+utility.
+
+
+STYLE KEYS
+----------
+
+preferredStyle=modern
+- clean layouts
+- confident whitespace
+- sharp visual hierarchy
+- contemporary typography
+
+preferredStyle=minimal
+- fewer sections
+- concise copy
+- muted surfaces
+- strong spacing
+
+preferredStyle=premium
+- refined spacing
+- restrained motion/decor
+- elegant typography
+- strong image treatment
+
+preferredStyle=bold
+- large type
+- high contrast
+- strong color blocking
+- expressive section transitions
+
+preferredStyle=playful
+- friendly shapes
+- warm interactions
+- approachable copy
+- lively but controlled color
+
+preferredStyle=corporate
+- practical layout
+- trust signals
+- restrained palette
+- clear proof and process
+
+preferredStyle=luxury
+- high contrast
+- elegant imagery
+- minimal copy
+- subtle details
+
+preferredStyle=tech
+- modular structure
+- interface visuals
+- clean gradients
+- feature clarity
+
+
+TONE AND PERSONALITY TRANSLATION
+--------------------------------
+
+toneOfVoice=confident
+- decisive hero headline
+- strong CTAs
+- clean, assertive section hierarchy
+
+toneOfVoice=friendly
+- warmer shapes
+- approachable spacing
+- softer transitions between sections
+
+toneOfVoice=premium
+- refined spacing
+- editorial image treatment
+- restrained decorative elements
+- fewer but stronger proof moments
+
+toneOfVoice=urgent
+- direct CTA hierarchy
+- visible offer/urgency section
+- compact path to conversion
+
+brandPersonality=playful
+- expressive shapes, softer corners, lively but controlled color
+
+brandPersonality=trustworthy
+- proof-forward structure, clear process, calm hierarchy
+
+brandPersonality=luxury
+- high contrast, elegant imagery, less copy density
+
+brandPersonality=bold
+- oversized type, color blocking, memorable section transitions
+
+If multiple personality traits are provided, pick one dominant visual direction
+and one supporting accent. Do not average them into a generic SaaS layout.

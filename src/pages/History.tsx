@@ -226,13 +226,15 @@ export default function History() {
           return;
         }
 
-        navigate(`/?restoreProjectId=${encodeURIComponent(String(saved.id))}`, {
+        const restoredLpFormData = saved.form_data || project.form_data;
+        navigate("/", {
           state: {
-            formData: project.form_data,
+            formData: restoredLpFormData,
             currentStep: project.currentStep ?? 0,
             savedProjectId: saved.id,
             projectOwnerId: user.id,
-            folderPath: saved.folder_path || "",
+            projectPublicUrl: saved.public_url || project.public_url || "",
+            folderPath: saved.folder_path || project.folder_path || "",
           },
         });
       } else {
@@ -252,6 +254,8 @@ export default function History() {
           state: {
             formData: project.form_data,
             currentStep: project.currentStep ?? 0,
+            projectPublicUrl: project.public_url || "",
+            folderPath: project.folder_path || "",
           },
         });
       }

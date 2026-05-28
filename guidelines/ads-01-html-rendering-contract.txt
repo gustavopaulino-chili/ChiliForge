@@ -1,0 +1,171 @@
+AD HTML RENDERING CONTRACT
+==========================
+
+KEYWORDS:
+html, rendering, ad-banner, dimensions, absolute-position, editor-compatible,
+image-rendering, cta-required, text-containment
+
+
+MANDATORY OUTPUT STRUCTURE
+--------------------------
+
+Each creative must be a complete banner wrapped with:
+
+<!-- BANNER_START -->
+<div class="ad-banner"
+     data-platform="{platform}"
+     data-format="{format}"
+     style="width:{W}px;height:{H}px;position:relative;overflow:hidden;box-sizing:border-box;background:{fallback};">
+  ...
+</div>
+<!-- BANNER_END -->
+
+The outer .ad-banner width and height must exactly match the requested format.
+
+
+POSITIONING CONTRACT
+--------------------
+
+All child elements inside .ad-banner must use inline styles and absolute
+positioning.
+
+The .ad-banner root is a fixed creative canvas, not a normal webpage layout.
+The root must not use display:flex, display:grid, inline-flex, inline-grid,
+align-items, justify-content, gap, or flex-direction for the primary layout.
+Flex/grid may appear only inside a small already-positioned child, such as an
+icon span inside a CTA.
+
+Required for every positioned element:
+- position:absolute
+- top or bottom
+- left or right
+- width
+- height, or explicit line-height for text elements
+- z-index when elements overlap
+
+Do not use flexbox, CSS grid, floats, responsive units, external CSS classes,
+or layout rules that depend on viewport size.
+
+
+REQUIRED LAYER CLASSES
+----------------------
+
+Use stable class names so the renderer and quality checker can understand the
+creative:
+
+- .ad-bg for the background image, gradient, or image overlay
+- .ad-logo for the logo image
+- .ad-headline for the main headline
+- .ad-subheadline for support copy when present
+- .ad-media.ad-product for product, hero, screenshot, or service image
+- .ad-cta for the call-to-action button
+
+Preferred z-index order:
+- .ad-bg: z-index 0
+- decorative shapes: z-index 5-10
+- .ad-media.ad-product: z-index 15-25
+- .ad-logo: z-index 20
+- .ad-headline: z-index 30
+- .ad-subheadline: z-index 30-35
+- .ad-cta: z-index 40
+
+Each layer must be directly understandable without relying on a parent wrapper.
+If a wrapper is used, it must not hide, clip, or reposition the required layer
+classes unpredictably.
+
+
+IMAGE RULES
+-----------
+
+Provided image URLs must be rendered as img elements.
+
+Exact URL rule:
+- every provided logo, product, hero, or background URL must appear verbatim in
+  the final HTML
+- do not replace provided URLs with placeholders, generated images, or stock
+  images
+- variant-specific image URLs override default image URLs
+
+Logo:
+- use img
+- object-fit:contain
+- preserve aspect ratio
+- never crop unless user asks
+- never redraw, recolor, filter, stylize, regenerate, mask, distort, or replace
+  the logo
+- reinterpreted logos are not logos; a similar generated mark, redrawn symbol,
+  monogram, recolored version, decorative brand-like shape, or fake logo does
+  not satisfy the logo requirement
+- never invent a logo when no logo asset is provided
+- every creative must visibly include at least one instance of the exact
+  original logo URL when a logo URL exists
+- use width:auto and height:auto with max-width and max-height constraints
+- keep it small enough to function as brand signature, not the hero element
+
+Product / hero image:
+- use img
+- object-fit:contain or cover depending on composition
+- never replace with a placeholder
+- treat it as an ad asset: crop, mask, shadow, frame, angle, side-anchor, or
+  showcase it intentionally
+
+Background image:
+- use img or CSS background
+- must cover the full banner
+- add overlay behind text when needed
+- if used as CSS background, place it on .ad-bg with background-size:cover and
+  background-position:center
+
+
+Z-INDEX SYSTEM
+--------------
+
+z-index:0  background color/image
+z-index:5  overlay/gradient/mask
+z-index:10 decorative shape or secondary visual
+z-index:20 product/hero image
+z-index:25 logo
+z-index:30 headline
+z-index:35 subheadline/body
+z-index:40 CTA
+z-index:50 badge/sticker/urgency marker
+
+
+TEXT CONTAINMENT
+----------------
+
+Text must fit inside its box.
+Use short copy, explicit width, explicit line-height, and font-size suitable
+for the format. Do not let text overlap the CTA, logo, or product image.
+
+If the format is small, reduce copy before reducing legibility.
+
+
+CTA CONTRACT
+------------
+
+Every banner must include a CTA unless the campaign explicitly forbids it.
+CTA must be visually distinct from the background.
+CTA text must be readable at the final banner size.
+CTA must be proportional to the canvas. Avoid huge pills that consume the
+composition and avoid tiny tag-like CTAs that do not read as clickable.
+CTA text must stay on one line; shorten the CTA copy instead of growing the
+button beyond its safe zone.
+
+Social media formats must not use CTA buttons:
+- applies to Instagram, Facebook, TikTok, LinkedIn, social feed, social square,
+  stories, reels, and any social media placement
+- forbidden: button, pill button, rounded rectangle, bordered button, app UI
+  control, or clickable block
+- required instead: CTA text integrated as footer copy, underlined action text,
+  caption line, swipe/DM cue, offer line, or sticker text without a button
+  container
+
+This social media no-button rule overrides generic CTA button guidance.
+
+
+FINAL HTML RULE
+---------------
+
+Return only banner HTML snippets wrapped with BANNER_START/BANNER_END.
+Do not include explanations inside the final HTML response.

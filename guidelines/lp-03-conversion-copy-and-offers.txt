@@ -1,0 +1,116 @@
+LANDING PAGE CONVERSION COPY AND OFFERS
+=======================================
+
+KEYWORDS:
+copy, offer, conversion, CTA, lead-generation, sales, booking, appointment,
+download, waitlist, whatsapp, objections, audience
+
+
+COPY PRINCIPLES
+---------------
+
+Landing page copy must be clear before clever.
+
+Strong copy includes:
+- specific audience
+- specific offer
+- concrete benefit
+- proof or reason to believe
+- clear next step
+
+Avoid:
+- generic claims
+- hype without support
+- long paragraphs
+- too many competing promises
+
+
+HEADLINE FORMULAS
+-----------------
+
+Use one of these when suitable:
+
+Outcome:
+"Get [desired result] without [pain/friction]"
+
+Audience:
+"The [solution] for [specific audience]"
+
+Offer:
+"Book/Get/Start [offer] in [timeframe/context]"
+
+Differentiator:
+"A better way to [job-to-be-done]"
+
+Problem-solution:
+"Stop [pain]. Start [desired result]."
+
+
+CTA BY GOAL
+-----------
+
+conversion_goal=form-submit
+- Get My Quote
+- Request a Free Consultation
+- Start My Plan
+- Get the Guide
+
+conversion_goal=call
+- Call Now
+- Speak With an Expert
+- Schedule a Call
+
+conversion_goal=whatsapp
+- Message Us on WhatsApp
+- Chat With Us
+- Get Help Now
+
+conversion_goal=checkout
+- Buy Now
+- Get Started
+- Claim Offer
+
+conversion_goal=demo
+- Book a Demo
+- See It in Action
+
+conversion_goal=signup
+- Start Free
+- Create Account
+- Join Now
+
+
+OBJECTION HANDLING
+------------------
+
+Common objections:
+- Is this for me?
+- How much does it cost?
+- How long does it take?
+- Can I trust this?
+- What happens after I click?
+
+Handle objections with:
+- FAQ
+- proof
+- process
+- guarantee
+- simple next-step explanation
+
+
+URGENCY
+-------
+
+Use urgency only if provided or logically true.
+
+Good:
+- limited seats
+- enrollment closes
+- discount ends
+- schedule fills up
+
+Bad:
+- fake countdowns
+- unsupported scarcity
+- aggressive pressure for premium/corporate brands
+

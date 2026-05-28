@@ -98,8 +98,18 @@ export default function VisualEditorPage() {
   const [unsaved, setUnsaved] = useState(false);
   const originalHtmlRef = useRef('');
 
+  const hasSameOriginReferrer = () => {
+    try {
+      if (!document.referrer) return false;
+      const referrer = new URL(document.referrer);
+      return referrer.origin === window.location.origin && referrer.href !== window.location.href;
+    } catch {
+      return false;
+    }
+  };
+
   const navigateBackSafely = () => {
-    if (window.history.length > 1) {
+    if (window.history.length > 1 && hasSameOriginReferrer()) {
       navigate(-1);
       return;
     }

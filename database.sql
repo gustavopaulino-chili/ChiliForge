@@ -7,20 +7,28 @@ CREATE TABLE IF NOT EXISTS users (
     pwd VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
     account_type ENUM('admin', 'user') NOT NULL DEFAULT 'user',
+    gemini_api_key VARCHAR(255) NULL DEFAULT NULL,
+    generate_as_image TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Migration: add gemini_api_key if upgrading from older schema
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gemini_api_key VARCHAR(255) NULL DEFAULT NULL;
+-- Migration: add generate_as_image if upgrading from older schema
+ALTER TABLE users ADD COLUMN IF NOT EXISTS generate_as_image TINYINT(1) NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS projects (
-    id           INT AUTO_INCREMENT PRIMARY KEY,
-    user_id      INT NOT NULL,
-    name         VARCHAR(255) NOT NULL,
-    public_url   VARCHAR(255),
-    folder_path  VARCHAR(255),
+    id                INT AUTO_INCREMENT PRIMARY KEY,
+    user_id           INT NOT NULL,
+    name              VARCHAR(255) NOT NULL,
+    public_url        VARCHAR(255),
+    folder_path       VARCHAR(255),
     company_form_data LONGTEXT NOT NULL DEFAULT '{}',
-    context      LONGTEXT,
-    project_type VARCHAR(50) DEFAULT 'landing_page',
-    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    context           LONGTEXT,
+    project_type      VARCHAR(50) DEFAULT 'landing_page',
+    phone             VARCHAR(30) NULL DEFAULT NULL,
+    created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
@@ -39,17 +47,19 @@ CREATE TABLE IF NOT EXISTS lps (
 );
 
 CREATE TABLE IF NOT EXISTS ads_campaign (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    project_id INT NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    form_data LONGTEXT NOT NULL,
-    public_url VARCHAR(255),
-    current_step INT DEFAULT 0,
-    status VARCHAR(50) DEFAULT 'generated',
-    metadata LONGTEXT,
-    creative_plans LONGTEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    project_id          INT NOT NULL,
+    name                VARCHAR(255) NOT NULL,
+    form_data           LONGTEXT NOT NULL,
+    public_url          VARCHAR(255),
+    current_step        INT DEFAULT 0,
+    status              VARCHAR(50) DEFAULT 'generated',
+    metadata            LONGTEXT,
+    creative_plans      LONGTEXT,
+    api_source          VARCHAR(100) NULL DEFAULT NULL,
+    external_request_id VARCHAR(128) NULL DEFAULT NULL,
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_ads_campaign_project
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
@@ -261,6 +271,49 @@ CREATE TABLE IF NOT EXISTS system_settings (
 INSERT IGNORE INTO system_settings (setting_key, setting_value) VALUES
   ('gemini_global_lp_store',  ''),
   ('gemini_global_ads_store', '');
+
+-- Async ad generation jobs (A+B: async job + batch processing)
+CREATE TABLE IF NOT EXISTS ad_generation_jobs (
+  id                  INT AUTO_INCREMENT PRIMARY KEY,
+  user_id             INT NOT NULL,
+  company_project_id  INT NOT NULL,
+  campaign_id         INT NULL,
+  project_id          INT NULL,
+  status              ENUM('queued','running','completed','failed','cancelled') NOT NULL DEFAULT 'queued',
+  creative_plan       LONGTEXT NULL,
+  total_batches       TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  completed_batches   TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  failed_batches      TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  error               TEXT NULL,
+  created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_adj_campaign (campaign_id),
+  INDEX idx_adj_user_status (user_id, status)
+);
+
+CREATE TABLE IF NOT EXISTS ad_generation_job_batches (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  job_id       INT NOT NULL,
+  batch_index  TINYINT UNSIGNED NOT NULL,
+  status       ENUM('queued','running','completed','failed') NOT NULL DEFAULT 'queued',
+  label        VARCHAR(255) NULL,
+  formats_json TEXT NULL,
+  error        TEXT NULL,
+  attempts     TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  saved_count  TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (job_id) REFERENCES ad_generation_jobs(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_job_batch (job_id, batch_index)
+);
+
+-- ============================================================
+-- External API columns (added 2026-05)
+-- ============================================================
+ALTER TABLE projects     ADD COLUMN IF NOT EXISTS phone               VARCHAR(30)  NULL DEFAULT NULL;
+ALTER TABLE ads_campaign ADD COLUMN IF NOT EXISTS api_source          VARCHAR(100) NULL DEFAULT NULL;
+ALTER TABLE ads_campaign ADD COLUMN IF NOT EXISTS external_request_id VARCHAR(128) NULL DEFAULT NULL;
+CREATE INDEX IF NOT EXISTS idx_projects_phone ON projects(phone);
 
 -- Permanent raw-file archive for the global LP/Ads stores.
 -- Gemini File Search keeps indexed documents indefinitely; this table keeps

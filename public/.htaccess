@@ -14,9 +14,19 @@
   Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
   Header always set Access-Control-Allow-Headers "Content-Type, Authorization"
 
-  # Redirect everything else to index.html (SPA), but keep API routes intact
+  # Pass Authorization header to PHP (stripped by Apache on shared hosting by default)
+  RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+  # Keep API routes intact — explicit pass-through BEFORE SPA fallback
+  RewriteRule ^api/ - [L]
+
+  # Known SPA routes — only redirect to app shell if the path is NOT a real file on disk.
+  # This allows /projects/slug/b0/image.png (and other static assets) to be served directly.
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule ^(projects|history|ad-creatives|visual-editor|ads-editor|admin)(/.*)?$ /index.html [L]
+
+  # Redirect everything else to index.html (SPA)
   RewriteRule ^index\.html$ - [L]
-  RewriteCond %{REQUEST_URI} !^/api/
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]
@@ -34,5 +44,4 @@
 php_value upload_max_filesize 10M
 php_value post_max_size 10M
 php_value memory_limit 256M
-php_value max_execution_time 300</content>
-<parameter name="filePath">c:\Users\ativa\Downloads\ChiliForge\public\.htaccess
+php_value max_execution_time 300

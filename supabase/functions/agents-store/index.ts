@@ -8,6 +8,7 @@ const corsHeaders = {
 type AgentsStorePayload =
   | {
       action: "get_or_create";
+      geminiApiKey?: string;
       storeName?: string;
       displayName: string;
       documentText: string;
@@ -16,6 +17,7 @@ type AgentsStorePayload =
     }
   | {
       action: "upload_learnings";
+      geminiApiKey?: string;
       storeName?: string;
       displayName: string;
       learningsText: string;
@@ -23,6 +25,7 @@ type AgentsStorePayload =
     }
   | {
       action: "upload_file";
+      geminiApiKey?: string;
       storeName: string;
       fileBase64: string;
       mimeType: string;
@@ -40,7 +43,8 @@ type Operation = {
 const env = (globalThis as any).Deno?.env;
 const GEMINI_BASE = "https://generativelanguage.googleapis.com";
 
-function getApiKey(): string {
+function getApiKey(userKey?: string): string {
+  if (userKey?.trim()) return userKey.trim();
   return env?.get("GEMINI_API_KEY_PRODUCTION") || env?.get("GEMINI_API_KEY_TESTING") || "";
 }
 
@@ -141,12 +145,63 @@ function decodeBase64(base64: string): Uint8Array {
   return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 }
 
+function isAdBannerHtml(html: string): boolean {
+  return html.includes('ad-banner') || html.includes('data-platform') || html.includes('data-format');
+}
+
+function wrapBannerAsInspiration(html: string, label: string): string {
+  return `# Ad Creative Example: ${label}\n\n` +
+    `> **USAGE — INSPIRATION ONLY**: Study layout structure, CTA placement, visual hierarchy, ` +
+    `and composition. Do NOT treat as a technical rule or copy exact positions/colors.\n\n` +
+    `## HTML Source\n\`\`\`html\n${html}\n\`\`\`\n`;
+}
+
+async function describeAdImage(fileBase64: string, mimeType: string, label: string, apiKey: string): Promise<string> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { inline_data: { mime_type: mimeType, data: fileBase64 } },
+            { text: `Analyze this ad creative image. Describe in detail:\n` +
+              `1. Layout structure and composition (quadrants, alignment, flow)\n` +
+              `2. Visual hierarchy (what draws attention first, second, third)\n` +
+              `3. Text elements — exact text of headline, subheadline, CTA if readable\n` +
+              `4. CTA treatment (button position, size, color, style)\n` +
+              `5. Color palette (dominant, accent, background colors with estimates)\n` +
+              `6. Image/logo usage (product photo position, logo placement, background treatment)\n` +
+              `7. Spacing and proportions (padding, text-to-image ratio)\n` +
+              `8. Visual style (minimal, bold, lifestyle, etc.)\n` +
+              `9. Format estimate (square, story, banner dimensions)\n\n` +
+              `This is a visual reference for AI ad generation. Be specific and technical.\n` +
+              `Label: ${label}`
+            }
+          ]
+        }],
+        generationConfig: { maxOutputTokens: 1500, temperature: 0.2 }
+      })
+    }
+  );
+  if (!res.ok) throw new Error(`Vision API failed: ${res.status}`);
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!text) throw new Error('Vision API returned empty description');
+
+  return `# Ad Visual Reference: ${label}\n\n` +
+    `> **USAGE — INSPIRATION ONLY**: Use layout principles, CTA treatment, and composition ` +
+    `patterns as creative reference. Do NOT copy colors, brand elements, or exact arrangements.\n\n` +
+    `## Visual Analysis\n\n${text}\n`;
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const payload = await req.json() as AgentsStorePayload;
-    const apiKey = getApiKey();
+    const apiKey = getApiKey(typeof payload.geminiApiKey === "string" ? payload.geminiApiKey : undefined);
 
     if (!apiKey) {
       return new Response(JSON.stringify({ error: "Gemini API key not configured" }), {
@@ -219,8 +274,28 @@ serve(async (req: Request) => {
         });
       }
 
+      let uploadBytes: Uint8Array;
+      let uploadMime = mimeType || "application/octet-stream";
+
+      if (uploadMime.startsWith('image/') && uploadMime !== 'image/svg+xml') {
+        const description = await describeAdImage(fileBase64, uploadMime, displayName || 'Ad Image', apiKey);
+        uploadBytes = new TextEncoder().encode(description);
+        uploadMime = 'text/plain';
+      } else if (uploadMime === 'text/html' || uploadMime === 'application/octet-stream') {
+        const htmlContent = new TextDecoder().decode(decodeBase64(fileBase64));
+        if (isAdBannerHtml(htmlContent)) {
+          const wrapped = wrapBannerAsInspiration(htmlContent, displayName || 'Ad Banner');
+          uploadBytes = new TextEncoder().encode(wrapped);
+          uploadMime = 'text/plain';
+        } else {
+          uploadBytes = decodeBase64(fileBase64);
+        }
+      } else {
+        uploadBytes = decodeBase64(fileBase64);
+      }
+
       const operation = await waitForOperation(
-        await uploadBytesToStore(storeName, decodeBase64(fileBase64), mimeType || "application/octet-stream", displayName, apiKey),
+        await uploadBytesToStore(storeName, uploadBytes, uploadMime, displayName, apiKey),
         apiKey
       );
 

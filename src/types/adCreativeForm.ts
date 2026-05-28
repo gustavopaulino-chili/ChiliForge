@@ -4,11 +4,20 @@ export type AdFormat =
   | 'feed-post'
   | 'portrait'
   | 'story'
+  | 'reel'
   | 'square'
+  | 'pinterest-pin'
+  | 'twitter-post'
+  | 'linkedin-post'
   | 'banner'
   | 'leaderboard'
   | 'medium-rectangle'
+  | 'large-rectangle'
+  | 'half-page'
+  | 'wide-skyscraper'
+  | 'mobile-banner'
   | 'youtube-video'
+  | 'youtube-thumbnail'
   | 'email-header'
   | 'email-body';
 
@@ -31,16 +40,25 @@ export interface AdLogoVariant {
 export const ALL_AD_FORMATS: Omit<AdFormatDimension, 'enabled'>[] = [
   // Social Media
   { platform: 'social', format: 'story',           width: 1080, height: 1920, label: 'Story / Vertical (1080×1920)' },
+  { platform: 'social', format: 'reel',            width: 1080, height: 1920, label: 'Reels / TikTok (1080×1920)' },
   { platform: 'social', format: 'portrait',        width: 1080, height: 1350, label: 'Portrait 4:5 (1080×1350)' },
   { platform: 'social', format: 'square',          width: 1080, height: 1080, label: 'Square (1080×1080)' },
   { platform: 'social', format: 'feed-post',       width: 1200, height: 628,  label: 'Landscape / Feed (1200×628)' },
+  { platform: 'social', format: 'pinterest-pin',   width: 1000, height: 1500, label: 'Pinterest Pin (1000×1500)' },
+  { platform: 'social', format: 'twitter-post',    width: 1200, height: 675,  label: 'Twitter/X Post (1200×675)' },
+  { platform: 'social', format: 'linkedin-post',   width: 1200, height: 627,  label: 'LinkedIn Post (1200×627)' },
   // Video
   { platform: 'video',  format: 'youtube-video',   width: 1920, height: 1080, label: 'Widescreen / Video (1920×1080)' },
+  { platform: 'video',  format: 'youtube-thumbnail',width: 1280, height: 720, label: 'YouTube Thumbnail (1280×720)' },
   // Display / Web
   { platform: 'display',format: 'banner',          width: 728,  height: 90,   label: 'Leaderboard (728×90)' },
   { platform: 'display',format: 'leaderboard',     width: 970,  height: 90,   label: 'Billboard (970×90)' },
   { platform: 'display',format: 'medium-rectangle',width: 300,  height: 250,  label: 'Medium Rectangle (300×250)' },
+  { platform: 'display',format: 'large-rectangle', width: 336,  height: 280,  label: 'Large Rectangle (336×280)' },
+  { platform: 'display',format: 'half-page',       width: 300,  height: 600,  label: 'Half Page (300×600)' },
+  { platform: 'display',format: 'wide-skyscraper', width: 160,  height: 600,  label: 'Wide Skyscraper (160×600)' },
   { platform: 'display',format: 'square',          width: 250,  height: 250,  label: 'Small Square (250×250)' },
+  { platform: 'display',format: 'mobile-banner',   width: 320,  height: 50,   label: 'Mobile Banner (320×50)' },
   // Email
   { platform: 'email',  format: 'email-header',    width: 600,  height: 200,  label: 'Email Header (600×200)' },
   { platform: 'email',  format: 'email-body',      width: 600,  height: 400,  label: 'Email Banner (600×400)' },

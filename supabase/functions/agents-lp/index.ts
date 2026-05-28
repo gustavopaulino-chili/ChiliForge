@@ -15,6 +15,7 @@ type AgentConfig = {
 
 type AgentsLpPayload = {
   agentConfig: AgentConfig;
+  geminiApiKey?: string;
   globalStoreName?: string;
   companyStoreName: string;
   generationChoices: string;
@@ -24,9 +25,10 @@ type AgentsLpPayload = {
 };
 
 const env = (globalThis as any).Deno?.env;
-const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
+const MODEL_CHAIN = ["gemini-3.5-flash", "gemini-2.5-pro"];
 
-function getApiKey(): string {
+function getApiKey(userKey?: string): string {
+  if (userKey?.trim()) return userKey.trim();
   return env?.get("GEMINI_API_KEY_PRODUCTION") || env?.get("GEMINI_API_KEY_TESTING") || "";
 }
 
@@ -56,6 +58,10 @@ type GeminiResult = {
   groundingMetadata?: unknown;
 };
 
+type GeminiCallOptions = {
+  thinkingLevel?: "minimal" | "low" | "medium" | "high";
+};
+
 async function callGemini(
   systemPrompt: string,
   userMessage: string,
@@ -63,7 +69,8 @@ async function callGemini(
   temperature: number,
   maxTokens: number,
   apiKey: string,
-  fileSearchStores?: string[]
+  fileSearchStores?: string[],
+  options?: GeminiCallOptions
 ): Promise<GeminiResult> {
   const effectiveSystemPrompt = [
     systemPrompt,
@@ -72,10 +79,15 @@ async function callGemini(
       : "",
   ].filter(Boolean).join("\n\n");
 
+  const generationConfig: Record<string, unknown> = { temperature, maxOutputTokens: maxTokens };
+  if (options?.thinkingLevel) {
+    generationConfig.thinkingConfig = { thinkingLevel: options.thinkingLevel };
+  }
+
   const body: Record<string, unknown> = {
     systemInstruction: { parts: [{ text: effectiveSystemPrompt }] },
     contents: [{ parts: [{ text: userMessage }] }],
-    generationConfig: { temperature, maxOutputTokens: maxTokens },
+    generationConfig,
   };
 
   if (fileSearchStores?.length) {
@@ -106,7 +118,8 @@ async function generateWithRetry(
   temperature: number,
   maxTokens: number,
   apiKey: string,
-  fileSearchStores?: string[]
+  fileSearchStores?: string[],
+  options?: GeminiCallOptions
 ): Promise<GeminiResult> {
   const chain = [preferredModel, ...MODEL_CHAIN.filter((m) => m !== preferredModel)];
   let lastError: Error | null = null;
@@ -114,10 +127,16 @@ async function generateWithRetry(
   for (const model of chain) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        return await callGemini(systemPrompt, userMessage, model, temperature, maxTokens, apiKey, fileSearchStores);
+        return await callGemini(systemPrompt, userMessage, model, temperature, maxTokens, apiKey, fileSearchStores, options);
       } catch (e) {
         lastError = e instanceof Error ? e : new Error(String(e));
         const status = lastError.message.match(/returned (\d+)/)?.[1];
+        if (model !== preferredModel || attempt > 0) {
+          console.warn(
+            `[agents-lp][model-fallback] preferred=${preferredModel} current=${model} ` +
+            `attempt=${attempt + 1}/2 status=${status ?? "non-http"}`
+          );
+        }
         if (status === "429" || status === "503") {
           await new Promise((r) => setTimeout(r, attempt === 0 ? 3000 : 8000));
         } else {
@@ -156,7 +175,7 @@ serve(async (req: Request) => {
     }
 
     const { agentConfig, globalStoreName, companyStoreName, generationChoices, customSlug } = payload;
-    const apiKey = getApiKey();
+    const apiKey = getApiKey(typeof payload.geminiApiKey === "string" ? payload.geminiApiKey : undefined);
 
     if (!apiKey) {
       return new Response(JSON.stringify({ error: "Gemini API key not configured" }), {
@@ -168,6 +187,12 @@ serve(async (req: Request) => {
       globalStoreName?.trim(),
       companyStoreName?.trim(),
     ].filter(Boolean) as string[];
+
+    if (!globalStoreName?.trim()) {
+      return new Response(JSON.stringify({ error: "globalStoreName is required. Upload the global LP store first in the admin panel." }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (!companyStoreName?.trim()) {
       return new Response(JSON.stringify({ error: "companyStoreName is required. Sync the company store before generation." }), {
@@ -193,11 +218,12 @@ serve(async (req: Request) => {
     const result = await generateWithRetry(
       agentConfig.systemPrompt,
       userMessage,
-      agentConfig.model || "gemini-2.5-flash",
+      agentConfig.model || "gemini-3.5-flash",
       agentConfig.temperature ?? 0.9,
-      agentConfig.maxTokens ?? 24000,
+      agentConfig.maxTokens ?? 65000,
       apiKey,
-      fileSearchStores.length ? fileSearchStores : undefined
+      fileSearchStores.length ? fileSearchStores : undefined,
+      { thinkingLevel: "low" }
     );
     const raw = result.text;
 

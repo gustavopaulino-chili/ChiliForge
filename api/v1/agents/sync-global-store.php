@@ -65,9 +65,9 @@ if (!$authorized) {
     exit;
 }
 
-if (!in_array($storeType, ['lp', 'ads'], true)) {
+if (!in_array($storeType, ['lp', 'ads', 'ads_reference', 'ads_image_reference'], true)) {
     http_response_code(400);
-    echo json_encode(['error' => 'store_type must be "lp" or "ads"']);
+    echo json_encode(['error' => 'store_type must be "lp", "ads", "ads_reference" or "ads_image_reference"']);
     exit;
 }
 
@@ -83,7 +83,7 @@ if (!$hasFile && $textContent === '') {
 $ensureGlobalFilesTable = function () use ($conn): void {
     $sql = "CREATE TABLE IF NOT EXISTS global_store_files (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        store_type ENUM('lp', 'ads') NOT NULL,
+        store_type ENUM('lp', 'ads', 'ads_reference', 'ads_image_reference') NOT NULL,
         store_name VARCHAR(255) NOT NULL,
         document_name VARCHAR(500) NULL,
         display_name VARCHAR(255) NOT NULL,
@@ -99,6 +99,7 @@ $ensureGlobalFilesTable = function () use ($conn): void {
     if (!$conn->query($sql)) {
         throw new RuntimeException('Failed to ensure global_store_files table: ' . $conn->error);
     }
+    $conn->query("ALTER TABLE global_store_files MODIFY store_type ENUM('lp', 'ads', 'ads_reference', 'ads_image_reference') NOT NULL");
 };
 
 $safeFileName = function (string $name): string {
@@ -148,8 +149,13 @@ try {
 
     // 2. Create store if it doesn't exist (use text placeholder if only file provided)
     if (empty($storeName)) {
-        $initText = $textContent ?: ('Global ' . strtoupper($storeType) . ' store initialized.');
-        $initLabel = $displayName ?: ('Global ' . strtoupper($storeType) . ' Guidelines');
+        $friendlyType = match($storeType) {
+            'ads_reference'       => 'ADS Reference',
+            'ads_image_reference' => 'ADS Image Reference',
+            default               => strtoupper($storeType),
+        };
+        $initText = $textContent ?: ('Global ' . $friendlyType . ' store initialized.');
+        $initLabel = $displayName ?: ('Global ' . $friendlyType . ' Guidelines');
         $initResult = agents_call_edge_function('agents-store', [
             'action'        => 'get_or_create',
             'displayName'   => 'global-' . $storeType . '-store',
@@ -222,6 +228,31 @@ try {
         }
         $documentName = $uploadResult['document']['documentName'] ?? $uploadResult['document']['name'] ?? $uploadResult['operationName'] ?? null;
         [, $permanentPath, $permanentSize] = $savePermanentFile('', $textFileName, $storeType, $textContent);
+
+        // For ads_reference / ads_image_reference: extract images from the HTML and upload them too
+        if ($storeType === 'ads_reference' || $storeType === 'ads_image_reference') {
+            preg_match_all('/src=["\']([^"\']+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^"\']*)?)["\']/', $textContent, $imgMatches);
+            $uploadedImages = 0;
+            foreach (array_unique($imgMatches[1] ?? []) as $imgUrl) {
+                if ($uploadedImages >= 3) break;
+                if (!filter_var($imgUrl, FILTER_VALIDATE_URL)) continue;
+                $imgData = @file_get_contents($imgUrl, false, stream_context_create(['http' => ['timeout' => 5]]));
+                if (!$imgData || strlen($imgData) < 100 || strlen($imgData) > 5_000_000) continue;
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $mime = finfo_buffer($finfo, $imgData) ?: 'image/png';
+                finfo_close($finfo);
+                if (!str_starts_with($mime, 'image/')) continue;
+                agents_call_edge_function('agents-store', [
+                    'action'      => 'upload_file',
+                    'storeName'   => $storeName,
+                    'fileBase64'  => base64_encode($imgData),
+                    'mimeType'    => $mime,
+                    'displayName' => 'Brand Image — ' . $displayName,
+                    'accountType' => 'admin',
+                ]);
+                $uploadedImages++;
+            }
+        }
     }
 
     if ($permanentPath !== null) {

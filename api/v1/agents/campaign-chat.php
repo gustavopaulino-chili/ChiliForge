@@ -87,6 +87,9 @@ try {
     $creativePlans = json_decode($creativePlansJson ?: '[]', true) ?: [];
     $companyFormData = json_decode($companyFormDataJson ?: '{}', true) ?: [];
 
+    $accountTypeResult = resolve_account_type_by_domain($userEmail ?? '', 'user');
+    $chatAccountType = $accountTypeResult['accountType'];
+
     $isGenerateRequest = (bool)preg_match(
         '/\b(gerar|generate|criar|make.*ad|mais criativos?|new creatives?|criar mais|make more)\b/ui',
         $message
@@ -125,20 +128,51 @@ try {
         $settingStmt->fetch();
         $settingStmt->close();
     }
+    $globalReferenceStore = '';
+    $refStmt = $conn->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'gemini_global_ads_reference_store' LIMIT 1");
+    if ($refStmt) {
+        $refStmt->execute();
+        $refStmt->bind_result($globalReferenceStore);
+        $refStmt->fetch();
+        $refStmt->close();
+    }
+
+    if (trim((string)$globalStore) === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Global Ads Store is missing. Upload/sync the global ads guidelines first.',
+            'code'  => 'GLOBAL_ADS_STORE_MISSING',
+        ]);
+        exit;
+    }
+
+    if (trim((string)$globalReferenceStore) === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Global Ads Reference Store is missing. Upload at least one ad example via "Send to Store" first.',
+            'code'  => 'GLOBAL_ADS_REFERENCE_STORE_MISSING',
+        ]);
+        exit;
+    }
 
     $accountTypeResult = resolve_account_type_by_domain($userEmail ?? '', 'user');
     $accountType = $accountTypeResult['accountType'];
-    $companyStoreName = agents_sync_company_store(
-        $conn,
-        (int)$companyProjectId,
-        $companyFormData,
-        $accountType,
-        $userId,
-        $companyStoreName ?: null
-    );
+    // Chat should not re-index company knowledge on every message. It can use
+    // the existing store when available plus the explicit DB context below.
+    $companyStoreName = is_string($companyStoreName ?? null) ? trim($companyStoreName) : '';
+
+    if ($companyStoreName === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Company store is missing. Sync company knowledge before using campaign chat.',
+            'code'  => 'COMPANY_STORE_MISSING',
+        ]);
+        exit;
+    }
 
     $fileSearchStores = array_values(array_filter([
         $globalStore ?: null,
+        $globalReferenceStore ?: null,
         $companyStoreName ?: null,
         $campaignMemoryStore ?: null,
         $campaignGoodExamplesStore ?: null,

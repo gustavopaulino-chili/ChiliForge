@@ -109,22 +109,39 @@ try {
         $settingStmt->fetch();
         $settingStmt->close();
     }
+    $globalReferenceStore = '';
+    $refStmt = $conn->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'gemini_global_ads_reference_store' LIMIT 1");
+    if ($refStmt) {
+        $refStmt->execute();
+        $refStmt->bind_result($globalReferenceStore);
+        $refStmt->fetch();
+        $refStmt->close();
+    }
 
-    // 5. Determine account type
-    $emailStmt = $conn->prepare("SELECT email FROM users WHERE id = ? LIMIT 1");
+    if (trim((string)$globalStore) === '') {
+        http_response_code(409);
+        echo json_encode([
+            'error' => 'Global Ads Store is missing. Upload/sync the global ads guidelines first.',
+            'code'  => 'GLOBAL_ADS_STORE_MISSING',
+        ]);
+        exit;
+    }
+
+    // 5. Determine account type and load user's Gemini API key
+    $emailStmt = $conn->prepare("SELECT email, gemini_api_key FROM users WHERE id = ? LIMIT 1");
     $emailStmt->bind_param('i', $userId);
     $emailStmt->execute();
-    $emailStmt->bind_result($userEmail);
+    $emailStmt->bind_result($userEmail, $userGeminiKey);
     $emailStmt->fetch();
     $emailStmt->close();
     $accountTypeResult = resolve_account_type_by_domain($userEmail ?? '', 'user');
     $accountType = $accountTypeResult['accountType'];
+    $userKey = is_string($userGeminiKey) ? trim($userGeminiKey) : '';
+    $geminiApiKey = $userKey !== '' ? $userKey : agents_env_value('GEMINI_API_KEY_PRODUCTION');
 
-    // 6. Inject company logo into form_data if missing
-    $images = is_array($companyFormData['images'] ?? null) ? $companyFormData['images'] : [];
-    if (empty($formData['logoUrl']) && !empty($images['logo'])) {
-        $formData['logoUrl'] = $images['logo'];
-    }
+    // 6. Inject structured company facts directly. Stores remain available for
+    // long-form brand docs, but basic brand data should not depend on retrieval.
+    $formData = agents_enrich_ad_form_with_company_data($formData, $companyFormData);
 
     // 7. Company store is created/updated when the user saves the company form
     // (updateCompanyProject.php / createProject.php). Generation only reads it.
@@ -148,12 +165,14 @@ try {
                 'version'      => (int)$agentVersion,
             ],
             'globalStoreName'           => $globalStore ?: null,
+            'globalReferenceStoreName'  => $globalReferenceStore ?: null,
             'companyStoreName'          => $geminiStoreName ?? '',
             'campaignGoodExamplesStore' => $campaignGoodExamplesStore ?: null,
             'campaignMemoryStore'       => $campaignMemoryStore ?: null,
             'useCampaignMemory'         => $campaignId > 0,
             'campaignData'              => $formData,
             'accountType'               => $accountType,
+            'geminiApiKey'              => $geminiApiKey ?: null,
         ],
         'campaignId'          => $campaignId > 0 ? $campaignId : null,
         'campaignMemoryStore' => $campaignMemoryStore ?: null,

@@ -25,7 +25,7 @@ if (!is_array($body)) {
 $userId = (int)($body['user_id'] ?? 0);
 $storeType = (string)($body['store_type'] ?? '');
 
-if ($userId <= 0 || !in_array($storeType, ['lp', 'ads'], true)) {
+if ($userId <= 0 || !in_array($storeType, ['lp', 'ads', 'ads_reference', 'ads_image_reference'], true)) {
     http_response_code(400);
     echo json_encode(['error' => 'user_id and store_type are required']);
     exit;
@@ -52,7 +52,7 @@ if (!$authorized) {
 try {
     $conn->query("CREATE TABLE IF NOT EXISTS global_store_files (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        store_type ENUM('lp', 'ads') NOT NULL,
+        store_type ENUM('lp', 'ads', 'ads_reference', 'ads_image_reference') NOT NULL,
         store_name VARCHAR(255) NOT NULL,
         document_name VARCHAR(500) NULL,
         display_name VARCHAR(255) NOT NULL,
@@ -65,6 +65,7 @@ try {
         INDEX idx_global_store_type (store_type),
         INDEX idx_global_store_name (store_name)
     )");
+    $conn->query("ALTER TABLE global_store_files MODIFY store_type ENUM('lp', 'ads', 'ads_reference', 'ads_image_reference') NOT NULL");
 
     $stmt = $conn->prepare(
         "SELECT id, store_name, document_name, display_name, original_name, mime_type, file_size_bytes, storage_path, created_at
