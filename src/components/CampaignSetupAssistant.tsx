@@ -107,10 +107,11 @@ function SuggestionCard({ suggestions, onApply, onDismiss }: SuggestionCardProps
 
 interface Props {
   formData: AdCreativeFormData;
+  companyProjectId?: number;
   onApplySuggestions: (suggestions: Partial<AdCreativeFormData>) => void;
 }
 
-export function CampaignSetupAssistant({ formData, onApplySuggestions }: Props) {
+export function CampaignSetupAssistant({ formData, companyProjectId, onApplySuggestions }: Props) {
   const { user } = useAuth();
   const [isOpen, setIsOpen]     = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -172,6 +173,7 @@ export function CampaignSetupAssistant({ formData, onApplySuggestions }: Props) 
     try {
       const res: SetupWizardResponse = await setupWizardChat({
         user_id: user.id,
+        company_project_id: companyProjectId,
         message: msg,
         history: chatHistory,
         current_form: formData as unknown as Record<string, unknown>,
