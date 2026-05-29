@@ -1851,9 +1851,20 @@ serve(async (req: Request) => {
         `=== FORMAT GROUP ${groupIndex + 1}/${renderGroups.length}: ${groupCategory} ===`,
         groupFormatsList,
         hasApprovedExamples ? "Approved examples were already analyzed in the creative plan. Use their winning principles as references, but do not copy their exact layout, dimensions, or element positions." : "",
-        "MANDATORY COPY RULE: every banner must contain visible human-readable ad copy. Use campaign headline/value prop/offer to write a concise headline, plus the CTA text. Never return a banner with only shapes, logo, or image.",
+        campaignData.useAiCopy === false && (campaignData.mainHeadline || campaignData.subheadline || campaignData.ctaText)
+          ? [
+              "MANDATORY COPY RULE: The copy is CLIENT-APPROVED and LOCKED. Render it VERBATIM in every banner — do NOT paraphrase, rewrite, improve, or shorten any approved text.",
+              campaignData.mainHeadline ? `  LOCKED HEADLINE: "${campaignData.mainHeadline}"` : "",
+              campaignData.subheadline  ? `  LOCKED SUBHEADLINE: "${campaignData.subheadline}"` : "",
+              campaignData.ctaText      ? `  LOCKED CTA: "${campaignData.ctaText}"` : "",
+              "  These exact strings must appear in every banner. Zero tolerance for any variation.",
+            ].filter(Boolean).join("\n")
+          : "MANDATORY COPY RULE: every banner must contain visible human-readable ad copy. Use campaign headline/value prop/offer to write a concise headline, plus the CTA text. Never return a banner with only shapes, logo, or image.",
         "MANDATORY LOGO RULE: if a logo URL exists in campaign facts, every banner must include at least one visible <img class=\"ad-logo\"> that uses the exact original logo URL with object-fit:contain. Reinterpreted logos are NOT logos. Similar marks, generated marks, recolored marks, redrawn symbols, monograms, or decorative logo-like shapes do not count. Never redraw, recolor, filter, mask, crop, replace, or invent a logo. If no logo URL exists, use brand name text only and never invent a fake mark.",
         "MANDATORY ASSET RULE: if PRODUCT or BACKGROUND asset URL exists in campaign facts, every banner must include at least one of those URLs in a visible <img>. Do not replace provided images with abstract blocks.",
+        !String(campaignData.productImageUrl || "").trim() && !String(campaignData.backgroundImageUrl || "").trim()
+          ? "NO BACKGROUND IMAGE RULE: No product image or background image URL is provided. Do NOT include product/background <img> elements, stock photos, placeholder images, or external image URLs as backgrounds. Use CSS-ONLY backgrounds: solid brand colors, linear/radial CSS gradients using the brand color palette, geometric clip-path shapes, or color panel compositions. This is intentional — the client wants a CSS-styled background."
+          : "",
         "MANDATORY CTA SIZE RULE: every CTA must be proportionate to the exact canvas. It must look clickable but never dominate the ad. Use compact padding, one-line text, and keep it inside the lower-third/action zone.",
         "SOCIAL MEDIA NO-BUTTON RULE: for Instagram, Facebook, TikTok, LinkedIn, social feed, square social, story, reels, and any social media placement, the CTA must NOT be a button/pill/rounded rectangle/bordered clickable block. Use CTA text integrated into the design as footer copy, underlined action text, caption line, swipe/DM cue, or sticker text without a button container. This overrides any generic CTA button guidance.",
         "VISUAL QUALITY GATE: before final output, verify the banner reads like a real paid ad: clear hook, strong focal image, visible CTA, readable hierarchy, enough contrast, no overlapping text, no empty center, no generic centered stack unless the format is too small.",
