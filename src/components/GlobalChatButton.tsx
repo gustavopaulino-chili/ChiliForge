@@ -111,20 +111,22 @@ export function GlobalChatButton() {
 
   return (
     <>
-      {/* Floating toggle button — always shows chat icon */}
-      <button
-        onClick={() => setIsOpen(v => !v)}
-        aria-label={isOpen ? 'Close assistant' : 'Open ChiliForge assistant'}
-        className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-xl flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
-        style={{ background: 'linear-gradient(135deg, hsl(var(--accent)), hsl(var(--primary)))' }}
-      >
-        <MessageCircle className="h-6 w-6" />
-      </button>
+      {/* Floating toggle button — hidden while panel is open */}
+      {!isOpen && (
+        <button
+          onClick={() => setIsOpen(true)}
+          aria-label="Open ChiliForge assistant"
+          className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-xl flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+          style={{ background: 'linear-gradient(135deg, hsl(var(--accent)), hsl(var(--primary)))' }}
+        >
+          <MessageCircle className="h-6 w-6" />
+        </button>
+      )}
 
-      {/* Chat panel */}
+      {/* Chat panel — sits at bottom-6 since button is hidden when open */}
       {isOpen && (
         <div
-          className="fixed bottom-24 right-3 sm:right-6 z-50 flex flex-col rounded-2xl border border-border/50 bg-card/95 backdrop-blur-md shadow-2xl overflow-hidden w-[min(340px,calc(100vw-1.5rem))] h-[520px] max-h-[calc(100dvh-7.5rem)]"
+          className="fixed bottom-6 right-3 sm:right-6 z-50 flex flex-col rounded-2xl border border-border/50 bg-card/95 backdrop-blur-md shadow-2xl overflow-hidden w-[min(340px,calc(100vw-1.5rem))] h-[520px] max-h-[calc(100dvh-2rem)]"
         >
           {/* Header */}
           <div
@@ -133,8 +135,8 @@ export function GlobalChatButton() {
           >
             <Sparkles className="h-4 w-4 shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold leading-tight">ChiliForge Assistant</p>
-              <p className="text-[10px] opacity-75 leading-tight">Powered by Gemini AI</p>
+              <p className="text-sm font-semibold leading-tight">Chilito</p>
+              <p className="text-[10px] opacity-75 leading-tight">Assistente ChiliForge</p>
             </div>
             <button
               onClick={() => setIsOpen(false)}

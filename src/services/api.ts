@@ -624,6 +624,29 @@ export const generateAdCreatives = async (payload: {
 export const analyzeAdBrief = (description: string, currentData?: Record<string, unknown>) =>
   invokeAiFunction<{ extracted: Record<string, unknown> }>("analyze-ad-brief", { description, currentData });
 
+const fileToBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const [, base64 = ""] = result.split(",");
+      resolve(base64);
+    };
+    reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+
+export const analyzeBrandBook = async (file: File, currentData?: Record<string, unknown>) => {
+  const dataBase64 = await fileToBase64(file);
+  return invokeAiFunction<{ extracted: Record<string, unknown>; pending?: boolean; message?: string }>("analyze-brand-book", {
+    fileName: file.name,
+    mimeType: file.type || "application/octet-stream",
+    fileSize: file.size,
+    dataBase64,
+    currentData,
+  });
+};
+
 export const getProjectFiles = async (projectId: number, userId: number) => {
   const params = new URLSearchParams({
     project_id: String(projectId),
@@ -823,31 +846,6 @@ export const renderAdsBatchViaAgent = (
       totalBatches,
     },
     { accountType: edgePayload.accountType || getStoredAccountType() },
-  );
-
-export type ConvertImageToHtmlParams = {
-  imageBase64: string;
-  mimeType: string;
-  format: { platform: string; format: string; label: string; width: number; height: number };
-  campaignData?: Record<string, unknown>;
-  creativePlan?: string;
-};
-
-export const convertImageAdToHtml = (
-  edgePayload: Record<string, unknown>,
-  params: ConvertImageToHtmlParams,
-): Promise<{ mode: "image_to_html"; html: string }> =>
-  invokeAiFunction<{ mode: "image_to_html"; html: string }>(
-    "agents-ads",
-    {
-      ...edgePayload,
-      mode: "image_to_html",
-      imageBase64: params.imageBase64,
-      mimeType: params.mimeType,
-      format: params.format,
-      creativePlan: params.creativePlan || "",
-      ...(params.campaignData ? { campaignData: params.campaignData } : {}),
-    },
   );
 
 export const recordCampaignCreativePlan = (payload: {
@@ -1251,12 +1249,25 @@ export type AdImageResult = {
   height: number;
 };
 
+export type ComposeAdResult = {
+  html: string;
+  platform: string;
+  format: string;
+  label: string;
+  width: number;
+  height: number;
+  variant?: string | null;
+};
+
 export const generateAdImages = (payload: {
   user_id: number;
   company_project_id: number;
   campaign_id?: number;
   form_data: Record<string, unknown>;
-}): Promise<{ success: boolean; mode: "image"; images: AdImageResult[] }> =>
+}): Promise<
+  | { success: boolean; mode: "image"; images: AdImageResult[]; banners?: never }
+  | { success: boolean; mode: "compose"; banners: ComposeAdResult[]; images?: never }
+> =>
   agentsPost("generate-ads.php", {
     ...payload,
     form_data: { ...payload.form_data, generate_as_image: true },
@@ -1418,7 +1429,7 @@ export const globalChat = (payload: {
 
 export type SetupWizardResponse =
   | { type: "text"; message: string }
-  | { type: "suggestions"; message: string; suggestions: Record<string, unknown> };
+  | { type: "preview"; message: string; pending_data: Record<string, unknown> };
 
 export const setupWizardChat = (payload: {
   user_id: number;

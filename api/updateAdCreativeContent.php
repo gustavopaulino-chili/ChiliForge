@@ -88,7 +88,7 @@ if ($creativeId <= 0 || $userId <= 0) {
 include "db.php";
 
 $stmt = $conn->prepare(
-    "SELECT c.public_url,
+    "SELECT c.public_url, c.metadata,
         (SELECT ac.public_url FROM ads_campaign ac WHERE ac.project_id = c.project_id ORDER BY ac.id DESC LIMIT 1) AS project_public_url
      FROM ads_creatives c
      INNER JOIN projects p ON p.id = c.project_id
@@ -106,7 +106,7 @@ if (!$stmt) {
 $stmt->bind_param("ii", $creativeId, $userId);
 $stmt->execute();
 $stmt->store_result();
-$stmt->bind_result($publicUrl, $projectPublicUrl); // project_public_url from ads_campaign
+$stmt->bind_result($publicUrl, $metadataJson, $projectPublicUrl); // project_public_url from ads_campaign
 
 if (!$stmt->fetch()) {
     http_response_code(404);
@@ -124,8 +124,33 @@ if (preg_match('/\.(png|jpe?g|webp|gif)(\?.*)?$/i', $targetPublicUrl)) {
 
 $html = rewrite_project_asset_refs_for_ad_creative($html, (string)$projectPublicUrl, '../');
 
-$update = $conn->prepare("UPDATE ads_creatives SET generated_html = ?, public_url = ?, updated_at = NOW() WHERE id = ?");
-$update->bind_param("ssi", $html, $targetPublicUrl, $creativeId);
+$metadata = json_decode((string)($metadataJson ?: '{}'), true);
+if (!is_array($metadata)) {
+    $metadata = [];
+}
+
+// A manual image-to-HTML conversion changes the creative type. Keep the
+// original image reference only as audit/source data and remove every flag
+// that makes campaign boards keep rendering this row as image mode.
+$originalImageUrl = '';
+foreach (['image_url', 'imageUrl', 'png_url', 'pngUrl', 'preview_url', 'previewUrl'] as $key) {
+    if (isset($metadata[$key]) && trim((string)$metadata[$key]) !== '') {
+        $originalImageUrl = trim((string)$metadata[$key]);
+        break;
+    }
+}
+if ($originalImageUrl !== '') {
+    $metadata['source_image_url'] = $metadata['source_image_url'] ?? $originalImageUrl;
+}
+$metadata['is_image_mode'] = false;
+$metadata['mode'] = 'html';
+$metadata['converted_from_image'] = true;
+$metadata['converted_at'] = gmdate('c');
+unset($metadata['image_url'], $metadata['imageUrl'], $metadata['png_url'], $metadata['pngUrl'], $metadata['preview_url'], $metadata['previewUrl']);
+$updatedMetadata = json_encode($metadata, JSON_UNESCAPED_UNICODE);
+
+$update = $conn->prepare("UPDATE ads_creatives SET generated_html = ?, public_url = ?, metadata = ?, updated_at = NOW() WHERE id = ?");
+$update->bind_param("sssi", $html, $targetPublicUrl, $updatedMetadata, $creativeId);
 if (!$update->execute()) {
     http_response_code(500);
     echo json_encode(["error" => "Failed to update creative", "details" => $update->error]);

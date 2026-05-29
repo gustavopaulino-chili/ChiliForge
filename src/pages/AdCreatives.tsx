@@ -19,7 +19,7 @@ import { ArrowLeft, ArrowRight, Zap, FolderOpen, LogOut, Loader2, Wand2, RotateC
 import logoResult from '@/assets/logo-result.png';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { useAuth } from '@/contexts/AuthContext';
-import { createProject, deleteProjectAssetFile, generateAdCreatives, generateAdImages, generateAdsViaAgentTracked, generateImages, interpretBatchesViaAgent, prepareAdsFromCampaignPayload, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls, type AdImageResult } from '@/services/api';
+import { createProject, deleteProjectAssetFile, generateAdCreatives, generateAdImages, generateAdsViaAgentTracked, generateImages, interpretBatchesViaAgent, prepareAdsFromCampaignPayload, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls, type AdImageResult, type ComposeAdResult } from '@/services/api';
 import { CampaignSetupAssistant } from '@/components/CampaignSetupAssistant';
 import { toast } from 'sonner';
 import '@/components/landing/HeroLanding.css';
@@ -1167,7 +1167,7 @@ export default function AdCreatives() {
           // non-fatal — image generation proceeds without spec
         }
 
-        const allImages: import('@/services/api').AdImageResult[] = [];
+        const allComposeBanners: ComposeAdResult[] = [];
 
         for (let fi = 0; fi < enabledFormats.length; fi++) {
           const fmt = enabledFormats[fi];
@@ -1191,29 +1191,29 @@ export default function AdCreatives() {
             s.label?.toLowerCase() === fmtLabel.toLowerCase()
           )?.spec || batchSpecs[fi]?.spec || "";
 
-          const imageResult = await generateAdImages({
+          const result = await generateAdImages({
             user_id: user.id,
             company_project_id: routeState.companyProjectId,
             campaign_id: routeState.campaignId,
             form_data: { ...(fmtFormData as Record<string, unknown>), creative_plan: fmtSpec },
           });
-          const fmtImages = (imageResult.images || []).filter((img) => img.imageUrl);
-          allImages.push(...fmtImages);
+          const fmtBanners = (result.banners || []).filter((b) => b.html);
+          allComposeBanners.push(...fmtBanners);
         }
 
-        if (!allImages.length) throw new Error('AI did not return any ad images.');
+        if (!allComposeBanners.length) throw new Error('AI did not return any ad creatives.');
 
         setGenerationProgress(82);
-        setGenerationStatus('Saving image ads to campaign board...');
-        setGenerationLog(prev => [...prev, 'Saving image files as image creatives...']);
-        const bannerPayload = allImages.map((img, index) => ({
-          platform: img.platform || 'banner',
-          format: img.format || 'ad',
-          label: img.label || `Image Ad ${index + 1}`,
-          width: Number(img.width || 1080),
-          height: Number(img.height || 1080),
-          html: img.imageUrl || '',
-          is_image_mode: true,
+        setGenerationStatus('Saving ads to campaign board...');
+        setGenerationLog(prev => [...prev, 'Saving compose creatives...']);
+        const bannerPayload = allComposeBanners.map((b, index) => ({
+          platform: b.platform || 'banner',
+          format: b.format || 'ad',
+          label: b.label || `Ad ${index + 1}`,
+          width: Number(b.width || 1080),
+          height: Number(b.height || 1080),
+          html: b.html || '',
+          is_image_mode: false,
         }));
 
         const slugBase = (formData.campaignName || formData.brandName || 'campaign')
@@ -1238,14 +1238,14 @@ export default function AdCreatives() {
         const saved = await publishResponse.json();
         if (!saved?.success || !saved?.id) {
           const msg = [saved?.error, saved?.details].filter(Boolean).join(' - ');
-          throw new Error(msg || 'Failed to save image ads');
+          throw new Error(msg || 'Failed to save ads');
         }
 
         const banners = Array.isArray(saved.banners)
           ? saved.banners.map((banner: GeneratedBanner, index: number) => ({
               ...banner,
-              imageUrl: banner.imageUrl || allImages[index]?.imageUrl || undefined,
-              is_image_mode: true,
+              html: bannerPayload[index]?.html || banner.html || '',
+              is_image_mode: false,
             }))
           : [];
         setSavedProjectId(Number(saved.id));
@@ -1256,7 +1256,7 @@ export default function AdCreatives() {
         setSelectedBannerIds(new Set(banners.map((b: { id: number }) => b.id)));
         setIsGenerating(false);
         setShowResults(true);
-        toast.success(`${banners.length} ad image${banners.length !== 1 ? 's' : ''} saved to the campaign board!`);
+        toast.success(`${banners.length} ad${banners.length !== 1 ? 's' : ''} generated and saved!`);
         return;
       }
 

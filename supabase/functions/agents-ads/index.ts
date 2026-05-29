@@ -23,9 +23,7 @@ type AdFormat = {
 };
 
 type AgentsAdsPayload = {
-  mode?: "full" | "plan" | "render" | "unified" | "interpret" | "interpret_image" | "image" | "image_to_html" | "copy";
-  imageBase64?: string;
-  mimeType?: string;
+  mode?: "full" | "plan" | "render" | "unified" | "interpret" | "interpret_image" | "image" | "compose" | "copy";
   format?: AdFormat;
   generateAsImage?: boolean;
   geminiApiKey?: string;
@@ -724,34 +722,6 @@ function buildInterpretImagePrompt(campaignFacts: string, formats: AdFormat[], f
   ].filter((line) => line !== undefined).join("\n");
 }
 
-const IMAGE_TO_HTML_SYSTEM_PROMPT = `\
-You are an expert HTML/CSS visual reconstruction engineer. Your ONLY task is to convert a raster ad image into a self-contained, pixel-accurate HTML/CSS banner.
-
-IDENTITY: You are NOT generating creative ideas. You are PURELY reading pixels and translating visual structure into code.
-
-RECONSTRUCTION RULES:
-1. DIMENSIONS: The root div must use exactly the specified pixel dimensions. Never use percentages for the root width/height.
-2. POSITIONING: Every child element MUST use position:absolute with explicit top/left/right/bottom in px or %. Root .ad-banner uses position:relative;overflow:hidden.
-3. TEXT — VERBATIM: Read every visible character exactly. Do not paraphrase or improve copy. Every word, comma, period, exclamation mark must match.
-4. COLORS — PRECISE: Sample hex values directly from pixels. Use exact #rrggbb notation. Never approximate to "dark blue" — use the actual sampled value.
-5. FONT SIZES — PROPORTIONAL: Estimate in px proportional to banner height. Headline ~8% of height, subheadline ~5%, body ~4%, CTA ~4.5%. Round to nearest integer.
-6. FONT WEIGHTS: thin=300, regular=400, medium=500, semibold=600, bold=700, extrabold=800, black=900.
-7. BACKGROUND: Reconstruct exactly — solid color:background-color, gradient:CSS gradient with sampled stop colors, full-bleed image:position:absolute img tag.
-8. LAYERS (Z-INDEX): background=0, overlay=1, product/hero=5-10, shapes/decorative=11-15, text=20-30, CTA/button=40.
-9. SHAPES AND DECORATIVE: Reproduce using CSS clip-path, border-radius, transform:rotate(), colored divs. Do not use SVG unless necessary.
-10. BUTTONS: Exact background color, border-radius px, padding, font-size, font-weight, text color from image.
-11. OVERLAYS: Semi-transparent divs with rgba() background at correct opacity.
-12. LOGO: If visible and a URL is provided in context, render as <img src="[URL]" style="position:absolute;...;object-fit:contain">. Otherwise reproduce brand name as text.
-13. NO EXTERNAL RESOURCES: Do not reference any image URLs except the logo URL if explicitly provided. Do NOT embed the source image — reconstruct as CSS.
-14. SELF-CONTAINED: All CSS inline (style="..."). No external stylesheets. No <link> tags. No JavaScript.
-
-OUTPUT FORMAT — output ONLY this, nothing before or after:
-<!-- BANNER_START -->
-<div class="ad-banner" data-platform="PLATFORM" data-format="FORMAT" style="position:relative;width:WIDTHpx;height:HEIGHTpx;overflow:hidden;[background]">
-  <!-- layers -->
-</div>
-<!-- BANNER_END -->`.trim();
-
 const COMPOSITION_POOL = [
   "diagonal-split: clip-path:polygon(0 0,62% 0,42% 100%,0 100%) dark overlay on left, product right",
   "hero-full-bleed: product as full background, gradient overlay bottom 50%, text+CTA stacked bottom",
@@ -1178,74 +1148,215 @@ function polishGeneratedBanner(html: string, data: AgentsAdsPayload["campaignDat
   );
 }
 
-async function convertImageToHtml(
-  imageBase64: string,
-  mimeType: string,
+async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let idx = 0;
+  async function worker() {
+    while (idx < tasks.length) {
+      const i = idx++;
+      results[i] = await tasks[i]();
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+  return results;
+}
+
+// ── COMPOSE MODE HELPERS ──────────────────────────────────────────────────────
+
+const LAYOUT_SPACE_GUIDANCE: Record<string, string> = {
+  "diagonal-split":      "Left 48% of the image will be covered by a dark text panel — fill that zone with solid brand color or deep tone. Product/hero goes on the right 52%.",
+  "hero-full-bleed":     "Bottom 35% will have a gradient overlay + text — keep the product/hero in the upper half and let colors naturally darken toward the bottom.",
+  "top-image-bottom-text": "Bottom 45% will be covered by a brand-color text panel — focus the product/hero in the top 55%. Keep the bottom zone visually simple.",
+  "left-panel-right-image": "Left 42% will be covered by a solid panel overlay — place brand color or pattern there. Product hero goes on the right 58%.",
+  "centered-minimal":    "Center focus on the product. Text will appear top and bottom — leave those zones slightly darker or plain for legibility.",
+  "bold-headline-first": "Top 40% and bottom 20% will carry text overlay — darken those zones naturally. Product hero occupies the middle 40%.",
+  "frame-product":       "Edges will have a geometric frame overlay — center the product. Keep corners slightly darker so framing text is legible.",
+};
+
+type LayoutPosition = {
+  overlayGradient: string;
+  logo: string;
+  headline: string;
+  sub: string;
+  cta: string;
+};
+
+const LAYOUT_POSITIONS: Record<string, LayoutPosition> = {
+  "diagonal-split": {
+    overlayGradient: "linear-gradient(135deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.72) 50%,rgba(0,0,0,0.04) 51%,rgba(0,0,0,0.04) 100%)",
+    logo:     "top:6%;left:6%;width:30%;max-height:14%;",
+    headline: "top:28%;left:6%;right:54%;",
+    sub:      "top:52%;left:6%;right:54%;",
+    cta:      "bottom:10%;left:6%;",
+  },
+  "hero-full-bleed": {
+    overlayGradient: "linear-gradient(to top,rgba(0,0,0,0.82) 0%,rgba(0,0,0,0.44) 50%,rgba(0,0,0,0.10) 100%)",
+    logo:     "top:5%;left:5%;width:28%;max-height:12%;",
+    headline: "bottom:28%;left:5%;right:5%;",
+    sub:      "bottom:17%;left:5%;right:5%;",
+    cta:      "bottom:6%;left:5%;",
+  },
+  "top-image-bottom-text": {
+    overlayGradient: "linear-gradient(to bottom,rgba(0,0,0,0) 0%,rgba(0,0,0,0) 50%,rgba(0,0,0,0.72) 55%,rgba(0,0,0,0.82) 100%)",
+    logo:     "bottom:43%;left:5%;width:28%;max-height:12%;",
+    headline: "bottom:24%;left:5%;right:5%;",
+    sub:      "bottom:13%;left:5%;right:5%;",
+    cta:      "bottom:4%;left:5%;",
+  },
+  "left-panel-right-image": {
+    overlayGradient: "linear-gradient(90deg,rgba(0,0,0,0.76) 0%,rgba(0,0,0,0.76) 42%,rgba(0,0,0,0.04) 43%,rgba(0,0,0,0.04) 100%)",
+    logo:     "top:6%;left:4%;width:30%;max-height:14%;",
+    headline: "top:28%;left:4%;right:60%;",
+    sub:      "top:50%;left:4%;right:60%;",
+    cta:      "bottom:10%;left:4%;",
+  },
+  "centered-minimal": {
+    overlayGradient: "radial-gradient(ellipse at center,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.18) 100%)",
+    logo:     "top:5%;left:50%;transform:translateX(-50%);width:28%;max-height:12%;",
+    headline: "top:20%;left:5%;right:5%;text-align:center;",
+    sub:      "top:44%;left:10%;right:10%;text-align:center;",
+    cta:      "bottom:8%;left:50%;transform:translateX(-50%);",
+  },
+  "bold-headline-first": {
+    overlayGradient: "linear-gradient(to bottom,rgba(0,0,0,0.76) 0%,rgba(0,0,0,0.28) 40%,rgba(0,0,0,0.08) 70%,rgba(0,0,0,0.62) 100%)",
+    logo:     "top:5%;right:5%;width:22%;max-height:10%;",
+    headline: "top:10%;left:5%;right:5%;",
+    sub:      "top:44%;left:5%;right:5%;",
+    cta:      "bottom:6%;left:5%;",
+  },
+  "frame-product": {
+    overlayGradient: "radial-gradient(ellipse at center,rgba(0,0,0,0.08) 35%,rgba(0,0,0,0.68) 100%)",
+    logo:     "top:5%;left:50%;transform:translateX(-50%);width:30%;max-height:14%;",
+    headline: "bottom:22%;left:5%;right:5%;text-align:center;",
+    sub:      "bottom:13%;left:5%;right:5%;text-align:center;",
+    cta:      "bottom:4%;left:50%;transform:translateX(-50%);",
+  },
+};
+
+function detectCompositionLayout(spec: string): string {
+  const s = spec.toLowerCase();
+  if (s.includes("diagonal-split") || s.includes("diagonal split")) return "diagonal-split";
+  if (s.includes("top-image-bottom-text") || s.includes("top image bottom")) return "top-image-bottom-text";
+  if (s.includes("left-panel-right-image") || s.includes("left panel")) return "left-panel-right-image";
+  if (s.includes("centered-minimal") || s.includes("centered minimal")) return "centered-minimal";
+  if (s.includes("bold-headline-first") || s.includes("bold headline")) return "bold-headline-first";
+  if (s.includes("frame-product") || s.includes("frame product")) return "frame-product";
+  return "hero-full-bleed";
+}
+
+function extractCssVarColor(cssVars: string, varName: string): string | null {
+  const m = new RegExp(`${varName.replace("-", "\\-")}:\\s*(#[0-9a-fA-F]{3,8})`).exec(cssVars);
+  return m ? m[1] : null;
+}
+
+function extractCssVarFont(cssVars: string): string | null {
+  const m = /--font-(?:headline|body):\s*([^;]+)/.exec(cssVars);
+  return m ? m[1].trim() : null;
+}
+
+function buildBackgroundPrompt(
+  spec: string,
+  campaignFactsImg: string,
   format: AdFormat,
-  campaignData: AgentsAdsPayload["campaignData"],
-  creativePlan: string,
-  apiKey: string,
-): Promise<string> {
-  const { cssVars, fontUrl } = extractBrandTokens(creativePlan);
+  aspectRatio: string,
+): string {
+  const layout = detectCompositionLayout(spec);
+  const spaceGuide = LAYOUT_SPACE_GUIDANCE[layout] ?? LAYOUT_SPACE_GUIDANCE["hero-full-bleed"];
+  return [
+    "Generate a BACKGROUND-ONLY advertising visual. This image will have text, logo, and CTA overlaid on top of it in HTML — do NOT include any of those in the generated image.",
+    "",
+    spec
+      ? `CREATIVE SPEC (use for color palette, visual style, brand aesthetic, and composition — ignore any text-placement hints):\n${spec}`
+      : "Create a visually compelling background using the brand's colors and visual language.",
+    "",
+    "CAMPAIGN CONTEXT (brand aesthetic reference only):",
+    campaignFactsImg,
+    "",
+    `FORMAT: ${format.width}×${format.height}px | Aspect ratio: ${aspectRatio}`,
+    `LAYOUT RESERVED ZONES: ${spaceGuide}`,
+    "",
+    "OUTPUT: A clean visual background — brand colors, shapes, textures, gradients, product imagery.",
+    "STRICT EXCLUSIONS — do NOT render any of the following:",
+    "- Any text of any kind (headlines, copy, CTAs, brand names, taglines, prices, labels)",
+    "- Any logo, wordmark, icon, badge, or brand symbol",
+    "- Any button, pill, badge, or UI element that implies clickability",
+    "- Any placeholder boxes, lorem ipsum, or text guides",
+    "Text and branding will be composited on top of this image in a separate layer.",
+  ].filter(Boolean).join("\n");
+}
+
+function buildCompositionHtml(
+  bgDataUrl: string,
+  data: AgentsAdsPayload["campaignData"],
+  format: AdFormat,
+  spec: string,
+  cssVars: string,
+  fontUrl: string,
+): string {
   const w = format.width ?? 1080;
   const h = format.height ?? 1080;
   const platform = format.platform || "banner";
   const formatName = format.format || "ad";
-  const logoUrl = String(campaignData.logoUrl || "").trim();
-  const brandName = String(campaignData.brandName || "").trim();
 
-  const contextLines = [
-    `BANNER DIMENSIONS: ${w}px wide × ${h}px tall`,
-    `PLATFORM: ${platform}  FORMAT: ${formatName}`,
-    brandName ? `BRAND NAME: ${brandName}` : "",
-    logoUrl
-      ? `LOGO URL (use this exact URL if a logo is visible in the image): ${logoUrl}`
-      : "LOGO: No URL provided — if a brand mark is visible, reproduce as CSS/text.",
-    campaignData.ctaText ? `KNOWN CTA TEXT: "${campaignData.ctaText}" — use verbatim if visible` : "",
-    campaignData.mainHeadline ? `KNOWN HEADLINE: "${campaignData.mainHeadline}" — use verbatim if matches what you see` : "",
-  ].filter(Boolean);
+  const layoutKey = detectCompositionLayout(spec);
+  const layout = LAYOUT_POSITIONS[layoutKey] ?? LAYOUT_POSITIONS["hero-full-bleed"];
 
-  const userMessage = [
-    "Reconstruct the attached ad image as pixel-accurate HTML/CSS following the system rules.",
-    "",
-    "=== CAMPAIGN CONTEXT (reference only — do not override what you actually see in the image) ===",
-    ...contextLines,
-    "",
-    "Steps:",
-    "1. Read every visible text character verbatim.",
-    "2. Sample exact hex colors from background, text, buttons, shapes, overlays.",
-    "3. Estimate font sizes proportional to banner height.",
-    "4. Identify all layers (background, overlay, product, shapes, text, CTA).",
-    "5. Reconstruct with position:absolute for every element.",
-    `6. Output with data-platform="${platform}" data-format="${formatName}" style="width:${w}px;height:${h}px".`,
-    "7. Wrap output in <!-- BANNER_START --> ... <!-- BANNER_END --> markers.",
-  ].join("\n");
+  const primaryColor = extractCssVarColor(cssVars, "--primary") || "#1a1a2e";
+  const secondaryColor = extractCssVarColor(cssVars, "--secondary") || "#e94560";
+  const fontFamily = extractCssVarFont(cssVars) || "'Inter','Helvetica Neue',Arial,sans-serif";
 
-  const referenceImages: ReferenceImage[] = [{
-    label: `Source ad image (${w}x${h})`,
-    mimeType,
-    data: imageBase64,
-    role: "source_to_reconstruct",
-  }];
+  const headline = String(data.mainHeadline || "").trim();
+  const sub = String(data.subheadline || data.offer || "").trim();
+  const cta = String(data.ctaText || "Learn More").trim();
+  const logoUrl = String(data.logoUrl || "").trim();
 
-  const result = await generateWithRetry(
-    IMAGE_TO_HTML_SYSTEM_PROMPT,
-    userMessage,
-    "gemini-2.5-pro",
-    0.2,
-    16000,
-    apiKey,
-    undefined,
-    referenceImages,
-  );
+  const headlinePx = Math.round(Math.min(h * 0.072, w * 0.062, 68));
+  const subPx = Math.round(headlinePx * 0.54);
+  const ctaPx = Math.round(subPx * 0.92);
+  const btnPadV = Math.round(h * 0.016);
+  const btnPadH = Math.round(w * 0.044);
+  const btnRadius = Math.round(h * 0.012);
 
-  const snippets = extractBannerSnippets(result.text);
-  if (!snippets.length) {
-    throw new Error("Vision model returned no valid banner snippet. The image may be unclear or the model failed to reconstruct it.");
-  }
-  const [snippet] = enforceAllBannerDimensions(snippets, [format]);
-  return polishGeneratedBanner(snippet, campaignData, format, cssVars, fontUrl);
+  const isSocial = ["instagram", "facebook", "tiktok", "linkedin"].includes(platform.toLowerCase());
+
+  const fontImport = fontUrl ? `<style>@import url('${fontUrl}');</style>` : "";
+
+  const bgLayer = bgDataUrl
+    ? `<img src="${bgDataUrl}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0" alt="" />`
+    : `<div style="position:absolute;inset:0;background:${primaryColor};z-index:0"></div>`;
+
+  const overlayLayer = `<div style="position:absolute;inset:0;background:${layout.overlayGradient};z-index:1"></div>`;
+
+  const logoLayer = logoUrl
+    ? `<img src="${logoUrl}" style="position:absolute;${layout.logo}object-fit:contain;z-index:20" alt="logo" />`
+    : (data.brandName ? `<div style="position:absolute;${layout.logo}font-family:${fontFamily};font-size:${ctaPx}px;font-weight:700;color:#fff;z-index:20;white-space:nowrap">${String(data.brandName).trim()}</div>` : "");
+
+  const headlineLayer = headline
+    ? `<div style="position:absolute;${layout.headline}font-family:${fontFamily};font-size:${headlinePx}px;font-weight:900;color:#fff;line-height:1.15;text-shadow:0 2px 14px rgba(0,0,0,0.55);z-index:25">${headline}</div>`
+    : "";
+
+  const subLayer = sub
+    ? `<div style="position:absolute;${layout.sub}font-family:${fontFamily};font-size:${subPx}px;font-weight:400;color:rgba(255,255,255,0.90);line-height:1.4;z-index:25">${sub}</div>`
+    : "";
+
+  const ctaLayer = isSocial
+    ? `<div style="position:absolute;${layout.cta}font-family:${fontFamily};font-size:${ctaPx}px;font-weight:600;color:rgba(255,255,255,0.88);z-index:30">${cta}</div>`
+    : `<div style="position:absolute;${layout.cta}font-family:${fontFamily};font-size:${ctaPx}px;font-weight:700;color:#fff;background:${secondaryColor};padding:${btnPadV}px ${btnPadH}px;border-radius:${btnRadius}px;white-space:nowrap;z-index:30;cursor:pointer">${cta}</div>`;
+
+  return `<!-- BANNER_START -->
+<div class="ad-banner" data-platform="${platform}" data-format="${formatName}" style="position:relative;width:${w}px;height:${h}px;overflow:hidden;font-family:${fontFamily}">
+  ${fontImport}
+  ${bgLayer}
+  ${overlayLayer}
+  ${logoLayer}
+  ${headlineLayer}
+  ${subLayer}
+  ${ctaLayer}
+</div>
+<!-- BANNER_END -->`;
 }
+
+// ── END COMPOSE MODE HELPERS ──────────────────────────────────────────────────
 
 function extractBannerSnippets(raw: string): string[] {
   const snippets: string[] = [];
@@ -1494,54 +1605,6 @@ serve(async (req: Request) => {
     const payload = await req.json() as AgentsAdsPayload;
     const mode = payload.mode || "full";
 
-    // ── IMAGE_TO_HTML MODE ────────────────────────────────────────────────────
-    // Runs before all other guards — this mode does not need agentConfig,
-    // formats, companyStoreName, or globalStoreName.
-    if (mode === "image_to_html") {
-      const imageBase64 = typeof payload.imageBase64 === "string" ? payload.imageBase64.trim() : "";
-      const mimeType = typeof payload.mimeType === "string" ? payload.mimeType.trim() : "image/png";
-      const fmt: AdFormat | undefined = payload.format || payload.campaignData?.selectedFormats?.[0];
-
-      if (!imageBase64) {
-        return new Response(JSON.stringify({ error: "imageBase64 is required for image_to_html mode" }), {
-          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (!fmt?.width || !fmt?.height) {
-        return new Response(JSON.stringify({ error: "format with width and height is required for image_to_html mode" }), {
-          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const convertKey = getApiKey(typeof payload.geminiApiKey === "string" ? payload.geminiApiKey : undefined);
-      if (!convertKey) {
-        return new Response(JSON.stringify({ error: "Gemini API key not configured" }), {
-          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      try {
-        const bannerHtml = await convertImageToHtml(
-          imageBase64,
-          mimeType,
-          fmt,
-          payload.campaignData || {},
-          String(payload.creativePlan || ""),
-          convertKey,
-        );
-        const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
-        return new Response(JSON.stringify({ mode: "image_to_html", html: fullHtml }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      } catch (convErr) {
-        return new Response(
-          JSON.stringify({ error: convErr instanceof Error ? convErr.message : "Image-to-HTML conversion failed" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-    }
-    // ── END IMAGE_TO_HTML MODE ────────────────────────────────────────────────
-
     if (!payload.agentConfig?.systemPrompt) {
       return new Response(JSON.stringify({ error: "agentConfig.systemPrompt is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1666,20 +1729,6 @@ serve(async (req: Request) => {
       // Creative spec from interpret step — same pipeline as HTML mode, just different output model
       const spec = String(payload.creativePlan || "").trim();
 
-      // Concurrency-limited runner — avoids WORKER_RESOURCE_LIMIT from all-parallel execution
-      async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> {
-        const results: T[] = new Array(tasks.length);
-        let idx = 0;
-        async function worker() {
-          while (idx < tasks.length) {
-            const i = idx++;
-            results[i] = await tasks[i]();
-          }
-        }
-        await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
-        return results;
-      }
-
       const socialPlatforms = new Set(["instagram", "facebook", "tiktok", "linkedin"]);
 
       const imageFns = imageTasks.map((task) => async () => {
@@ -1731,6 +1780,50 @@ serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // ── COMPOSE MODE: background image + HTML overlay ─────────────────────────
+    if (mode === "compose") {
+      const campaignFactsImg = buildCampaignFactsForImage(campaignData);
+      const refImagesForGen = referenceImages.map((r) => ({ data: r.data, mimeType: r.mimeType }));
+      const spec = String(payload.creativePlan || "").trim();
+      const { cssVars, fontUrl } = extractBrandTokens(spec);
+      const imageTasks = buildImageVariantTasks(formats, campaignData);
+
+      const composeFns = imageTasks.map((task) => async () => {
+        const { format, variantLabel } = task;
+        const aspectRatio = imageAspectRatioForFormat(format);
+
+        const bgPrompt = buildBackgroundPrompt(spec, campaignFactsImg, format, aspectRatio);
+        const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio);
+
+        const bannerHtml = buildCompositionHtml(
+          bgDataUrl ?? "",
+          campaignData,
+          format,
+          spec,
+          cssVars,
+          fontUrl,
+        );
+
+        const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
+
+        return {
+          html: fullHtml,
+          platform: format.platform || "other",
+          format: format.format || "ad",
+          label: `${format.label || `${format.width}x${format.height}`}${variantLabel ? ` - Variant ${variantLabel}` : ""}`,
+          width: format.width || 1080,
+          height: format.height || 1080,
+          variant: variantLabel || null,
+        };
+      });
+
+      const banners = await runWithConcurrency(composeFns, 1);
+      return new Response(JSON.stringify({ mode: "compose", banners }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // ── END COMPOSE MODE ──────────────────────────────────────────────────────
 
     // Plan is text-only — images not needed and waste bandwidth/tokens
     const groundingMetadata: unknown[] = [];

@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { AdCreativeFormData } from '@/types/adCreativeForm';
 import { AlertCircle, BookOpen, Check, Loader2, MessageSquare, Sparkles, Tag, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { analyzeAdBrief } from '@/services/api';
+import { analyzeAdBrief, analyzeBrandBook } from '@/services/api';
 
 interface Props {
   data: AdCreativeFormData;
@@ -44,7 +44,7 @@ function pickStringArray(value: unknown, max = 3): string[] {
     : [];
 }
 
-function briefDataToAdUpdates(extracted: Record<string, unknown>): Partial<AdCreativeFormData> {
+export function briefDataToAdUpdates(extracted: Record<string, unknown>): Partial<AdCreativeFormData> {
   const updates: Partial<AdCreativeFormData> = {};
 
   if (extracted.campaignName) updates.campaignName = String(extracted.campaignName);
@@ -58,6 +58,7 @@ function briefDataToAdUpdates(extracted: Record<string, unknown>): Partial<AdCre
   if (extracted.industry) updates.industry = String(extracted.industry);
   if (extracted.brandKeywords) updates.brandKeywords = String(extracted.brandKeywords);
   if (extracted.forbiddenWords) updates.forbiddenWords = String(extracted.forbiddenWords);
+  if (!updates.forbiddenWords && extracted.forbiddenUsage) updates.forbiddenWords = String(extracted.forbiddenUsage);
   if (extracted.productName) updates.productName = String(extracted.productName);
   if (extracted.mainHeadline) updates.mainHeadline = String(extracted.mainHeadline);
   if (extracted.subheadline) updates.subheadline = String(extracted.subheadline);
@@ -76,7 +77,8 @@ function briefDataToAdUpdates(extracted: Record<string, unknown>): Partial<AdCre
   if (extracted.painPoints) updates.painPoints = String(extracted.painPoints);
   if (extracted.desires) updates.desires = String(extracted.desires);
 
-  const tone = pickEnum(extracted.toneOfVoice, ['formal', 'casual', 'inspirational', 'authoritative', 'conversational', 'urgent', 'empathetic'] as const);
+  const tone = pickEnum(extracted.toneOfVoice, ['formal', 'casual', 'inspirational', 'authoritative', 'conversational', 'urgent', 'empathetic'] as const)
+    || pickEnum(extracted.brandVoice, ['formal', 'casual', 'inspirational', 'authoritative', 'conversational', 'urgent', 'empathetic'] as const);
   if (tone) updates.toneOfVoice = tone;
   const urgency = pickEnum(extracted.urgencyLevel, ['none', 'low', 'medium', 'high'] as const);
   if (urgency) updates.urgencyLevel = urgency;
@@ -97,8 +99,9 @@ function briefDataToAdUpdates(extracted: Record<string, unknown>): Partial<AdCre
     creative: 'bold',
     corporate: 'corporate',
   };
-  if (extracted.preferredStyle) {
-    const raw = String(extracted.preferredStyle).toLowerCase().trim();
+  const extractedStyle = extracted.preferredStyle || extracted.visualStyle;
+  if (extractedStyle) {
+    const raw = String(extractedStyle).toLowerCase().trim();
     updates.preferredStyle = (validStyles as readonly string[]).includes(raw)
       ? (raw as typeof validStyles[number])
       : (styleMap[raw] ?? 'modern');
@@ -136,6 +139,10 @@ function briefDataToAdUpdates(extracted: Record<string, unknown>): Partial<AdCre
 export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }: Props) {
   const [isAnalyzingBrief, setIsAnalyzingBrief] = useState(false);
   const [briefResult, setBriefResult] = useState<{ fields: string[] } | null>(null);
+  const [isAnalyzingBrandBook, setIsAnalyzingBrandBook] = useState(false);
+  const [brandBookResult, setBrandBookResult] = useState<{ fields: string[]; pending?: boolean } | null>(null);
+  const [brandBookSummary, setBrandBookSummary] = useState('');
+  const [brandBookError, setBrandBookError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const getFilledFields = (updates: Partial<AdCreativeFormData>) => Object.keys(updates).filter((key) => {
@@ -169,17 +176,68 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
     }
   };
 
-  const handleBrandBookFile = (file: File) => {
+  const handleBrandBookFile = async (file: File) => {
     onBrandBookFile(file);
     onChange({ brandBookFileName: file.name });
-    toast.success(`Brand book "${file.name}" loaded. Fields will be extracted when you proceed.`);
+    setBrandBookResult(null);
+    setBrandBookSummary('');
+    setBrandBookError('');
+
+    if (file.size > 12 * 1024 * 1024) {
+      setBrandBookResult({ fields: [], pending: true });
+      setBrandBookError('Brand book attached, but this file is too large for browser AI extraction. It will stay saved with the campaign draft; use a smaller PDF/image to extract brand fields now.');
+      toast.info(`Brand book "${file.name}" attached. AI extraction was skipped because the file is too large.`);
+      return;
+    }
+
+    setIsAnalyzingBrandBook(true);
+    try {
+      const result = await analyzeBrandBook(file, data as unknown as Record<string, unknown>);
+      const extracted = result.extracted || {};
+      const updates = briefDataToAdUpdates(extracted);
+      const matched = getFilledFields(updates);
+
+      onChange({ brandBookFileName: file.name, brandBookExtractedData: extracted });
+      setBrandBookSummary(JSON.stringify(extracted, null, 2));
+      setBrandBookResult({ fields: matched, pending: Boolean(result.pending) });
+
+      if (result.pending) {
+        setBrandBookError(result.message || 'Brand book attached. AI extraction is pending.');
+        toast.info(result.message || `Brand book "${file.name}" attached. AI extraction is pending.`);
+      } else {
+        toast.success(`Brand book analyzed. Review the extraction before applying ${matched.length} field${matched.length === 1 ? '' : 's'}.`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Brand book AI extraction failed';
+      setBrandBookResult({ fields: [], pending: true });
+      setBrandBookError(`Brand book attached, but AI extraction is unavailable right now: ${message}`);
+      toast.error('Brand book attached, but AI extraction failed. You can continue manually.');
+    } finally {
+      setIsAnalyzingBrandBook(false);
+    }
   };
 
   const removeBrandBook = () => {
     onBrandBookFile(null);
     onChange({ brandBookFileName: '', brandBookExtractedData: {} });
+    setBrandBookResult(null);
+    setBrandBookSummary('');
+    setBrandBookError('');
     if (fileRef.current) fileRef.current.value = '';
     toast.info('Brand book removed');
+  };
+
+  const applyBrandBookExtraction = () => {
+    try {
+      const extracted = JSON.parse(brandBookSummary || '{}') as Record<string, unknown>;
+      const updates = briefDataToAdUpdates(extracted);
+      const matched = getFilledFields(updates);
+      onChange({ ...updates, brandBookExtractedData: extracted });
+      setBrandBookResult({ fields: matched });
+      toast.success(`Applied ${matched.length} brand field${matched.length === 1 ? '' : 's'} to the campaign.`);
+    } catch {
+      toast.error('Review summary must be valid JSON before applying.');
+    }
   };
 
   return (
@@ -259,7 +317,7 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
           <Label className="text-sm font-semibold text-foreground">Upload Brand Book</Label>
         </div>
         <p className="text-xs text-muted-foreground -mt-2">
-          Upload your brand guide (PDF, image, or any file) - AI will extract colors, fonts, style, and brand identity.
+          Upload a brand guide. AI extracts colors, fonts, voice, logo guidance, visual rules, and forbidden usage for review before anything is applied.
         </p>
 
         <input
@@ -274,19 +332,69 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
         />
 
         {brandBookFile || data.brandBookFileName ? (
-          <div className="rounded-lg border border-success/30 bg-success/5 p-4 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <BookOpen className="h-5 w-5 text-success shrink-0" />
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-foreground truncate">
-                  {brandBookFile?.name || data.brandBookFileName}
+          <div className="space-y-3">
+            <div className="rounded-lg border border-success/30 bg-success/5 p-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                {isAnalyzingBrandBook ? (
+                  <Loader2 className="h-5 w-5 text-success shrink-0 animate-spin" />
+                ) : (
+                  <BookOpen className="h-5 w-5 text-success shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-foreground truncate">
+                    {brandBookFile?.name || data.brandBookFileName}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {isAnalyzingBrandBook
+                      ? 'Analyzing brand book...'
+                      : brandBookResult?.pending
+                        ? 'Attached - extraction pending/unavailable'
+                        : brandBookSummary
+                          ? 'Extraction ready for review'
+                          : 'Brand book attached'}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">Brand book loaded - fields will auto-fill on next step</div>
               </div>
+              <Button type="button" variant="ghost" size="sm" onClick={removeBrandBook} className="shrink-0 gap-1.5 text-muted-foreground">
+                <X className="h-4 w-4" />Remove
+              </Button>
             </div>
-            <Button type="button" variant="ghost" size="sm" onClick={removeBrandBook} className="shrink-0 gap-1.5 text-muted-foreground">
-              <X className="h-4 w-4" />Remove
-            </Button>
+
+            {brandBookError && (
+              <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-200">
+                {brandBookError}
+              </div>
+            )}
+
+            {brandBookSummary && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Review extracted brand guidance</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Edit the extraction if needed, then apply it to campaign fields.
+                    </p>
+                  </div>
+                  <Button type="button" size="sm" onClick={applyBrandBookExtraction} className="gap-2 shrink-0">
+                    <Check className="h-4 w-4" />Apply brand fields
+                  </Button>
+                </div>
+
+                {brandBookResult?.fields.length ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {brandBookResult.fields.map(field => (
+                      <span key={field} className="text-xs bg-primary/10 text-primary rounded px-2 py-0.5">{field}</span>
+                    ))}
+                  </div>
+                ) : null}
+
+                <Textarea
+                  value={brandBookSummary}
+                  onChange={e => setBrandBookSummary(e.target.value)}
+                  className="min-h-[220px] font-mono text-xs"
+                />
+              </div>
+            )}
           </div>
         ) : (
           <Button
@@ -306,7 +414,7 @@ export function StepAdImport({ data, onChange, brandBookFile, onBrandBookFile }:
           <AlertCircle className="h-4 w-4 text-muted-foreground mt-0.5" />
           <div className="text-xs text-muted-foreground space-y-1">
             <p><strong>Campaign brief:</strong> Use this only for campaign-specific instructions, not the full company profile.</p>
-            <p><strong>Brand Book:</strong> Any file format accepted - AI reads brand guidelines to auto-fill Brand Identity step.</p>
+            <p><strong>Brand Book:</strong> AI extraction is reviewed first. Fields are only changed when you apply the extracted summary.</p>
             <p>All imported fields can be edited in the following steps.</p>
           </div>
         </div>

@@ -26,17 +26,31 @@ function cf_is_image_url($value) {
     return preg_match('/^(?:https?:\/\/|\/|\.?\/).+\.(?:png|jpe?g|webp|gif|avif)(?:\?.*)?$/i', $raw) === 1;
 }
 
-function cf_extract_image_url_from_html($html) {
+function cf_extract_image_url_from_image_payload($html) {
     $raw = trim((string)$html);
     if ($raw === '') return '';
     if (preg_match('/^data:image\//i', $raw)) return $raw;
     if (cf_is_image_url($raw)) return $raw;
-    if (preg_match('/<img\b[^>]*\bsrc=["\']([^"\']+)["\']/i', $raw, $match)) {
+
+    if (!preg_match('/<img\b[^>]*\bsrc=["\']([^"\']+)["\']/i', $raw, $match)) {
+        return '';
+    }
+
+    // Treat HTML as image mode only when it is an image preview wrapper, not
+    // a real editable HTML banner that happens to include a logo/product img.
+    $withoutScripts = preg_replace('/<script\b[\s\S]*?<\/script>/i', '', $raw);
+    $withoutStyles = preg_replace('/<style\b[\s\S]*?<\/style>/i', '', (string)$withoutScripts);
+    $visibleText = trim(html_entity_decode(strip_tags((string)$withoutStyles), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    $imgCount = preg_match_all('/<img\b/i', $raw);
+    $hasAdBanner = preg_match('/class=["\'][^"\']*\bad-banner\b/i', $raw) === 1;
+
+    if ($visibleText === '' && $imgCount === 1 && $hasAdBanner) {
         $src = trim((string)$match[1]);
         if ($src !== '' && (preg_match('/^data:image\//i', $src) || cf_is_image_url($src))) {
             return $src;
         }
     }
+
     return '';
 }
 
@@ -108,11 +122,11 @@ while ($stmt->fetch()) {
     $metadataWantsImage = !empty($metadata['is_image_mode'])
         || strtolower((string)($metadata['mode'] ?? '')) === 'image'
         || strtolower((string)($metadata['type'] ?? '')) === 'image';
-    $htmlImageUrl = cf_extract_image_url_from_html($generatedHtml);
+    $htmlImageUrl = cf_extract_image_url_from_image_payload($generatedHtml);
     $publicImageUrl = cf_is_image_url($publicUrl) ? (string)$publicUrl : '';
     $folderImageUrl = $metadataWantsImage ? cf_derive_folder_image_url($publicUrl) : '';
     $imageUrl = $metadataImageUrl ?: ($publicImageUrl ?: ($htmlImageUrl ?: $folderImageUrl));
-    $isImageMode = $metadataWantsImage || $imageUrl !== '';
+    $isImageMode = $metadataWantsImage || $publicImageUrl !== '' || $htmlImageUrl !== '' || $folderImageUrl !== '';
 
     $creatives[] = [
         "id" => (int)$id,
