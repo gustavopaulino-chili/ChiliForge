@@ -12,7 +12,7 @@ import {
   getCampaign, getAdCreatives, campaignChat, markGoodExamples, removeCampaignExample,
   getCreativesHtml, sendCreativeHtmlToGlobalStore, getProjectAssets, uploadProjectAssets, deleteProjectAssetFile,
   prepareAdsFromCampaignPayload, renderAdsBatchViaAgent, interpretBatchesViaAgent,
-  createGenerationJob, updateGenerationJob, getGenerationJob, generateAdImages,
+  createGenerationJob, updateGenerationJob, getGenerationJob, composeAdBatchViaAgent,
   updateAdCreativeContent, buildCopyLockBlock,
   CampaignData, ChatMessage, CampaignChatResponse, CampaignExampleCreative,
   type ProjectAsset, type GenerationJob, type GenerationJobBatch, type AdImageResult, type ComposeAdResult,
@@ -1122,28 +1122,16 @@ export default function CampaignScreen() {
           setGenerationStatus(`Generating background + composing ${batch.label}...`);
           setGenerationProgress(22 + Math.round((batchIndex / batches.length) * 60));
 
-          const batchFormData = {
-            ...nextFormData,
-            selectedFormats: (nextFormData.selectedFormats as Record<string, unknown>[] || []).map((f) => {
-              const isTarget = batch.formats.some(
-                (bf) => bf.platform === f['platform'] && bf.format === f['format'] &&
-                        Number(bf.width) === Number(f['width']) && Number(bf.height) === Number(f['height'])
-              );
-              return { ...f, enabled: isTarget ? f['enabled'] !== false : false };
-            }),
-          };
-
           const batchSpec = batchSpecs.find(s =>
             s.label?.toLowerCase() === batch.label?.toLowerCase()
           )?.spec || batchSpecs[batchIndex]?.spec || "";
 
           try {
-            const result = await generateAdImages({
-              user_id: user.id,
-              company_project_id: resolvedCompanyProjectId,
-              campaign_id: campaign.id,
-              form_data: { ...batchFormData, creative_plan: batchSpec },
-            });
+            const result = await composeAdBatchViaAgent(
+              prepared.edgePayload,
+              batch.formats,
+              batchSpec,
+            );
             const batchBanners = (result.banners || []).filter(b => b.html);
             allComposeBanners.push(...batchBanners);
             updateGenerationBatch(batchIndex, { status: 'saved', savedCount: batchBanners.length });
