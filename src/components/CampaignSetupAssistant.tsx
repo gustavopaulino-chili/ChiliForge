@@ -207,17 +207,21 @@ export function CampaignSetupAssistant({ formData, onApplySuggestions }: Props) 
         <button
           onClick={() => setIsOpen(true)}
           aria-label="Campaign setup assistant"
-          className="fixed bottom-6 left-6 z-40 h-12 w-12 rounded-full shadow-xl flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
-          style={{ background: 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent) / 0.8))' }}
+          className="fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none"
+          style={{ background: 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))' }}
           title="Campaign setup assistant"
         >
-          <Bot className="h-5 w-5" />
+          {/* Pulse ring */}
+          <span className="absolute inset-0 rounded-full animate-ping opacity-30" style={{ background: 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))' }} />
+          {/* Glow shadow */}
+          <span className="absolute inset-0 rounded-full" style={{ boxShadow: '0 0 18px 4px hsl(var(--accent) / 0.55)' }} />
+          <Bot className="relative h-6 w-6" />
         </button>
       )}
 
       {/* Chat panel */}
       {isOpen && (
-        <div className="fixed bottom-24 left-3 sm:left-6 z-40 flex flex-col rounded-2xl border border-border/50 bg-card/95 backdrop-blur-md shadow-2xl overflow-hidden w-[min(340px,calc(100vw-1.5rem))] h-[520px] max-h-[calc(100dvh-7.5rem)]">
+        <div className="fixed bottom-24 right-3 sm:right-6 z-40 flex flex-col rounded-2xl border border-border/50 bg-card/95 backdrop-blur-md shadow-2xl overflow-hidden w-[min(340px,calc(100vw-1.5rem))] h-[520px] max-h-[calc(100dvh-7.5rem)]">
           {/* Header */}
           <div
             className="flex items-center gap-2.5 px-4 py-3 text-white shrink-0"
