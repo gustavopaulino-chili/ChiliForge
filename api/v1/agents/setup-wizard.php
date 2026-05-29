@@ -25,16 +25,48 @@ if (!is_array($body)) {
     exit;
 }
 
-$userId      = (int)($body['user_id']  ?? 0);
-$message     = trim($body['message']   ?? '');
-$history     = is_array($body['history'] ?? null) ? $body['history'] : [];
-$currentForm = is_array($body['current_form'] ?? null) ? $body['current_form'] : [];
+$userId           = (int)($body['user_id']           ?? 0);
+$companyProjectId = (int)($body['company_project_id'] ?? 0);
+$message          = trim($body['message']             ?? '');
+$history          = is_array($body['history']  ?? null) ? $body['history']  : [];
+$currentForm      = is_array($body['current_form'] ?? null) ? $body['current_form'] : [];
 
 if ($userId <= 0 || $message === '') {
     http_response_code(400);
     echo json_encode(['error' => 'user_id and message are required']);
     exit;
 }
+
+// Resolve stores: company store + global ads store (model retrieves from them as needed)
+$companyStoreName = '';
+if ($companyProjectId > 0) {
+    $storeStmt = $conn->prepare(
+        "SELECT gemini_store_name FROM projects WHERE id = ? AND user_id = ? AND project_type = 'project' LIMIT 1"
+    );
+    if ($storeStmt) {
+        $storeStmt->bind_param('ii', $companyProjectId, $userId);
+        $storeStmt->execute();
+        $storeStmt->bind_result($companyStoreName);
+        $storeStmt->fetch();
+        $storeStmt->close();
+        $companyStoreName = is_string($companyStoreName) ? trim($companyStoreName) : '';
+    }
+}
+
+$globalAdsStore = '';
+$globalStmt = $conn->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'gemini_global_ads_store' LIMIT 1");
+if ($globalStmt) {
+    $globalStmt->execute();
+    $globalStmt->bind_result($globalAdsStore);
+    $globalStmt->fetch();
+    $globalStmt->close();
+    $globalAdsStore = is_string($globalAdsStore) ? trim($globalAdsStore) : '';
+}
+
+$fileSearchStores = array_values(array_filter(
+    [$globalAdsStore ?: null, $companyStoreName ?: null],
+    fn($s) => is_string($s) && $s !== ''
+));
 
 // Build a compact snapshot of what fields are already filled
 $fieldMap = [
@@ -65,9 +97,18 @@ $formContext = !empty($filledFields)
     ? "Fields already filled in the form:\n" . implode("\n", $filledFields)
     : "The campaign form is currently empty — guide the user from scratch.";
 
+$storeInstruction = !empty($fileSearchStores)
+    ? "STORES AVAILABLE: You have access to File Search stores. Query them intelligently:\n" .
+      "- Company store: contains brand identity (tone, audience, value prop, colors). Query it when the user asks about their brand or when filling brand-related fields.\n" .
+      "- Global ads store: contains creative strategy guidelines, objective definitions, funnel stages, format specs, copy principles. Query it when the user asks about strategy, objectives, or best practices.\n" .
+      "Only retrieve what's relevant to the current question — do not load everything at once."
+    : "No File Search stores available — answer from conversation context only.";
+
 $systemPrompt = <<<PROMPT
 You are a friendly campaign setup wizard for ChiliForge, an AI-powered ad creative platform.
 Your job: guide non-marketing users through setting up their ad campaign conversationally.
+
+$storeInstruction
 
 RULES:
 - Ask ONE short question at a time. Never ask two questions in the same message.
@@ -75,9 +116,10 @@ RULES:
 - Detect the user's language and always reply in the same language.
 - Never explain ad theory at length. Ask smart, direct questions.
 - Do not ask for fields that are already filled (see CURRENT FORM STATE below).
+- If company store has brand data (tone, audience), use it to pre-fill those fields without asking.
 - After you have enough information to fill at least 5 meaningful fields, produce suggestions.
 
-COLLECTION ORDER (skip already-filled fields):
+COLLECTION ORDER (skip already-filled fields and fields inferable from stores):
 1. What product or service are they advertising?
 2. Campaign objective (awareness / lead generation / sales / retargeting / engagement)
 3. Target audience (who they are, age range, key problem they solve)
@@ -123,6 +165,12 @@ try {
         'contents'          => $contents,
         'generationConfig'  => ['temperature' => 0.75, 'maxOutputTokens' => 600],
     ];
+
+    if (!empty($fileSearchStores)) {
+        $geminiPayload['tools'] = [[
+            'file_search' => ['file_search_store_names' => $fileSearchStores],
+        ]];
+    }
 
     $url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' . rawurlencode($apiKey);
     $ch = curl_init($url);

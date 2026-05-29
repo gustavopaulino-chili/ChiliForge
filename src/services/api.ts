@@ -1422,6 +1422,7 @@ export type SetupWizardResponse =
 
 export const setupWizardChat = (payload: {
   user_id: number;
+  company_project_id?: number;
   message: string;
   history: ChatMessage[];
   current_form?: Record<string, unknown>;

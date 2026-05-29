@@ -2078,9 +2078,10 @@ export default function AdCreatives() {
         </div>
       </main>
 
-      {/* Campaign setup wizard — bottom-left, specific to this page */}
+      {/* Campaign setup wizard — specific to this page */}
       <CampaignSetupAssistant
         formData={formData}
+        companyProjectId={routeState?.companyProjectId}
         onApplySuggestions={(suggestions) => {
           updateForm(suggestions as Partial<AdCreativeFormData>);
         }}
