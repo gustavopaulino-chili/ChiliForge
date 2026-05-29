@@ -108,23 +108,20 @@ export function GlobalChatButton() {
 
   return (
     <>
-      {/* Floating toggle button */}
+      {/* Floating toggle button — always shows chat icon */}
       <button
         onClick={() => setIsOpen(v => !v)}
         aria-label={isOpen ? 'Close assistant' : 'Open ChiliForge assistant'}
         className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-xl flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
         style={{ background: 'linear-gradient(135deg, hsl(var(--accent)), hsl(var(--primary)))' }}
       >
-        {isOpen
-          ? <X className="h-5 w-5" />
-          : <MessageCircle className="h-6 w-6" />}
+        <MessageCircle className="h-6 w-6" />
       </button>
 
       {/* Chat panel */}
       {isOpen && (
         <div
-          className="fixed bottom-24 right-6 z-50 flex flex-col rounded-2xl border border-border/50 bg-card/95 backdrop-blur-md shadow-2xl overflow-hidden"
-          style={{ width: 340, height: 520 }}
+          className="fixed bottom-24 right-3 sm:right-6 z-50 flex flex-col rounded-2xl border border-border/50 bg-card/95 backdrop-blur-md shadow-2xl overflow-hidden w-[min(340px,calc(100vw-1.5rem))] h-[520px] max-h-[calc(100dvh-7.5rem)]"
         >
           {/* Header */}
           <div
@@ -138,10 +135,10 @@ export function GlobalChatButton() {
             </div>
             <button
               onClick={() => setIsOpen(false)}
-              className="shrink-0 opacity-80 hover:opacity-100 transition-opacity"
+              className="shrink-0 h-7 w-7 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/25 transition-colors"
               aria-label="Close"
             >
-              <X className="h-4 w-4" />
+              <X className="h-3.5 w-3.5" />
             </button>
           </div>
 
