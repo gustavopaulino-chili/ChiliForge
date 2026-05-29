@@ -739,6 +739,35 @@ export type AgentAdsPlanResult = {
   groundingMetadata?: unknown;
 };
 
+export function buildCopyLockBlock(campaignData: Record<string, unknown>): string {
+  if (campaignData.useAiCopy !== false) return '';
+  const headline = String(campaignData.mainHeadline || '').trim();
+  const sub      = String(campaignData.subheadline  || '').trim();
+  const cta      = String(campaignData.ctaText      || '').trim();
+  if (!headline && !sub && !cta) return '';
+
+  const lines = [
+    '⚠️ COPY LOCK — These strings are FINAL and APPROVED by the client. Render them VERBATIM in every banner. No paraphrasing, no shortening, no rewriting:',
+  ];
+  if (headline) lines.push(`  Headline: "${headline}"`);
+  if (sub)      lines.push(`  Subheadline: "${sub}"`);
+  if (cta)      lines.push(`  CTA: "${cta}"`);
+
+  const hVariants = Array.isArray(campaignData.headlineVariants) ? campaignData.headlineVariants as string[] : [];
+  const cVariants = Array.isArray(campaignData.ctaVariants)      ? campaignData.ctaVariants      as string[] : [];
+  if (hVariants.some(v => v?.trim())) {
+    lines.push('  A/B Headline Variants (use each verbatim in its respective variant banner):');
+    hVariants.forEach((v, i) => { if (String(v || '').trim()) lines.push(`    Variant ${String.fromCharCode(65 + i)}: "${String(v).trim()}"`); });
+  }
+  if (cVariants.some(v => v?.trim())) {
+    lines.push('  A/B CTA Variants:');
+    cVariants.forEach((v, i) => { if (String(v || '').trim()) lines.push(`    Variant ${String.fromCharCode(65 + i)}: "${String(v).trim()}"`); });
+  }
+
+  lines.push('This COPY LOCK overrides all other copy instructions. Copy must appear character-for-character exactly as specified above.');
+  return lines.join('\n');
+}
+
 export const prepareAdsViaAgentPayload = (payload: {
   user_id: number;
   company_project_id: number;
@@ -1017,6 +1046,7 @@ export const generateAdsViaAgentTracked = (
   return prepareAdsViaAgentPayload(payload).then(async (prepared) => {
     const formats = getEnabledAgentFormats(prepared.edgePayload);
     const batches = formats.map((format) => [format]);
+    const copyLock = buildCopyLockBlock((prepared.edgePayload.campaignData || {}) as Record<string, unknown>);
 
     // 1. Interpret — queries stores once, writes per-format design specs
     let batchSpecs: Array<{ label: string; spec: string }> = [];
@@ -1044,10 +1074,11 @@ export const generateAdsViaAgentTracked = (
 
     const results: Array<Omit<AgentAdsResult, "success">> = [];
 
-    // 2. Render each batch with its specific spec (no file search in render calls)
+    // 2. Render each batch — copy lock appended to spec so it enters the CREATIVE PLAN section
     for (let i = 0; i < batches.length; i++) {
       const label = batches[i][0]?.label || `Batch ${i + 1}`;
-      const spec = batchSpecs.find((s) => s.label === label)?.spec || batchSpecs[i]?.spec || "";
+      const baseSpec = batchSpecs.find((s) => s.label === label)?.spec || batchSpecs[i]?.spec || "";
+      const spec = copyLock ? `${baseSpec}\n\n${copyLock}` : baseSpec;
       onProgress({ type: "batch_start", batchIndex: i, totalBatches: batches.length, label });
       try {
         let result: Omit<AgentAdsResult, "success">;

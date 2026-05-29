@@ -13,7 +13,7 @@ import {
   getCreativesHtml, sendCreativeHtmlToGlobalStore, getProjectAssets, uploadProjectAssets, deleteProjectAssetFile,
   prepareAdsFromCampaignPayload, renderAdsBatchViaAgent, interpretBatchesViaAgent,
   createGenerationJob, updateGenerationJob, getGenerationJob, generateAdImages,
-  updateAdCreativeContent, convertImageAdToHtml,
+  updateAdCreativeContent, convertImageAdToHtml, buildCopyLockBlock,
   CampaignData, ChatMessage, CampaignChatResponse, CampaignExampleCreative,
   type ProjectAsset, type GenerationJob, type GenerationJobBatch, type AdImageResult,
 } from '@/services/api';
@@ -944,9 +944,11 @@ export default function CampaignScreen() {
       setGenerationStatus(`Generating ${batch.label}...`);
 
       try {
-        const spec = job.batchSpecs.find((s) => s.label === batch.label)?.spec
+        const baseSpec = job.batchSpecs.find((s) => s.label === batch.label)?.spec
           || job.batchSpecs[batchIndex]?.spec
           || "";
+        const copyLock = buildCopyLockBlock((job.edgePayload.campaignData || {}) as Record<string, unknown>);
+        const spec = copyLock ? `${baseSpec}\n\n${copyLock}` : baseSpec;
         const result = await renderAdsBatchViaAgent(
           job.edgePayload,
           batch.formats,
