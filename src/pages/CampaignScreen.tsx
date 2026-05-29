@@ -1086,13 +1086,17 @@ export default function CampaignScreen() {
         // Generate one batch per edge function call to stay within the 150s Supabase limit.
         const allComposeBanners: ComposeAdResult[] = [];
 
-        // Interpret step — queries stores and produces rich visual spec per format
-        setGenerationStatus('Interpreting brand and campaign design guidelines...');
+        // ── Step 1: Prepare + Interpret (0 → 22%) ──────────────────────────
+        setGenerationProgress(5);
+        setGenerationStatus('Loading brand guidelines and stores...');
         const prepared = await prepareAdsFromCampaignPayload({
           user_id: user.id,
           company_project_id: resolvedCompanyProjectId,
           campaign_id: campaign.id,
         });
+
+        setGenerationProgress(10);
+        setGenerationStatus('Analyzing visual composition for each format...');
         const allFormats = batches.flatMap(b => b.formats);
         let batchSpecs: Array<{ label: string; spec: string }> = [];
         try {
@@ -1101,7 +1105,9 @@ export default function CampaignScreen() {
         } catch {
           // non-fatal — compose proceeds without spec
         }
+        setGenerationProgress(22);
 
+        // ── Step 2: Per-format compose generation (22 → 82%) ───────────────
         for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
           if (generationCancelRef.current) {
             updateGenerationBatch(batchIndex, { status: 'cancelled' });
@@ -1113,8 +1119,8 @@ export default function CampaignScreen() {
 
           const batch = batches[batchIndex];
           updateGenerationBatch(batchIndex, { status: 'running' });
-          setGenerationStatus(`Generating ${batch.label}...`);
-          setGenerationProgress(18 + Math.round((batchIndex / batches.length) * 58));
+          setGenerationStatus(`Generating background + composing ${batch.label}...`);
+          setGenerationProgress(22 + Math.round((batchIndex / batches.length) * 60));
 
           const batchFormData = {
             ...nextFormData,
@@ -1141,6 +1147,7 @@ export default function CampaignScreen() {
             const batchBanners = (result.banners || []).filter(b => b.html);
             allComposeBanners.push(...batchBanners);
             updateGenerationBatch(batchIndex, { status: 'saved', savedCount: batchBanners.length });
+            setGenerationProgress(22 + Math.round(((batchIndex + 1) / batches.length) * 60));
           } catch (err: any) {
             const message = err?.message || 'Compose generation failed.';
             updateGenerationBatch(batchIndex, { status: 'failed', error: message });
@@ -1158,11 +1165,12 @@ export default function CampaignScreen() {
           return;
         }
 
-        setGenerationProgress(78);
+        // ── Step 3: Save (85 → 100%) ───────────────────────────────────────
+        setGenerationProgress(85);
         setGenerationStatus('Saving ads to the campaign board...');
         const savedCount = await publishGeneratedComposeBanners(allComposeBanners, nextFormData);
         setGenerationProgress(100);
-        setGenerationStatus('Ads saved.');
+        setGenerationStatus('Done!');
         setIsGenerating(false);
         setGenerationPaused(false);
         const freshCampaign = await getCampaign(campaign.id, user.id).catch(() => null);
