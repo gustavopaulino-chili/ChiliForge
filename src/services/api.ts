@@ -1415,3 +1415,15 @@ export const globalChat = (payload: {
   history: ChatMessage[];
 }): Promise<GlobalChatResponse> =>
   agentsPost("global-chat.php", payload);
+
+export type SetupWizardResponse =
+  | { type: "text"; message: string }
+  | { type: "suggestions"; message: string; suggestions: Record<string, unknown> };
+
+export const setupWizardChat = (payload: {
+  user_id: number;
+  message: string;
+  history: ChatMessage[];
+  current_form?: Record<string, unknown>;
+}): Promise<SetupWizardResponse> =>
+  agentsPost("setup-wizard.php", payload);
