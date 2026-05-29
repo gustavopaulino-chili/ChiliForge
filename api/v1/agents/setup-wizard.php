@@ -117,7 +117,6 @@ RULES:
 - Never explain ad theory at length. Ask smart, direct questions.
 - Do not ask for fields that are already filled (see CURRENT FORM STATE below).
 - If company store has brand data (tone, audience), use it to pre-fill those fields without asking.
-- After you have enough information to fill at least 5 meaningful fields, produce suggestions.
 
 COLLECTION ORDER (skip already-filled fields and fields inferable from stores):
 1. What product or service are they advertising?
@@ -135,15 +134,31 @@ VALID VALUES for structured fields — use ONLY these exact strings:
 - urgencyLevel: none | low | medium | high
 - creativeStrategy: problem-solution | before-after | testimonial | educational | emotional | direct-response | product-showcase | lifestyle | authority | comparison
 
-WHEN TO OUTPUT SUGGESTIONS:
-When you have enough info to fill at least 5 fields meaningfully, prepend a structured block to your reply using this exact format (the JSON must be on one single line):
+WHEN TO OUTPUT A PREVIEW (as soon as you have 2+ fields):
+Present the collected data as a human-readable bullet list, ask "Posso aplicar isso no formulário?" (or in the user's language), then include a hidden data block.
 
----SUGGESTIONS---
-{"campaignName":"...","campaignObjective":"sales","funnelStage":"conversion","productName":"...","targetAudience":"...","offer":"...","valueProposition":"...","ctaText":"...","toneOfVoice":"casual","urgencyLevel":"medium","creativeStrategy":"direct-response","painPoints":"...","desires":"..."}
----END SUGGESTIONS---
+Example format — reply looks like:
 
-After the block, write a short friendly message and ask if anything should be adjusted.
-Only output the suggestions block when you have enough data — not on every turn.
+Aqui está o que coletei até agora:
+
+• **Produto:** VitaGlow Sérum
+• **Objetivo:** Lançamento de produto
+• **Audiência:** Mulheres, 35–55 anos
+• **Oferta:** 20% de desconto nos primeiros 7 dias
+• **CTA:** Garantir meu desconto
+• **Tom:** Inspiracional | Urgência: Média
+
+Posso aplicar isso no formulário?
+
+---DATA---
+{"campaignObjective":"product-launch","productName":"VitaGlow Sérum","targetAudience":"Mulheres, 35-55 anos","offer":"20% de desconto nos primeiros 7 dias","ctaText":"Garantir meu desconto","toneOfVoice":"inspirational","urgencyLevel":"medium"}
+---END DATA---
+
+RULES for the DATA block:
+- JSON must be on ONE single line between ---DATA--- and ---END DATA---
+- Leave unknown fields as empty string "" — never invent data
+- Update and re-output the DATA block every turn as you collect more info
+- After the user CONFIRMS (says yes/sim/ok/confirmar), reply briefly ("Ótimo, aplicado!") with NO data block
 
 CURRENT FORM STATE:
 $formContext
@@ -163,7 +178,7 @@ try {
     $geminiPayload = [
         'systemInstruction' => ['parts' => [['text' => $systemPrompt]]],
         'contents'          => $contents,
-        'generationConfig'  => ['temperature' => 0.75, 'maxOutputTokens' => 600],
+        'generationConfig'  => ['temperature' => 0.75, 'maxOutputTokens' => 1500],
     ];
 
     if (!empty($fileSearchStores)) {
@@ -195,21 +210,21 @@ try {
         throw new RuntimeException('Gemini returned empty response');
     }
 
-    // Parse and extract suggestions block
-    $suggestions = null;
-    if (preg_match('/---SUGGESTIONS---\s*(.*?)\s*---END SUGGESTIONS---/s', $replyText, $m)) {
+    // Parse and strip the hidden data block — displayed text stays clean
+    $pendingData = null;
+    if (preg_match('/---DATA---\s*(.*?)\s*---END DATA---/s', $replyText, $m)) {
         $parsed = json_decode(trim($m[1]), true);
         if (is_array($parsed) && !empty($parsed)) {
-            $suggestions = $parsed;
+            $pendingData = $parsed;
         }
-        $replyText = trim(preg_replace('/---SUGGESTIONS---.*?---END SUGGESTIONS---/s', '', $replyText));
+        $replyText = trim(preg_replace('/---DATA---.*?---END DATA---/s', '', $replyText));
     }
 
-    if ($suggestions !== null) {
+    if ($pendingData !== null) {
         echo json_encode([
-            'type'        => 'suggestions',
+            'type'        => 'preview',
             'message'     => $replyText,
-            'suggestions' => $suggestions,
+            'pending_data' => $pendingData,
         ], JSON_UNESCAPED_UNICODE);
     } else {
         echo json_encode([

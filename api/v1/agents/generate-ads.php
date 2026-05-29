@@ -205,8 +205,7 @@ try {
     ];
 
     if ($generateAsImage) {
-        $edgePayload['generateAsImage'] = true;
-        $edgePayload['mode']            = 'image';
+        $edgePayload['mode'] = 'compose';
         if (!empty($formData['creative_plan'])) {
             $edgePayload['creativePlan'] = (string)$formData['creative_plan'];
         }
@@ -218,13 +217,13 @@ try {
         throw new RuntimeException('agents-ads error: ' . $result['error']);
     }
 
-    // IMAGE MODE: return images immediately, no background indexing needed
+    // COMPOSE MODE: return HTML banners immediately, no background indexing needed
     if ($generateAsImage) {
         header('Content-Type: application/json');
         echo json_encode([
             'success' => true,
-            'mode'    => 'image',
-            'images'  => $result['images'] ?? [],
+            'mode'    => 'compose',
+            'banners' => $result['banners'] ?? [],
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }

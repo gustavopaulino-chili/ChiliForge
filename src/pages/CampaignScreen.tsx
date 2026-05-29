@@ -13,9 +13,9 @@ import {
   getCreativesHtml, sendCreativeHtmlToGlobalStore, getProjectAssets, uploadProjectAssets, deleteProjectAssetFile,
   prepareAdsFromCampaignPayload, renderAdsBatchViaAgent, interpretBatchesViaAgent,
   createGenerationJob, updateGenerationJob, getGenerationJob, generateAdImages,
-  updateAdCreativeContent, convertImageAdToHtml, buildCopyLockBlock,
+  updateAdCreativeContent, buildCopyLockBlock,
   CampaignData, ChatMessage, CampaignChatResponse, CampaignExampleCreative,
-  type ProjectAsset, type GenerationJob, type GenerationJobBatch, type AdImageResult,
+  type ProjectAsset, type GenerationJob, type GenerationJobBatch, type AdImageResult, type ComposeAdResult,
 } from '@/services/api';
 import { AD_PLATFORM_LABELS } from '@/types/adCreativeForm';
 import { toast } from 'sonner';
@@ -193,6 +193,15 @@ function extractImageDataFromHtml(raw: string): { base64: string; mimeType: stri
   const htmlMatch = trimmed.match(/src=["'](data:(image\/[^;]+);base64,([^"']{20,}))["']/);
   if (htmlMatch) return { mimeType: htmlMatch[2], base64: htmlMatch[3] };
   return null;
+}
+
+function fileToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result || ''));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 function campaignPalette(formData: Record<string, unknown>) {
@@ -443,16 +452,12 @@ function BannerGrid({
   newIds,
   onToggle,
   onSeen,
-  onConvert,
-  convertingId,
 }: {
   banners: GeneratedBanner[];
   selectedIds: Set<number>;
   newIds: Set<number>;
   onToggle: (id: number) => void;
   onSeen: (id: number) => void;
-  onConvert?: (banner: GeneratedBanner) => void;
-  convertingId?: number | null;
 }) {
   const [lightbox, setLightbox] = useState<GeneratedBanner | null>(null);
 
@@ -569,25 +574,7 @@ function BannerGrid({
                     </span>
                   </p>
                 </div>
-                {isImageBanner(banner) ? (
-                  onConvert && (
-                    <button
-                      type="button"
-                      title="Convert to editable HTML"
-                      disabled={convertingId === banner.id}
-                      className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 transition-colors shrink-0 disabled:opacity-50"
-                      onClick={e => {
-                        e.stopPropagation();
-                        onConvert(banner);
-                      }}
-                    >
-                      {convertingId === banner.id
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <Sparkles className="h-3.5 w-3.5" />}
-                      {convertingId === banner.id ? 'Converting…' : 'To HTML'}
-                    </button>
-                  )
-                ) : (
+                {!isImageBanner(banner) && (
                   <button
                     type="button"
                     title="Edit in editor"
@@ -685,9 +672,6 @@ export default function CampaignScreen() {
   const [campaign, setCampaign] = useState<CampaignData | null>(null);
   const [loading, setLoading] = useState(true);
   const [banners, setBanners] = useState<GeneratedBanner[]>([]);
-  const [convertingBannerId, setConvertingBannerId] = useState<number | null>(null);
-  const [isConvertingAll, setIsConvertingAll] = useState(false);
-  const [convertAllProgress, setConvertAllProgress] = useState({ done: 0, total: 0 });
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [newBannerIds, setNewBannerIds] = useState<Set<number>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
@@ -922,6 +906,65 @@ export default function CampaignScreen() {
     return newBanners.length;
   }, [campaign, user?.id]);
 
+  const publishGeneratedComposeBanners = useCallback(async (
+    composeBanners: ComposeAdResult[],
+    formData: Record<string, unknown>,
+  ) => {
+    if (!user?.id || !campaign) throw new Error('Campaign is not available.');
+    if (!composeBanners.length) throw new Error('AI did not return any compose banners.');
+
+    const bannerPayload = composeBanners.map((b, index) => ({
+      platform: b.platform || 'banner',
+      format: b.format || 'ad',
+      label: b.label || `Compose Ad ${index + 1}`,
+      width: Number(b.width || 1080),
+      height: Number(b.height || 1080),
+      html: b.html || '',
+      is_image_mode: false,
+    }));
+
+    const slugBase = (campaign.name || 'campaign')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const publishResponse = await fetch('/api/publishAdCreative.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project_id: campaign.project_id,
+        user_id: user.id,
+        name: campaign.name,
+        slug: `ad-${slugBase || 'campaign'}-${Date.now()}`,
+        form_data: { ...formData, generate_as_image: true },
+        html: '',
+        current_step: 8,
+        banners: bannerPayload,
+        append_banners: true,
+      }),
+    });
+
+    const saved = await publishResponse.json();
+    if (!saved?.success) {
+      const message = [saved?.error, saved?.details].filter(Boolean).join(' - ');
+      throw new Error(message || 'Failed to save compose creatives.');
+    }
+
+    const newBanners: GeneratedBanner[] = Array.isArray(saved.banners)
+      ? saved.banners.map((banner: GeneratedBanner, index: number) => ({
+          ...banner,
+          html: bannerPayload[index]?.html || banner.html || '',
+          is_image_mode: false,
+        }))
+      : [];
+
+    setBanners(prev => [...newBanners, ...prev]);
+    setNewBannerIds(prev => {
+      const next = new Set(prev);
+      newBanners.forEach((banner) => next.add(banner.id));
+      return next;
+    });
+
+    return newBanners.length;
+  }, [campaign, user?.id]);
+
   const runCampaignGenerationJob = useCallback(async (job: CampaignGenerationJob, onlyBatchIndex?: number) => {
     const indexes = typeof onlyBatchIndex === 'number'
       ? [onlyBatchIndex]
@@ -1040,11 +1083,10 @@ export default function CampaignScreen() {
       setGenerationBatches(batches);
 
       if (generateAsImage) {
-        // Generate one format per edge function call to stay within the 150s Supabase limit.
-        // Sequential calls via PHP (set_time_limit=600) instead of one big parallel call.
-        const allImages: import('@/services/api').AdImageResult[] = [];
+        // Generate one batch per edge function call to stay within the 150s Supabase limit.
+        const allComposeBanners: ComposeAdResult[] = [];
 
-        // Interpret step — uses image-specific stores and prompt (no CSS, visual composition only)
+        // Interpret step — queries stores and produces rich visual spec per format
         setGenerationStatus('Interpreting brand and campaign design guidelines...');
         const prepared = await prepareAdsFromCampaignPayload({
           user_id: user.id,
@@ -1057,7 +1099,7 @@ export default function CampaignScreen() {
           const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, allFormats, 'interpret_image');
           batchSpecs = interpretation.batchSpecs || [];
         } catch {
-          // non-fatal — image generation proceeds without spec
+          // non-fatal — compose proceeds without spec
         }
 
         for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
@@ -1074,7 +1116,6 @@ export default function CampaignScreen() {
           setGenerationStatus(`Generating ${batch.label}...`);
           setGenerationProgress(18 + Math.round((batchIndex / batches.length) * 58));
 
-          // Build form data with only this batch's format enabled
           const batchFormData = {
             ...nextFormData,
             selectedFormats: (nextFormData.selectedFormats as Record<string, unknown>[] || []).map((f) => {
@@ -1091,17 +1132,17 @@ export default function CampaignScreen() {
           )?.spec || batchSpecs[batchIndex]?.spec || "";
 
           try {
-            const imageResult = await generateAdImages({
+            const result = await generateAdImages({
               user_id: user.id,
               company_project_id: resolvedCompanyProjectId,
               campaign_id: campaign.id,
               form_data: { ...batchFormData, creative_plan: batchSpec },
             });
-            const batchImages = (imageResult.images || []).filter(img => img.imageUrl);
-            allImages.push(...batchImages);
-            updateGenerationBatch(batchIndex, { status: 'saved', savedCount: batchImages.length });
+            const batchBanners = (result.banners || []).filter(b => b.html);
+            allComposeBanners.push(...batchBanners);
+            updateGenerationBatch(batchIndex, { status: 'saved', savedCount: batchBanners.length });
           } catch (err: any) {
-            const message = err?.message || 'Image generation failed.';
+            const message = err?.message || 'Compose generation failed.';
             updateGenerationBatch(batchIndex, { status: 'failed', error: message });
             setGenerationStatus(`Failed: ${batch.label}`);
             setGenerationPaused(true);
@@ -1111,22 +1152,22 @@ export default function CampaignScreen() {
           }
         }
 
-        if (!allImages.length) {
-          toast.error('No images were generated. Try again.');
+        if (!allComposeBanners.length) {
+          toast.error('No ads were generated. Try again.');
           setIsGenerating(false);
           return;
         }
 
         setGenerationProgress(78);
-        setGenerationStatus('Saving image ads to the campaign board...');
-        const savedCount = await publishGeneratedImageAds(allImages, nextFormData);
+        setGenerationStatus('Saving ads to the campaign board...');
+        const savedCount = await publishGeneratedComposeBanners(allComposeBanners, nextFormData);
         setGenerationProgress(100);
-        setGenerationStatus('Image ads saved.');
+        setGenerationStatus('Ads saved.');
         setIsGenerating(false);
         setGenerationPaused(false);
         const freshCampaign = await getCampaign(campaign.id, user.id).catch(() => null);
         if (freshCampaign) setCampaign(freshCampaign);
-        toast.success(`${savedCount} image ad${savedCount !== 1 ? 's' : ''} generated and saved.`);
+        toast.success(`${savedCount} ad${savedCount !== 1 ? 's' : ''} generated and saved.`);
         return;
       }
 
@@ -1432,236 +1473,6 @@ export default function CampaignScreen() {
     }
   }, [user?.id, selectedIds, banners]);
 
-  const handleConvertImageToHtml = useCallback(async (banner: GeneratedBanner) => {
-    if (!user?.id || !campaign) return;
-
-    // Priority: in-memory imageUrl → stored html → fetch from URL
-    let rawSource = banner.imageUrl || banner.html || '';
-    if (!rawSource && banner.url) {
-      try {
-        if (/\.(png|jpe?g|webp)(\?|$)/i.test(banner.url)) {
-          // Banner is stored as a real image file — fetch as blob and convert to data URL
-          const res = await fetch(banner.url);
-          const blob = await res.blob();
-          rawSource = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-        } else {
-          rawSource = await fetch(banner.url).then(r => r.text());
-        }
-      } catch {
-        toast.error('Could not load banner content.');
-        return;
-      }
-    }
-
-    const imageData = extractImageDataFromHtml(rawSource);
-    if (!imageData) { toast.error('Could not extract image data from this banner.'); return; }
-
-    const resolvedCompanyProjectId = campaign.company_project_id || Number(companyId) || 0;
-    if (!resolvedCompanyProjectId) { toast.error('Company data not found.'); return; }
-
-    setConvertingBannerId(banner.id);
-    toast.info('Converting image to HTML — this may take 15–30 seconds…');
-
-    try {
-      const prepared = await prepareAdsFromCampaignPayload({
-        user_id: user.id,
-        company_project_id: resolvedCompanyProjectId,
-        campaign_id: campaign.id,
-      });
-
-      const result = await convertImageAdToHtml(prepared.edgePayload as Record<string, unknown>, {
-        imageBase64: imageData.base64,
-        mimeType: imageData.mimeType,
-        format: {
-          platform: banner.platform,
-          format: banner.format,
-          label: banner.label,
-          width: banner.width,
-          height: banner.height,
-        },
-        campaignData: prepared.edgePayload.campaignData as Record<string, unknown>,
-        creativePlan: '',
-      });
-
-      if (!result.html?.trim()) throw new Error('Conversion returned empty HTML.');
-
-      let updatedUrl = banner.url;
-      try {
-        const updateResult = await updateAdCreativeContent({ id: banner.creative_id || banner.id, user_id: user.id, html: result.html });
-        updatedUrl = updateResult?.url || updatedUrl;
-      } catch {
-        toast.warning('Converted but could not save to database. Refreshing may lose changes.');
-      }
-
-      setBanners(prev => prev.map(b => b.id === banner.id ? { ...b, url: updatedUrl, html: result.html, imageUrl: undefined, is_image_mode: false } : b));
-      toast.success('Converted to HTML! Banner is now editable.');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to convert image to HTML.');
-    } finally {
-      setConvertingBannerId(null);
-    }
-  }, [user?.id, campaign, companyId]);
-
-  const handleConvertAllImageBanners = useCallback(async () => {
-    if (!user?.id || !campaign) return;
-    const currentFiltered = activePlatform === 'all' ? banners : banners.filter(b => b.platform === activePlatform);
-    const imageBannerList = currentFiltered.filter(isImageBanner);
-    if (!imageBannerList.length) return;
-    const resolvedCompanyProjectId = campaign.company_project_id || Number(companyId) || 0;
-    if (!resolvedCompanyProjectId) { toast.error('Company data not found.'); return; }
-
-    setIsConvertingAll(true);
-    setConvertAllProgress({ done: 0, total: imageBannerList.length });
-
-    let prepared: any;
-    try {
-      prepared = await prepareAdsFromCampaignPayload({
-        user_id: user.id,
-        company_project_id: resolvedCompanyProjectId,
-        campaign_id: campaign.id,
-      });
-    } catch (err: any) {
-      toast.error('Failed to prepare campaign data.');
-      setIsConvertingAll(false);
-      return;
-    }
-
-    let successCount = 0;
-    let failCount = 0;
-
-    for (const banner of imageBannerList) {
-      setConvertingBannerId(banner.id);
-      try {
-        let rawSource = banner.imageUrl || banner.html || '';
-        if (!rawSource && banner.url) {
-          try {
-            if (/\.(png|jpe?g|webp)(\?|$)/i.test(banner.url)) {
-              const res = await fetch(banner.url);
-              const blob = await res.blob();
-              rawSource = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-              });
-            } else {
-              rawSource = await fetch(banner.url).then(r => r.text());
-            }
-          } catch { rawSource = ''; }
-        }
-        const imageData = extractImageDataFromHtml(rawSource);
-        if (!imageData) throw new Error('Could not extract image data');
-
-        const result = await convertImageAdToHtml(prepared.edgePayload as Record<string, unknown>, {
-          imageBase64: imageData.base64,
-          mimeType: imageData.mimeType,
-          format: { platform: banner.platform, format: banner.format, label: banner.label, width: banner.width, height: banner.height },
-          campaignData: prepared.edgePayload.campaignData as Record<string, unknown>,
-          creativePlan: '',
-        });
-        if (!result.html?.trim()) throw new Error('Empty HTML');
-        let updatedUrl = banner.url;
-        try {
-          const updateResult = await updateAdCreativeContent({ id: banner.creative_id || banner.id, user_id: user.id, html: result.html });
-          updatedUrl = updateResult?.url || updatedUrl;
-        } catch {}
-        setBanners(prev => prev.map(b => b.id === banner.id ? { ...b, url: updatedUrl, html: result.html, imageUrl: undefined, is_image_mode: false } : b));
-        successCount++;
-      } catch {
-        failCount++;
-      }
-      setConvertAllProgress(p => ({ ...p, done: p.done + 1 }));
-    }
-
-    setConvertingBannerId(null);
-    setIsConvertingAll(false);
-    if (successCount > 0 && failCount === 0) toast.success(`All ${successCount} banners converted to HTML!`);
-    else if (successCount > 0) toast.warning(`${successCount} converted, ${failCount} failed.`);
-    else toast.error('All conversions failed. Try converting individually.');
-  }, [user?.id, campaign, companyId, banners, activePlatform]);
-
-  const handleConvertSelectedBanners = useCallback(async () => {
-    if (!user?.id || !campaign) return;
-    const selectedImageBanners = banners.filter(b => selectedIds.has(b.id) && isImageBanner(b));
-    if (!selectedImageBanners.length) return;
-    const resolvedCompanyProjectId = campaign.company_project_id || Number(companyId) || 0;
-    if (!resolvedCompanyProjectId) { toast.error('Company data not found.'); return; }
-
-    setIsConvertingAll(true);
-    setConvertAllProgress({ done: 0, total: selectedImageBanners.length });
-
-    let prepared: any;
-    try {
-      prepared = await prepareAdsFromCampaignPayload({
-        user_id: user.id,
-        company_project_id: resolvedCompanyProjectId,
-        campaign_id: campaign.id,
-      });
-    } catch {
-      toast.error('Failed to prepare campaign data.');
-      setIsConvertingAll(false);
-      return;
-    }
-
-    let successCount = 0;
-    let failCount = 0;
-
-    for (const banner of selectedImageBanners) {
-      setConvertingBannerId(banner.id);
-      try {
-        let rawSource = banner.imageUrl || banner.html || '';
-        if (!rawSource && banner.url) {
-          try {
-            if (/\.(png|jpe?g|webp)(\?|$)/i.test(banner.url)) {
-              const res = await fetch(banner.url);
-              const blob = await res.blob();
-              rawSource = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-              });
-            } else {
-              rawSource = await fetch(banner.url).then(r => r.text());
-            }
-          } catch { rawSource = ''; }
-        }
-        const imageData = extractImageDataFromHtml(rawSource);
-        if (!imageData) throw new Error('Could not extract image data');
-
-        const result = await convertImageAdToHtml(prepared.edgePayload as Record<string, unknown>, {
-          imageBase64: imageData.base64,
-          mimeType: imageData.mimeType,
-          format: { platform: banner.platform, format: banner.format, label: banner.label, width: banner.width, height: banner.height },
-          campaignData: prepared.edgePayload.campaignData as Record<string, unknown>,
-          creativePlan: '',
-        });
-        if (!result.html?.trim()) throw new Error('Empty HTML');
-        let updatedUrl = banner.url;
-        try {
-          const updateResult = await updateAdCreativeContent({ id: banner.creative_id || banner.id, user_id: user.id, html: result.html });
-          updatedUrl = updateResult?.url || updatedUrl;
-        } catch {}
-        setBanners(prev => prev.map(b => b.id === banner.id ? { ...b, url: updatedUrl, html: result.html, imageUrl: undefined, is_image_mode: false } : b));
-        successCount++;
-      } catch {
-        failCount++;
-      }
-      setConvertAllProgress(p => ({ ...p, done: p.done + 1 }));
-    }
-
-    setConvertingBannerId(null);
-    setIsConvertingAll(false);
-    if (successCount > 0 && failCount === 0) toast.success(`${successCount} banner${successCount > 1 ? 's' : ''} converted to HTML!`);
-    else if (successCount > 0) toast.warning(`${successCount} converted, ${failCount} failed.`);
-    else toast.error('All conversions failed. Try converting individually.');
-  }, [user?.id, campaign, companyId, banners, selectedIds]);
-
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -1808,19 +1619,6 @@ export default function CampaignScreen() {
                         {isDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Download className="h-3.5 w-3.5 mr-1" />}
                         Download ZIP
                       </Button>
-                      {banners.some(b => selectedIds.has(b.id) && isImageBanner(b)) && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
-                          onClick={handleConvertSelectedBanners}
-                          disabled={isConvertingAll || convertingBannerId !== null}
-                        >
-                          {isConvertingAll
-                            ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />{convertAllProgress.done}/{convertAllProgress.total}</>
-                            : <><Sparkles className="h-3.5 w-3.5 mr-1" />Convert to HTML</>}
-                        </Button>
-                      )}
                       {user?.accountType === 'admin' && (
                         <Button
                           size="sm"
@@ -1939,8 +1737,6 @@ export default function CampaignScreen() {
                     newIds={newBannerIds}
                     onToggle={toggleBanner}
                     onSeen={markBannerSeen}
-                    onConvert={handleConvertImageToHtml}
-                    convertingId={convertingBannerId}
                   />
                 )}
               </TabsContent>
