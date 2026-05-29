@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { MessageCircle, X, Send, Loader2, Sparkles } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLocation } from 'react-router-dom';
 import { globalChat, ChatMessage } from '@/services/api';
 import { toast } from 'sonner';
 
@@ -51,7 +52,9 @@ export function GlobalChatButton() {
     };
   }, []);
 
-  if (!user?.id) return null;
+  const { pathname } = useLocation();
+  // On /ad-creatives the CampaignSetupAssistant replaces the global chat
+  if (!user?.id || pathname.startsWith('/ad-creatives')) return null;
 
   const animateAssistantMessage = (content: string) => {
     if (animationTimerRef.current) window.clearInterval(animationTimerRef.current);
