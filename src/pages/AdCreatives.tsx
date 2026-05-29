@@ -20,6 +20,7 @@ import logoResult from '@/assets/logo-result.png';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { useAuth } from '@/contexts/AuthContext';
 import { createProject, deleteProjectAssetFile, generateAdCreatives, generateAdImages, generateAdsViaAgentTracked, generateImages, interpretBatchesViaAgent, prepareAdsFromCampaignPayload, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls, type AdImageResult } from '@/services/api';
+import { CampaignSetupAssistant } from '@/components/CampaignSetupAssistant';
 import { toast } from 'sonner';
 import '@/components/landing/HeroLanding.css';
 
@@ -2076,6 +2077,14 @@ export default function AdCreatives() {
           )}
         </div>
       </main>
+
+      {/* Campaign setup wizard — bottom-left, specific to this page */}
+      <CampaignSetupAssistant
+        formData={formData}
+        onApplySuggestions={(suggestions) => {
+          updateForm(suggestions as Partial<AdCreativeFormData>);
+        }}
+      />
     </div>
   );
 }
