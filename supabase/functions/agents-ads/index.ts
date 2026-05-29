@@ -651,11 +651,13 @@ BRAND_CSS_VARS: --primary:#HEX;--secondary:#HEX;--accent:#HEX;--font-headline:'F
 BRAND_FONT_URL: https://fonts.googleapis.com/css2?family=FAMILY:wght@400;700;900&display=swap
 ---
 Layout: [specific CSS technique, e.g. "clip-path:polygon(0 0,60% 0,40% 100%,0 100%) diagonal overlay on left panel"]
-Text: [sizes+weights+legibility, e.g. "headline 36px fw-headline, text-shadow:0 2px 8px rgba(0,0,0,.7)"]
-Assets: [logo/product/bg positions with % sizes]
-CTA: [button bg, text, box-shadow, border-radius, anchor position]
+Text: [typography only — sizes, weights, shadows — e.g. "headline 36px fw-900, text-shadow:0 2px 8px rgba(0,0,0,.7)" — NO copy words]
+Assets: [logo/product/bg positions with % sizes and object-fit rules]
+CTA: [visual design only — bg-color hex, text-color hex, border-radius, box-shadow, anchor position — NO button label words]
 Shapes: [geometric accents if any — clip-path values, max 20% of product image coverage]
 Anti-clone: [how this format differs from ALL other formats in this batch]
+
+⚠️ COPY RESTRICTION: Do NOT write any headline text, CTA button words, body copy, or subheadline content in any spec field. Describe VISUAL DESIGN PARAMETERS ONLY. The actual copy is locked externally and will be enforced at render time.
 
 Output ONLY valid JSON, no markdown:
 {"batchSpecs":[{"label":"...","spec":"BRAND_CSS_VARS: ...\\nBRAND_FONT_URL: ...\\n---\\nLayout: ..."},...]}
@@ -672,13 +674,15 @@ const INTERPRET_IMAGE_SYSTEM_PROMPT = `You are a visual art director specializin
 Colors: primary #HEX, secondary #HEX, accent #HEX, text #HEX
 ---
 Layout: [visual composition, e.g. "diagonal split — dark brand panel left 40%, product right 60%"]
-Hero: [product/hero image treatment, size, position, style]
-Logo: [placement, size, version — e.g. "top-left, 20% width, white version"]
-Headline: [size relative to canvas, weight, color, placement, treatment]
-Subheadline: [if applicable — size, color, placement]
-CTA: [shape, color, text treatment, anchor position]
+Hero: [product/hero visual treatment — composition style, placement zone, size, lighting mood — inspired by brand reference images, not copied]
+Logo: [placement zone, approximate size ratio, color version — e.g. "top-left, ~20% width, white version on dark bg"]
+Headline: [typography only — size relative to canvas, weight, color, placement, treatment — NO copy words]
+Subheadline: [if applicable — typography only — size, color, placement — NO copy words]
+CTA: [shape, bg-color hex, text-color hex, border-radius, anchor position — NO button label words]
 Mood: [2-3 adjectives describing the overall visual feel]
 Anti-clone: [how this format's composition differs from ALL other formats in this batch]
+
+⚠️ COPY RESTRICTION: Do NOT write any headline text, CTA button words, body copy, or subheadline content in any spec field. Describe VISUAL DESIGN PARAMETERS ONLY. The actual copy is locked externally.
 
 Output ONLY valid JSON, no markdown:
 {"batchSpecs":[{"label":"...","spec":"Colors: primary #HEX...\\n---\\nLayout: ..."},...]}
@@ -708,9 +712,13 @@ function buildInterpretImagePrompt(campaignFacts: string, formats: AdFormat[], f
     "For each format: follow EXACTLY the spec format from the system prompt.",
     "Colors line must include all key hex values from the brand.",
     "Layout line must describe the visual composition in plain language (no CSS).",
+    "Hero line: describe the visual treatment/style inspired by the brand reference images — do NOT copy them, create original compositions.",
+    "Headline/Subheadline lines: typography parameters only (size, weight, color, placement) — do NOT include actual headline words or copy.",
+    "CTA line: visual shape/color/position only — do NOT include CTA button label words.",
     "Mood line must capture the emotional tone of the ad.",
     "Anti-clone must describe how this format's layout differs from every other format in the batch.",
     "Reference image store: extract structural patterns ONLY — no brand identity elements.",
+    "⚠️ COPY RESTRICTION: do NOT write any ad copy words in any spec field. No headline text, no CTA labels, no body copy.",
     "",
     "Output valid JSON only: {\"batchSpecs\":[{\"label\":\"...\",\"spec\":\"...\"},...]}",
   ].filter((line) => line !== undefined).join("\n");
@@ -789,7 +797,10 @@ function buildInterpretPrompt(campaignFacts: string, formats: AdFormat[], format
     "BRAND_CSS_VARS must include all --primary, --secondary, --accent, --font-headline, --fw-headline, --fw-body, --fw-cta.",
     "BRAND_FONT_URL must be a valid Google Fonts URL importing all needed weights.",
     "Layout line must include the specific CSS property/value to use (clip-path, grid-template-areas, etc.).",
+    "Text line: typography parameters only (font-size, font-weight, text-shadow) — do NOT include headline words or ad copy.",
+    "CTA line: visual design only (bg color, text color, border-radius, position) — do NOT include button label words.",
     "Reference principles from reference store: structural patterns only, NO brand identity elements.",
+    "⚠️ COPY RESTRICTION: do NOT write any ad copy words in any spec field. No headline text, no CTA labels, no body copy.",
     "",
     "Output valid JSON only: {\"batchSpecs\":[{\"label\":\"...\",\"spec\":\"...\"},...]}",
   ].filter((line) => line !== undefined).join("\n");
@@ -1694,10 +1705,10 @@ serve(async (req: Request) => {
             : "",
           "",
           hasLogo
-            ? "LOGO: The first attached reference image is the brand logo. Include it exactly as shown — same proportions, same colors. Do not modify, redraw, or replace it."
+            ? "BRAND REFERENCE (logo): The first attached image shows the brand logo and its color identity. Study its color palette, typography style, and visual personality to inform the ad. Use the brand colors faithfully. Do NOT attempt to copy-paste or directly reproduce the logo image — render the brand name as text or a clean logotype area using the brand's color system."
             : "No logo provided — use brand name as text only. Do not invent a symbol or icon.",
           refImagesForGen.length > 1
-            ? "Additional reference images attached in order: product/hero, background — use them as visual assets."
+            ? "BRAND REFERENCE (product/background): Additional attached images show the brand's product and visual style. Use them as CREATIVE INSPIRATION — study their lighting, color mood, textures, and composition style, then create an ORIGINAL stylized visual that captures this brand's aesthetic. Do NOT copy, trace, or directly reproduce these reference images. Generate fresh, original visual elements inspired by this brand's visual language."
             : "",
           "",
           imageLangLabel ? `All visible text in this image must be written in ${imageLangLabel}.` : "",
