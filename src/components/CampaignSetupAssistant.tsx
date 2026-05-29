@@ -202,16 +202,18 @@ export function CampaignSetupAssistant({ formData, onApplySuggestions }: Props) 
 
   return (
     <>
-      {/* Floating trigger — bottom-left to avoid conflict with global chat */}
-      <button
-        onClick={() => setIsOpen(v => !v)}
-        aria-label="Campaign setup assistant"
-        className="fixed bottom-6 left-6 z-40 h-12 w-12 rounded-full shadow-xl flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
-        style={{ background: 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent) / 0.8))' }}
-        title="Campaign setup assistant"
-      >
-        <Bot className="h-5 w-5" />
-      </button>
+      {/* Floating trigger — hidden while panel is open */}
+      {!isOpen && (
+        <button
+          onClick={() => setIsOpen(true)}
+          aria-label="Campaign setup assistant"
+          className="fixed bottom-6 left-6 z-40 h-12 w-12 rounded-full shadow-xl flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+          style={{ background: 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent) / 0.8))' }}
+          title="Campaign setup assistant"
+        >
+          <Bot className="h-5 w-5" />
+        </button>
+      )}
 
       {/* Chat panel */}
       {isOpen && (
