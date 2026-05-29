@@ -848,6 +848,22 @@ export const renderAdsBatchViaAgent = (
     { accountType: edgePayload.accountType || getStoredAccountType() },
   );
 
+export const composeAdBatchViaAgent = (
+  edgePayload: PreparedAgentAdsRequest["edgePayload"],
+  batchFormats: AgentAdsResult["formats"],
+  creativePlan: string,
+): Promise<{ mode: "compose"; banners: ComposeAdResult[] }> =>
+  invokeAiFunction<{ mode: "compose"; banners: ComposeAdResult[] }>(
+    "agents-ads",
+    {
+      ...edgePayload,
+      mode: "compose",
+      creativePlan,
+      batchFormats,
+    },
+    { accountType: edgePayload.accountType || getStoredAccountType() },
+  );
+
 export const recordCampaignCreativePlan = (payload: {
   user_id: number;
   company_project_id: number;

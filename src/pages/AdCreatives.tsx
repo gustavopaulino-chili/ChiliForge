@@ -19,7 +19,7 @@ import { ArrowLeft, ArrowRight, Zap, FolderOpen, LogOut, Loader2, Wand2, RotateC
 import logoResult from '@/assets/logo-result.png';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { useAuth } from '@/contexts/AuthContext';
-import { createProject, deleteProjectAssetFile, generateAdCreatives, generateAdImages, generateAdsViaAgentTracked, generateImages, interpretBatchesViaAgent, prepareAdsFromCampaignPayload, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls, type AdImageResult, type ComposeAdResult } from '@/services/api';
+import { createProject, deleteProjectAssetFile, generateAdCreatives, composeAdBatchViaAgent, generateAdsViaAgentTracked, generateImages, interpretBatchesViaAgent, prepareAdsFromCampaignPayload, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls, type AdImageResult, type ComposeAdResult } from '@/services/api';
 import { CampaignSetupAssistant } from '@/components/CampaignSetupAssistant';
 import { toast } from 'sonner';
 import '@/components/landing/HeroLanding.css';
@@ -1170,35 +1170,24 @@ export default function AdCreatives() {
         const allComposeBanners: ComposeAdResult[] = [];
 
         for (let fi = 0; fi < enabledFormats.length; fi++) {
-          const fmt = enabledFormats[fi];
-          const fmtLabel = String(fmt['label'] || `${fmt['width']}x${fmt['height']}`);
-          setGenerationStatus(`Generating ${fmtLabel} (${fi + 1}/${enabledFormats.length})...`);
-          setGenerationLog(prev => [...prev, `Generating format: ${fmtLabel}`]);
+          const fmt = enabledFormats[fi] as { platform?: string; format?: string; label?: string; width?: number; height?: number; enabled?: boolean };
+          const fmtLabel = String(fmt.label || `${fmt.width}x${fmt.height}`);
+          setGenerationStatus(`Generating background + composing ${fmtLabel} (${fi + 1}/${enabledFormats.length})...`);
+          setGenerationLog(prev => [...prev, `Composing: ${fmtLabel}`]);
           setGenerationProgress(30 + Math.round((fi / enabledFormats.length) * 48));
-
-          const fmtFormData = {
-            ...adDataForApi,
-            selectedFormats: (adDataForApi.selectedFormats as Record<string, unknown>[] || []).map((f) => ({
-              ...f,
-              enabled: f['platform'] === fmt['platform'] && f['format'] === fmt['format'] &&
-                       Number(f['width']) === Number(fmt['width']) && Number(f['height']) === Number(fmt['height'])
-                ? f['enabled'] !== false
-                : false,
-            })),
-          };
 
           const fmtSpec = batchSpecs.find(s =>
             s.label?.toLowerCase() === fmtLabel.toLowerCase()
           )?.spec || batchSpecs[fi]?.spec || "";
 
-          const result = await generateAdImages({
-            user_id: user.id,
-            company_project_id: routeState.companyProjectId,
-            campaign_id: routeState.campaignId,
-            form_data: { ...(fmtFormData as Record<string, unknown>), creative_plan: fmtSpec },
-          });
+          const result = await composeAdBatchViaAgent(
+            prepared.edgePayload,
+            [fmt] as Parameters<typeof composeAdBatchViaAgent>[1],
+            fmtSpec,
+          );
           const fmtBanners = (result.banners || []).filter((b) => b.html);
           allComposeBanners.push(...fmtBanners);
+          setGenerationProgress(30 + Math.round(((fi + 1) / enabledFormats.length) * 48));
         }
 
         if (!allComposeBanners.length) throw new Error('AI did not return any ad creatives.');
