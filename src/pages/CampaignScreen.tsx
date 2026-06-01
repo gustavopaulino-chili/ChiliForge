@@ -12,10 +12,10 @@ import {
   getCampaign, getAdCreatives, campaignChat, markGoodExamples, removeCampaignExample,
   getCreativesHtml, sendCreativeHtmlToGlobalStore, getProjectAssets, uploadProjectAssets, deleteProjectAssetFile,
   prepareAdsFromCampaignPayload, renderAdsBatchViaAgent, interpretBatchesViaAgent,
-  createGenerationJob, updateGenerationJob, getGenerationJob, composeAdBatchViaAgent, extractComposeBrandSpec,
+  createGenerationJob, updateGenerationJob, getGenerationJob, composeAdBatchViaAgent,
   updateAdCreativeContent, buildCopyLockBlock,
   CampaignData, ChatMessage, CampaignChatResponse, CampaignExampleCreative,
-  type ProjectAsset, type GenerationJob, type GenerationJobBatch, type AdImageResult, type ComposeAdResult,
+  type ProjectAsset, type GenerationJob, type GenerationJobBatch, type ComposeAdResult,
 } from '@/services/api';
 import { AD_PLATFORM_LABELS } from '@/types/adCreativeForm';
 import { toast } from 'sonner';
@@ -844,68 +844,6 @@ export default function CampaignScreen() {
     return newBanners.length;
   }, [campaign, user?.id]);
 
-  const publishGeneratedImageAds = useCallback(async (
-    images: AdImageResult[],
-    formData: Record<string, unknown>,
-  ) => {
-    if (!user?.id || !campaign) throw new Error('Campaign is not available.');
-    const validImages = images.filter((image) => image.imageUrl);
-    if (!validImages.length) throw new Error('AI did not return any ad images.');
-
-    const bannerPayload = validImages.map((image, index) => ({
-      platform: image.platform || 'banner',
-      format: image.format || 'ad',
-      label: image.label || `Image Ad ${index + 1}`,
-      width: Number(image.width || 1080),
-      height: Number(image.height || 1080),
-      html: image.imageUrl || '',
-      is_image_mode: true,
-    }));
-
-    const slugBase = (campaign.name || 'campaign')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
-    const publishResponse = await fetch('/api/publishAdCreative.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        project_id: campaign.project_id,
-        user_id: user.id,
-        name: campaign.name,
-        slug: `ad-${slugBase || 'campaign'}-${Date.now()}`,
-        form_data: { ...formData, generate_as_image: true },
-        html: '',
-        current_step: 8,
-        banners: bannerPayload,
-        append_banners: true,
-      }),
-    });
-
-    const saved = await publishResponse.json();
-    if (!saved?.success) {
-      const message = [saved?.error, saved?.details].filter(Boolean).join(' - ');
-      throw new Error(message || 'Failed to save image creatives.');
-    }
-
-    const newBanners: GeneratedBanner[] = Array.isArray(saved.banners)
-      ? saved.banners.map((banner: GeneratedBanner, index: number) => ({
-          ...banner,
-          imageUrl: banner.imageUrl || validImages[index]?.imageUrl || undefined,
-          is_image_mode: true,
-        }))
-      : [];
-
-    setBanners(prev => [...newBanners, ...prev]);
-    setNewBannerIds(prev => {
-      const next = new Set(prev);
-      newBanners.forEach((banner) => next.add(banner.id));
-      return next;
-    });
-
-    return newBanners.length;
-  }, [campaign, user?.id]);
-
   const publishGeneratedComposeBanners = useCallback(async (
     composeBanners: ComposeAdResult[],
     formData: Record<string, unknown>,
@@ -1086,7 +1024,7 @@ export default function CampaignScreen() {
         // Generate one batch per edge function call to stay within the 150s Supabase limit.
         const allComposeBanners: ComposeAdResult[] = [];
 
-        // ── Step 1: Prepare (0 → 8%) ───────────────────────────────────────
+        // ── Step 1: Prepare (0 → 10%) ──────────────────────────────────────
         setGenerationProgress(5);
         setGenerationStatus('Loading brand guidelines...');
         const prepared = await prepareAdsFromCampaignPayload({
@@ -1094,22 +1032,9 @@ export default function CampaignScreen() {
           company_project_id: resolvedCompanyProjectId,
           campaign_id: campaign.id,
         });
-        setGenerationProgress(8);
+        setGenerationProgress(10);
 
-        // ── Step 2: Brand extract — query stores (8 → 20%) ─────────────────
-        // Separate Supabase call: store query stays out of the image-gen call.
-        // Mirrors the interpret → render split used in HTML mode.
-        setGenerationStatus('Reading brand guidelines from stores...');
-        let composeBrandSpec = "";
-        try {
-          const brandExtract = await extractComposeBrandSpec(prepared.edgePayload);
-          composeBrandSpec = brandExtract.brandSpec || "";
-        } catch {
-          // non-fatal — compose uses campaignData colors as fallback
-        }
-        setGenerationProgress(20);
-
-        // ── Step 3: Per-format compose generation (20 → 85%) ───────────────
+        // ── Step 2: Per-format compose generation (10 → 85%) ───────────────
         for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
           if (generationCancelRef.current) {
             updateGenerationBatch(batchIndex, { status: 'cancelled' });
@@ -1122,18 +1047,18 @@ export default function CampaignScreen() {
           const batch = batches[batchIndex];
           updateGenerationBatch(batchIndex, { status: 'running' });
           setGenerationStatus(`Generating background + composing ${batch.label}...`);
-          setGenerationProgress(20 + Math.round((batchIndex / batches.length) * 65));
+          setGenerationProgress(10 + Math.round((batchIndex / batches.length) * 75));
 
           try {
             const result = await composeAdBatchViaAgent(
               prepared.edgePayload,
               batch.formats,
-              composeBrandSpec,
+              "",
             );
             const batchBanners = (result.banners || []).filter(b => b.html);
             allComposeBanners.push(...batchBanners);
             updateGenerationBatch(batchIndex, { status: 'saved', savedCount: batchBanners.length });
-            setGenerationProgress(20 + Math.round(((batchIndex + 1) / batches.length) * 65));
+            setGenerationProgress(10 + Math.round(((batchIndex + 1) / batches.length) * 75));
           } catch (err: any) {
             const message = err?.message || 'Compose generation failed.';
             updateGenerationBatch(batchIndex, { status: 'failed', error: message });
@@ -1225,7 +1150,7 @@ export default function CampaignScreen() {
       setGenerationPaused(true);
       if (!generationJobRef.current) setIsGenerating(false);
     }
-  }, [user?.id, campaign, companyId, generateAsImage, publishGeneratedImageAds, runCampaignGenerationJob]);
+  }, [user?.id, campaign, companyId, generateAsImage, runCampaignGenerationJob]);
 
   const handleResumeJob = useCallback(async () => {
     if (!user?.id || !campaign || !resumableJob) return;

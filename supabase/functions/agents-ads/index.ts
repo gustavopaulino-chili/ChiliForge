@@ -23,7 +23,7 @@ type AdFormat = {
 };
 
 type AgentsAdsPayload = {
-  mode?: "full" | "plan" | "render" | "unified" | "interpret" | "interpret_image" | "image" | "compose" | "brand_extract" | "copy";
+  mode?: "full" | "plan" | "render" | "unified" | "interpret" | "interpret_image" | "image" | "compose" | "copy";
   format?: AdFormat;
   generateAsImage?: boolean;
   geminiApiKey?: string;
@@ -159,28 +159,36 @@ function summarizeGeminiImagePayload(payload: unknown): string {
   return summary || "candidate parts were empty";
 }
 
+type GenerateAdImageOptions = {
+  maxAttempts?: number;
+  timeoutMs?: number;
+  singleConfig?: boolean;
+};
+
 async function generateAdImage(
   prompt: string,
   refImages: Array<{ data: string; mimeType: string }>,
   apiKey: string,
   aspectRatio?: string,
+  opts: GenerateAdImageOptions = {},
 ): Promise<string | null> {
+  const { maxAttempts = 3, timeoutMs = 100000, singleConfig = false } = opts;
   const parts: unknown[] = [{ text: prompt }];
   for (const img of refImages) {
     parts.push({ inline_data: { mime_type: img.mimeType, data: img.data } });
   }
   let lastError = "";
   for (const model of GEMINI_IMAGE_MODELS) {
-    const configVariants = [
-      {
-        responseModalities: ["TEXT", "IMAGE"],
-        ...(aspectRatio ? { imageConfig: { aspectRatio } } : {}),
-      },
-      { responseModalities: ["TEXT", "IMAGE"] },
-    ];
+    const primaryConfig = {
+      responseModalities: ["TEXT", "IMAGE"],
+      ...(aspectRatio ? { imageConfig: { aspectRatio } } : {}),
+    };
+    const configVariants = singleConfig
+      ? [primaryConfig]
+      : [primaryConfig, { responseModalities: ["TEXT", "IMAGE"] }];
     for (const generationConfig of configVariants) {
       let attempt = 0;
-      while (attempt < 3) {
+      while (attempt < maxAttempts) {
         try {
           const res = await fetch(buildImageApiUrl(model, apiKey), {
             method: "POST",
@@ -189,12 +197,12 @@ async function generateAdImage(
               contents: [{ parts }],
               generationConfig,
             }),
-            signal: AbortSignal.timeout(100000),
+            signal: AbortSignal.timeout(timeoutMs),
           });
           const bodyText = await res.text();
           if (!res.ok) {
             const isTransient = res.status === 503 || res.status === 502 || res.status === 529;
-            if (isTransient && attempt < 2) {
+            if (isTransient && attempt < maxAttempts - 1) {
               await new Promise(r => setTimeout(r, 3000 + attempt * 2000));
               attempt++;
               continue;
@@ -1163,13 +1171,6 @@ async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, limit: numb
 
 // ── COMPOSE MODE HELPERS ──────────────────────────────────────────────────────
 
-const COMPOSE_BRAND_EXTRACT_SYSTEM_PROMPT = `You are a brand identity extractor for ad image composition. Query the company store and global ads guidelines to find this brand's visual identity.
-Output EXACTLY these three lines and nothing else:
-BRAND_CSS_VARS: --primary:#HEX;--secondary:#HEX;--accent:#HEX;--font-headline:'Family',sans-serif;--fw-headline:900
-BRAND_FONT_URL: https://fonts.googleapis.com/css2?family=FAMILY:wght@400;700;900&display=swap
-BRAND_VISUAL: [5–10 words: visual aesthetic, e.g. "bold geometric dark luxury with gold accents"]
-Rules: use exact hex colors from the brand guide; if font is unknown use Inter; BRAND_VISUAL must capture the brand's overall visual tone for a background image.`.trim();
-
 const LAYOUT_KEYS = ["hero-full-bleed","diagonal-split","top-image-bottom-text","left-panel-right-image","centered-minimal","bold-headline-first","frame-product"] as const;
 
 function buildComposeCssVars(data: AgentsAdsPayload["campaignData"]): string {
@@ -1181,6 +1182,29 @@ function buildComposeCssVars(data: AgentsAdsPayload["campaignData"]): string {
   const font = data.customHeadingFontName || data.headingFont;
   if (font) parts.push(`--font-headline:'${font}',sans-serif`);
   return parts.join(";");
+}
+
+// Derives brand spec directly from campaignData (already enriched by PHP with company
+// colors/fonts/style). No API call needed — avoids a separate Supabase round-trip.
+function buildComposeBrandSpec(data: AgentsAdsPayload["campaignData"]): string {
+  const cssVars = buildComposeCssVars(data);
+  const styleParts: string[] = [];
+  if (data.preferredStyle)   styleParts.push(String(data.preferredStyle));
+  if (data.brandPersonality) styleParts.push(String(data.brandPersonality));
+  if (data.toneOfVoice)      styleParts.push(String(data.toneOfVoice));
+  if (data.brandKeywords)    styleParts.push(String(data.brandKeywords).split(/[,;]/)[0]?.trim() || "");
+  const visual = styleParts.filter(Boolean).join(", ").slice(0, 120);
+
+  const font = data.customHeadingFontName || data.headingFont;
+  const fontUrl = font
+    ? `https://fonts.googleapis.com/css2?family=${encodeURIComponent(String(font)).replace(/%20/g, "+")}:wght@400;700;900&display=swap`
+    : "";
+
+  return [
+    cssVars ? `BRAND_CSS_VARS: ${cssVars}` : "",
+    fontUrl ? `BRAND_FONT_URL: ${fontUrl}` : "",
+    visual  ? `BRAND_VISUAL: ${visual}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 const LAYOUT_SPACE_GUIDANCE: Record<string, string> = {
@@ -1737,7 +1761,8 @@ serve(async (req: Request) => {
     const referenceImages: ReferenceImage[] = fetchedImages.filter((img): img is ReferenceImage => img !== null);
 
     // IMAGE MODE: generate one PNG per format using Gemini image model
-    if (payload.generateAsImage || mode === "image") {
+    // Exclusive to external API calls — only the worker passes mode: "image" explicitly.
+    if (mode === "image") {
       const campaignFactsImg = buildCampaignFactsForImage(campaignData);
       const refImagesForGen = referenceImages.map((r) => ({ data: r.data, mimeType: r.mimeType }));
       const IMAGE_LANGUAGE_NAMES: Record<string, string> = {
@@ -1803,41 +1828,15 @@ serve(async (req: Request) => {
       });
     }
 
-    // ── BRAND EXTRACT MODE: lightweight store query → brand tokens for compose ──
-    // Called once before the compose loop; keeps store exploration out of the
-    // image-generation call so neither call approaches the 150s Supabase limit.
-    if (mode === "brand_extract") {
-      const brandStores = [companyStoreName, globalStoreName].filter((s): s is string => Boolean(s?.trim()));
-      let brandSpec = "";
-      if (brandStores.length > 0) {
-        try {
-          const result = await generateWithRetry(
-            COMPOSE_BRAND_EXTRACT_SYSTEM_PROMPT,
-            `Brand: ${campaignData.brandName || "this company"}\n\nExtract the brand visual identity tokens.`,
-            "gemini-2.5-flash",
-            0.1,
-            600,
-            apiKey,
-            brandStores,
-          );
-          brandSpec = result.text.trim();
-        } catch {
-          // non-fatal — caller falls back to campaignData colors
-        }
-      }
-      return new Response(JSON.stringify({ mode: "brand_extract", brandSpec }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     // ── COMPOSE MODE: background image + HTML overlay ─────────────────────────
     if (mode === "compose") {
       const campaignFactsImg = buildCampaignFactsForImage(campaignData);
       const refImagesForGen = referenceImages.map((r) => ({ data: r.data, mimeType: r.mimeType }));
 
-      // brandSpec comes from the prior brand_extract call (passed as creativePlan).
-      // No store query here — keeps this call well within the 150s Supabase limit.
-      const brandSpec = String(payload.creativePlan || "").trim();
+      // brandSpec: use creativePlan if provided (e.g. from external API worker),
+      // otherwise derive instantly from campaignData — PHP already enriched it with
+      // company colors/fonts/style, so no store query is needed.
+      const brandSpec = String(payload.creativePlan || "").trim() || buildComposeBrandSpec(campaignData);
 
       const { cssVars: specCssVars, fontUrl } = extractBrandTokens(brandSpec);
       const cssVars = specCssVars || buildComposeCssVars(campaignData);
@@ -1849,7 +1848,11 @@ serve(async (req: Request) => {
         const layoutHint = LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
 
         const bgPrompt = buildBackgroundPrompt(brandSpec, campaignFactsImg, format, aspectRatio, layoutHint);
-        const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio);
+        const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
+          maxAttempts: 1,
+          timeoutMs: 75000,
+          singleConfig: true,
+        });
 
         const bannerHtml = buildCompositionHtml(
           bgDataUrl ?? "",
