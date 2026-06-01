@@ -19,7 +19,7 @@ import { ArrowLeft, ArrowRight, Zap, FolderOpen, LogOut, Loader2, Wand2, RotateC
 import logoResult from '@/assets/logo-result.png';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { useAuth } from '@/contexts/AuthContext';
-import { createProject, deleteProjectAssetFile, generateAdCreatives, composeAdBatchViaAgent, generateAdsViaAgentTracked, generateImages, interpretBatchesViaAgent, prepareAdsFromCampaignPayload, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls, type AdImageResult, type ComposeAdResult } from '@/services/api';
+import { createProject, deleteProjectAssetFile, generateAdCreatives, composeAdBatchViaAgent, extractComposeBrandSpec, generateAdsViaAgentTracked, generateImages, prepareAdsFromCampaignPayload, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls, type AdImageResult, type ComposeAdResult } from '@/services/api';
 import { CampaignSetupAssistant } from '@/components/CampaignSetupAssistant';
 import { toast } from 'sonner';
 import '@/components/landing/HeroLanding.css';
@@ -1151,21 +1151,25 @@ export default function AdCreatives() {
 
         if (!enabledFormats.length) throw new Error('No enabled ad formats selected.');
 
-        // Interpret step — same pipeline as HTML mode, queries stores and produces rich spec per format
-        setGenerationStatus('Interpreting brand and campaign design guidelines...');
+        setGenerationProgress(10);
+        setGenerationStatus('Loading brand guidelines...');
         const prepared = await prepareAdsFromCampaignPayload({
           user_id: user.id,
           company_project_id: routeState.companyProjectId,
           campaign_id: routeState.campaignId || 0,
           form_overrides: adDataForApi as Record<string, unknown>,
         });
-        let batchSpecs: Array<{ label: string; spec: string }> = [];
+
+        // Brand extract — separate Supabase call; keeps store query out of image-gen call.
+        setGenerationStatus('Reading brand guidelines from stores...');
+        let composeBrandSpec = "";
         try {
-          const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, enabledFormats, 'interpret_image');
-          batchSpecs = interpretation.batchSpecs || [];
+          const brandExtract = await extractComposeBrandSpec(prepared.edgePayload);
+          composeBrandSpec = brandExtract.brandSpec || "";
         } catch {
-          // non-fatal — image generation proceeds without spec
+          // non-fatal — compose uses campaignData colors as fallback
         }
+        setGenerationProgress(22);
 
         const allComposeBanners: ComposeAdResult[] = [];
 
@@ -1174,20 +1178,16 @@ export default function AdCreatives() {
           const fmtLabel = String(fmt.label || `${fmt.width}x${fmt.height}`);
           setGenerationStatus(`Generating background + composing ${fmtLabel} (${fi + 1}/${enabledFormats.length})...`);
           setGenerationLog(prev => [...prev, `Composing: ${fmtLabel}`]);
-          setGenerationProgress(30 + Math.round((fi / enabledFormats.length) * 48));
-
-          const fmtSpec = batchSpecs.find(s =>
-            s.label?.toLowerCase() === fmtLabel.toLowerCase()
-          )?.spec || batchSpecs[fi]?.spec || "";
+          setGenerationProgress(22 + Math.round((fi / enabledFormats.length) * 60));
 
           const result = await composeAdBatchViaAgent(
             prepared.edgePayload,
             [fmt] as Parameters<typeof composeAdBatchViaAgent>[1],
-            fmtSpec,
+            composeBrandSpec,
           );
           const fmtBanners = (result.banners || []).filter((b) => b.html);
           allComposeBanners.push(...fmtBanners);
-          setGenerationProgress(30 + Math.round(((fi + 1) / enabledFormats.length) * 48));
+          setGenerationProgress(22 + Math.round(((fi + 1) / enabledFormats.length) * 60));
         }
 
         if (!allComposeBanners.length) throw new Error('AI did not return any ad creatives.');

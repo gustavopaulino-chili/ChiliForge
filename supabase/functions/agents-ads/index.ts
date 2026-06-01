@@ -23,7 +23,7 @@ type AdFormat = {
 };
 
 type AgentsAdsPayload = {
-  mode?: "full" | "plan" | "render" | "unified" | "interpret" | "interpret_image" | "image" | "compose" | "copy";
+  mode?: "full" | "plan" | "render" | "unified" | "interpret" | "interpret_image" | "image" | "compose" | "brand_extract" | "copy";
   format?: AdFormat;
   generateAsImage?: boolean;
   geminiApiKey?: string;
@@ -1163,6 +1163,26 @@ async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, limit: numb
 
 // ── COMPOSE MODE HELPERS ──────────────────────────────────────────────────────
 
+const COMPOSE_BRAND_EXTRACT_SYSTEM_PROMPT = `You are a brand identity extractor for ad image composition. Query the company store and global ads guidelines to find this brand's visual identity.
+Output EXACTLY these three lines and nothing else:
+BRAND_CSS_VARS: --primary:#HEX;--secondary:#HEX;--accent:#HEX;--font-headline:'Family',sans-serif;--fw-headline:900
+BRAND_FONT_URL: https://fonts.googleapis.com/css2?family=FAMILY:wght@400;700;900&display=swap
+BRAND_VISUAL: [5–10 words: visual aesthetic, e.g. "bold geometric dark luxury with gold accents"]
+Rules: use exact hex colors from the brand guide; if font is unknown use Inter; BRAND_VISUAL must capture the brand's overall visual tone for a background image.`.trim();
+
+const LAYOUT_KEYS = ["hero-full-bleed","diagonal-split","top-image-bottom-text","left-panel-right-image","centered-minimal","bold-headline-first","frame-product"] as const;
+
+function buildComposeCssVars(data: AgentsAdsPayload["campaignData"]): string {
+  const parts: string[] = [];
+  if (data.primaryColor) parts.push(`--primary:${data.primaryColor}`);
+  const secondary = data.secondaryColor || data.accentColor;
+  if (secondary) parts.push(`--secondary:${secondary}`);
+  if (data.accentColor) parts.push(`--accent:${data.accentColor}`);
+  const font = data.customHeadingFontName || data.headingFont;
+  if (font) parts.push(`--font-headline:'${font}',sans-serif`);
+  return parts.join(";");
+}
+
 const LAYOUT_SPACE_GUIDANCE: Record<string, string> = {
   "diagonal-split":      "Left 48% of the image will be covered by a dark text panel — fill that zone with solid brand color or deep tone. Product/hero goes on the right 52%.",
   "hero-full-bleed":     "Bottom 35% will have a gradient overlay + text — keep the product/hero in the upper half and let colors naturally darken toward the bottom.",
@@ -1259,8 +1279,9 @@ function buildBackgroundPrompt(
   campaignFactsImg: string,
   format: AdFormat,
   aspectRatio: string,
+  layoutKey?: string,
 ): string {
-  const layout = detectCompositionLayout(spec);
+  const layout = spec ? detectCompositionLayout(spec) : (layoutKey ?? "hero-full-bleed");
   const spaceGuide = LAYOUT_SPACE_GUIDANCE[layout] ?? LAYOUT_SPACE_GUIDANCE["hero-full-bleed"];
   return [
     "Generate a BACKGROUND-ONLY advertising visual. This image will have text, logo, and CTA overlaid on top of it in HTML — do NOT include any of those in the generated image.",
@@ -1292,14 +1313,15 @@ function buildCompositionHtml(
   spec: string,
   cssVars: string,
   fontUrl: string,
+  layoutKey?: string,
 ): string {
   const w = format.width ?? 1080;
   const h = format.height ?? 1080;
   const platform = format.platform || "banner";
   const formatName = format.format || "ad";
 
-  const layoutKey = detectCompositionLayout(spec);
-  const layout = LAYOUT_POSITIONS[layoutKey] ?? LAYOUT_POSITIONS["hero-full-bleed"];
+  const detectedLayout = spec ? detectCompositionLayout(spec) : (layoutKey ?? "hero-full-bleed");
+  const layout = LAYOUT_POSITIONS[detectedLayout] ?? LAYOUT_POSITIONS["hero-full-bleed"];
 
   const primaryColor = extractCssVarColor(cssVars, "--primary") || "#1a1a2e";
   const secondaryColor = extractCssVarColor(cssVars, "--secondary") || "#e94560";
@@ -1781,28 +1803,62 @@ serve(async (req: Request) => {
       });
     }
 
+    // ── BRAND EXTRACT MODE: lightweight store query → brand tokens for compose ──
+    // Called once before the compose loop; keeps store exploration out of the
+    // image-generation call so neither call approaches the 150s Supabase limit.
+    if (mode === "brand_extract") {
+      const brandStores = [companyStoreName, globalStoreName].filter((s): s is string => Boolean(s?.trim()));
+      let brandSpec = "";
+      if (brandStores.length > 0) {
+        try {
+          const result = await generateWithRetry(
+            COMPOSE_BRAND_EXTRACT_SYSTEM_PROMPT,
+            `Brand: ${campaignData.brandName || "this company"}\n\nExtract the brand visual identity tokens.`,
+            "gemini-2.5-flash",
+            0.1,
+            600,
+            apiKey,
+            brandStores,
+          );
+          brandSpec = result.text.trim();
+        } catch {
+          // non-fatal — caller falls back to campaignData colors
+        }
+      }
+      return new Response(JSON.stringify({ mode: "brand_extract", brandSpec }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ── COMPOSE MODE: background image + HTML overlay ─────────────────────────
     if (mode === "compose") {
       const campaignFactsImg = buildCampaignFactsForImage(campaignData);
       const refImagesForGen = referenceImages.map((r) => ({ data: r.data, mimeType: r.mimeType }));
-      const spec = String(payload.creativePlan || "").trim();
-      const { cssVars, fontUrl } = extractBrandTokens(spec);
+
+      // brandSpec comes from the prior brand_extract call (passed as creativePlan).
+      // No store query here — keeps this call well within the 150s Supabase limit.
+      const brandSpec = String(payload.creativePlan || "").trim();
+
+      const { cssVars: specCssVars, fontUrl } = extractBrandTokens(brandSpec);
+      const cssVars = specCssVars || buildComposeCssVars(campaignData);
       const imageTasks = buildImageVariantTasks(formats, campaignData);
 
-      const composeFns = imageTasks.map((task) => async () => {
+      const composeFns = imageTasks.map((task, taskIndex) => async () => {
         const { format, variantLabel } = task;
         const aspectRatio = imageAspectRatioForFormat(format);
+        const layoutHint = LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
 
-        const bgPrompt = buildBackgroundPrompt(spec, campaignFactsImg, format, aspectRatio);
+        const bgPrompt = buildBackgroundPrompt(brandSpec, campaignFactsImg, format, aspectRatio, layoutHint);
         const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio);
 
         const bannerHtml = buildCompositionHtml(
           bgDataUrl ?? "",
           campaignData,
           format,
-          spec,
+          brandSpec,
           cssVars,
           fontUrl,
+          layoutHint,
         );
 
         const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
