@@ -12,7 +12,7 @@ import {
   getCampaign, getAdCreatives, campaignChat, markGoodExamples, removeCampaignExample,
   getCreativesHtml, sendCreativeHtmlToGlobalStore, getProjectAssets, uploadProjectAssets, deleteProjectAssetFile,
   prepareAdsFromCampaignPayload, renderAdsBatchViaAgent, interpretBatchesViaAgent,
-  createGenerationJob, updateGenerationJob, getGenerationJob, composeAdBatchViaAgent,
+  createGenerationJob, updateGenerationJob, getGenerationJob, composeAdBatchViaAgent, extractComposeBrandSpec,
   updateAdCreativeContent, buildCopyLockBlock,
   CampaignData, ChatMessage, CampaignChatResponse, CampaignExampleCreative,
   type ProjectAsset, type GenerationJob, type GenerationJobBatch, type AdImageResult, type ComposeAdResult,
@@ -1086,28 +1086,30 @@ export default function CampaignScreen() {
         // Generate one batch per edge function call to stay within the 150s Supabase limit.
         const allComposeBanners: ComposeAdResult[] = [];
 
-        // ── Step 1: Prepare + Interpret (0 → 22%) ──────────────────────────
+        // ── Step 1: Prepare (0 → 8%) ───────────────────────────────────────
         setGenerationProgress(5);
-        setGenerationStatus('Loading brand guidelines and stores...');
+        setGenerationStatus('Loading brand guidelines...');
         const prepared = await prepareAdsFromCampaignPayload({
           user_id: user.id,
           company_project_id: resolvedCompanyProjectId,
           campaign_id: campaign.id,
         });
+        setGenerationProgress(8);
 
-        setGenerationProgress(10);
-        setGenerationStatus('Analyzing visual composition for each format...');
-        const allFormats = batches.flatMap(b => b.formats);
-        let batchSpecs: Array<{ label: string; spec: string }> = [];
+        // ── Step 2: Brand extract — query stores (8 → 20%) ─────────────────
+        // Separate Supabase call: store query stays out of the image-gen call.
+        // Mirrors the interpret → render split used in HTML mode.
+        setGenerationStatus('Reading brand guidelines from stores...');
+        let composeBrandSpec = "";
         try {
-          const interpretation = await interpretBatchesViaAgent(prepared.edgePayload, allFormats, 'interpret_image');
-          batchSpecs = interpretation.batchSpecs || [];
+          const brandExtract = await extractComposeBrandSpec(prepared.edgePayload);
+          composeBrandSpec = brandExtract.brandSpec || "";
         } catch {
-          // non-fatal — compose proceeds without spec
+          // non-fatal — compose uses campaignData colors as fallback
         }
-        setGenerationProgress(22);
+        setGenerationProgress(20);
 
-        // ── Step 2: Per-format compose generation (22 → 82%) ───────────────
+        // ── Step 3: Per-format compose generation (20 → 85%) ───────────────
         for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
           if (generationCancelRef.current) {
             updateGenerationBatch(batchIndex, { status: 'cancelled' });
@@ -1120,22 +1122,18 @@ export default function CampaignScreen() {
           const batch = batches[batchIndex];
           updateGenerationBatch(batchIndex, { status: 'running' });
           setGenerationStatus(`Generating background + composing ${batch.label}...`);
-          setGenerationProgress(22 + Math.round((batchIndex / batches.length) * 60));
-
-          const batchSpec = batchSpecs.find(s =>
-            s.label?.toLowerCase() === batch.label?.toLowerCase()
-          )?.spec || batchSpecs[batchIndex]?.spec || "";
+          setGenerationProgress(20 + Math.round((batchIndex / batches.length) * 65));
 
           try {
             const result = await composeAdBatchViaAgent(
               prepared.edgePayload,
               batch.formats,
-              batchSpec,
+              composeBrandSpec,
             );
             const batchBanners = (result.banners || []).filter(b => b.html);
             allComposeBanners.push(...batchBanners);
             updateGenerationBatch(batchIndex, { status: 'saved', savedCount: batchBanners.length });
-            setGenerationProgress(22 + Math.round(((batchIndex + 1) / batches.length) * 60));
+            setGenerationProgress(20 + Math.round(((batchIndex + 1) / batches.length) * 65));
           } catch (err: any) {
             const message = err?.message || 'Compose generation failed.';
             updateGenerationBatch(batchIndex, { status: 'failed', error: message });

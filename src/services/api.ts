@@ -848,6 +848,15 @@ export const renderAdsBatchViaAgent = (
     { accountType: edgePayload.accountType || getStoredAccountType() },
   );
 
+export const extractComposeBrandSpec = (
+  edgePayload: PreparedAgentAdsRequest["edgePayload"],
+): Promise<{ mode: "brand_extract"; brandSpec: string }> =>
+  invokeAiFunction<{ mode: "brand_extract"; brandSpec: string }>(
+    "agents-ads",
+    { ...edgePayload, mode: "brand_extract", generateAsImage: false },
+    { accountType: edgePayload.accountType || getStoredAccountType() },
+  );
+
 export const composeAdBatchViaAgent = (
   edgePayload: PreparedAgentAdsRequest["edgePayload"],
   batchFormats: AgentAdsResult["formats"],
@@ -858,6 +867,7 @@ export const composeAdBatchViaAgent = (
     {
       ...edgePayload,
       mode: "compose",
+      generateAsImage: false,
       creativePlan,
       batchFormats,
     },
