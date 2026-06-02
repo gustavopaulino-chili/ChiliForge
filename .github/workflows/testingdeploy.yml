@@ -23,9 +23,9 @@ jobs:
       - name: Build React
         run: npm run build
 
-      # ── Deploy dist/ → /files/public_html/ ───────────────
-      # Caminho absoluto real do servidor: home é "files",
-      # e o public_html fica dentro dela.
+      # ── Deploy dist/ → public_html/ ──────────────────────
+      # O FTP cai na home (onde fica o DO_NOT_UPLOAD_HERE).
+      # public_html é subpasta dessa home -> caminho relativo simples.
       - name: Deploy dist/ → public_html/
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -33,7 +33,8 @@ jobs:
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          server-dir: /files/public_html/
+          server-dir: public_html/
+          log-level: verbose
           dangerous-clean-slate: false
           exclude: |
             **/.git*
@@ -44,7 +45,7 @@ jobs:
             projects/**
             db.php
 
-      # ── Deploy api/ → /files/public_html/api/ ────────────
+      # ── Deploy api/ → public_html/api/ ───────────────────
       - name: Deploy api/ → public_html/api/
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -52,71 +53,8 @@ jobs:
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./api/
-          server-dir: /files/public_html/api/
-          dangerous-clean-slate: false
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/node_modules/**
-            db.php
-            **/db.php
-            .env
-            **/.env
-            projects/**name: 🌶️ Deploy ChiliForge → Hostinger
-on:
-  push:
-    branches:
-      - dev
-jobs:
-  deploy:
-    name: Build & Deploy
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repositório
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Instalar dependências
-        run: npm ci
-
-      - name: Build React
-        run: npm run build
-
-      # ── Deploy dist/ → /files/public_html/ ───────────────
-      # Caminho absoluto real do servidor: home é "files",
-      # e o public_html fica dentro dela.
-      - name: Deploy dist/ → public_html/
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: 195.35.41.130
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./dist/
-          server-dir: /files/public_html/
-          dangerous-clean-slate: false
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/node_modules/**
-            **/.env
-            api/**
-            projects/**
-            db.php
-
-      # ── Deploy api/ → /files/public_html/api/ ────────────
-      - name: Deploy api/ → public_html/api/
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: 195.35.41.130
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./api/
-          server-dir: /files/public_html/api/
+          server-dir: public_html/api/
+          log-level: verbose
           dangerous-clean-slate: false
           exclude: |
             **/.git*
