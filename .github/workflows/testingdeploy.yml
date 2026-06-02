@@ -21,6 +21,14 @@ jobs:
         run: npm ci
 
       - name: Build React
+        env:
+          # O Vite congela estas VITE_* no bundle em build time — sem elas aqui o app
+          # publicado sai com supabaseUrl=undefined ("supabaseUrl is required").
+          # Configurar em: Settings → Secrets and variables → Actions → New repository secret
+          #   VITE_SUPABASE_URL = https://vehowvyqxhelyfdesmog.supabase.co
+          #   VITE_SUPABASE_PUBLISHABLE_KEY = (a publishable/anon key do projeto)
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
         run: npm run build
 
       - name: Instalar lftp
