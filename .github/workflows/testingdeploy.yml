@@ -1,60 +1,68 @@
 name: 🌶️ Deploy ChiliForge → Hostinger
-
 on:
   push:
     branches:
       - dev
-
 jobs:
   deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
-
     steps:
-      # ── 1. Checkout ───────────────────────────────────────
       - name: Checkout repositório
         uses: actions/checkout@v4
 
-      # ── 2. Node.js ────────────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      # ── 3. Instala dependências ───────────────────────────
       - name: Instalar dependências
         run: npm ci
 
-      # ── 4. Build React ────────────────────────────────────
       - name: Build React
         run: npm run build
 
-      # ── 5. Deploy dist/ → public_html/ ───────────────────
-      # public/projects/ e .env nunca são tocados
-      - name: Deploy dist/ → public_html/
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: 195.35.41.130
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./dist/
-          server-dir: /
-          exclude: |
-            **/public/projects/**
-            **/.env
-          dangerous-clean-slate: false
+      - name: Instalar lftp
+        run: sudo apt-get update && sudo apt-get install -y lftp
 
-      # ── 6. Deploy api/ → public_html/api/ ────────────────
-      # .env nunca é tocado
-      - name: Deploy api/ → public_html/api/
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: 195.35.41.130
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./api/
-          server-dir: /api/
-          exclude: |
-            **/.env
-          dangerous-clean-slate: false
+      # ── Deploy via lftp ──────────────────────────────────
+      # PRE-REQUISITO: a conta FTP usada deve ter o diretório
+      # apontado para public_html no hPanel. Assim o login JA cai
+      # dentro do public_html e o mirror vai para ./ (= public_html).
+      # NUNCA toca em: api/db.php, .env, projects/
+      - name: Deploy → public_html via lftp
+        env:
+          FTP_HOST: 195.35.41.130
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          lftp -c "
+            set ftp:ssl-allow false;
+            set net:timeout 20;
+            set net:max-retries 3;
+            set net:reconnect-interval-base 5;
+            open -u \"$FTP_USER\",\"$FTP_PASS\" \"$FTP_HOST\";
+
+            # Mostra onde caiu (deve ser o public_html)
+            pwd;
+
+            # 1) Frontend (dist/) -> raiz do login (= public_html)
+            #    --delete limpa o que sumiu do build, mas os exclude
+            #    protegem api/, projects/, .env e db.php de envio E remocao.
+            mirror --reverse --delete --verbose --parallel=4 \
+              --exclude '^api/' \
+              --exclude '^projects/' \
+              --exclude '^db\.php\$' \
+              --exclude '^\.env\$' \
+              dist/ ./ ;
+
+            # 2) API (api/) -> ./api/  (sem --delete por seguranca)
+            mirror --reverse --verbose --parallel=4 \
+              --exclude '^db\.php\$' \
+              --exclude '^\.env\$' \
+              --exclude '^projects/' \
+              api/ api/ ;
+
+            bye;
+          "
