@@ -13,6 +13,45 @@ if (!function_exists('agents_contains')) {
     }
 }
 
+if (!function_exists('agents_strip_base64_images')) {
+    /**
+     * Replace base64 image data URIs in HTML/markdown with a short placeholder
+     * BEFORE the content is sent to Gemini (File Search store or text prompts).
+     *
+     * Why: a single inlined `data:image/...;base64,...` can be hundreds of KB of
+     * text. Once indexed in a store and retrieved into every generation, it costs
+     * millions of TEXT tokens. The model only needs the example's layout/structure,
+     * not the raw image bytes.
+     *
+     * Uses strpos/substr/strcspn (NOT preg_*) on purpose: multi-MB base64 blows
+     * pcre.backtrack_limit and makes preg_* fail silently.
+     */
+    function agents_strip_base64_images(string $content): string {
+        if ($content === '' || stripos($content, 'data:image/') === false) {
+            return $content;
+        }
+        $out = '';
+        $offset = 0;
+        $len = strlen($content);
+        while (($pos = stripos($content, 'data:image/', $offset)) !== false) {
+            $out .= substr($content, $offset, $pos - $offset);
+            // The data URI runs until the next delimiter (quote, paren, angle, space).
+            $tokenLen = strcspn($content, "\"')<> \t\r\n", $pos);
+            $uri = substr($content, $pos, $tokenLen);
+            if (stripos($uri, 'base64,') !== false) {
+                $out .= '[base64-image-removed]';
+            } else {
+                // Small non-base64 data URIs (e.g. svg+xml;utf8,...) are kept as-is.
+                $out .= $uri;
+            }
+            $offset = $pos + $tokenLen;
+            if ($offset >= $len) break;
+        }
+        $out .= substr($content, $offset);
+        return $out;
+    }
+}
+
 if (!function_exists('agents_env_value')) {
     function agents_env_value(string $key, string $default = ''): string {
         $value = getenv($key);
