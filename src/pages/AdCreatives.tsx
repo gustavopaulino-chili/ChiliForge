@@ -19,7 +19,7 @@ import { ArrowLeft, ArrowRight, Zap, FolderOpen, LogOut, Loader2, Wand2, RotateC
 import logoResult from '@/assets/logo-result.png';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { useAuth } from '@/contexts/AuthContext';
-import { createProject, deleteProjectAssetFile, generateAdCreatives, composeAdBatchViaAgent, generateAdsViaAgentTracked, generateImages, prepareAdsFromCampaignPayload, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls, type AdImageResult, type ComposeAdResult } from '@/services/api';
+import { createProject, deleteProjectAssetFile, generateAdCreatives, composeAdBatchViaAgent, interpretBatchesViaAgent, generateAdsViaAgentTracked, generateImages, prepareAdsFromCampaignPayload, searchImages, updateProjectFormState, uploadProjectAssets, uploadProjectAssetsFromUrls, type AdImageResult, type ComposeAdResult } from '@/services/api';
 import { CampaignSetupAssistant } from '@/components/CampaignSetupAssistant';
 import { toast } from 'sonner';
 import '@/components/landing/HeroLanding.css';
@@ -1151,7 +1151,7 @@ export default function AdCreatives() {
 
         if (!enabledFormats.length) throw new Error('No enabled ad formats selected.');
 
-        setGenerationProgress(10);
+        setGenerationProgress(5);
         setGenerationStatus('Loading brand guidelines...');
         const prepared = await prepareAdsFromCampaignPayload({
           user_id: user.id,
@@ -1160,24 +1160,39 @@ export default function AdCreatives() {
           form_overrides: adDataForApi as Record<string, unknown>,
         });
 
+        // Interpret image — separate Supabase call, queries stores (~20-30s)
+        setGenerationProgress(8);
+        setGenerationStatus('Reading brand guidelines and examples from stores...');
+        let composeFmtSpecs: Array<{ label: string; spec: string }> = [];
+        try {
+          const interpretation = await interpretBatchesViaAgent(
+            prepared.edgePayload, enabledFormats, 'interpret_image',
+          );
+          composeFmtSpecs = interpretation.batchSpecs || [];
+        } catch {
+          // non-fatal — compose proceeds with campaignData fallback
+        }
+        setGenerationProgress(22);
+
         const allComposeBanners: ComposeAdResult[] = [];
 
-        for (let fi = 0; fi < enabledFormats.length; fi++) {
-          const fmt = enabledFormats[fi] as { platform?: string; format?: string; label?: string; width?: number; height?: number; enabled?: boolean };
-          const fmtLabel = String(fmt.label || `${fmt.width}x${fmt.height}`);
-          setGenerationStatus(`Generating background + composing ${fmtLabel} (${fi + 1}/${enabledFormats.length})...`);
-          setGenerationLog(prev => [...prev, `Composing: ${fmtLabel}`]);
-          setGenerationProgress(12 + Math.round((fi / enabledFormats.length) * 70));
+        const sharedSpec = composeFmtSpecs.length
+          ? composeFmtSpecs.map(s => `[${s.label}]\n${s.spec}`).join('\n\n')
+          : "";
+        setGenerationStatus(`Generating background + composing ${enabledFormats.length} formats...`);
+        setGenerationLog(prev => [
+          ...prev,
+          `Composing ${enabledFormats.length} formats in one batch`,
+        ]);
+        setGenerationProgress(35);
 
-          const result = await composeAdBatchViaAgent(
-            prepared.edgePayload,
-            [fmt] as Parameters<typeof composeAdBatchViaAgent>[1],
-            "",
-          );
-          const fmtBanners = (result.banners || []).filter((b) => b.html);
-          allComposeBanners.push(...fmtBanners);
-          setGenerationProgress(12 + Math.round(((fi + 1) / enabledFormats.length) * 70));
-        }
+        const result = await composeAdBatchViaAgent(
+          prepared.edgePayload,
+          enabledFormats as Parameters<typeof composeAdBatchViaAgent>[1],
+          sharedSpec,
+        );
+        allComposeBanners.push(...(result.banners || []).filter((b) => b.html));
+        setGenerationProgress(82);
 
         if (!allComposeBanners.length) throw new Error('AI did not return any ad creatives.');
 
@@ -1546,9 +1561,9 @@ export default function AdCreatives() {
 
           {/* Not-editable notice */}
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 mb-5 flex items-center gap-3">
-            <Image className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
-            <p className="text-sm text-amber-700 dark:text-amber-400">
-              <strong>Image mode:</strong> These ads were generated as images and cannot be edited in the visual editor. To get editable HTML banners, toggle off "Generate as images" and regenerate.
+            <Image className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
+            <p className="text-sm text-blue-700 dark:text-blue-400">
+              <strong>Compose mode:</strong> O fundo é gerado por IA e não é editável. Textos, headlines e logo podem ser editados normalmente no editor visual.
             </p>
           </div>
 
@@ -1747,8 +1762,9 @@ export default function AdCreatives() {
                   if (!raw) return undefined;
                   let baseHref = '';
                   try {
-                    const u = new URL(banner.url);
-                    baseHref = u.origin + u.pathname.replace(/\/[^/]*$/, '/');
+                    // banner.url is a relative path like /projects/.../b0/ — must pass origin as base
+                    const u = new URL(banner.url, window.location.origin);
+                    baseHref = u.origin + u.pathname.replace(/\/?$/, '/');
                   } catch { /* no base */ }
                   const stripped = raw.replace(/<base\b[^>]*>/gi, '');
                   return baseHref
@@ -2000,8 +2016,8 @@ export default function AdCreatives() {
                       <p className="text-sm font-medium leading-none">Output format</p>
                       <p className="text-xs text-muted-foreground mt-1">
                         {generateAsImage
-                          ? 'Image — Gemini generates PNG images (not editable)'
-                          : 'HTML — editable banners in the visual editor'}
+                          ? 'Compose — fundo gerado por IA, textos e logo editáveis'
+                          : 'HTML — banners totalmente editáveis no editor visual'}
                       </p>
                     </div>
                   </div>
@@ -2016,8 +2032,8 @@ export default function AdCreatives() {
                   </button>
                 </div>
                 {generateAsImage && (
-                  <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 font-medium">
-                    ⚠ IMAGE MODE: The generated ads cannot be edited or customized after generation. Switch to HTML mode to get editable banners.
+                  <div className="rounded-md bg-blue-500/10 border border-blue-500/30 px-3 py-2 text-xs text-blue-700 dark:text-blue-400 font-medium">
+                    ℹ COMPOSE MODE: O fundo é gerado por IA e não é editável. Textos, headlines e logo são editáveis normalmente no editor visual. Imagens enviadas no passo "Images" são usadas como inspiração visual para o fundo.
                   </div>
                 )}
               </div>

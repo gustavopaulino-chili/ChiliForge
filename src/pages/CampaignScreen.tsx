@@ -179,9 +179,32 @@ function resolveImageBannerSource(banner: GeneratedBanner): string {
 }
 
 function isImageBanner(banner: GeneratedBanner): boolean {
+  if (!banner.is_image_mode && /\bclass=["'][^"']*\bad-banner\b/i.test(banner.html || '')) {
+    return false;
+  }
   return isImageModeBanner(banner.html, banner.is_image_mode)
     || isImageModeBanner(banner.imageUrl, false)
     || isImageModeBanner(banner.url, false);
+}
+
+function buildBannerSrcDoc(banner: GeneratedBanner): string | undefined {
+  const raw = banner.html?.trim();
+  if (!raw) return undefined;
+
+  let baseHref = '';
+  try {
+    const u = new URL(banner.url, window.location.origin);
+    baseHref = u.origin + u.pathname.replace(/\/?$/, '/');
+  } catch {
+    // Render stored HTML without a base tag if URL parsing is unavailable.
+  }
+
+  const stripped = raw.replace(/<base\b[^>]*>/gi, '');
+  if (!baseHref) return stripped;
+  if (/<head\b[^>]*>/i.test(stripped)) {
+    return stripped.replace(/(<head\b[^>]*>)/i, `$1\n<base href="${escapeHtmlAttribute(baseHref)}">`);
+  }
+  return `<!DOCTYPE html><html><head><base href="${escapeHtmlAttribute(baseHref)}"></head><body>${stripped}</body></html>`;
 }
 
 function extractImageDataFromHtml(raw: string): { base64: string; mimeType: string } | null {
@@ -479,6 +502,7 @@ function BannerGrid({
           const isSelected = selectedIds.has(banner.id);
           const isPortrait = banner.height > banner.width;
           const isNew = newIds.has(banner.id);
+          const bannerSrcDoc = buildBannerSrcDoc(banner);
 
           return (
             <div
@@ -527,7 +551,7 @@ function BannerGrid({
                     <ImageBannerPreview banner={banner} width={previewW} height={previewH} />
                   ) : (
                     <iframe
-                      src={banner.url}
+                      {...(bannerSrcDoc ? { srcDoc: bannerSrcDoc } : { src: banner.url })}
                       title={banner.label}
                       style={{
                         width: banner.width,
@@ -610,7 +634,7 @@ function BannerGrid({
               />
             ) : (
               <iframe
-                src={lightbox.url}
+                {...(buildBannerSrcDoc(lightbox) ? { srcDoc: buildBannerSrcDoc(lightbox) } : { src: lightbox.url })}
                 title={lightbox.label}
                 style={{ width: lightbox.width, height: lightbox.height, border: 'none', display: 'block', maxWidth: '90vw', maxHeight: '85vh' }}
                 scrolling="no"
@@ -732,7 +756,8 @@ export default function CampaignScreen() {
             if (Array.isArray(creatives) && creatives.length) {
               setBanners(creatives.map((c: any) => {
                 const url = c.public_url || c.url || '';
-                const source = c.image_url || c.generated_html || url;
+                const imageSource = c.image_url || '';
+                const source = imageSource || url;
                 const isImage = Boolean(c.is_image_mode) || isImageModeBanner(source, false);
                 return {
                   id: c.id,
@@ -744,7 +769,7 @@ export default function CampaignScreen() {
                   width: c.width || 1080,
                   height: c.height || 1080,
                   is_image_mode: isImage,
-                  html: isImage ? (c.generated_html || '') : undefined,
+                  html: c.generated_html || undefined,
                   imageUrl: isImage ? (source || undefined) : undefined,
                 };
               }));
@@ -1024,7 +1049,7 @@ export default function CampaignScreen() {
         // Generate one batch per edge function call to stay within the 150s Supabase limit.
         const allComposeBanners: ComposeAdResult[] = [];
 
-        // ── Step 1: Prepare (0 → 10%) ──────────────────────────────────────
+        // ── Step 1: Prepare (0 → 8%) ───────────────────────────────────────
         setGenerationProgress(5);
         setGenerationStatus('Loading brand guidelines...');
         const prepared = await prepareAdsFromCampaignPayload({
@@ -1032,42 +1057,61 @@ export default function CampaignScreen() {
           company_project_id: resolvedCompanyProjectId,
           campaign_id: campaign.id,
         });
-        setGenerationProgress(10);
+        setGenerationProgress(8);
 
-        // ── Step 2: Per-format compose generation (10 → 85%) ───────────────
-        for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-          if (generationCancelRef.current) {
-            updateGenerationBatch(batchIndex, { status: 'cancelled' });
-            setGenerationStatus('Generation cancelled.');
-            setGenerationPaused(true);
-            setIsGenerating(false);
-            return;
-          }
+        // ── Step 2: Interpret image (8 → 22%) — queries stores ─────────────
+        setGenerationStatus('Reading brand guidelines and examples from stores...');
+        let composeBatchSpecs: Array<{ label: string; spec: string }> = [];
+        try {
+          const allFormats = batches.flatMap(b => b.formats);
+          const interpretation = await interpretBatchesViaAgent(
+            prepared.edgePayload, allFormats, 'interpret_image',
+          );
+          composeBatchSpecs = interpretation.batchSpecs || [];
+        } catch {
+          // non-fatal — compose proceeds with campaignData fallback
+        }
+        setGenerationProgress(22);
 
-          const batch = batches[batchIndex];
-          updateGenerationBatch(batchIndex, { status: 'running' });
-          setGenerationStatus(`Generating background + composing ${batch.label}...`);
-          setGenerationProgress(10 + Math.round((batchIndex / batches.length) * 75));
+        // ── Step 3: Per-format compose generation (22 → 85%) ───────────────
+        if (generationCancelRef.current) {
+          setGenerationBatches(prev => prev.map(batch => ({ ...batch, status: 'cancelled' })));
+          setGenerationStatus('Generation cancelled.');
+          setGenerationPaused(true);
+          setIsGenerating(false);
+          return;
+        }
 
-          try {
-            const result = await composeAdBatchViaAgent(
-              prepared.edgePayload,
-              batch.formats,
-              "",
-            );
-            const batchBanners = (result.banners || []).filter(b => b.html);
-            allComposeBanners.push(...batchBanners);
-            updateGenerationBatch(batchIndex, { status: 'saved', savedCount: batchBanners.length });
-            setGenerationProgress(10 + Math.round(((batchIndex + 1) / batches.length) * 75));
-          } catch (err: any) {
-            const message = err?.message || 'Compose generation failed.';
-            updateGenerationBatch(batchIndex, { status: 'failed', error: message });
-            setGenerationStatus(`Failed: ${batch.label}`);
-            setGenerationPaused(true);
-            setIsGenerating(false);
-            toast.error(`${batch.label}: ${message}`);
-            return;
-          }
+        setGenerationBatches(prev => prev.map(batch => ({ ...batch, status: 'running' })));
+        setGenerationStatus(`Generating backgrounds + composing ${batches.length} formats...`);
+        setGenerationProgress(45);
+
+        try {
+          const allFormats = batches.flatMap(batch => batch.formats);
+          const sharedSpec = composeBatchSpecs.length
+            ? composeBatchSpecs.map(s => `[${s.label}]\n${s.spec}`).join('\n\n')
+            : "";
+          const result = await composeAdBatchViaAgent(
+            prepared.edgePayload,
+            allFormats,
+            sharedSpec,
+          );
+          const batchBanners = (result.banners || []).filter(b => b.html);
+          allComposeBanners.push(...batchBanners);
+          setGenerationBatches(prev => prev.map((batch, index) => ({
+            ...batch,
+            status: 'saved',
+            savedCount: batchBanners[index] ? 1 : 0,
+          })));
+          setGenerationProgress(85);
+        } catch (err: any) {
+          const message = err?.message || 'Compose generation failed.';
+          setGenerationBatches(prev => prev.map(batch => ({ ...batch, status: 'failed', error: message })));
+          setGenerationStatus(`Failed: ${message}`);
+          setGenerationPaused(true);
+          setIsGenerating(false);
+          toast.error(message);
+          return;
         }
 
         if (!allComposeBanners.length) {
@@ -1465,7 +1509,7 @@ export default function CampaignScreen() {
           <div className="flex items-center gap-3 shrink-0">
             <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-card/55 px-3 py-2">
               <ImageIcon className="h-4 w-4 text-muted-foreground" />
-              <span className="text-xs font-medium">{generateAsImage ? 'Image' : 'HTML'}</span>
+              <span className="text-xs font-medium">{generateAsImage ? 'Compose' : 'HTML'}</span>
               <Switch
                 checked={generateAsImage}
                 onCheckedChange={setGenerateAsImage}

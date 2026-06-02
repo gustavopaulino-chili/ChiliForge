@@ -139,7 +139,7 @@ while ($stmt->fetch()) {
         "label" => $label,
         "width" => (int)$width,
         "height" => (int)$height,
-        "generated_html" => (bool)$isImageMode ? $generatedHtml : "",
+        "generated_html" => (string)($generatedHtml ?? ""),
         "public_url" => $publicUrl,
         "url" => $publicUrl,
         "image_url" => (bool)$isImageMode ? $imageUrl : "",

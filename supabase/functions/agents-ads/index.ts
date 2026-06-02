@@ -76,7 +76,7 @@ type AgentsAdsPayload = {
 };
 
 const env = (globalThis as any).Deno?.env;
-const PLAN_MODEL_CHAIN   = ["gemini-3.5-flash", "gemini-2.5-pro"];
+const PLAN_MODEL_CHAIN   = ["gemini-3.5-flash"];
 const RENDER_MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
 const MODEL_CHAIN        = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
 
@@ -304,6 +304,16 @@ function buildCampaignFactsForImage(data: AgentsAdsPayload["campaignData"]): str
   return full.replace(
     /\nAssets:\n[\s\S]*?(?=\n\n|$)/,
     "\nAssets: All logo, product, and background assets are attached as INLINE REFERENCE IMAGES — use them directly from the attached images. NEVER render URLs, domain names, file paths, or any URL string as visible text in the image.",
+  );
+}
+
+function buildCampaignFactsForCompose(data: AgentsAdsPayload["campaignData"]): string {
+  const full = buildCampaignFacts(data);
+  // In compose mode the logo is NOT passed as a reference image — it is composited in HTML.
+  // Product and background images may still be attached as style references.
+  return full.replace(
+    /\nAssets:\n[\s\S]*?(?=\n\n|$)/,
+    "\nAssets: Product and background reference images may be attached. The brand logo is NOT attached — do not attempt to draw it. NEVER render any URL, domain name, or file path as visible text.",
   );
 }
 
@@ -688,6 +698,9 @@ CTA: [shape, bg-color hex, text-color hex, border-radius, anchor position — NO
 Mood: [2-3 adjectives describing the overall visual feel]
 Anti-clone: [how this format's composition differs from ALL other formats in this batch]
 
+LAYOUT FREEDOM: Choose varied text locations. Do not put every headline/subheadline/CTA in the same area. Prefer the strongest layout from: hero-full-bleed, diagonal-split, top-image-bottom-text, left-panel-right-image, centered-minimal, bold-headline-first, frame-product, top-left-editorial, top-right-editorial, bottom-right-editorial, vertical-story-stack, floating-islands. The Layout line should include one of these keys.
+SOCIAL CTA RULE: For social/story/reels/feed/post formats, CTA must be organic text placement only. Never specify a button, pill, rectangle, or clickable UI shape.
+
 ⚠️ COPY RESTRICTION: Do NOT write any headline text, CTA button words, body copy, or subheadline content in any spec field. Describe VISUAL DESIGN PARAMETERS ONLY. The actual copy is locked externally.
 
 Output ONLY valid JSON, no markdown:
@@ -698,6 +711,7 @@ Reference isolation: FORBIDDEN in specs — any color, font, logo, imagery from 
 function buildInterpretImagePrompt(campaignFacts: string, formats: AdFormat[], formatNotes?: Record<string, string>): string {
   const formatList = buildFormatsList(formats, formatNotes);
 
+  const layoutOptions = LAYOUT_KEYS.map((key) => `- ${key}`).join("\n");
   const compositionAssignments = formats.map((f, i) => {
     const comp = COMPOSITION_POOL[i % COMPOSITION_POOL.length];
     return `- ${f.label || `${f.width}×${f.height}`}: use "${comp.split(":")[0]}" composition`;
@@ -714,6 +728,13 @@ function buildInterpretImagePrompt(campaignFacts: string, formats: AdFormat[], f
     compositionAssignments,
     "Full composition descriptions for reference:",
     COMPOSITION_POOL.join("\n"),
+    "",
+    "=== LAYOUT FREEDOM OVERRIDE ===",
+    "Treat the assignment above as inspiration, not a prison. You are the art director: choose the strongest layout for each format from the allowed keys below and vary text placement across the batch.",
+    layoutOptions,
+    "Do not default every format to bottom text. Use top-left, top-right, bottom-right, vertical story stack, floating islands, split layouts, or centered layouts when they fit the brand and format.",
+    "The Layout line must include one allowed layout key exactly as written.",
+    "For social formats (Instagram/Facebook/TikTok/LinkedIn/social/story/reels/feed/post/shorts), CTA must be organic text, never a button/pill/rectangle.",
     "",
     "For each format: follow EXACTLY the spec format from the system prompt.",
     "Colors line must include all key hex values from the brand.",
@@ -1108,7 +1129,7 @@ function ensureProvidedAssetVisible(html: string, data: AgentsAdsPayload["campai
   const opacity = isStrip ? ".32" : ".86";
   const injection = [
     `<img src="${escapeHtml(imageUrl)}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:${objectFit};z-index:0;opacity:${opacity};">`,
-    `<div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.62),rgba(0,0,0,.18));z-index:1;"></div>`,
+    `<div style="position:absolute;inset:0;background:rgba(0,0,0,.42);z-index:1;"></div>`,
   ].join("");
   return injectAfterBannerOpen(html, injection);
 }
@@ -1171,7 +1192,29 @@ async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, limit: numb
 
 // ── COMPOSE MODE HELPERS ──────────────────────────────────────────────────────
 
-const LAYOUT_KEYS = ["hero-full-bleed","diagonal-split","top-image-bottom-text","left-panel-right-image","centered-minimal","bold-headline-first","frame-product"] as const;
+const LAYOUT_KEYS = [
+  "hero-full-bleed",
+  "diagonal-split",
+  "top-image-bottom-text",
+  "left-panel-right-image",
+  "centered-minimal",
+  "bold-headline-first",
+  "frame-product",
+  "top-left-editorial",
+  "top-right-editorial",
+  "bottom-right-editorial",
+  "vertical-story-stack",
+  "floating-islands",
+] as const;
+const BACKGROUND_DIRECTIONS = [
+  "cinematic close-up crop with shallow depth, layered foreground/background, dynamic diagonal motion",
+  "editorial product scene with unexpected angle, dramatic side lighting, tactile materials, premium shadows",
+  "abstract brand world with oversized shapes, depth gradients, texture, and one strong focal path",
+  "lifestyle environment detail shot, off-center subject, natural negative space, atmospheric color wash",
+  "macro texture and product-inspired forms, asymmetric composition, high-end studio lighting",
+  "bold graphic composition with large scale contrast, motion blur accents, and a clear visual rhythm",
+  "immersive scene with foreground framing, background depth, and brand-color light leaks",
+] as const;
 
 function buildComposeCssVars(data: AgentsAdsPayload["campaignData"]): string {
   const parts: string[] = [];
@@ -1217,8 +1260,22 @@ const LAYOUT_SPACE_GUIDANCE: Record<string, string> = {
   "frame-product":       "Edges will have a geometric frame overlay — center the product. Keep corners slightly darker so framing text is legible.",
 };
 
+const CREATIVE_SPACE_GUIDANCE: Record<string, string> = {
+  "diagonal-split":      "Text will use the left side. Keep that side lower-detail, but not a flat empty panel; use subtle texture, light falloff, or abstract brand shapes. Put the strongest subject energy toward the right.",
+  "hero-full-bleed":     "Text will likely use a lower or corner area. Let the image remain cinematic and full-bleed, with the busiest detail away from the text area.",
+  "top-image-bottom-text": "Text will sit near the bottom. Put the visual hook in the upper area, while the lower area can contain soft texture, depth, or color wash.",
+  "left-panel-right-image": "Text will use the left side. Keep the left side readable with low-detail brand atmosphere, not a blank block. Put subject/product energy on the right.",
+  "centered-minimal":    "Text may sit at top and bottom. Use a strong central visual idea with clean surrounding air, avoiding tiny busy details behind text zones.",
+  "bold-headline-first": "Text will use top and bottom areas. Make the middle visually expressive, with reduced micro-detail behind the headline and CTA areas.",
+  "frame-product":       "Text may sit near edges. Use an inventive framed or layered scene, with readable edges and a stronger center focal area.",
+  "top-left-editorial":  "Text will sit in the top-left quadrant. Keep that area lower-detail with atmospheric texture, while the strongest visual subject can sit bottom-right or center-right.",
+  "top-right-editorial": "Text will sit in the top-right quadrant. Keep that area readable with soft contrast, while visual energy can sit left or lower-left.",
+  "bottom-right-editorial": "Text will sit in the bottom-right quadrant. Keep that area calm and contrast-friendly, with visual subject energy left or upper-left.",
+  "vertical-story-stack": "Text will use a vertical story-style stack with logo near top, headline around upper/mid canvas, and CTA near bottom. Keep these lanes readable without making them empty.",
+  "floating-islands":    "HTML elements will be spread across separate visual islands. Keep multiple calm zones available, with expressive detail between them.",
+};
+
 type LayoutPosition = {
-  overlayGradient: string;
   logo: string;
   headline: string;
   sub: string;
@@ -1227,53 +1284,76 @@ type LayoutPosition = {
 
 const LAYOUT_POSITIONS: Record<string, LayoutPosition> = {
   "diagonal-split": {
-    overlayGradient: "linear-gradient(135deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.72) 50%,rgba(0,0,0,0.04) 51%,rgba(0,0,0,0.04) 100%)",
     logo:     "top:6%;left:6%;width:30%;max-height:14%;",
     headline: "top:28%;left:6%;right:54%;",
     sub:      "top:52%;left:6%;right:54%;",
     cta:      "bottom:10%;left:6%;",
   },
   "hero-full-bleed": {
-    overlayGradient: "linear-gradient(to top,rgba(0,0,0,0.82) 0%,rgba(0,0,0,0.44) 50%,rgba(0,0,0,0.10) 100%)",
     logo:     "top:5%;left:5%;width:28%;max-height:12%;",
     headline: "bottom:28%;left:5%;right:5%;",
     sub:      "bottom:17%;left:5%;right:5%;",
     cta:      "bottom:6%;left:5%;",
   },
   "top-image-bottom-text": {
-    overlayGradient: "linear-gradient(to bottom,rgba(0,0,0,0) 0%,rgba(0,0,0,0) 50%,rgba(0,0,0,0.72) 55%,rgba(0,0,0,0.82) 100%)",
     logo:     "bottom:43%;left:5%;width:28%;max-height:12%;",
     headline: "bottom:24%;left:5%;right:5%;",
     sub:      "bottom:13%;left:5%;right:5%;",
     cta:      "bottom:4%;left:5%;",
   },
   "left-panel-right-image": {
-    overlayGradient: "linear-gradient(90deg,rgba(0,0,0,0.76) 0%,rgba(0,0,0,0.76) 42%,rgba(0,0,0,0.04) 43%,rgba(0,0,0,0.04) 100%)",
     logo:     "top:6%;left:4%;width:30%;max-height:14%;",
     headline: "top:28%;left:4%;right:60%;",
     sub:      "top:50%;left:4%;right:60%;",
     cta:      "bottom:10%;left:4%;",
   },
   "centered-minimal": {
-    overlayGradient: "radial-gradient(ellipse at center,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.18) 100%)",
     logo:     "top:5%;left:50%;transform:translateX(-50%);width:28%;max-height:12%;",
     headline: "top:20%;left:5%;right:5%;text-align:center;",
     sub:      "top:44%;left:10%;right:10%;text-align:center;",
     cta:      "bottom:8%;left:50%;transform:translateX(-50%);",
   },
   "bold-headline-first": {
-    overlayGradient: "linear-gradient(to bottom,rgba(0,0,0,0.76) 0%,rgba(0,0,0,0.28) 40%,rgba(0,0,0,0.08) 70%,rgba(0,0,0,0.62) 100%)",
     logo:     "top:5%;right:5%;width:22%;max-height:10%;",
     headline: "top:10%;left:5%;right:5%;",
     sub:      "top:44%;left:5%;right:5%;",
     cta:      "bottom:6%;left:5%;",
   },
   "frame-product": {
-    overlayGradient: "radial-gradient(ellipse at center,rgba(0,0,0,0.08) 35%,rgba(0,0,0,0.68) 100%)",
     logo:     "top:5%;left:50%;transform:translateX(-50%);width:30%;max-height:14%;",
     headline: "bottom:22%;left:5%;right:5%;text-align:center;",
     sub:      "bottom:13%;left:5%;right:5%;text-align:center;",
     cta:      "bottom:4%;left:50%;transform:translateX(-50%);",
+  },
+  "top-left-editorial": {
+    logo:     "top:5%;left:5%;width:26%;max-height:11%;",
+    headline: "top:18%;left:5%;right:42%;",
+    sub:      "top:42%;left:5%;right:48%;",
+    cta:      "top:68%;left:5%;",
+  },
+  "top-right-editorial": {
+    logo:     "top:5%;right:5%;width:24%;max-height:11%;",
+    headline: "top:18%;left:44%;right:5%;text-align:right;",
+    sub:      "top:42%;left:48%;right:5%;text-align:right;",
+    cta:      "top:68%;right:5%;",
+  },
+  "bottom-right-editorial": {
+    logo:     "top:5%;left:5%;width:24%;max-height:11%;",
+    headline: "bottom:25%;left:42%;right:5%;text-align:right;",
+    sub:      "bottom:13%;left:48%;right:5%;text-align:right;",
+    cta:      "bottom:5%;right:5%;",
+  },
+  "vertical-story-stack": {
+    logo:     "top:5%;left:6%;width:24%;max-height:10%;",
+    headline: "top:16%;left:6%;right:16%;",
+    sub:      "top:58%;left:6%;right:24%;",
+    cta:      "bottom:6%;left:6%;",
+  },
+  "floating-islands": {
+    logo:     "top:5%;left:5%;width:24%;max-height:10%;",
+    headline: "top:16%;left:5%;right:38%;",
+    sub:      "bottom:18%;left:40%;right:5%;text-align:right;",
+    cta:      "bottom:6%;right:5%;",
   },
 };
 
@@ -1285,7 +1365,36 @@ function detectCompositionLayout(spec: string): string {
   if (s.includes("centered-minimal") || s.includes("centered minimal")) return "centered-minimal";
   if (s.includes("bold-headline-first") || s.includes("bold headline")) return "bold-headline-first";
   if (s.includes("frame-product") || s.includes("frame product")) return "frame-product";
+  if (s.includes("top-left-editorial") || s.includes("top left editorial") || s.includes("top-left")) return "top-left-editorial";
+  if (s.includes("top-right-editorial") || s.includes("top right editorial") || s.includes("top-right")) return "top-right-editorial";
+  if (s.includes("bottom-right-editorial") || s.includes("bottom right editorial") || s.includes("bottom-right")) return "bottom-right-editorial";
+  if (s.includes("vertical-story-stack") || s.includes("vertical story") || s.includes("story stack")) return "vertical-story-stack";
+  if (s.includes("floating-islands") || s.includes("floating islands") || s.includes("visual islands")) return "floating-islands";
   return "hero-full-bleed";
+}
+
+function resolveCompositionLayout(spec: string, layoutKey?: string, forceLayout?: boolean): string {
+  // forceLayout=true bypasses spec detection — used for A/B visual variants so
+  // each variant gets its own distinct layout regardless of what the spec says.
+  if (forceLayout && layoutKey) return layoutKey;
+
+  const s = spec.toLowerCase();
+  const hasExplicitLayout = [
+    "diagonal-split", "diagonal split",
+    "top-image-bottom-text", "top image bottom",
+    "left-panel-right-image", "left panel",
+    "centered-minimal", "centered minimal",
+    "bold-headline-first", "bold headline",
+    "frame-product", "frame product",
+    "top-left-editorial", "top left editorial", "top-left",
+    "top-right-editorial", "top right editorial", "top-right",
+    "bottom-right-editorial", "bottom right editorial", "bottom-right",
+    "vertical-story-stack", "vertical story", "story stack",
+    "floating-islands", "floating islands", "visual islands",
+    "hero-full-bleed", "hero full bleed",
+  ].some((token) => s.includes(token));
+
+  return hasExplicitLayout ? detectCompositionLayout(spec) : (layoutKey ?? "hero-full-bleed");
 }
 
 function extractCssVarColor(cssVars: string, varName: string): string | null {
@@ -1298,37 +1407,129 @@ function extractCssVarFont(cssVars: string): string | null {
   return m ? m[1].trim() : null;
 }
 
+function hexLuminance(hex: string): number {
+  const h = hex.replace("#", "").padEnd(6, "0");
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const lin = (c: number) => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function contrastTextColor(bgHex: string): { color: string; shadow: string } {
+  try {
+    return hexLuminance(bgHex) > 0.35
+      ? { color: "#111111", shadow: "0 1px 4px rgba(255,255,255,0.55)" }
+      : { color: "#ffffff", shadow: "0 2px 10px rgba(0,0,0,0.50)" };
+  } catch {
+    return { color: "#ffffff", shadow: "0 2px 10px rgba(0,0,0,0.50)" };
+  }
+}
+
+function isSocialFormat(format: AdFormat): boolean {
+  const haystack = [
+    format.platform,
+    format.format,
+    format.label,
+  ].map((value) => String(value || "").toLowerCase()).join(" ");
+
+  return /\b(instagram|facebook|tiktok|linkedin|pinterest|twitter|x|youtube|snapchat|social|story|stories|reel|reels|feed|post|shorts)\b/.test(haystack);
+}
+
+function normalizeSpecLabel(value: unknown): string {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function specForFormat(allSpecs: string, format: AdFormat): string {
+  const source = String(allSpecs || "").trim();
+  if (!source.includes("[") || !source.includes("]")) return source;
+
+  const blocks = source.split(/\n\s*\n(?=\[[^\]]+\]\s*\n)/g);
+  const candidates = [
+    format.label,
+    `${format.width}x${format.height}`,
+    `${format.width}×${format.height}`,
+    format.format,
+    format.platform,
+  ].map(normalizeSpecLabel).filter(Boolean);
+
+  for (const block of blocks) {
+    const match = block.match(/^\s*\[([^\]]+)\]\s*\n([\s\S]*)$/);
+    if (!match) continue;
+    const label = normalizeSpecLabel(match[1]);
+    if (candidates.some((candidate) => candidate === label || label.includes(candidate) || candidate.includes(label))) {
+      return match[2].trim();
+    }
+  }
+
+  const first = blocks[0]?.replace(/^\s*\[[^\]]+\]\s*\n/, "").trim();
+  return first || source;
+}
+
 function buildBackgroundPrompt(
   spec: string,
   campaignFactsImg: string,
   format: AdFormat,
   aspectRatio: string,
   layoutKey?: string,
+  visualDirection?: string,
 ): string {
-  const layout = spec ? detectCompositionLayout(spec) : (layoutKey ?? "hero-full-bleed");
-  const spaceGuide = LAYOUT_SPACE_GUIDANCE[layout] ?? LAYOUT_SPACE_GUIDANCE["hero-full-bleed"];
+  const layout = resolveCompositionLayout(spec, layoutKey);
+  const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
+  const direction = visualDirection || BACKGROUND_DIRECTIONS[0];
   return [
-    "Generate a BACKGROUND-ONLY advertising visual. This image will have text, logo, and CTA overlaid on top of it in HTML — do NOT include any of those in the generated image.",
+    "You are generating the BACKGROUND LAYER of a composite ad.",
+    "An HTML overlay placed on top will add: the brand logo, headline, body copy, and CTA. Your image must contain NONE of those.",
+    "Your job is purely the visual backdrop: colors, textures, gradients, shapes, product/scene photography, atmospheric elements.",
+    "",
+    "████ ZERO-TEXT RULE — NO EXCEPTIONS ████",
+    "❌ NO text of any kind — not headline, not body copy, not CTA, not tagline, not slogan, not offer, not brand name, not any word or letter.",
+    "❌ NO logo, wordmark, icon, seal, emblem, monogram, or any brand symbol whatsoever.",
+    "❌ NO button shapes, pill shapes, or any UI element that looks like it holds text.",
+    "❌ NO placeholder boxes, lorem ipsum, or text-shaped blanks.",
+    "The HTML overlay will handle all of these. Any text or logo in your image will break the composite.",
+    "",
+    "CREATIVE DIRECTION:",
+    direction,
+    "Avoid the default centered product-on-plain-background look. Use varied crop, camera angle, depth, lighting, foreground layers, texture, and asymmetry.",
+    "Do not repeat the same asset placement unless the format absolutely requires it. Reinterpret the reference assets as a brand world, not a template.",
+    "When a low-detail zone is requested, do not make it a blank panel. Use soft gradients, depth blur, atmospheric color, subtle materials, or low-contrast pattern.",
+    "",
+    "████ SPACE RULE — REQUIRED ████",
+    `Reserve low-detail zones for the HTML overlay: ${spaceGuide}`,
+    "These zones need enough visual calm and contrast so that white or dark text is legible on top.",
+    "Avoid filling every pixel — the brand logo and headline need clear breathing room.",
     "",
     spec
-      ? `CREATIVE SPEC (use for color palette, visual style, brand aesthetic, and composition — ignore any text-placement hints):\n${spec}`
-      : "Create a visually compelling background using the brand's colors and visual language.",
+      ? `CREATIVE SPEC (follow for color palette, visual style, brand aesthetic, and composition):\n${spec}`
+      : "Create a visually compelling backdrop using the brand's colors and visual language.",
     "",
-    "CAMPAIGN CONTEXT (brand aesthetic reference only):",
+    "CAMPAIGN CONTEXT (for color/style reference only — do NOT render any of this text):",
     campaignFactsImg,
     "",
     `FORMAT: ${format.width}×${format.height}px | Aspect ratio: ${aspectRatio}`,
-    `LAYOUT RESERVED ZONES: ${spaceGuide}`,
     "",
-    "OUTPUT: A clean visual background — brand colors, shapes, textures, gradients, product imagery.",
-    "STRICT EXCLUSIONS — do NOT render any of the following:",
-    "- Any text of any kind (headlines, copy, CTAs, brand names, taglines, prices, labels)",
-    "- Any logo, wordmark, icon, badge, or brand symbol",
-    "- Any button, pill, badge, or UI element that implies clickability",
-    "- Any placeholder boxes, lorem ipsum, or text guides",
-    "Text and branding will be composited on top of this image in a separate layer.",
+    "OUTPUT: Pure visual — brand colors, gradients, textures, product/scene photography. Zero text. Zero UI elements.",
   ].filter(Boolean).join("\n");
 }
+
+// Gradient scrims positioned over each layout's text zone.
+// These sit at z-index:1 (above background, below text) and guarantee white
+// text is legible regardless of what the AI generated in that area.
+const LAYOUT_SCRIMS: Record<string, string> = {
+  "hero-full-bleed":        "inset:auto 0 0 0;height:55%;background:linear-gradient(to top,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.36) 55%,rgba(0,0,0,0) 100%)",
+  "diagonal-split":         "inset:0 52% 0 0;background:linear-gradient(to right,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0.26) 80%,rgba(0,0,0,0) 100%)",
+  "top-image-bottom-text":  "inset:48% 0 0 0;background:linear-gradient(to bottom,rgba(0,0,0,0) 0%,rgba(0,0,0,0.68) 35%,rgba(0,0,0,0.80) 100%)",
+  "left-panel-right-image": "inset:0 56% 0 0;background:linear-gradient(to right,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.30) 75%,rgba(0,0,0,0) 100%)",
+  "centered-minimal":       "inset:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0.52) 0%,rgba(0,0,0,0.18) 65%,rgba(0,0,0,0) 100%)",
+  "bold-headline-first":    "inset:0 0 auto 0;height:50%;background:linear-gradient(to bottom,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.28) 72%,rgba(0,0,0,0) 100%)",
+  "frame-product":          "inset:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0.08) 28%,rgba(0,0,0,0.64) 100%)",
+  "top-left-editorial":     "inset:0 52% 52% 0;background:linear-gradient(135deg,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0) 100%)",
+  "top-right-editorial":    "inset:0 0 52% 52%;background:linear-gradient(225deg,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0) 100%)",
+  "bottom-right-editorial": "inset:50% 0 0 50%;background:linear-gradient(315deg,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0) 100%)",
+  "vertical-story-stack":   "inset:0;background:linear-gradient(to bottom,rgba(0,0,0,0.58) 0%,rgba(0,0,0,0.16) 35%,rgba(0,0,0,0.16) 65%,rgba(0,0,0,0.58) 100%)",
+  "floating-islands":       "inset:0;background:rgba(0,0,0,0.30)",
+};
 
 function buildCompositionHtml(
   bgDataUrl: string,
@@ -1338,62 +1539,82 @@ function buildCompositionHtml(
   cssVars: string,
   fontUrl: string,
   layoutKey?: string,
+  forceLayout?: boolean,
 ): string {
   const w = format.width ?? 1080;
   const h = format.height ?? 1080;
   const platform = format.platform || "banner";
   const formatName = format.format || "ad";
 
-  const detectedLayout = spec ? detectCompositionLayout(spec) : (layoutKey ?? "hero-full-bleed");
+  const detectedLayout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const layout = LAYOUT_POSITIONS[detectedLayout] ?? LAYOUT_POSITIONS["hero-full-bleed"];
 
   const primaryColor = extractCssVarColor(cssVars, "--primary") || "#1a1a2e";
-  const secondaryColor = extractCssVarColor(cssVars, "--secondary") || "#e94560";
   const fontFamily = extractCssVarFont(cssVars) || "'Inter','Helvetica Neue',Arial,sans-serif";
 
   const headline = String(data.mainHeadline || "").trim();
   const sub = String(data.subheadline || data.offer || "").trim();
-  const cta = String(data.ctaText || "Learn More").trim();
   const logoUrl = String(data.logoUrl || "").trim();
 
   const headlinePx = Math.round(Math.min(h * 0.072, w * 0.062, 68));
-  const subPx = Math.round(headlinePx * 0.54);
-  const ctaPx = Math.round(subPx * 0.92);
-  const btnPadV = Math.round(h * 0.016);
-  const btnPadH = Math.round(w * 0.044);
-  const btnRadius = Math.round(h * 0.012);
+  const subPx     = Math.round(headlinePx * 0.54);
+  const ctaPx     = Math.round(Math.min(h * 0.044, w * 0.040, 28));
+  const logoPx    = Math.round(subPx * 0.92);
 
-  const isSocial = ["instagram", "facebook", "tiktok", "linkedin"].includes(platform.toLowerCase());
+  // Always use white text in compose mode — the scrim layer guarantees contrast
+  // regardless of what the AI generated. Using brand color for text caused
+  // illegibility whenever background and brand had similar tones.
+  const textColor = "#ffffff";
+  const textShadow = "0 2px 12px rgba(0,0,0,0.70), 0 1px 3px rgba(0,0,0,0.50)";
+  const subColor = "rgba(255,255,255,0.90)";
 
   const fontImport = fontUrl ? `<style>@import url('${fontUrl}');</style>` : "";
 
   const bgLayer = bgDataUrl
-    ? `<img src="${bgDataUrl}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0" alt="" />`
-    : `<div style="position:absolute;inset:0;background:${primaryColor};z-index:0"></div>`;
+    ? `<img class="ad-bg" src="${bgDataUrl}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0" alt="" />`
+    : `<div class="ad-bg" style="position:absolute;inset:0;background:${primaryColor};z-index:0"></div>`;
 
-  const overlayLayer = `<div style="position:absolute;inset:0;background:${layout.overlayGradient};z-index:1"></div>`;
+  // Scrim: semi-transparent gradient over the text zone, ensures white text legibility
+  const scrimCss = LAYOUT_SCRIMS[detectedLayout] ?? LAYOUT_SCRIMS["hero-full-bleed"];
+  const scrimLayer = `<div style="position:absolute;${scrimCss};z-index:1;pointer-events:none"></div>`;
 
   const logoLayer = logoUrl
     ? `<img src="${logoUrl}" style="position:absolute;${layout.logo}object-fit:contain;z-index:20" alt="logo" />`
-    : (data.brandName ? `<div style="position:absolute;${layout.logo}font-family:${fontFamily};font-size:${ctaPx}px;font-weight:700;color:#fff;z-index:20;white-space:nowrap">${String(data.brandName).trim()}</div>` : "");
+    : (data.brandName ? `<div style="position:absolute;${layout.logo}font-family:${fontFamily};font-size:${logoPx}px;font-weight:700;color:${textColor};z-index:20;white-space:nowrap;text-shadow:${textShadow}">${String(data.brandName).trim()}</div>` : "");
 
   const headlineLayer = headline
-    ? `<div style="position:absolute;${layout.headline}font-family:${fontFamily};font-size:${headlinePx}px;font-weight:900;color:#fff;line-height:1.15;text-shadow:0 2px 14px rgba(0,0,0,0.55);z-index:25">${headline}</div>`
+    ? `<div style="position:absolute;${layout.headline}font-family:${fontFamily};font-size:${headlinePx}px;font-weight:900;color:${textColor};line-height:1.15;text-shadow:${textShadow};z-index:25">${headline}</div>`
     : "";
 
   const subLayer = sub
-    ? `<div style="position:absolute;${layout.sub}font-family:${fontFamily};font-size:${subPx}px;font-weight:400;color:rgba(255,255,255,0.90);line-height:1.4;z-index:25">${sub}</div>`
+    ? `<div style="position:absolute;${layout.sub}font-family:${fontFamily};font-size:${subPx}px;font-weight:400;color:${subColor};line-height:1.4;text-shadow:${textShadow};z-index:25">${sub}</div>`
     : "";
 
-  const ctaLayer = isSocial
-    ? `<div style="position:absolute;${layout.cta}font-family:${fontFamily};font-size:${ctaPx}px;font-weight:600;color:rgba(255,255,255,0.88);z-index:30">${cta}</div>`
-    : `<div style="position:absolute;${layout.cta}font-family:${fontFamily};font-size:${ctaPx}px;font-weight:700;color:#fff;background:${secondaryColor};padding:${btnPadV}px ${btnPadH}px;border-radius:${btnRadius}px;white-space:nowrap;z-index:30;cursor:pointer">${cta}</div>`;
+  // CTA layer — social formats get organic text gesture, display formats get a button
+  const ctaRaw = String(data.ctaText || "").trim();
+  const isSocialFmt = isSocialFormat(format);
+  let ctaLayer = "";
+  if (ctaRaw) {
+    if (isSocialFmt) {
+      // Organic CTA: plain text + gesture indicator, no button shape
+      ctaLayer = `<div style="position:absolute;${layout.cta}font-family:${fontFamily};font-size:${ctaPx}px;font-weight:600;color:${textColor};text-shadow:${textShadow};z-index:25;white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`;
+    } else {
+      // Display CTA: contrasting button
+      const isDark = contrastTextColor(primaryColor).color === "#ffffff";
+      const btnBg    = isDark ? "rgba(255,255,255,0.95)" : "rgba(20,20,20,0.88)";
+      const btnColor = isDark ? "#111111"                : "#ffffff";
+      const padV = Math.round(ctaPx * 0.42);
+      const padH = Math.round(ctaPx * 0.90);
+      const br   = Math.round(ctaPx * 0.38);
+      ctaLayer = `<div style="position:absolute;${layout.cta}display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaPx}px;font-weight:700;padding:${padV}px ${padH}px;border-radius:${br}px;box-shadow:0 4px 18px rgba(0,0,0,0.22);z-index:25;white-space:nowrap;">${ctaRaw}</div>`;
+    }
+  }
 
   return `<!-- BANNER_START -->
 <div class="ad-banner" data-platform="${platform}" data-format="${formatName}" style="position:relative;width:${w}px;height:${h}px;overflow:hidden;font-family:${fontFamily}">
   ${fontImport}
   ${bgLayer}
-  ${overlayLayer}
+  ${scrimLayer}
   ${logoLayer}
   ${headlineLayer}
   ${subLayer}
@@ -1431,21 +1652,36 @@ type ReferenceImage = {
   role?: "reference" | "source_to_reconstruct";
 };
 
+// Max base64 size (~300 KB decoded) for reference images sent to the image model.
+// Larger images waste input tokens and can OOM the edge function. Style/color
+// reference quality is identical at this size.
+const MAX_REF_IMAGE_BYTES = 400_000; // base64 chars ≈ 300 KB binary
+
 async function fetchImageBase64(url: string): Promise<{ mimeType: string; data: string } | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
     const mime = res.headers.get("content-type")?.split(";")[0].trim() ?? "image/jpeg";
     if (!mime.startsWith("image/")) return null;
-    // Gemini inline image parts do not accept SVG. Keep SVG URLs in campaign
-    // facts so the generated HTML can render them, but do not send SVG bytes
-    // as visual reference input.
+    // Gemini inline image parts do not accept SVG.
     if (mime === "image/svg+xml") return null;
     const buf = await res.arrayBuffer();
     const bytes = new Uint8Array(buf);
+
+    // IMPORTANT: do NOT use char-by-char concatenation (bin += String.fromCharCode(bytes[i])).
+    // That is O(n²) in memory — a 1 MB image produces ~50 MB of garbage strings.
+    // Chunked spread is O(n) and stays within the 256 MB edge function limit.
+    const CHUNK = 8192;
     let bin = "";
-    for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
-    return { mimeType: mime, data: btoa(bin) };
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
+    const data = btoa(bin);
+
+    // Skip oversized reference images — model only needs color/style, not full resolution.
+    if (data.length > MAX_REF_IMAGE_BYTES) return null;
+
+    return { mimeType: mime, data };
   } catch {
     return null;
   }
@@ -1615,13 +1851,14 @@ async function generateWithRetry(
   const chain = [preferredModel, ...chainBase.filter((m) => m !== preferredModel)];
   let lastError: Error | null = null;
 
+  const geminiOpts = { thinkingLevel: options?.thinkingLevel, responseMimeType: options?.responseMimeType, responseSchema: options?.responseSchema };
+
   for (const model of chain) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         return await callGemini(
           systemPrompt, userMessage, model, temperature, maxTokens,
-          apiKey, fileSearchStores, referenceImages,
-          { thinkingLevel: options?.thinkingLevel, responseMimeType: options?.responseMimeType, responseSchema: options?.responseSchema }
+          apiKey, fileSearchStores, referenceImages, geminiOpts,
         );
       } catch (e) {
         lastError = e instanceof Error ? e : new Error(String(e));
@@ -1631,6 +1868,20 @@ async function generateWithRetry(
             `[agents-ads][model-fallback] preferred=${preferredModel} current=${model} ` +
             `attempt=${attempt + 1}/2 status=${status ?? "non-http"} error="${lastError.message.slice(0, 120)}"`
           );
+        }
+        // 403 from file search store = store missing or wrong API key.
+        // Retry immediately on the SAME model without stores so generation continues.
+        if (status === "403" && fileSearchStores?.length && lastError.message.includes("file search store")) {
+          console.warn(`[agents-ads] File search store 403 — retrying without stores on ${model}`);
+          try {
+            return await callGemini(
+              systemPrompt, userMessage, model, temperature, maxTokens,
+              apiKey, undefined, referenceImages, geminiOpts,
+            );
+          } catch (retryErr) {
+            lastError = retryErr instanceof Error ? retryErr : new Error(String(retryErr));
+            break;
+          }
         }
         if (status === "429" || status === "502" || status === "503" || status === "546") {
           await new Promise((r) => setTimeout(r, attempt === 0 ? 4000 : 10000));
@@ -1776,13 +2027,18 @@ serve(async (req: Request) => {
       // Creative spec from interpret step — same pipeline as HTML mode, just different output model
       const spec = String(payload.creativePlan || "").trim();
 
-      const socialPlatforms = new Set(["instagram", "facebook", "tiktok", "linkedin"]);
-
       const imageFns = imageTasks.map((task) => async () => {
         const { format, variantLabel, focusInstruction } = task;
         const aspectRatio = imageAspectRatioForFormat(format);
-        const isSocial = typeof format.platform === "string" && socialPlatforms.has(format.platform.toLowerCase());
+        const isSocial = isSocialFormat(format);
         const hasLogo = Boolean(String(campaignData.logoUrl || "").trim());
+        const ctaForImage = String(campaignData.ctaText || "").trim();
+
+        const ctaInstruction = isSocial
+          ? `CTA RULE (SOCIAL FORMAT): Do NOT draw a button, pill, rectangle, or any UI element for the CTA. Instead, integrate the call-to-action as organic text — e.g. "${ctaForImage || "Swipe up"} ↑", "See more ↓", or a short phrase that matches the platform's native content style. It must look like in-feed content, not a paid ad button.`
+          : ctaForImage
+            ? `CTA RULE (DISPLAY FORMAT): Include a prominent CTA button with the exact text: "${ctaForImage}". Use a contrasting pill or rounded-rectangle button that stands out from the background. This is the only button in the image.`
+            : "Include a prominent CTA button suited to the brand style.";
 
         const prompt = [
           "Create a complete, professional advertising image for the following campaign. This must look like a real paid advertisement.",
@@ -1796,9 +2052,13 @@ serve(async (req: Request) => {
           "",
           `FORMAT: ${format.width}×${format.height}px | Platform: ${format.platform || "digital"} | Aspect ratio: ${aspectRatio}`,
           variantLabel ? `A/B VARIANT ${variantLabel}: ${focusInstruction}` : focusInstruction,
-          isSocial
-            ? "SOCIAL FORMAT: Express the CTA as organic text copy integrated into the layout (e.g. 'Available now · Link in bio'). Do not draw buttons or clickable UI elements."
-            : "",
+          "",
+          "TEXT HIERARCHY RULE:",
+          "• HEADLINE: one dominant line — the main hook or promise.",
+          "• BODY COPY: one or two supporting lines — clarify the offer. Keep it short.",
+          "• CTA: see CTA rule below. This is separate from body copy — do not repeat copy text as the CTA.",
+          "",
+          ctaInstruction,
           "",
           hasLogo
             ? "BRAND REFERENCE (logo): The first attached image shows the brand logo and its color identity. Study its color palette, typography style, and visual personality to inform the ad. Use the brand colors faithfully. Do NOT attempt to copy-paste or directly reproduce the logo image — render the brand name as text or a clean logotype area using the brand's color system."
@@ -1808,7 +2068,7 @@ serve(async (req: Request) => {
             : "",
           "",
           imageLangLabel ? `All visible text in this image must be written in ${imageLangLabel}.` : "",
-          "Produce a polished, finished ad image with clear visual hierarchy: dominant headline, supporting copy, visible CTA, and brand identity.",
+          "Produce a polished, finished ad image with clear visual hierarchy: dominant headline, supporting copy, CTA (per CTA rule above), and brand identity.",
         ].filter(Boolean).join("\n");
         const imageUrl = await generateAdImage(prompt, refImagesForGen, apiKey, aspectRatio);
         return {
@@ -1830,8 +2090,22 @@ serve(async (req: Request) => {
 
     // ── COMPOSE MODE: background image + HTML overlay ─────────────────────────
     if (mode === "compose") {
-      const campaignFactsImg = buildCampaignFactsForImage(campaignData);
-      const refImagesForGen = referenceImages.map((r) => ({ data: r.data, mimeType: r.mimeType }));
+      const campaignFactsImg = buildCampaignFactsForCompose(campaignData);
+
+      // CRITICAL: never pass the logo to the background image generator.
+      // The logo is composited later in HTML (buildCompositionHtml). Passing it as a
+      // visual reference causes the model to embed it in the background pixel art.
+      const logoUrlNorm = String(campaignData.logoUrl || "").trim().toLowerCase();
+      const MAX_REF_IMAGE_B64 = 400_000;
+      const refImagesForGen = referenceImages
+        .filter((r) => {
+          const spec = imageSpecs.find((s) => s.label === r.label);
+          if (!spec) return true;
+          const urlNorm = spec.url.trim().toLowerCase();
+          return urlNorm !== logoUrlNorm && !spec.label.toLowerCase().startsWith("company logo");
+        })
+        .filter((r) => r.data.length <= MAX_REF_IMAGE_B64)
+        .map((r) => ({ data: r.data, mimeType: r.mimeType }));
 
       // brandSpec: use creativePlan if provided (e.g. from external API worker),
       // otherwise derive instantly from campaignData — PHP already enriched it with
@@ -1842,42 +2116,83 @@ serve(async (req: Request) => {
       const cssVars = specCssVars || buildComposeCssVars(campaignData);
       const imageTasks = buildImageVariantTasks(formats, campaignData);
 
-      const composeFns = imageTasks.map((task, taskIndex) => async () => {
-        const { format, variantLabel } = task;
-        const aspectRatio = imageAspectRatioForFormat(format);
-        const layoutHint = LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
+      // A/B visual focus: each variant gets its OWN background image and a FORCED
+      // distinct layout so variants are visually differentiated. Bypasses ratio dedup.
+      const isAbVisual = Boolean(campaignData.abTestingEnabled)
+        && String(campaignData.abTestFocus || "").toLowerCase() === "visual";
 
-        const bgPrompt = buildBackgroundPrompt(brandSpec, campaignFactsImg, format, aspectRatio, layoutHint);
-        const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
-          maxAttempts: 1,
-          timeoutMs: 75000,
-          singleConfig: true,
+      let banners: Awaited<ReturnType<typeof runWithConcurrency>>;
+
+      if (isAbVisual) {
+        const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
+          const { format, variantLabel } = task;
+          const aspectRatio = imageAspectRatioForFormat(format);
+          const layoutHint = LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
+          const visualDirection = BACKGROUND_DIRECTIONS[taskIndex % BACKGROUND_DIRECTIONS.length];
+          const taskBrandSpec = specForFormat(brandSpec, format);
+
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, format, aspectRatio, layoutHint, visualDirection);
+          const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
+            maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
+          });
+
+          const bannerHtml = buildCompositionHtml(
+            bgDataUrl ?? "", campaignData, format, taskBrandSpec, cssVars, fontUrl,
+            layoutHint, true, // forceLayout=true: bypass spec, guarantee distinct layout per variant
+          );
+          const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
+          return {
+            html: fullHtml,
+            platform: format.platform || "other",
+            format: format.format || "ad",
+            label: `${format.label || `${format.width}x${format.height}`}${variantLabel ? ` - Variant ${variantLabel}` : ""}`,
+            width: format.width || 1080,
+            height: format.height || 1080,
+            variant: variantLabel || null,
+          };
         });
+        banners = await runWithConcurrency(abComposeFns, 1);
+      } else {
+        // Standard path: deduplicate backgrounds by aspect ratio (cost saving)
+        const bgByRatio = new Map<string, string>();
+        const uniqueRatios = [...new Set(imageTasks.map((task) => imageAspectRatioForFormat(task.format)))];
+        for (const aspectRatio of uniqueRatios) {
+          const task = imageTasks.find((candidate) => imageAspectRatioForFormat(candidate.format) === aspectRatio)!;
+          const ratioIndex = uniqueRatios.indexOf(aspectRatio);
+          const taskIndex = imageTasks.indexOf(task);
+          const taskBrandSpec = specForFormat(brandSpec, task.format);
+          const layoutHint = LAYOUT_KEYS[(taskIndex + ratioIndex) % LAYOUT_KEYS.length];
+          const visualDirection = BACKGROUND_DIRECTIONS[(taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection);
+          const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
+            maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
+          });
+          bgByRatio.set(aspectRatio, bgDataUrl ?? "");
+        }
 
-        const bannerHtml = buildCompositionHtml(
-          bgDataUrl ?? "",
-          campaignData,
-          format,
-          brandSpec,
-          cssVars,
-          fontUrl,
-          layoutHint,
-        );
+        const composeFns = imageTasks.map((task, taskIndex) => async () => {
+          const { format, variantLabel } = task;
+          const aspectRatio = imageAspectRatioForFormat(format);
+          const layoutHint = LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
+          const bgDataUrl = bgByRatio.get(aspectRatio) ?? "";
+          const taskBrandSpec = specForFormat(brandSpec, format);
 
-        const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
-
-        return {
-          html: fullHtml,
-          platform: format.platform || "other",
-          format: format.format || "ad",
-          label: `${format.label || `${format.width}x${format.height}`}${variantLabel ? ` - Variant ${variantLabel}` : ""}`,
-          width: format.width || 1080,
-          height: format.height || 1080,
-          variant: variantLabel || null,
-        };
-      });
-
-      const banners = await runWithConcurrency(composeFns, 1);
+          const bannerHtml = buildCompositionHtml(
+            bgDataUrl, campaignData, format, taskBrandSpec, cssVars, fontUrl, layoutHint,
+          );
+          const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
+          return {
+            html: fullHtml,
+            platform: format.platform || "other",
+            format: format.format || "ad",
+            label: `${format.label || `${format.width}x${format.height}`}${variantLabel ? ` - Variant ${variantLabel}` : ""}`,
+            width: format.width || 1080,
+            height: format.height || 1080,
+            variant: variantLabel || null,
+          };
+        });
+        banners = await runWithConcurrency(composeFns, 4);
+      }
       return new Response(JSON.stringify({ mode: "compose", banners }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -1894,7 +2209,7 @@ serve(async (req: Request) => {
       const interpretResult = await generateWithRetry(
         INTERPRET_SYSTEM_PROMPT,
         buildInterpretPrompt(campaignFacts, formats, campaignData.formatNotes, referenceGuide),
-        agentConfig.model || "gemini-2.5-flash",
+        "gemini-3.5-flash",
         0.5,
         8000,
         apiKey,
@@ -1918,21 +2233,36 @@ serve(async (req: Request) => {
         campaignGoodExamplesStore,
       ].filter((s): s is string => Boolean(s?.trim()));
 
-      const interpretImageResult = await generateWithRetry(
-        INTERPRET_IMAGE_SYSTEM_PROMPT,
-        buildInterpretImagePrompt(campaignFacts, formats, campaignData.formatNotes),
-        agentConfig.model || "gemini-2.5-flash",
-        0.5,
-        8000,
-        apiKey,
-        imageFileSearchStores.length ? imageFileSearchStores : undefined,
-        undefined,
-      );
-      const parsed = extractInterpretJson(interpretImageResult.text);
-      return new Response(
-        JSON.stringify({ batchSpecs: parsed.batchSpecs || [], usedStores: imageFileSearchStores }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      try {
+        const interpretImageResult = await generateWithRetry(
+          INTERPRET_IMAGE_SYSTEM_PROMPT,
+          buildInterpretImagePrompt(campaignFacts, formats, campaignData.formatNotes),
+          "gemini-3.5-flash",
+          0.5,
+          8000,
+          apiKey,
+          imageFileSearchStores.length ? imageFileSearchStores : undefined,
+          undefined,
+        );
+        const parsed = extractInterpretJson(interpretImageResult.text);
+        return new Response(
+          JSON.stringify({ batchSpecs: parsed.batchSpecs || [], usedStores: imageFileSearchStores }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      } catch (interpretErr) {
+        // Store unavailable or permission error — return empty specs so compose
+        // proceeds with campaignData fallback (buildComposeBrandSpec).
+        const msg = String(interpretErr);
+        const isStoreError = msg.includes("403") || msg.toLowerCase().includes("permission") || msg.includes("file search store");
+        if (isStoreError) {
+          console.warn(`[agents-ads] interpret_image store error, returning empty specs: ${msg.slice(0, 200)}`);
+          return new Response(
+            JSON.stringify({ batchSpecs: [], usedStores: [], storeError: msg.slice(0, 200) }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+        throw interpretErr;
+      }
     }
 
     if (mode !== "render" && mode !== "unified") {

@@ -342,16 +342,16 @@ try {
 
     if ($existingProject) {
         $pid = (int)$existingProject['id'];
-        $stmt = $conn->prepare("UPDATE projects SET name = ? WHERE id = ? AND user_id = ?");
-        $stmt->bind_param("sii", $name, $pid, $effectiveUserId);
+        $stmt = $conn->prepare("UPDATE projects SET name = ?, public_url = ?, folder_path = ? WHERE id = ? AND user_id = ?");
+        $stmt->bind_param("sssii", $name, $public_url, $folder_path, $pid, $effectiveUserId);
         if (!$stmt->execute()) {
             throw new RuntimeException('Erro ao atualizar projeto: ' . $stmt->error);
         }
         $stmt->close();
         $project_id = $pid;
     } else {
-        $stmt = $conn->prepare("INSERT INTO projects (user_id, name, project_type, created_at) VALUES (?, ?, ?, NOW())");
-        $stmt->bind_param("iss", $user_id, $name, $project_type);
+        $stmt = $conn->prepare("INSERT INTO projects (user_id, name, public_url, folder_path, project_type, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
+        $stmt->bind_param("issss", $user_id, $name, $public_url, $folder_path, $project_type);
         if (!$stmt->execute()) {
             throw new RuntimeException('Erro ao salvar projeto: ' . $stmt->error);
         }
@@ -461,6 +461,54 @@ try {
 
         ensure_directory($bFolder);
 
+        // ── Compose banner: extract background image and rewrite HTML ──────
+        // Compose banners embed the Gemini-generated background as a data URL
+        // inside the HTML. Storing multi-MB base64 in generated_html exceeds
+        // MySQL max_allowed_packet. Extract it, save as background.png, and
+        // rewrite the src attribute so the HTML stays small (a few KB).
+        //
+        // IMPORTANT: do NOT use PCRE to match the base64 payload.
+        // A 1MB+ base64 string exceeds PHP's pcre.backtrack_limit (default 1M),
+        // causing preg_match to return false and silently skip extraction.
+        // Use strpos/substr which have no such limit.
+        if (!$isImageBanner) {
+            // Find src="data:image/... or src='data:image/...
+            $bgPos = false;
+            $bgQuote = '"';
+            foreach (['"', "'"] as $q) {
+                $p = stripos($bHtml, 'src=' . $q . 'data:image/');
+                if ($p !== false && ($bgPos === false || $p < $bgPos)) {
+                    $bgPos   = $p;
+                    $bgQuote = $q;
+                }
+            }
+
+            if ($bgPos !== false) {
+                $dataStart = $bgPos + 5;           // skip: src="
+                $dataEnd   = strpos($bHtml, $bgQuote, $dataStart);
+                if ($dataEnd !== false) {
+                    $dataUrl   = substr($bHtml, $dataStart, $dataEnd - $dataStart);
+                    $commaPos  = strpos($dataUrl, ',');
+                    // Header: data:image/png;base64  or  data:image/webp;base64
+                    $dataHeader = $commaPos !== false ? substr($dataUrl, 0, $commaPos) : '';
+                    if ($commaPos !== false && preg_match('/^data:image\/([a-zA-Z0-9+\-]+);base64$/i', $dataHeader, $hdrMatch)) {
+                        $bgExt   = strtolower($hdrMatch[1]) === 'jpeg' ? 'jpg' : strtolower($hdrMatch[1]);
+                        $b64Raw  = substr($dataUrl, $commaPos + 1);
+                        $bgBytes = base64_decode(str_replace(["\n", "\r", " ", "\t"], '', $b64Raw), true);
+                        if ($bgBytes !== false && strlen($bgBytes) > 1000) {
+                            $bgFile = 'background.' . $bgExt;
+                            if (file_put_contents($bFolder . DIRECTORY_SEPARATOR . $bgFile, $bgBytes) !== false) {
+                                // Replace the data URL in-place with the relative file reference
+                                $bHtml = substr($bHtml, 0, $bgPos + 5)
+                                    . './' . $bgFile
+                                    . substr($bHtml, $dataEnd);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if ($isImageBanner && strncasecmp($bHtml, 'data:image/', 11) === 0) {
             // Use strpos/substr instead of PCRE — avoids backtrack limit on multi-MB data URLs.
             $commaPos = strpos($bHtml, ',');
@@ -488,7 +536,9 @@ try {
                 $bImageUrl = $bFolderUrl . $imgFile;
             }
         } else if (!$isImageBanner) {
-            file_put_contents($bFolder . DIRECTORY_SEPARATOR . 'index.html', $bHtml);
+            if (file_put_contents($bFolder . DIRECTORY_SEPARATOR . 'index.html', $bHtml) === false) {
+                throw new RuntimeException('Erro ao salvar HTML do criativo em ' . $bDirName);
+            }
         }
 
         // Store the local file path in generated_html for image banners, not the raw

@@ -124,7 +124,18 @@ type OverlayMode = 'none' | 'color' | 'gradient' | 'dark' | 'mask';
 
 const EDITOR_MESSAGE_SOURCE = 'chiliforge-ads-editor';
 
-const BRIDGE_STYLE_CONTENT = '.cf-editor-hover{outline:2px dashed #06b6d4 !important; outline-offset:2px !important; cursor:move !important;}\n.cf-editor-selected{outline:3px solid #0891b2 !important; outline-offset:2px !important; cursor:move !important;}\n.cf-editor-editing{outline:2px solid #3b82f6 !important; outline-offset:2px !important; cursor:text !important; background:rgba(59,130,246,0.04) !important;}\n.cf-editor-dragging{outline:3px solid #22d3ee !important; outline-offset:2px !important; cursor:grabbing !important; user-select:none !important;}\n.ad-banner,.creative-frame,.creative-scale{position:relative;}';
+const BRIDGE_STYLE_CONTENT = [
+  // Prevent text selection and native image drag across the whole canvas
+  '*{user-select:none !important;-webkit-user-select:none !important;}',
+  '[contenteditable="true"]{user-select:text !important;-webkit-user-select:text !important;}',
+  'img{-webkit-user-drag:none;user-drag:none;}',
+  // Editor state classes
+  '.cf-editor-hover{outline:2px dashed #06b6d4 !important;outline-offset:2px !important;cursor:move !important;}',
+  '.cf-editor-selected{outline:3px solid #0891b2 !important;outline-offset:2px !important;cursor:move !important;}',
+  '.cf-editor-editing{outline:2px solid #3b82f6 !important;outline-offset:2px !important;cursor:text !important;background:rgba(59,130,246,0.04) !important;}',
+  '.cf-editor-dragging{outline:3px solid #22d3ee !important;outline-offset:2px !important;cursor:grabbing !important;}',
+  '.ad-banner,.creative-frame,.creative-scale{position:relative;}',
+].join('\n');
 
 const BRIDGE_SCRIPT_CONTENT = `(function(){
   var SOURCE='${EDITOR_MESSAGE_SOURCE}';
@@ -835,6 +846,24 @@ const injectBridgeIntoDocument = (doc: Document) => {
   script.id = 'cf-editor-bridge-script';
   script.textContent = BRIDGE_SCRIPT_CONTENT;
   (doc.body || doc.documentElement).appendChild(script);
+
+  // Set draggable=false on all existing images and watch for new ones.
+  // Prevents the browser's native image-drag ghost from interfering with
+  // our custom drag handler.
+  const applyNoDrag = (root: Document | HTMLElement) => {
+    (root instanceof Document ? root.querySelectorAll('img') : root.querySelectorAll('img'))
+      .forEach((img) => { (img as HTMLImageElement).draggable = false; });
+  };
+  applyNoDrag(doc);
+  const imgObserver = new (doc.defaultView as any).MutationObserver((mutations: MutationRecord[]) => {
+    for (const m of mutations) {
+      m.addedNodes.forEach((n) => {
+        if ((n as HTMLElement).tagName === 'IMG') (n as HTMLImageElement).draggable = false;
+        (n as HTMLElement).querySelectorAll?.('img').forEach((img) => { (img as HTMLImageElement).draggable = false; });
+      });
+    }
+  });
+  imgObserver.observe(doc.body, { childList: true, subtree: true });
 };
 
 export const stripEditorBridge = (html: string): string => {
@@ -1390,6 +1419,7 @@ export function AdsEditor({
   const [filesUploading, setFilesUploading] = useState(false);
   const [iframeReady, setIframeReady] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [editorTab, setEditorTab] = useState<'element' | 'sections'>('element');
   const [editorPanelTab, setEditorPanelTab] = useState<'content' | 'style' | 'advanced'>('content');
   const [, setHistoryVersion] = useState(0);
@@ -1410,6 +1440,8 @@ export function AdsEditor({
   const [floatingLayersOpen, setFloatingLayersOpen] = useState(false);
   const [layersPanelRect, setLayersPanelRect] = useState<{ top: number; left: number } | null>(null);
   const [canvasZoom, setCanvasZoom] = useState(1);
+  const [canvasNaturalSize, setCanvasNaturalSize] = useState({ width: 0, height: 0 });
+  const [mouseCanvasPos, setMouseCanvasPos] = useState<{ x: number; y: number } | null>(null);
   const [showEditorGrid, setShowEditorGrid] = useState(false);
   const [showSafeZones, setShowSafeZones] = useState(false);
   const [snapToGrid, setSnapToGrid] = useState(false);
@@ -1437,11 +1469,17 @@ export function AdsEditor({
   const emitChangeFrameRef = useRef<number | null>(null);
   const pendingChangeRef = useRef<string | null>(null);
   const lastEmittedHtmlRef = useRef('');
+  const canvasZoomRef = useRef(1);
 
   const canUndo = historyPastRef.current.length > 0;
   const canRedo = historyFutureRef.current.length > 0;
 
   useEffect(() => { latestHtmlRef.current = html; }, [html]);
+  useEffect(() => { canvasZoomRef.current = canvasZoom; }, [canvasZoom]);
+  useEffect(() => {
+    const doc = iframeRef.current?.contentDocument;
+    if (doc) doc.documentElement.dataset.cfSnap = snapToGrid ? '8' : '0';
+  }, [snapToGrid, iframeReady]);
 
   useEffect(() => {
     setGlobalBrandColors(initialBrandColors);
@@ -1527,24 +1565,27 @@ export function AdsEditor({
 
       injectBridgeIntoDocument(doc);
 
-      // Auto-fit canvasZoom on first open so the full ad banner is visible
-      if (!initialZoomAppliedRef.current) {
-        requestAnimationFrame(() => {
-          const adEl = doc.querySelector('.ad-banner, .creative-frame, .creative-scale') as HTMLElement | null;
-          const container = iframeRef.current?.parentElement;
-          if (!adEl || !container) return;
+      // Read natural canvas size and auto-fit zoom on first open
+      requestAnimationFrame(() => {
+        const adEl = doc.querySelector('.ad-banner, .creative-frame, .creative-scale') as HTMLElement | null;
+        if (adEl) {
           const adW = adEl.scrollWidth || adEl.offsetWidth;
           const adH = adEl.scrollHeight || adEl.offsetHeight;
-          const rect = container.getBoundingClientRect();
-          if (adW > 50 && adH > 50 && rect.width > 0 && rect.height > 0) {
-            const fit = parseFloat(Math.min(rect.width / adW, rect.height / adH).toFixed(2));
-            if (fit < 0.95) {
-              setCanvasZoom(fit);
-              initialZoomAppliedRef.current = true;
+          if (adW > 0 && adH > 0) setCanvasNaturalSize({ width: adW, height: adH });
+
+          if (!initialZoomAppliedRef.current) {
+            const container = iframeRef.current?.parentElement?.parentElement;
+            const rect = container?.getBoundingClientRect();
+            if (adW > 50 && adH > 50 && rect && rect.width > 0 && rect.height > 0) {
+              const fit = parseFloat(Math.min((rect.width - 64) / adW, (rect.height - 64) / adH).toFixed(2));
+              if (fit < 0.95) {
+                setCanvasZoom(Math.max(0.1, fit));
+                initialZoomAppliedRef.current = true;
+              }
             }
           }
-        });
-      }
+        }
+      });
 
       const docWithHandler = doc as Document & {
         __cfParentSelectionHandler?: EventListener;
@@ -1660,10 +1701,12 @@ export function AdsEditor({
           target.style.margin = '0';
         }
 
-        if (!target.style.width && widthPx > 0) {
+        // Always freeze current rendered dimensions as explicit px so the element
+        // never relies on content/flow sizing after being made absolute.
+        if (widthPx > 0) {
           target.style.width = `${widthPx}px`;
         }
-        if (!target.style.height && heightPx > 0 && !['SPAN', 'STRONG', 'EM', 'SMALL'].includes(target.tagName)) {
+        if (heightPx > 0 && !['SPAN', 'STRONG', 'EM', 'SMALL'].includes(target.tagName)) {
           target.style.height = `${heightPx}px`;
         }
         if (!target.style.zIndex || target.style.zIndex === 'auto') {
@@ -1671,17 +1714,26 @@ export function AdsEditor({
         }
       };
 
-      const isNonEditableCanvasLayer = (element: HTMLElement) => (
-        element === doc.body ||
-        element.classList.contains('ad-banner') ||
-        element.classList.contains('creative-board') ||
-        element.classList.contains('creative-grid') ||
-        element.classList.contains('creative-frame') ||
-        element.classList.contains('creative-scale') ||
-        element.classList.contains('ad-bg')
-      );
+      const isNonEditableCanvasLayer = (element: HTMLElement) => {
+        if (element === doc.body) return true;
+        if (element.classList.contains('ad-banner')) return true;
+        if (element.classList.contains('creative-board')) return true;
+        if (element.classList.contains('creative-grid')) return true;
+        if (element.classList.contains('creative-frame')) return true;
+        if (element.classList.contains('creative-scale')) return true;
+        if (element.classList.contains('ad-bg')) return true;
+        // Detect background layer: img/div that is first child of .ad-banner with z-index <= 0
+        const parent = element.parentElement;
+        if (parent && (parent.classList.contains('ad-banner') || parent.classList.contains('creative-frame'))) {
+          const zIdx = parseInt(doc.defaultView?.getComputedStyle(element).zIndex || '0', 10);
+          if (zIdx <= 0) return true;
+        }
+        return false;
+      };
 
-      const updateResizeOverlay = (target: HTMLElement | null) => {
+      // positionOnly=true: only reposition the overlay box, skip recreating handles.
+      // Use during drag/resize mousemove to avoid per-frame DOM churn.
+      const updateResizeOverlay = (target: HTMLElement | null, positionOnly = false) => {
         let overlay = doc.getElementById('cf-editor-resize-overlay') as HTMLDivElement | null;
         if (!target || isNonEditableCanvasLayer(target)) {
           overlay?.remove();
@@ -1697,17 +1749,26 @@ export function AdsEditor({
 
         const rect = target.getBoundingClientRect();
         overlay.dataset.targetPath = buildCssPath(target);
-        overlay.style.left = `${Math.round(rect.left)}px`;
-        overlay.style.top = `${Math.round(rect.top)}px`;
-        overlay.style.width = `${Math.max(1, Math.round(rect.width))}px`;
+        overlay.style.left   = `${Math.round(rect.left)}px`;
+        overlay.style.top    = `${Math.round(rect.top)}px`;
+        overlay.style.width  = `${Math.max(1, Math.round(rect.width))}px`;
         overlay.style.height = `${Math.max(1, Math.round(rect.height))}px`;
+
+        if (positionOnly) return;
+
         overlay.innerHTML = '';
 
         const handles: Array<{ dir: string; cursor: string; style: Partial<CSSStyleDeclaration> }> = [
-          { dir: 'e', cursor: 'ew-resize', style: { right: '-5px', top: '50%', transform: 'translateY(-50%)' } },
-          { dir: 's', cursor: 'ns-resize', style: { left: '50%', bottom: '-5px', transform: 'translateX(-50%)' } },
-          { dir: 'se', cursor: 'nwse-resize', style: { right: '-5px', bottom: '-5px' } },
+          // 4 corners
           { dir: 'nw', cursor: 'nwse-resize', style: { left: '-5px', top: '-5px' } },
+          { dir: 'ne', cursor: 'nesw-resize', style: { right: '-5px', top: '-5px' } },
+          { dir: 'se', cursor: 'nwse-resize', style: { right: '-5px', bottom: '-5px' } },
+          { dir: 'sw', cursor: 'nesw-resize', style: { left: '-5px', bottom: '-5px' } },
+          // 4 edge midpoints
+          { dir: 'n', cursor: 'ns-resize',  style: { left: '50%', top: '-5px',    transform: 'translateX(-50%)' } },
+          { dir: 's', cursor: 'ns-resize',  style: { left: '50%', bottom: '-5px', transform: 'translateX(-50%)' } },
+          { dir: 'e', cursor: 'ew-resize',  style: { right: '-5px', top: '50%',   transform: 'translateY(-50%)' } },
+          { dir: 'w', cursor: 'ew-resize',  style: { left: '-5px',  top: '50%',   transform: 'translateY(-50%)' } },
         ];
 
         handles.forEach(({ dir, cursor, style }) => {
@@ -1725,6 +1786,7 @@ export function AdsEditor({
         const target = event.target;
         if (!(target instanceof Element)) return;
         if (target.closest('#cf-editor-resize-overlay')) return;
+        if (target instanceof HTMLElement && isNonEditableCanvasLayer(target)) return;
 
         const payload = buildSelectionPayload(target);
         if (target instanceof HTMLElement) updateResizeOverlay(target);
@@ -1734,6 +1796,52 @@ export function AdsEditor({
 
       doc.addEventListener('click', parentSelectionHandler, true);
       docWithHandler.__cfParentSelectionHandler = parentSelectionHandler;
+
+      let overlayRaf: number | null = null;
+
+      // Smart alignment guide helpers
+      type SnapPoint = { axis: 'x' | 'y'; value: number };
+
+      const collectSnapPoints = (target: HTMLElement): SnapPoint[] => {
+        const points: SnapPoint[] = [];
+        const banner = doc.querySelector('.ad-banner, .creative-frame, .creative-scale') as HTMLElement | null;
+        if (!banner) return points;
+        const br = banner.getBoundingClientRect();
+        points.push(
+          { axis: 'x', value: br.left }, { axis: 'x', value: br.left + br.width / 2 }, { axis: 'x', value: br.right },
+          { axis: 'y', value: br.top  }, { axis: 'y', value: br.top  + br.height / 2 }, { axis: 'y', value: br.bottom },
+        );
+        const all = Array.from(banner.querySelectorAll('*')) as HTMLElement[];
+        for (const el of all) {
+          if (el === target || el.id === 'cf-editor-resize-overlay' || el.id === 'cf-snap-guides' || isNonEditableCanvasLayer(el)) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 && r.height === 0) continue;
+          points.push(
+            { axis: 'x', value: r.left }, { axis: 'x', value: r.left + r.width / 2 }, { axis: 'x', value: r.right },
+            { axis: 'y', value: r.top  }, { axis: 'y', value: r.top  + r.height / 2 }, { axis: 'y', value: r.bottom },
+          );
+        }
+        return points;
+      };
+
+      const updateSnapGuides = (guides: Array<SnapPoint>) => {
+        let container = doc.getElementById('cf-snap-guides') as HTMLDivElement | null;
+        if (guides.length === 0) { container?.remove(); return; }
+        if (!container) {
+          container = doc.createElement('div');
+          container.id = 'cf-snap-guides';
+          container.style.cssText = 'position:fixed;inset:0;z-index:2147483644;pointer-events:none;overflow:hidden';
+          doc.body.appendChild(container);
+        }
+        container.innerHTML = '';
+        for (const g of guides) {
+          const line = doc.createElement('div');
+          line.style.cssText = g.axis === 'x'
+            ? `position:absolute;left:${Math.round(g.value)}px;top:0;bottom:0;width:1px;background:rgba(244,63,94,0.85);`
+            : `position:absolute;top:${Math.round(g.value)}px;left:0;right:0;height:1px;background:rgba(244,63,94,0.85);`;
+          container.appendChild(line);
+        }
+      };
 
       let dragState: {
         target: HTMLElement;
@@ -1745,6 +1853,7 @@ export function AdsEditor({
         initialWidth: number;
         initialHeight: number;
         dragging: boolean;
+        snapPoints: SnapPoint[];
       } | null = null;
 
       const getEditableDragTarget = (target: EventTarget | null) => {
@@ -1795,12 +1904,14 @@ export function AdsEditor({
           initialWidth: targetRect.width,
           initialHeight: targetRect.height,
           dragging: false,
+          snapPoints: collectSnapPoints(target),
         };
       };
 
       const dragMouseMoveHandler: EventListener = (event) => {
         if (!dragState) return;
         const mouse = event as MouseEvent;
+        if (!(mouse.buttons & 1)) { dragState = null; return; }
         const dx = mouse.clientX - dragState.startX;
         const dy = mouse.clientY - dragState.startY;
 
@@ -1819,9 +1930,44 @@ export function AdsEditor({
         if (!target.style.zIndex || target.style.zIndex === 'auto') {
           target.style.zIndex = '10';
         }
-        target.style.left = `${Math.round(dragState.initialLeft + dx)}px`;
-        target.style.top = `${Math.round(dragState.initialTop + dy)}px`;
-        updateResizeOverlay(target);
+
+        // Snap to grid if enabled (communicated via data attribute)
+        const snapSize = parseInt(doc.documentElement.dataset.cfSnap || '0', 10);
+        const snapFn = (v: number) => snapSize > 0 ? Math.round(v / snapSize) * snapSize : Math.round(v);
+
+        // Smart alignment snap: check guide points, apply correction
+        let corrX = 0, corrY = 0;
+        const activeGuides: Array<{ axis: 'x' | 'y'; value: number }> = [];
+        if (dragState.snapPoints && dragState.snapPoints.length > 0) {
+          const SNAP_THR = 6;
+          const rawLeft = dragState.initialLeft + dx;
+          const rawTop  = dragState.initialTop  + dy;
+          const tw = dragState.initialWidth;
+          const th = dragState.initialHeight;
+          const candidatesX = [rawLeft, rawLeft + tw / 2, rawLeft + tw];
+          const candidatesY = [rawTop,  rawTop  + th / 2, rawTop  + th];
+          for (const sp of dragState.snapPoints) {
+            if (sp.axis === 'x' && corrX === 0) {
+              for (const c of candidatesX) {
+                if (Math.abs(c - sp.value) <= SNAP_THR) { corrX = sp.value - c; activeGuides.push(sp); break; }
+              }
+            } else if (sp.axis === 'y' && corrY === 0) {
+              for (const c of candidatesY) {
+                if (Math.abs(c - sp.value) <= SNAP_THR) { corrY = sp.value - c; activeGuides.push(sp); break; }
+              }
+            }
+          }
+        }
+
+        target.style.left = `${snapFn(dragState.initialLeft + dx + corrX)}px`;
+        target.style.top  = `${snapFn(dragState.initialTop  + dy + corrY)}px`;
+
+        // Update guide lines
+        updateSnapGuides(activeGuides);
+
+        // RAF-throttle overlay reposition to avoid per-frame layout thrashing
+        if (overlayRaf) cancelAnimationFrame(overlayRaf);
+        overlayRaf = requestAnimationFrame(() => { overlayRaf = null; updateResizeOverlay(target, true); });
       };
 
       const dragMouseUpHandler: EventListener = (event) => {
@@ -1829,11 +1975,13 @@ export function AdsEditor({
         const wasDragging = dragState.dragging;
         const target = dragState.target;
         dragState = null;
+        doc.getElementById('cf-snap-guides')?.remove();
+        if (overlayRaf) { cancelAnimationFrame(overlayRaf); overlayRaf = null; }
         if (wasDragging) {
           const mouse = event as MouseEvent;
           mouse.preventDefault();
           mouse.stopPropagation();
-          updateResizeOverlay(target);
+          updateResizeOverlay(target); // full rebuild with handles
           window.postMessage({ source: EDITOR_MESSAGE_SOURCE, type: 'select', payload: buildSelectionPayload(target) }, '*');
           emitChange(serializeWithoutBridge(doc));
         }
@@ -1894,6 +2042,7 @@ export function AdsEditor({
       const resizeMouseMoveHandler: EventListener = (event) => {
         if (!resizeState) return;
         const mouse = event as MouseEvent;
+        if (!(mouse.buttons & 1)) { resizeState = null; return; }
         const dx = mouse.clientX - resizeState.startX;
         const dy = mouse.clientY - resizeState.startY;
         if (!resizeState.resizing && Math.hypot(dx, dy) < 3) return;
@@ -1943,18 +2092,21 @@ export function AdsEditor({
         if (!target.style.zIndex || target.style.zIndex === 'auto') {
           target.style.zIndex = '10';
         }
-        updateResizeOverlay(target);
+        // RAF-throttle: only reposition overlay, no handle rebuild during resize
+        if (overlayRaf) cancelAnimationFrame(overlayRaf);
+        overlayRaf = requestAnimationFrame(() => { overlayRaf = null; updateResizeOverlay(target, true); });
       };
 
       const resizeMouseUpHandler: EventListener = (event) => {
         if (!resizeState) return;
         const state = resizeState;
         resizeState = null;
+        if (overlayRaf) { cancelAnimationFrame(overlayRaf); overlayRaf = null; }
         if (!state.resizing) return;
         const mouse = event as MouseEvent;
         mouse.preventDefault();
         mouse.stopPropagation();
-        updateResizeOverlay(state.target);
+        updateResizeOverlay(state.target); // full rebuild with handles
         window.postMessage({ source: EDITOR_MESSAGE_SOURCE, type: 'select', payload: buildSelectionPayload(state.target) }, '*');
         emitChange(serializeWithoutBridge(doc));
       };
@@ -2098,16 +2250,11 @@ export function AdsEditor({
       if (!withModifier || event.altKey) return;
 
       const key = event.key.toLowerCase();
-      if (key === 'z' && !event.shiftKey) {
-        event.preventDefault();
-        undo();
-        return;
-      }
-
-      if ((key === 'z' && event.shiftKey) || key === 'y') {
-        event.preventDefault();
-        redo();
-      }
+      if (key === 'z' && !event.shiftKey) { event.preventDefault(); undo(); return; }
+      if ((key === 'z' && event.shiftKey) || key === 'y') { event.preventDefault(); redo(); return; }
+      if (key === '0') { event.preventDefault(); setCanvasZoom(1); return; }
+      if (key === '=' || key === '+') { event.preventDefault(); setCanvasZoom(z => parseFloat(Math.min(3, z + 0.1).toFixed(2))); return; }
+      if (key === '-') { event.preventDefault(); setCanvasZoom(z => parseFloat(Math.max(0.1, z - 0.1).toFixed(2))); return; }
     };
 
     window.addEventListener('keydown', onKeyDown);
@@ -2213,14 +2360,14 @@ export function AdsEditor({
 
       const rect = target.getBoundingClientRect();
       setToolbarPos({
-        x: iframeRect.left + rect.left,
-        y: iframeRect.top + rect.top - 48,
-        width: rect.width,
+        x: iframeRect.left + rect.left * canvasZoom,
+        y: iframeRect.top + rect.top * canvasZoom - 48,
+        width: rect.width * canvasZoom,
       });
     } catch {
       // Keep the last known toolbar position if the selected element is briefly unavailable.
     }
-  }, [selected?.path]);
+  }, [selected?.path, canvasZoom]);
 
   useEffect(() => {
     if (!selected?.path || !iframeReady) return;
@@ -2291,9 +2438,10 @@ export function AdsEditor({
         try {
           const iframeRect = iframeRef.current?.getBoundingClientRect();
           if (iframeRect) {
-            const x = iframeRect.left + payload.boundingRect.left;
-            const y = iframeRect.top + payload.boundingRect.top - 48;
-            setToolbarPos({ x, y, width: payload.boundingRect.width });
+            const zoom = canvasZoomRef.current;
+            const x = iframeRect.left + payload.boundingRect.left * zoom;
+            const y = iframeRect.top + payload.boundingRect.top * zoom - 48;
+            setToolbarPos({ x, y, width: payload.boundingRect.width * zoom });
           }
         } catch {}
         setSelectedAncestors(payload.ancestors || []);
@@ -3204,16 +3352,36 @@ export function AdsEditor({
     if (!iframeDoc) return;
 
     const sectionPath = selected?.sectionPath ?? (selected?.tag === 'section' ? selected.path : null);
-    if (!sectionPath) return;
+    // AdsEditor fallback: insert directly into the ad banner when no section is selected
+    const targetPath = sectionPath ?? (() => {
+      if (!iframeDoc) return null;
+      if (iframeDoc.querySelector('.ad-banner')) return '.ad-banner';
+      if (iframeDoc.querySelector('.creative-frame')) return '.creative-frame';
+      if (iframeDoc.querySelector('[data-platform][data-format]')) return '[data-platform][data-format]';
+      return null;
+    })();
+    if (!targetPath) return;
 
-    applyMutation(sectionPath, (sectionEl, doc) => {
-      const cloned = doc.importNode(newNode, true);
+    const isBannerInsert = !sectionPath;
+
+    applyMutation(targetPath, (sectionEl, doc) => {
+      const cloned = doc.importNode(newNode, true) as Element;
+
+      // When inserting directly into the banner, position the element in the center
+      if (isBannerInsert && cloned instanceof HTMLElement) {
+        const bw = (sectionEl as HTMLElement).offsetWidth || 400;
+        const bh = (sectionEl as HTMLElement).offsetHeight || 400;
+        cloned.style.position = 'absolute';
+        cloned.style.left = `${Math.round(bw * 0.25)}px`;
+        cloned.style.top  = `${Math.round(bh * 0.35)}px`;
+        cloned.style.zIndex = '15';
+      }
 
       // Find the top-level child of sectionEl that wraps the currently selected element,
       // then insert the new element right after it.
-      const selectedEl = selected?.path ? iframeDoc.querySelector(selected.path) : null;
+      const selectedEl = selected?.path ? iframeDoc?.querySelector(selected.path) : null;
       let insertAfter: Element | null = null;
-      if (selectedEl && selectedEl !== sectionEl) {
+      if (!isBannerInsert && selectedEl && selectedEl !== sectionEl) {
         let candidate: Element | null = selectedEl as Element;
         while (candidate && candidate.parentElement !== sectionEl) {
           candidate = candidate.parentElement;
@@ -3224,7 +3392,7 @@ export function AdsEditor({
       }
 
       if (insertAfter) {
-        insertAfter.insertAdjacentElement('afterend', cloned as Element);
+        insertAfter.insertAdjacentElement('afterend', cloned);
       } else {
         sectionEl.appendChild(cloned);
       }
@@ -4390,127 +4558,250 @@ export function AdsEditor({
     }
   };
 
-  const iframeEl = (
-    <div className="relative h-full w-full bg-muted/20">
-      {!panelOpen && (
-        <div className="absolute right-3 top-3 z-30 flex items-center gap-1 rounded-md border border-border/70 bg-background/95 p-1 shadow">
-            <Button
-              size="sm"
-              variant={layout === 'overlay' ? 'default' : 'ghost'}
-              className="h-8 gap-1.5 px-2"
-              title="Open editor panel"
-              onClick={() => {
-                setToolbarPos(null);
-                setToolbarAddElOpen(false);
-                setPanelOpen(true);
-              }}
-            >
-              <Pencil className="h-4 w-4" />
-              {layout === 'overlay' && <span className="text-xs">Edit</span>}
-            </Button>
-        </div>
-      )}
+  const TAG_ICONS: Record<string, string> = {
+    img: '⬚', h1: 'H1', h2: 'H2', h3: 'H3', h4: 'H4', p: '¶', span: 'T',
+    a: '↗', button: '▬', div: '□', section: '▤', figure: '⬜', strong: 'B', em: 'I',
+  };
+  const layerTagIcon = (tag: string) => TAG_ICONS[tag] || '○';
 
-      <div className="absolute left-3 top-3 z-30">
-        <Button
-          ref={layersBtnRef}
-          size="sm"
-          className="h-9 gap-2 rounded-md shadow-lg"
-          style={{ background: '#995AF2', color: '#fff' }}
-          onClick={() => {
-            setToolbarPos(null);
-            setToolbarAddElOpen(false);
-            setFloatingAddElOpen(false);
-            setEditorTab('element');
-            const rect = layersBtnRef.current?.getBoundingClientRect();
-            if (rect) setLayersPanelRect({ top: rect.bottom + 4, left: rect.left });
-            setFloatingLayersOpen((value) => !value);
-          }}
-          title="Layers"
+  const leftSidebar = leftPanelOpen ? (
+    <div
+      className="flex flex-col h-full shrink-0 overflow-hidden"
+      style={{
+        width: 220,
+        background: 'var(--cf-ads-panel)',
+        borderRight: '1px solid var(--cf-ads-border)',
+        color: 'var(--cf-ads-text)',
+      }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 shrink-0 border-b" style={{ borderColor: 'var(--cf-ads-border)' }}>
+        <div className="flex items-center gap-1.5">
+          <Layers className="h-3.5 w-3.5" style={{ color: 'var(--cf-ads-accent)' }} />
+          <span className="text-xs font-semibold" style={{ color: 'var(--cf-ads-text)' }}>Layers</span>
+          <span className="text-[10px] px-1 rounded" style={{ background: 'rgba(153,90,242,0.2)', color: 'var(--cf-ads-muted)' }}>
+            {adsLayers.length}
+          </span>
+        </div>
+        <button
+          onClick={() => setLeftPanelOpen(false)}
+          className="rounded p-0.5 hover:bg-white/10 transition-colors"
+          style={{ color: 'rgba(255,255,255,0.45)' }}
+          title="Hide layers"
         >
-          <Layers className="h-4 w-4" />
-          Layers
-        </Button>
+          <X className="h-3 w-3" />
+        </button>
       </div>
 
-      <div className="absolute right-3 top-3 z-30 flex items-center gap-1 rounded-md border border-white/20 bg-black/60 px-2 py-1 shadow backdrop-blur-sm">
+      {/* Layer tree */}
+      <div className="flex-1 overflow-y-auto min-h-0 py-1">
+        {adsLayers.length === 0 ? (
+          <p className="p-3 text-center text-[11px]" style={{ color: 'var(--cf-ads-muted)' }}>No layers yet</p>
+        ) : (
+          <ul className="space-y-px px-1">
+            {adsLayers.map((layer) => {
+              const isActive = selected?.path === layer.path;
+              return (
+                <li
+                  key={layer.path}
+                  className={`flex items-center gap-1.5 pr-1 py-[3px] rounded cursor-pointer text-[11px] transition-colors group ${isActive ? 'text-white' : 'hover:bg-white/5'}`}
+                  style={{ background: isActive ? 'rgba(153,90,242,0.18)' : undefined, paddingLeft: `${6 + layer.depth * 8}px` }}
+                  onClick={() => selectAdsLayer(layer.path)}
+                >
+                  <span className="shrink-0 text-[9px] font-mono opacity-50 w-5 text-center">{layerTagIcon(layer.tag)}</span>
+                  <span className="truncate flex-1" style={{ color: isActive ? 'var(--cf-ads-text)' : 'var(--cf-ads-muted)' }}>
+                    {layer.title}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* Add element section */}
+      <div className="shrink-0 border-t p-2" style={{ borderColor: 'var(--cf-ads-border)' }}>
+        <p className="text-[10px] font-medium mb-1.5 px-1" style={{ color: 'var(--cf-ads-muted)' }}>Add to canvas</p>
+        <div className="grid grid-cols-3 gap-1">
+          {Object.entries(ELEMENT_TEMPLATES).filter(([t]) => t !== 'Embedded').map(([type, tmpl]) => (
+            <button
+              key={type}
+              onClick={() => { insertElement(type); }}
+              className="flex flex-col items-center gap-0.5 rounded py-1.5 px-1 hover:bg-white/10 transition-colors text-[10px]"
+              style={{ color: 'var(--cf-ads-muted)' }}
+              title={`Add ${tmpl.label}`}
+            >
+              <span className="text-[15px] leading-none">{tmpl.icon}</span>
+              <span className="truncate w-full text-center leading-tight">{tmpl.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const handleCanvasWheel = useCallback((e: React.WheelEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.05 : 0.05;
+    setCanvasZoom(z => parseFloat(Math.min(3, Math.max(0.1, z + delta)).toFixed(2)));
+  }, []);
+
+  const handleFitToScreen = useCallback(() => {
+    const adW = canvasNaturalSize.width;
+    const adH = canvasNaturalSize.height;
+    const container = iframeRef.current?.parentElement?.parentElement;
+    const rect = container?.getBoundingClientRect();
+    if (adW > 0 && adH > 0 && rect && rect.width > 0 && rect.height > 0) {
+      const fit = parseFloat(Math.min((rect.width - 64) / adW, (rect.height - 64) / adH).toFixed(2));
+      setCanvasZoom(Math.max(0.1, Math.min(3, fit)));
+    } else {
+      setCanvasZoom(1);
+    }
+  }, [canvasNaturalSize]);
+
+  const canvasStageW = canvasNaturalSize.width > 0 ? Math.round(canvasNaturalSize.width * canvasZoom) : undefined;
+  const canvasStageH = canvasNaturalSize.height > 0 ? Math.round(canvasNaturalSize.height * canvasZoom) : undefined;
+
+  const handleWorkspaceMouseMove = useCallback((e: React.MouseEvent) => {
+    const iframe = iframeRef.current;
+    if (!iframe || canvasNaturalSize.width === 0) return;
+    const rect = iframe.getBoundingClientRect();
+    setMouseCanvasPos({
+      x: Math.round((e.clientX - rect.left) / canvasZoom),
+      y: Math.round((e.clientY - rect.top)  / canvasZoom),
+    });
+  }, [canvasZoom, canvasNaturalSize.width]);
+
+  const handleWorkspaceMouseLeave = useCallback(() => setMouseCanvasPos(null), []);
+
+  const rulerTicksX = useMemo(() => {
+    if (!canvasNaturalSize.width) return [];
+    const interval = canvasZoom >= 2 ? 5 : canvasZoom >= 1 ? 10 : canvasZoom >= 0.5 ? 25 : 50;
+    const ticks: Array<{ pos: number; label: string; major: boolean }> = [];
+    for (let v = 0; v <= canvasNaturalSize.width; v += interval) {
+      ticks.push({ pos: v, label: String(v), major: v % (interval * 5) === 0 });
+    }
+    return ticks;
+  }, [canvasNaturalSize.width, canvasZoom]);
+
+  const rulerTicksY = useMemo(() => {
+    if (!canvasNaturalSize.height) return [];
+    const interval = canvasZoom >= 2 ? 5 : canvasZoom >= 1 ? 10 : canvasZoom >= 0.5 ? 25 : 50;
+    const ticks: Array<{ pos: number; label: string; major: boolean }> = [];
+    for (let v = 0; v <= canvasNaturalSize.height; v += interval) {
+      ticks.push({ pos: v, label: String(v), major: v % (interval * 5) === 0 });
+    }
+    return ticks;
+  }, [canvasNaturalSize.height, canvasZoom]);
+
+  const iframeEl = (
+    <div
+      className="relative flex-1 overflow-auto"
+      style={{
+        background: '#13111a',
+        backgroundImage: 'radial-gradient(circle, rgba(153,90,242,0.13) 1px, transparent 1px)',
+        backgroundSize: '20px 20px',
+        minHeight: 0,
+      }}
+      onWheel={handleCanvasWheel}
+      onMouseMove={handleWorkspaceMouseMove}
+      onMouseLeave={handleWorkspaceMouseLeave}
+    >
+      {/* Top-left: position indicator (shown when element is being dragged) */}
+
+      {/* Canvas stage — scrollable, centered */}
+      <div className="flex min-h-full w-full items-start justify-center py-8 px-8" style={{ paddingLeft: 36, paddingTop: 36 }}>
+        {/* Ruler: horizontal */}
+        {canvasStageW && rulerTicksX.length > 0 && (
+          <div style={{ position: 'absolute', top: 0, left: 20, right: 0, height: 20, background: '#1a1625', zIndex: 31, overflow: 'hidden', borderBottom: '1px solid rgba(153,90,242,0.25)', pointerEvents: 'none' }}>
+            {rulerTicksX.map((tick) => (
+              <div key={tick.pos} style={{ position: 'absolute', left: tick.pos * canvasZoom + 36, top: 0, width: 1, height: tick.major ? 12 : 6, background: 'rgba(255,255,255,0.25)' }}>
+                {tick.major && <span style={{ position: 'absolute', top: 13, left: 2, fontSize: 8, color: 'rgba(255,255,255,0.45)', whiteSpace: 'nowrap', lineHeight: 1 }}>{tick.label}</span>}
+              </div>
+            ))}
+            {mouseCanvasPos && <div style={{ position: 'absolute', left: mouseCanvasPos.x * canvasZoom + 36 - 0.5, top: 0, bottom: 0, width: 1, background: 'rgba(244,63,94,0.75)' }} />}
+          </div>
+        )}
+        {/* Ruler: vertical */}
+        {canvasStageH && rulerTicksY.length > 0 && (
+          <div style={{ position: 'absolute', left: 0, top: 20, bottom: 0, width: 20, background: '#1a1625', zIndex: 31, overflow: 'hidden', borderRight: '1px solid rgba(153,90,242,0.25)', pointerEvents: 'none' }}>
+            {rulerTicksY.map((tick) => (
+              <div key={tick.pos} style={{ position: 'absolute', top: tick.pos * canvasZoom + 36, left: 0, height: 1, width: tick.major ? 12 : 6, background: 'rgba(255,255,255,0.25)' }}>
+                {tick.major && <span style={{ position: 'absolute', top: 2, left: 13, fontSize: 8, color: 'rgba(255,255,255,0.45)', whiteSpace: 'nowrap', lineHeight: 1, writingMode: 'vertical-lr' as const }}>{tick.label}</span>}
+              </div>
+            ))}
+            {mouseCanvasPos && <div style={{ position: 'absolute', top: mouseCanvasPos.y * canvasZoom + 36 - 0.5, left: 0, right: 0, height: 1, background: 'rgba(244,63,94,0.75)' }} />}
+          </div>
+        )}
+        {/* Corner square between rulers */}
+        {canvasStageW && canvasStageH && <div style={{ position: 'absolute', top: 0, left: 0, width: 20, height: 20, background: '#1a1625', zIndex: 32, borderRight: '1px solid rgba(153,90,242,0.25)', borderBottom: '1px solid rgba(153,90,242,0.25)' }} />}
+
+        <div
+          className="relative shrink-0 overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10"
+          style={canvasStageW && canvasStageH
+            ? { width: canvasStageW, height: canvasStageH }
+            : { width: '100%', minHeight: 400 }}
+        >
+          {!livePreviewUrl && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-background/95 p-6 text-center">
+              <div className="max-w-md space-y-2">
+                <p className="text-sm font-semibold">Live mode requires a published URL</p>
+                <p className="text-sm text-muted-foreground">Publish this project first so the editor can open and edit the real hosted page.</p>
+              </div>
+            </div>
+          )}
+          {!iframeReady && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 rounded-lg">
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                <p className="text-sm text-muted-foreground">Loading preview...</p>
+              </div>
+            </div>
+          )}
+          <iframe
+            ref={iframeRef}
+            src={livePreviewUrl || 'about:blank'}
+            onLoad={handleIframeLoad}
+            style={{
+              display: 'block',
+              width: canvasNaturalSize.width > 0 ? canvasNaturalSize.width : '100%',
+              height: canvasNaturalSize.height > 0 ? canvasNaturalSize.height : '100%',
+              transform: canvasZoom !== 1 ? `scale(${canvasZoom})` : undefined,
+              transformOrigin: 'top left',
+              opacity: iframeReady ? 1 : 0,
+              transition: 'opacity 0.3s',
+              minHeight: 400,
+            }}
+            title="Visual Editor Preview"
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-top-navigation-by-user-activation"
+          />
+        </div>
+      </div>
+
+      {/* Bottom controls: Zoom (center) */}
+      <div className="absolute bottom-4 left-1/2 z-30 -translate-x-1/2 flex items-center gap-0.5 rounded-full border border-white/15 bg-black/70 px-2 py-1 shadow-lg backdrop-blur-sm">
         <button
-          className="flex h-6 w-6 items-center justify-center rounded text-white/80 hover:bg-white/15 text-base leading-none font-bold"
-          title="Zoom out"
-          onClick={() => setCanvasZoom(z => Math.max(0.25, Math.round((z - 0.25) * 100) / 100))}
+          className="flex h-6 w-6 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white text-xs"
+          title="Fit to screen"
+          onClick={handleFitToScreen}
+        >⊡</button>
+        <div className="h-3 w-px bg-white/20 mx-0.5" />
+        <button
+          className="flex h-6 w-6 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white text-sm font-bold leading-none"
+          title="Zoom out (Ctrl+−)"
+          onClick={() => setCanvasZoom(z => parseFloat(Math.max(0.1, z - 0.1).toFixed(2)))}
         >−</button>
         <button
-          className="min-w-[38px] text-center text-[11px] font-semibold text-white/80 hover:text-white cursor-pointer"
-          title="Reset zoom"
+          className="min-w-[42px] text-center text-[11px] font-semibold text-white/80 hover:text-white cursor-pointer select-none"
+          title="Reset zoom (Ctrl+0)"
           onClick={() => setCanvasZoom(1)}
         >{Math.round(canvasZoom * 100)}%</button>
         <button
-          className="flex h-6 w-6 items-center justify-center rounded text-white/80 hover:bg-white/15 text-base leading-none font-bold"
-          title="Zoom in"
-          onClick={() => setCanvasZoom(z => Math.min(2, Math.round((z + 0.25) * 100) / 100))}
+          className="flex h-6 w-6 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white text-sm font-bold leading-none"
+          title="Zoom in (Ctrl+=)"
+          onClick={() => setCanvasZoom(z => parseFloat(Math.min(3, z + 0.1).toFixed(2)))}
         >+</button>
-      </div>
-
-      <div className="absolute bottom-3 left-3 z-30" ref={floatingAddElPopoverRef}>
-        {(() => {
-          const canAddElement = Boolean(selected?.sectionPath || selected?.tag === 'section');
-          return (
-            <>
-          <Button
-            size="sm"
-            className="h-10 gap-2 rounded-md shadow-lg"
-            style={{ background: '#995AF2', color: '#fff' }}
-            onClick={() => {
-              setToolbarPos(null);
-              setToolbarAddElOpen(false);
-              setFloatingAddElOpen((v) => !v);
-            }}
-            title={canAddElement ? 'Add elements or sections' : 'Add sections, or select a section to add elements'}
-          >
-            <Plus className="h-4 w-4" />
-            Add element
-          </Button>
-          {floatingAddElOpen && (
-            <div className="absolute bottom-12 left-0 rounded-md border border-border bg-background p-2 shadow-xl">
-              {renderAddMenu(floatingAddTab, setFloatingAddTab, () => setFloatingAddElOpen(false), false, canAddElement)}
-            </div>
-          )}
-            </>
-          );
-        })()}
-      </div>
-
-      <div
-        className="relative mx-auto h-full w-full transition-all duration-300"
-        style={canvasZoom !== 1 ? { transform: `scale(${canvasZoom})`, transformOrigin: 'top center', height: `${100 / canvasZoom}%` } : undefined}
-      >
-        {!livePreviewUrl && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center rounded-xl bg-background/95 p-6 text-center">
-            <div className="max-w-md space-y-2">
-              <p className="text-sm font-semibold">Live mode requires a published URL</p>
-              <p className="text-sm text-muted-foreground">
-                Publish this project first so the editor can open and edit the real hosted page.
-              </p>
-            </div>
-          </div>
-        )}
-        {!iframeReady && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 rounded-xl">
-            <div className="flex flex-col items-center gap-3">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-              <p className="text-sm text-muted-foreground">Loading preview...</p>
-            </div>
-          </div>
-        )}
-        <iframe
-          ref={iframeRef}
-          src={livePreviewUrl || 'about:blank'}
-          onLoad={handleIframeLoad}
-          className="h-full w-full"
-          style={{ opacity: iframeReady ? 1 : 0, transition: 'opacity 0.3s' }}
-          title="Visual Editor Preview"
-          sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-top-navigation-by-user-activation"
-        />
       </div>
     </div>
   );
@@ -8537,130 +8828,126 @@ export function AdsEditor({
     return (
       <>
       <div
-        className="relative grid h-full w-full gap-3"
+        className="flex h-full w-full overflow-hidden"
         style={{
           ...adsEditorChromeStyle,
-          ...(panelOpen ? { gridTemplateColumns: 'minmax(0,1fr) 380px' } : {}),
           background: 'radial-gradient(circle at 12% 0%, rgba(153, 90, 242, 0.22), transparent 32%), linear-gradient(135deg, #080510, #13091f 55%, #09050f)',
         }}
       >
-        <div className="overflow-hidden rounded-xl border bg-white shadow-lg" style={{ borderColor: 'var(--cf-ads-border)' }}>
+        {/* Left sidebar — Layers + Add element */}
+        {leftSidebar}
+
+        {/* Center — top mini-bar + canvas */}
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+          {/* Mini top bar */}
+          <div className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 border-b" style={{ borderColor: 'rgba(153,90,242,0.2)', background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)' }}>
+            {!leftPanelOpen && (
+              <button
+                onClick={() => setLeftPanelOpen(true)}
+                className="rounded p-1.5 hover:bg-white/10 transition-colors"
+                style={{ color: 'rgba(255,255,255,0.55)' }}
+                title="Show Layers"
+              >
+                <Layers className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs border-white/20 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white" onClick={() => window.open(livePreviewUrl, '_blank')}>
+              Open Site
+            </Button>
+            <div className="h-3.5 w-px bg-white/15 mx-0.5" />
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-white/70 hover:text-white hover:bg-white/10" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">
+              <Undo2 className="h-3.5 w-3.5" />
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-white/70 hover:text-white hover:bg-white/10" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)">
+              <Redo2 className="h-3.5 w-3.5" />
+            </Button>
+            <Badge variant={saving ? 'default' : 'secondary'} className="text-[10px] px-1.5 bg-white/10 text-white/60 border-0">{saving ? 'Saving…' : 'Saved'}</Badge>
+            <Button size="sm" className="ml-auto h-7 px-4 text-xs font-semibold" style={{ background: 'var(--cf-ads-primary)', color: '#fff' }} onClick={() => onChange(html)}>
+              Save Changes
+            </Button>
+            {!panelOpen && (
+              <button
+                onClick={() => setPanelOpen(true)}
+                className="rounded p-1.5 hover:bg-white/10 transition-colors ml-1"
+                style={{ color: 'rgba(255,255,255,0.55)' }}
+                title="Show Properties"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
           {iframeEl}
         </div>
 
-        {panelOpen ? (
+        {/* Right sidebar — Properties */}
+        {panelOpen && (
           <aside
-            className="h-full overflow-y-auto rounded-xl border shadow-xl"
+            className="h-full overflow-y-auto shrink-0 border-l"
             style={{
-              borderColor: 'color-mix(in srgb, var(--cf-ads-primary) 32%, transparent)',
+              width: 360,
+              borderColor: 'color-mix(in srgb, var(--cf-ads-primary) 28%, transparent)',
               background: 'linear-gradient(180deg, var(--cf-ads-panel), var(--cf-ads-panel-2))',
               color: 'var(--cf-ads-text)',
             }}
-            onMouseDownCapture={() => {
-              setToolbarPos(null);
-              setToolbarAddElOpen(false);
-            }}
+            onMouseDownCapture={() => { setToolbarPos(null); setToolbarAddElOpen(false); }}
           >
-            <div className="sticky top-0 z-10 border-b px-3 py-3 backdrop-blur" style={{ borderColor: 'var(--cf-ads-border)', background: 'rgba(16, 9, 28, 0.94)' }}>
+            <div className="sticky top-0 z-10 border-b px-3 py-2.5 backdrop-blur" style={{ borderColor: 'var(--cf-ads-border)', background: 'rgba(16, 9, 28, 0.94)' }}>
               <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold tracking-wide" style={{ color: 'var(--cf-ads-text)' }}>Properties</h3>
                 <button
-                  onClick={() => {
-                    setToolbarPos(null);
-                    setToolbarAddElOpen(false);
-                    setPanelOpen(false);
-                  }}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background hover:bg-muted"
-                  title="Hide editor panel"
+                  onClick={() => { setToolbarPos(null); setToolbarAddElOpen(false); setPanelOpen(false); }}
+                  className="rounded p-1 hover:bg-white/10 transition-colors"
+                  style={{ color: 'rgba(255,255,255,0.45)' }}
+                  title="Hide properties"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-3.5 w-3.5" />
                 </button>
-                <h3 className="text-sm font-semibold tracking-wide" style={{ color: 'var(--cf-ads-text)' }}>Ads Editor</h3>
-                <div className="flex items-center gap-1">
-                  <Button size="sm" variant="ghost" className="h-8 px-2" onClick={undo} disabled={!canUndo}>
-                    <Undo2 className="h-4 w-4" />
-                  </Button>
-                  <Button size="sm" variant="ghost" className="h-8 px-2" onClick={redo} disabled={!canRedo}>
-                    <Redo2 className="h-4 w-4" />
-                  </Button>
-                  <Badge variant={saving ? 'default' : 'secondary'}>{saving ? 'Saving...' : 'Saved'}</Badge>
-                </div>
               </div>
             </div>
-            <div className="space-y-3 p-4">{panelContent}</div>
+            <div className="space-y-3 p-3">{panelContent}</div>
           </aside>
-        ) : null}
-            {showFilesFolder && (
-              <div style={{position: 'fixed', right: 18, top: 72, zIndex: 9999}}>
-                <div className="rounded bg-yellow-300 text-black px-3 py-1 text-xs font-semibold shadow">FILES PANEL OPEN (debug)</div>
-              </div>
-            )}
+        )}
+      </div>
 
-            {/* Global files modal (overlay) - ensure visibility even when sidebar has selection */}
-            {showFilesFolder && (
-              <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/40">
-                <div className="bg-background rounded-lg shadow-lg p-4 w-full max-w-2xl border border-border" style={{ outline: '3px solid magenta' }}>
-                      <div className="mb-3 rounded-t px-3 py-2 bg-primary text-white flex items-center justify-between">
-                        <h3 className="text-sm font-semibold">Project Files Folder</h3>
-                        <Button size="sm" variant="ghost" onClick={() => setShowFilesFolder(false)}>Close</Button>
-                      </div>
-
-                      <div className="px-3 py-2">
-                        <p className="text-xs text-muted-foreground mb-3">Upload, remove, and copy paths from this project's files folder.</p>
-                      </div>
-
-                  <div className="mb-3">
-                    <input ref={fileFolderInputRef} type="file" multiple className="hidden" onChange={(e) => handleUploadFiles(e.target.files)} />
-                    <Button size="sm" variant="outline" onClick={() => fileFolderInputRef.current?.click()} disabled={filesUploading}><Upload className="mr-2 h-4 w-4" />{filesUploading ? 'Uploading...' : 'Upload files to files folder'}</Button>
+      {/* Global files modal */}
+      {showFilesFolder && (
+        <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/40">
+          <div className="bg-background rounded-lg shadow-lg p-4 w-full max-w-2xl border border-border">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold">Project Files Folder</h3>
+              <Button size="sm" variant="ghost" onClick={() => setShowFilesFolder(false)}>Close</Button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">Upload, remove, and copy paths from this project's files folder.</p>
+            <div className="mb-3">
+              <input ref={fileFolderInputRef} type="file" multiple className="hidden" onChange={(e) => handleUploadFiles(e.target.files)} />
+              <Button size="sm" variant="outline" onClick={() => fileFolderInputRef.current?.click()} disabled={filesUploading}>
+                <Upload className="mr-2 h-4 w-4" />{filesUploading ? 'Uploading...' : 'Upload files'}
+              </Button>
+            </div>
+            <div className="max-h-[50vh] overflow-auto space-y-2">
+              {filesLoading ? (
+                <p className="text-xs text-muted-foreground">Loading files...</p>
+              ) : files.length === 0 ? (
+                <p className="text-sm text-center text-muted-foreground py-6">No files yet.</p>
+              ) : files.map((f) => (
+                <div key={f.name} className="rounded border border-border/60 p-2 flex items-center justify-between">
+                  <div>
+                    <p className="truncate text-xs font-medium">{f.name}</p>
+                    <p className="text-[11px] text-muted-foreground">{Math.round((f.size || 0) / 1024)} KB</p>
                   </div>
-
-                  <div className="max-h-[50vh] overflow-auto space-y-2">
-                    {filesLoading ? (
-                      <p className="text-xs text-muted-foreground">Loading files...</p>
-                    ) : files.length === 0 ? (
-                      <div className="text-center py-6">
-                        <p className="text-sm text-muted-foreground">No files in files folder yet.</p>
-                        <p className="text-xs text-muted-foreground mt-2">Upload files above — they will appear here and you can copy their URLs.</p>
-                      </div>
-                    ) : files.map((f) => (
-                      <div key={f.name} className="rounded border border-border/60 p-2">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="truncate text-xs font-medium">{f.name}</p>
-                            <p className="text-[11px] text-muted-foreground">{Math.round((f.size || 0) / 1024)} KB</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button size="sm" variant="outline" onClick={() => {
-                              const rel = toRelativeFilePath(f.url || '');
-                              navigator.clipboard.writeText(rel).then(() => toast.success('File path copied to clipboard (relative)')).catch(() => toast.error('Could not copy path'));
-                            }}><Copy className="mr-2 h-4 w-4" />Copy</Button>
-                            <Button size="sm" variant="ghost" onClick={() => window.open(f.url, '_blank', 'noopener,noreferrer')}>Open</Button>
-                            <Button size="sm" variant="destructive" onClick={() => handleDeleteFile(f.name)}><Trash2 className="mr-2 h-4 w-4" />Delete</Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(toRelativeFilePath(f.url || '')).then(() => toast.success('Copied')).catch(() => {}); }}><Copy className="mr-1 h-3.5 w-3.5" />Copy</Button>
+                    <Button size="sm" variant="ghost" onClick={() => window.open(f.url, '_blank', 'noopener,noreferrer')}>Open</Button>
+                    <Button size="sm" variant="destructive" onClick={() => handleDeleteFile(f.name)}><Trash2 className="h-3.5 w-3.5" /></Button>
                   </div>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
-      {embedModal}
-      {floatingLayersOpen && layersPanelRect && (
-        <div
-          ref={floatingLayersPopoverRef}
-          style={{
-            position: 'fixed',
-            top: layersPanelRect.top,
-            left: layersPanelRect.left,
-            zIndex: 99998,
-            width: 320,
-            maxHeight: '70vh',
-            overflowY: 'auto',
-          }}
-        >
-          {layersPanel}
         </div>
       )}
+
+      {embedModal}
       </>
     );
   }
@@ -8668,142 +8955,101 @@ export function AdsEditor({
   return (
     <>
     <div
-      className="grid grid-cols-1 gap-4"
-      style={{ ...adsEditorChromeStyle, ...(panelOpen ? { gridTemplateColumns: 'minmax(0, 1fr) 360px' } : {}) }}
+      className="flex h-full gap-0 min-h-[70vh]"
+      style={{ ...adsEditorChromeStyle }}
     >
-      <div className="min-h-[500px] overflow-hidden rounded-xl border border-border bg-white shadow-lg" style={{ minHeight: '70vh', position: 'relative' }}>
-        {/* Header with Open Raw Site, Undo/Redo, Save Changes */}
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-border/60 bg-background/95 sticky top-0 z-40">
-          {/* Open Raw Site */}
-          <Button size="sm" variant="outline" onClick={() => window.open(livePreviewUrl, '_blank')}>Open Raw Site</Button>
+      {/* Left sidebar — Layers + Add element */}
+      {leftSidebar}
 
-          {/* Undo/Redo */}
-          <Button size="sm" variant="ghost" className="h-8 px-2 ml-2" onClick={undo} disabled={!canUndo}>
-            <Undo2 className="h-4 w-4" />
+      {/* Center — canvas with top bar */}
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden rounded-xl border border-border shadow-lg" style={{ background: '#13111a', minHeight: '70vh' }}>
+        {/* Top bar */}
+        <div className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 border-b border-white/10 bg-black/40 backdrop-blur-sm z-40">
+          {!leftPanelOpen && (
+            <button onClick={() => setLeftPanelOpen(true)} className="rounded p-1 hover:bg-white/10 transition-colors mr-1" style={{ color: 'rgba(255,255,255,0.55)' }} title="Show Layers">
+              <Layers className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs border-white/20 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white" onClick={() => window.open(livePreviewUrl, '_blank')}>
+            Open Site
           </Button>
-          <Button size="sm" variant="ghost" className="h-8 px-2" onClick={redo} disabled={!canRedo}>
-            <Redo2 className="h-4 w-4" />
+          <div className="h-3.5 w-px bg-white/15 mx-0.5" />
+          <Button size="sm" variant="ghost" className="h-7 px-2 text-white/70 hover:text-white hover:bg-white/10" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">
+            <Undo2 className="h-3.5 w-3.5" />
           </Button>
-          <Badge variant={saving ? 'default' : 'secondary'} className="ml-2">{saving ? 'Saving...' : 'Saved'}</Badge>
-
-          {/* Save Changes */}
-          <Button
-            size="sm"
-            className="ml-auto text-white font-bold px-5 py-2 rounded shadow transition"
-            style={{ background: 'var(--cf-ads-primary, #995AF2)', color: '#fff' }}
-            onClick={() => onChange(html)}
-          >
+          <Button size="sm" variant="ghost" className="h-7 px-2 text-white/70 hover:text-white hover:bg-white/10" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)">
+            <Redo2 className="h-3.5 w-3.5" />
+          </Button>
+          <Badge variant={saving ? 'default' : 'secondary'} className="text-[10px] px-1.5 bg-white/10 text-white/60 border-0">{saving ? 'Saving…' : 'Saved'}</Badge>
+          <Button size="sm" className="ml-auto h-7 px-4 text-xs font-semibold shadow" style={{ background: 'var(--cf-ads-primary, #995AF2)', color: '#fff' }} onClick={() => onChange(html)}>
             Save Changes
           </Button>
+          {!panelOpen && (
+            <button onClick={() => setPanelOpen(true)} className="rounded p-1 hover:bg-white/10 transition-colors ml-1" style={{ color: 'rgba(255,255,255,0.55)' }} title="Show Properties">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
         {iframeEl}
-        {/* Botões de ordem para sessão selecionada */}
-        {selected?.sectionPath && (
-          <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 50, display: 'flex', gap: 8 }}>
-            <Button size="icon" variant="ghost" onClick={() => moveSection(selected.sectionPath!, 'up')} title="Move up"><GripVertical style={{ transform: 'rotate(-90deg)' }} /></Button>
-            <Button size="icon" variant="ghost" onClick={() => moveSection(selected.sectionPath!, 'down')} title="Move down"><GripVertical style={{ transform: 'rotate(90deg)' }} /></Button>
-          </div>
-        )}
       </div>
 
+      {/* Right sidebar — Properties */}
       {panelOpen && (
         <aside
-          className="rounded-xl border border-border bg-background/95 p-4 overflow-y-auto"
-          onMouseDownCapture={() => {
-            setToolbarPos(null);
-            setToolbarAddElOpen(false);
-          }}
+          className="overflow-y-auto shrink-0 rounded-xl border border-border"
+          style={{ width: 360, background: 'var(--cf-ads-panel, hsl(var(--background) / 0.95))', color: 'var(--cf-ads-text)' }}
+          onMouseDownCapture={() => { setToolbarPos(null); setToolbarAddElOpen(false); }}
         >
-          <div className="mb-4 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">Ads Editor</h3>
-            <div className="flex items-center gap-1">
-              <Button size="sm" variant="ghost" className="h-8 px-2" onClick={undo} disabled={!canUndo}>
-                <Undo2 className="h-4 w-4" />
-              </Button>
-              <Button size="sm" variant="ghost" className="h-8 px-2" onClick={redo} disabled={!canRedo}>
-                <Redo2 className="h-4 w-4" />
-              </Button>
-              <Badge variant={saving ? 'default' : 'secondary'}>{saving ? 'Saving...' : 'Saved'}</Badge>
-              <Button size="sm" variant="ghost" className="h-8 w-8 p-0 ml-1" title="Close editor panel" onClick={() => {
-                setToolbarPos(null);
-                setToolbarAddElOpen(false);
-                setPanelOpen(false);
-              }}>
+          <div className="sticky top-0 z-10 border-b border-border px-3 py-2.5 bg-background/95">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold">Properties</h3>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Close panel" onClick={() => { setToolbarPos(null); setToolbarAddElOpen(false); setPanelOpen(false); }}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
           </div>
-          <div className="space-y-3">
-            {panelContent}
-          </div>
+          <div className="space-y-3 p-3">{panelContent}</div>
         </aside>
       )}
+    </div>
 
-
-      {/* Global files modal (overlay) - ensure visibility even when sidebar has selection */}
-      {showFilesFolder && (
-        <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/40">
-          <div className="bg-background rounded-lg shadow-lg p-4 w-full max-w-2xl border border-border" style={{ outline: '3px solid magenta' }}>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold">Project Files Folder</h3>
-              <Button size="sm" variant="ghost" onClick={() => setShowFilesFolder(false)}>Close</Button>
-            </div>
-
-            <p className="text-xs text-muted-foreground mb-3">Upload, remove, and copy paths from this project's files folder.</p>
-
-            <div className="mb-3">
-              <input ref={fileFolderInputRef} type="file" multiple className="hidden" onChange={(e) => handleUploadFiles(e.target.files)} />
-              <Button size="sm" variant="outline" onClick={() => fileFolderInputRef.current?.click()} disabled={filesUploading}><Upload className="mr-2 h-4 w-4" />{filesUploading ? 'Uploading...' : 'Upload files to files folder'}</Button>
-            </div>
-
-                      <div className="max-h-[50vh] overflow-auto space-y-2">
-                        {filesLoading ? (
-                          <p className="text-xs text-muted-foreground">Loading files...</p>
-                        ) : files.length === 0 ? (
-                          <div className="text-center py-6">
-                            <p className="text-sm text-muted-foreground">No files in files folder yet.</p>
-                            <p className="text-xs text-muted-foreground mt-2">Upload files above — they will appear here and you can copy their URLs.</p>
-                          </div>
-                        ) : files.map((f) => (
-                          <div key={f.name} className="rounded border border-border/60 p-2">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="truncate text-xs font-medium">{f.name}</p>
-                                <p className="text-[11px] text-muted-foreground">{Math.round((f.size || 0) / 1024)} KB</p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Button size="sm" variant="outline" onClick={() => {
-                                  const rel = toRelativeFilePath(f.url || '');
-                                  navigator.clipboard.writeText(rel).then(() => toast.success('File path copied to clipboard (relative)')).catch(() => toast.error('Could not copy path'));
-                                }}><Copy className="mr-2 h-4 w-4" />Copy</Button>
-                                <Button size="sm" variant="ghost" onClick={() => window.open(f.url, '_blank', 'noopener,noreferrer')}>Open</Button>
-                                <Button size="sm" variant="destructive" onClick={() => handleDeleteFile(f.name)}><Trash2 className="mr-2 h-4 w-4" />Delete</Button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+    {/* Global files modal */}
+    {showFilesFolder && (
+      <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/40">
+        <div className="bg-background rounded-lg shadow-lg p-4 w-full max-w-2xl border border-border">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold">Project Files Folder</h3>
+            <Button size="sm" variant="ghost" onClick={() => setShowFilesFolder(false)}>Close</Button>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">Upload, remove, and copy paths from this project's files folder.</p>
+          <div className="mb-3">
+            <input ref={fileFolderInputRef} type="file" multiple className="hidden" onChange={(e) => handleUploadFiles(e.target.files)} />
+            <Button size="sm" variant="outline" onClick={() => fileFolderInputRef.current?.click()} disabled={filesUploading}><Upload className="mr-2 h-4 w-4" />{filesUploading ? 'Uploading...' : 'Upload files'}</Button>
+          </div>
+          <div className="max-h-[50vh] overflow-auto space-y-2">
+            {filesLoading ? (
+              <p className="text-xs text-muted-foreground">Loading files...</p>
+            ) : files.length === 0 ? (
+              <p className="text-sm text-center text-muted-foreground py-6">No files yet.</p>
+            ) : files.map((f) => (
+              <div key={f.name} className="rounded border border-border/60 p-2 flex items-center justify-between">
+                <div>
+                  <p className="truncate text-xs font-medium">{f.name}</p>
+                  <p className="text-[11px] text-muted-foreground">{Math.round((f.size || 0) / 1024)} KB</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(toRelativeFilePath(f.url || '')).then(() => toast.success('Copied')).catch(() => {}); }}><Copy className="mr-1 h-3.5 w-3.5" />Copy</Button>
+                  <Button size="sm" variant="ghost" onClick={() => window.open(f.url, '_blank', 'noopener,noreferrer')}>Open</Button>
+                  <Button size="sm" variant="destructive" onClick={() => handleDeleteFile(f.name)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
-      )}
-    </div>
-    {embedModal}
-    {floatingLayersOpen && layersPanelRect && (
-      <div
-        ref={floatingLayersPopoverRef}
-        style={{
-          position: 'fixed',
-          top: layersPanelRect.top,
-          left: layersPanelRect.left,
-          zIndex: 99998,
-          width: 320,
-          maxHeight: '70vh',
-          overflowY: 'auto',
-        }}
-      >
-        {layersPanel}
       </div>
     )}
+
+    {embedModal}
     </>
   );
 }
