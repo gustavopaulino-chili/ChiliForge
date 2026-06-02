@@ -23,45 +23,47 @@ jobs:
       - name: Build React
         run: npm run build
 
-      # ── Deploy dist/ → public_html/ ──────────────────────
-      # O FTP cai na home (onde fica o DO_NOT_UPLOAD_HERE).
-      # public_html é subpasta dessa home -> caminho relativo simples.
-      - name: Deploy dist/ → public_html/
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: 195.35.41.130
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./dist/
-          server-dir: public_html/
-          log-level: verbose
-          dangerous-clean-slate: false
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/node_modules/**
-            **/.env
-            api/**
-            projects/**
-            db.php
+      - name: Instalar lftp
+        run: sudo apt-get update && sudo apt-get install -y lftp
 
-      # ── Deploy api/ → public_html/api/ ───────────────────
-      - name: Deploy api/ → public_html/api/
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: 195.35.41.130
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./api/
-          server-dir: public_html/api/
-          log-level: verbose
-          dangerous-clean-slate: false
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/node_modules/**
-            db.php
-            **/db.php
-            .env
-            **/.env
-            projects/**
+      # ── Deploy via lftp ──────────────────────────────────
+      # Controle explícito do diretório de destino (public_html/).
+      # NUNCA toca em: api/db.php, .env, projects/
+      - name: Deploy → public_html via lftp
+        env:
+          FTP_HOST: 195.35.41.130
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          lftp -c "
+            set ftp:ssl-allow false;
+            set net:timeout 20;
+            set net:max-retries 3;
+            set net:reconnect-interval-base 5;
+            open -u \"$FTP_USER\",\"$FTP_PASS\" \"$FTP_HOST\";
+
+            # Confirma onde caiu e entra no public_html
+            pwd;
+            cd public_html;
+            pwd;
+
+            # 1) Frontend (dist/) -> public_html/
+            #    --delete remove o que sumiu do build, MAS os exclude
+            #    protegem api/, projects/, .env e db.php de envio E de remoção.
+            mirror --reverse --delete --verbose --parallel=4 \
+              --exclude '^api/' \
+              --exclude '^projects/' \
+              --exclude '^db\.php\$' \
+              --exclude '^\.env\$' \
+              ../dist/ ./ ;
+
+            # 2) API (api/) -> public_html/api/  (sem --delete por segurança)
+            #    Protege db.php e .env de qualquer envio.
+            mirror --reverse --verbose --parallel=4 \
+              --exclude '^db\.php\$' \
+              --exclude '^\.env\$' \
+              --exclude '^projects/' \
+              ../api/ ./api/ ;
+
+            bye;
+          "
