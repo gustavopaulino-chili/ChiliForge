@@ -23,9 +23,9 @@ jobs:
       - name: Build React
         run: npm run build
 
-      # ── Deploy dist/ → public_html/ ──────────────────────
-      # Conexão idêntica à original que funcionava (FTP simples).
-      # Correções mantidas: caminho public_html/ e proteção de db.php/.env/projects.
+      # ── Deploy dist/ → /public_html/ ─────────────────────
+      # Caminho ABSOLUTO (com / na frente): aponta direto para a pasta,
+      # independente de onde o FTP cai ao logar.
       - name: Deploy dist/ → public_html/
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -33,7 +33,7 @@ jobs:
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          server-dir: public_html/
+          server-dir: /public_html/
           dangerous-clean-slate: false
           exclude: |
             **/.git*
@@ -44,8 +44,7 @@ jobs:
             projects/**
             db.php
 
-      # ── Deploy api/ → public_html/api/ ───────────────────
-      # NUNCA toca em db.php nem .env
+      # ── Deploy api/ → /public_html/api/ ──────────────────
       - name: Deploy api/ → public_html/api/
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -53,7 +52,7 @@ jobs:
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./api/
-          server-dir: public_html/api/
+          server-dir: /public_html/api/
           dangerous-clean-slate: false
           exclude: |
             **/.git*
