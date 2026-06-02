@@ -1,37 +1,32 @@
 name: 🌶️ Deploy ChiliForge → Hostinger
-
 on:
   push:
     branches:
       - dev
-
 jobs:
   deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
-
     steps:
-      # ── 1. Checkout ───────────────────────────────────────
       - name: Checkout repositório
         uses: actions/checkout@v4
 
-      # ── 2. Node.js ────────────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      # ── 3. Instala dependências ───────────────────────────
       - name: Instalar dependências
         run: npm ci
 
-      # ── 4. Build React ────────────────────────────────────
       - name: Build React
         run: npm run build
 
-      # ── 5. Deploy dist/ → public_html/ ───────────────────
-      # public/projects/ e .env nunca são tocados
+      # ── Deploy dist/ → raiz do site ──────────────────────
+      # IMPORTANTE: server-dir é relativo a onde o FTP "cai" ao logar.
+      #   - Se a conta FTP cai DENTRO de public_html  → use ./
+      #   - Se a conta FTP cai na HOME da conta        → use public_html/
       - name: Deploy dist/ → public_html/
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -39,14 +34,19 @@ jobs:
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          server-dir: public_html/
-          exclude: |
-            **/public/projects/**
-            **/.env
+          server-dir: ./
           dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/.env
+            api/**
+            projects/**
+            db.php
 
-      # ── 6. Deploy api/ → public_html/api/ ────────────────
-      # .env nunca é tocado
+      # ── Deploy api/ → public_html/api/ ───────────────────
+      # NUNCA toca em db.php nem .env
       - name: Deploy api/ → public_html/api/
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -54,7 +54,14 @@ jobs:
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./api/
-          server-dir: public_html/api/
-          exclude: |
-            **/.env
+          server-dir: ./api/
           dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            db.php
+            **/db.php
+            .env
+            **/.env
+            projects/**
