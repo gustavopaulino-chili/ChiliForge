@@ -755,12 +755,6 @@ export type PreparedAgentAdsRequest = {
   campaignMemoryStore?: string | null;
 };
 
-export type AgentAdsPlanResult = {
-  creativePlan: string;
-  formats: AgentAdsResult["formats"];
-  usedStores?: string[];
-  groundingMetadata?: unknown;
-};
 
 export function buildCopyLockBlock(campaignData: Record<string, unknown>): string {
   if (campaignData.useAiCopy !== false) return '';
@@ -806,15 +800,6 @@ export const prepareAdsFromCampaignPayload = (payload: {
   form_overrides?: Record<string, unknown>;
 }): Promise<PreparedAgentAdsRequest> =>
   agentsPost("prepare-generate-ads-from-campaign.php", payload);
-
-export const planAdsViaAgent = (
-  edgePayload: PreparedAgentAdsRequest["edgePayload"],
-): Promise<AgentAdsPlanResult> =>
-  invokeAiFunction<AgentAdsPlanResult>(
-    "agents-ads",
-    { ...edgePayload, mode: "plan" },
-    { accountType: edgePayload.accountType || getStoredAccountType() },
-  );
 
 export const interpretBatchesViaAgent = (
   edgePayload: PreparedAgentAdsRequest["edgePayload"],
@@ -962,39 +947,6 @@ const combineAgentBatchHtml = (htmlList: string[]) => {
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{box-sizing:border-box}body{margin:0;padding:0}${styles}</style></head><body>${bodies}</body></html>`;
 };
 
-const renderAllAgentBatches = async (
-  edgePayload: PreparedAgentAdsRequest["edgePayload"],
-  creativePlan: string,
-) => {
-  const formats = getEnabledAgentFormats(edgePayload);
-  const batches = formats.map((format) => [format]);
-  const results: Array<Omit<AgentAdsResult, "success">> = [];
-
-  for (let i = 0; i < batches.length; i++) {
-    try {
-      results.push(await renderAdsBatchViaAgent(edgePayload, batches[i], creativePlan, i, batches.length));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      if (/\b(504|546)\b|gateway|timed out|unavailable/i.test(msg)) {
-        await new Promise((resolve) => setTimeout(resolve, 4000));
-        results.push(await renderAdsBatchViaAgent(edgePayload, batches[i], creativePlan, i, batches.length));
-      } else {
-        throw err;
-      }
-    }
-  }
-
-  return {
-    html: combineAgentBatchHtml(results.map((result) => result.html).filter(Boolean)),
-    assets: Array.from(new Set(results.flatMap((result) => result.assets || []))),
-    slug: results[0]?.slug || "ad-creatives",
-    creativeCount: results.reduce((sum, result) => sum + Number(result.creativeCount || 0), 0),
-    formats,
-    usedStores: results[0]?.usedStores,
-    groundingMetadata: results.map((result) => result.groundingMetadata).filter(Boolean),
-  };
-};
-
 export const generateLandingViaAgent = (payload: {
   user_id: number;
   company_project_id: number;
@@ -1014,39 +966,6 @@ export const generateLandingViaAgent = (payload: {
   form_data?: Record<string, unknown>;
 }): Promise<AgentLpResult> =>
   agentsPost<AgentLpResult>("generate-landing.php", payload);
-
-export const generateAdsViaAgent = (payload: {
-  user_id: number;
-  company_project_id: number;
-  campaign_id?: number;
-  form_data: Record<string, unknown>;
-}): Promise<AgentAdsResult> => {
-  return prepareAdsViaAgentPayload(payload).then(async (prepared) => {
-    const plan = await planAdsViaAgent(prepared.edgePayload);
-    const creativePlan = plan.creativePlan || "";
-    const edgeResult = await renderAllAgentBatches(prepared.edgePayload, creativePlan);
-    if (creativePlan.trim() && prepared.campaignId) {
-      void agentsPost("record-campaign-generation.php", {
-        user_id: payload.user_id,
-        company_project_id: payload.company_project_id,
-        campaign_id: prepared.campaignId,
-        form_data: prepared.edgePayload.campaignData || payload.form_data,
-        creative_plan: creativePlan,
-        source: "form_generation",
-      }).catch((err) => {
-        console.warn("[form-generation] failed to record creative plan", err);
-      });
-    }
-
-    return {
-      success: true,
-      ...edgeResult,
-      creativePlan,
-      usedStores: plan.usedStores || edgeResult.usedStores,
-      groundingMetadata: [plan.groundingMetadata, edgeResult.groundingMetadata].filter(Boolean),
-    };
-  });
-};
 
 type TrackedProgressEvent =
   | { type: "plan" }
@@ -1276,20 +1195,6 @@ export type ComposeAdResult = {
   variant?: string | null;
 };
 
-export const generateAdImages = (payload: {
-  user_id: number;
-  company_project_id: number;
-  campaign_id?: number;
-  form_data: Record<string, unknown>;
-}): Promise<
-  | { success: boolean; mode: "image"; images: AdImageResult[]; banners?: never }
-  | { success: boolean; mode: "compose"; banners: ComposeAdResult[]; images?: never }
-> =>
-  agentsPost("generate-ads.php", {
-    ...payload,
-    form_data: { ...payload.form_data, generate_as_image: true },
-  });
-
 export type AdCopyResult = {
   mainHeadline: string;
   subheadline:  string;
@@ -1386,40 +1291,6 @@ export const getCampaign = (
       if (!r.ok || data?.error) throw new Error(data?.error || `HTTP ${r.status}`);
       return data;
     });
-
-export const generateFromCampaign = (payload: {
-  user_id: number;
-  company_project_id: number;
-  campaign_id: number;
-  form_overrides?: Record<string, unknown>;
-}): Promise<AgentAdsResult> => {
-  return prepareAdsFromCampaignPayload(payload)
-    .then(async (prepared) => {
-      const plan = await planAdsViaAgent(prepared.edgePayload);
-      const creativePlan = plan.creativePlan || "";
-      const edgeResult = await renderAllAgentBatches(prepared.edgePayload, creativePlan);
-      if (creativePlan.trim()) {
-        void agentsPost("record-campaign-generation.php", {
-          user_id: payload.user_id,
-          company_project_id: payload.company_project_id,
-          campaign_id: payload.campaign_id,
-          form_data: prepared.edgePayload.campaignData || {},
-          creative_plan: creativePlan,
-          source: "campaign_direct_edge",
-        }).catch((error) => {
-          console.warn("[campaign-generation] failed to record creative plan", error);
-        });
-      }
-
-      return {
-        success: true,
-        ...edgeResult,
-        creativePlan,
-        usedStores: plan.usedStores || edgeResult.usedStores,
-        groundingMetadata: [plan.groundingMetadata, edgeResult.groundingMetadata].filter(Boolean),
-      };
-    });
-};
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
