@@ -39,7 +39,7 @@ jobs:
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          server-dir: public_html/
+          server-dir: /
           exclude: |
             **/public/projects/**
             **/.env
@@ -54,7 +54,7 @@ jobs:
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./api/
-          server-dir: public_html/api/
+          server-dir: /api/
           exclude: |
             **/.env
           dangerous-clean-slate: false
