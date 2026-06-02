@@ -27,7 +27,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y lftp
 
       # ── Deploy via lftp ──────────────────────────────────
-      # Controle explícito do diretório de destino (public_html/).
+      # PRE-REQUISITO: a conta FTP usada deve ter o diretório
+      # apontado para public_html no hPanel. Assim o login JA cai
+      # dentro do public_html e o mirror vai para ./ (= public_html).
       # NUNCA toca em: api/db.php, .env, projects/
       - name: Deploy → public_html via lftp
         env:
@@ -42,28 +44,25 @@ jobs:
             set net:reconnect-interval-base 5;
             open -u \"$FTP_USER\",\"$FTP_PASS\" \"$FTP_HOST\";
 
-            # Confirma onde caiu e entra no public_html
-            pwd;
-            cd public_html;
+            # Mostra onde caiu (deve ser o public_html)
             pwd;
 
-            # 1) Frontend (dist/) -> public_html/
-            #    --delete remove o que sumiu do build, MAS os exclude
-            #    protegem api/, projects/, .env e db.php de envio E de remoção.
+            # 1) Frontend (dist/) -> raiz do login (= public_html)
+            #    --delete limpa o que sumiu do build, mas os exclude
+            #    protegem api/, projects/, .env e db.php de envio E remocao.
             mirror --reverse --delete --verbose --parallel=4 \
               --exclude '^api/' \
               --exclude '^projects/' \
               --exclude '^db\.php\$' \
               --exclude '^\.env\$' \
-              ../dist/ ./ ;
+              dist/ ./ ;
 
-            # 2) API (api/) -> public_html/api/  (sem --delete por segurança)
-            #    Protege db.php e .env de qualquer envio.
+            # 2) API (api/) -> ./api/  (sem --delete por seguranca)
             mirror --reverse --verbose --parallel=4 \
               --exclude '^db\.php\$' \
               --exclude '^\.env\$' \
               --exclude '^projects/' \
-              ../api/ ./api/ ;
+              api/ api/ ;
 
             bye;
           "
