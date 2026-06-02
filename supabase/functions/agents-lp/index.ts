@@ -25,7 +25,7 @@ type AgentsLpPayload = {
 };
 
 const env = (globalThis as any).Deno?.env;
-const MODEL_CHAIN = ["gemini-3.5-flash", "gemini-2.5-pro"];
+const MODEL_CHAIN = ["gemini-2.5-pro", "gemini-2.5-flash"];
 
 function getApiKey(userKey?: string): string {
   if (userKey?.trim()) return userKey.trim();
@@ -218,12 +218,12 @@ serve(async (req: Request) => {
     const result = await generateWithRetry(
       agentConfig.systemPrompt,
       userMessage,
-      agentConfig.model || "gemini-3.5-flash",
+      agentConfig.model || "gemini-2.5-pro",
       agentConfig.temperature ?? 0.9,
       agentConfig.maxTokens ?? 65000,
       apiKey,
       fileSearchStores.length ? fileSearchStores : undefined,
-      { thinkingLevel: "low" }
+      { thinkingLevel: "medium" }
     );
     const raw = result.text;
 

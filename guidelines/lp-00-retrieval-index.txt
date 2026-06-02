@@ -11,24 +11,27 @@ STORE FILE MAP
 
 lp-01-html-rendering-contract.txt
 Use for:
-- valid HTML structure
-- responsive sections
-- image rendering
-- CTA/link behavior
-- performance and accessibility basics
+- valid HTML structure (Tailwind CDN tech stack)
+- mobile-first responsive contract and breakpoints
+- image rendering, lazy loading, overlays
+- CTA/link/form behavior
+- performance, fonts, SEO basics
+- accessibility (AA, focus, reduced-motion)
 
 lp-02-section-architecture.txt
 Use for:
-- hero
-- proof
+- layout variety / section archetypes (anti card-grid)
+- navbar and footer
+- hero patterns (split, full-bleed, product, editorial)
+- proof / trust strip
 - benefits
 - features
-- process
-- testimonials
-- pricing
+- process / stepper
+- testimonials / stat strips
+- pricing / offer
 - FAQ
 - contact
-- final CTA
+- final CTA band
 
 lp-03-conversion-copy-and-offers.txt
 Use for:
@@ -46,12 +49,15 @@ Use for:
 - preferredStyle
 - toneOfVoice
 - brandPersonality
-- colors
-- typography
-- spacing
+- colors and brand alignment
+- typography scale (Tailwind)
+- spacing and rhythm
 - section rhythm
+- modern surfaces (gradient/glass/shadow) used tastefully
+- micro-interactions and motion
+- accessibility and contrast
 - imagery
-- premium/modern/minimal/bold/corporate styles
+- premium/modern/minimal/bold/corporate/luxury/tech styles
 
 lp-05-industry-and-objective-patterns.txt
 Use for:
@@ -69,7 +75,11 @@ Use for:
 lp-06-quality-checklist.txt
 Use for:
 - final validation
+- modern-design check
+- brand-alignment check
+- layout-variety check
 - mobile check
+- accessibility check
 - copy check
 - CTA check
 - visual quality check

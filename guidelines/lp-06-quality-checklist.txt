@@ -3,7 +3,8 @@ LANDING PAGE FINAL QUALITY CHECKLIST
 
 KEYWORDS:
 quality-check, final-check, mobile, conversion, CTA, accessibility, polish,
-landing-page-validation, brandPersonality, toneOfVoice, visual-direction
+landing-page-validation, brandPersonality, toneOfVoice, visual-direction,
+modern-design, brand-alignment, layout-variety, contrast
 
 
 CONVERSION CHECK
@@ -17,49 +18,69 @@ CONVERSION CHECK
 - No unsupported testimonials, metrics, or guarantees were invented.
 
 
+MODERN DESIGN CHECK
+-------------------
+
+- The page looks like a current (2024-2025) brand site, not a 2015 template.
+- A clear type hierarchy with a confident, large hero headline.
+- Generous whitespace and consistent spacing rhythm (no cramped sections).
+- A single coherent depth language (shadows/radius/borders) reused throughout —
+  not heavy gradient + glass + shadow stacked on everything.
+- One accent color used purposefully for CTAs/highlights; neutral surfaces elsewhere.
+- At least one contrast moment (a dark or brand-colored band).
+- Tasteful micro-interactions (hover lift, scroll reveal, focus rings) — not
+  autoplay carousels or constant animation.
+
+
+BRAND ALIGNMENT CHECK
+---------------------
+
+- The company's brand colors are actually applied (hero, CTAs, accents) — visible,
+  not just mentioned in copy.
+- The brand's heading/body fonts are used.
+- Tone of voice and brand personality visibly shaped layout, not only words.
+- The logo appears in nav/footer (and is never used as a hero/section image).
+- One dominant visual direction — not an averaged generic SaaS look.
+
+
 VISUAL CHECK
 ------------
 
 - Page feels brand-specific, not generic.
-- Colors match company/campaign data.
-- Tone of voice and brand personality visibly affect design choices.
-- Typography hierarchy is clear.
-- Sections do not all look identical.
-- Images are treated intentionally.
-- There is enough whitespace.
-- CTA styling is consistent.
-- Hero, proof, benefits, features, and final CTA do not all use the same card-grid structure.
-- The first viewport clearly signals the product/service/place/brand, not only abstract marketing copy.
+- Sections do not all look identical; at least 3 distinct layout archetypes used.
+- Hero, proof, benefits, features, and final CTA do NOT all use the same card grid.
+- Images are treated intentionally (cover/contain, overlays where needed).
+- CTA styling is consistent across the page.
+- The first viewport clearly signals the product/service/place/brand.
 
 
 MOBILE CHECK
 ------------
 
-- Hero is readable on mobile.
-- CTA is easy to tap.
-- Text does not overflow.
-- Images do not crush content.
-- Section spacing is not excessive.
+- Hero is readable on mobile; headline scales down, doesn't shrink the layout.
+- Multi-column grids collapse to 1 column.
+- CTA is easy to tap (>= 44px); sticky nav CTA reachable.
+- Text does not overflow; nothing is cut off at ~360px width.
+- Images do not crush content; section spacing is balanced.
 - Forms are usable on small screens.
 
 
 ACCESSIBILITY CHECK
 -------------------
 
-- Text contrast is strong.
-- Buttons/links are identifiable.
-- Form fields have labels.
-- Images have useful alt text when meaningful.
-- Page is navigable without relying only on hover.
+- Text contrast meets WCAG AA on its actual background.
+- Buttons/links are identifiable and have visible focus states.
+- Form fields have labels; icon-only buttons have aria-labels.
+- One logical heading order; single <h1>.
+- Page works without relying only on hover; motion respects prefers-reduced-motion.
 
 
 COPY CHECK
 ----------
 
-- Headline is specific.
+- Headline is specific and outcome-first.
 - Subheadline supports the headline.
-- Benefits are outcome-focused.
-- Features are tied to value.
+- Benefits are outcome-focused; features are tied to value.
 - CTA is short and action-oriented.
 - No filler sections.
 
@@ -70,7 +91,10 @@ FAIL AND REVISE CONDITIONS
 Revise before final output when:
 - the page could fit any generic company after changing the logo
 - tone/personality/preferredStyle do not visibly affect the layout
-- every section is a card grid
+- every section is a card grid / the page has only one layout pattern
 - the hero is vague or does not show the actual offer/product/service
+- brand colors/fonts were provided but are not visibly applied
 - CTAs are visually weak or inconsistent
 - visual assets are provided but not used meaningfully
+- the design relies on stacked heavy effects (gradient + glass + big shadows) that
+  look busy instead of polished

@@ -3,91 +3,128 @@ LANDING PAGE HTML RENDERING CONTRACT
 
 KEYWORDS:
 html, rendering, responsive, landing-page, accessibility, images, cta, forms,
-mobile, semantic-html
+mobile, semantic-html, tailwind, breakpoints, performance, fonts, seo
 
 
 CORE OUTPUT
 -----------
 
-Generate one complete landing page experience using semantic HTML and CSS.
-The page must be responsive across mobile, tablet, and desktop.
+Generate one complete, self-contained landing page: <!DOCTYPE html> ... </html>.
+Tech stack (fixed): Tailwind CSS via CDN, Google Fonts <link> in <head> before
+Tailwind, Font Awesome 6, a <style> block ONLY for @keyframes/tiny effects, and a
+single <script> before </body>. Configure brand colors/fonts in an inline
+tailwind.config (theme.extend) and use those tokens.
+
+The page must be fully responsive across mobile, tablet, and desktop using
+semantic HTML.
 
 Use:
-- semantic sections
+- semantic landmarks (<header>, <nav>, <main>, <section>, <footer>)
 - accessible buttons/links/forms
-- responsive CSS
-- readable typography
-- optimized image sizing
+- responsive Tailwind utilities (mobile-first, then sm:/md:/lg:)
+- readable typography and intentional whitespace
+- correctly sized, lazy-loaded images
 
 Avoid:
-- broken layouts on mobile
+- broken/overflowing layouts on mobile
 - hidden CTAs
-- overlapping text
+- overlapping or unreadable text
 - low contrast
 - decorative clutter without conversion purpose
+- inline event handlers spread everywhere; keep JS in the single <script>
 
 
-PAGE STRUCTURE
---------------
+RESPONSIVE CONTRACT (mobile-first, concrete)
+--------------------------------------------
 
-Recommended order:
-1. Hero
-2. Trust/proof strip
-3. Benefits or problem/solution
-4. Features/services
-5. How it works/process
-6. Social proof/testimonials/case proof
-7. Offer/pricing/lead magnet
-8. FAQ/objection handling
-9. Final CTA/contact
-
-Use only sections that match the requested project. Do not force pricing,
-testimonials, or FAQ if the data does not support them.
+- Author mobile layout first, then layer sm:/md:/lg: overrides.
+- Multi-column grids must collapse: grid-cols-1 md:grid-cols-2 lg:grid-cols-3.
+  Never ship a bare multi-column grid with no mobile fallback.
+- Reduce type scale on mobile (e.g. text-4xl sm:text-5xl lg:text-7xl), not a
+  shrunken desktop layout.
+- Section padding scales: py-16 md:py-24 lg:py-32; container px-6 lg:px-8.
+- Split/asymmetric heroes stack vertically on mobile (flex-col lg:flex-row or
+  grid-cols-1 lg:grid-cols-12).
+- Text must never overflow its container; allow wrapping, use truncation only
+  intentionally. Test that nothing is cut off at 360px width.
+- Tap targets >= 44px; sticky nav CTA stays reachable on mobile.
 
 
 CTA RULES
 ---------
 
-Every page must have:
-- one primary CTA
-- repeated CTA placement at natural decision points
+Every page has:
+- one primary CTA style (solid, accent color, clear label)
+- repeated CTA at natural decision points (hero, after value, final band)
 - CTA text matching the conversion goal
 
-CTA must be visually distinct and clickable-looking.
-
-For WhatsApp/call goals, use contact-first CTA language.
-For lead generation, reduce friction and state what happens after submission.
+CTAs must look clickable (padding, weight, hover state) and keep a focus-visible
+ring. For WhatsApp/call goals, use contact-first language and a floating fixed
+contact button. For lead generation, reduce friction and state what happens after
+submission.
 
 
 FORMS
 -----
 
-If using a form:
-- keep fields minimal
-- label every input
-- include a clear submit button
-- include trust/privacy reassurance when appropriate
-
-Do not ask for excessive information above the fold.
+If using a form: minimal fields, a visible <label> for every input, clear submit
+button, and trust/privacy reassurance when appropriate. Don't ask for excessive
+info above the fold. Inputs styled consistently (rounded-lg border focus:ring).
 
 
 IMAGE RULES
 -----------
 
-Provided company images, product images, logos, and hero images must be used
-when relevant.
-
-Use:
-- object-fit:cover for atmospheric/hero backgrounds
-- object-fit:contain for logos/product cutouts
-- overlays behind text on images
-
-Never stretch a logo or place unreadable text directly over a busy image.
+Use provided company/product/logo/hero images when relevant.
+- object-cover for atmospheric/hero/section backgrounds; object-contain for
+  logos/product cutouts.
+- Always put a scrim/overlay behind text placed over an image.
+- Add width/height or aspect-ratio to avoid layout shift; loading="lazy" and
+  decoding="async" on non-hero images; descriptive alt text.
+- Never stretch a logo or place unreadable text over a busy image.
 
 
-RESPONSIVE RULE
----------------
+PERFORMANCE & FONTS
+-------------------
 
-Mobile is not a compressed desktop layout. Re-stack sections, reduce type
-scale, and keep CTAs visible. Text must never overflow its container.
+- Limit to 2 font families; preconnect to fonts.googleapis/gstatic and request
+  only the weights used.
+- Prefer CSS gradients/SVG over heavy decorative images.
+- Keep the single <script> lightweight (no heavy libraries); vanilla JS only.
 
+
+ACCESSIBILITY
+-------------
+
+- WCAG AA contrast for text on its actual background.
+- Keyboard navigable; visible focus-visible states; logical heading order
+  (one <h1>, then <h2>/<h3>).
+- Labels on inputs; aria-label on icon-only buttons; aria-expanded on
+  accordions/menus.
+- Do not rely on hover alone to reveal essential content.
+- Respect prefers-reduced-motion (disable transforms/large animations).
+
+
+SEO BASICS
+----------
+
+Unique <title>, meta description, Open Graph tags, and JSON-LD. Write all copy in
+the language specified in the generation request.
+
+
+PAGE STRUCTURE (default order — use only what fits)
+---------------------------------------------------
+
+1. Sticky navbar
+2. Hero
+3. Trust/proof strip
+4. Benefits or problem/solution
+5. Features/services
+6. How it works / process
+7. Social proof / testimonials / case proof
+8. Offer / pricing / lead magnet
+9. FAQ / objection handling
+10. Final CTA band
+11. Footer
+
+Do not force pricing, testimonials, or FAQ if the data does not support them.

@@ -2,165 +2,181 @@ LANDING PAGE VISUAL DESIGN SYSTEM
 =================================
 
 KEYWORDS:
-visual design, preferredStyle, colors, typography, spacing, premium, modern,
-minimal, bold, playful, corporate, luxury, tech, toneOfVoice,
-brandPersonality, art-direction
+visual design, preferredStyle, colors, typography, spacing, rhythm, premium,
+modern, minimal, bold, playful, corporate, luxury, tech, toneOfVoice,
+brandPersonality, art-direction, hero, surfaces, gradient, glass, shadow,
+micro-interactions, motion, hover, scroll-reveal, accessibility, contrast,
+tailwind, brand-alignment
+
+
+TECH STACK NOTE
+---------------
+
+The page is built with Tailwind CSS (CDN) + Font Awesome + Google Fonts. Express
+every design decision with modern Tailwind utilities. Wire brand colors and
+fonts into the inline tailwind.config (theme.extend.colors.{primary,secondary,
+accent}, fontFamily.{heading,body}) and use those tokens — not random hexes.
+Use a <style> block only for @keyframes and tiny custom effects.
 
 
 CORE DESIGN BAR
 ---------------
 
-The landing page must feel like a polished brand experience, not a stack of
-generic cards. Every section should have a clear job and visual hierarchy.
+The landing page must feel like a 2024-2025 brand site, not a stack of generic
+cards. Aim for: confident whitespace, a clear type hierarchy, one strong accent,
+restrained tasteful depth, and at least 3 visually distinct section layouts.
 
 Brand personality must affect the page visually, not only the copy. Translate
 tone and personality into section rhythm, image treatment, typography, spacing,
-CTA shape, contrast, and amount of decorative energy.
+CTA shape, contrast, and amount of decorative energy. Pick ONE dominant visual
+direction per page and commit to it.
+
+
+TYPOGRAPHY (concrete)
+---------------------
+
+Use a strong, modern type scale:
+- Hero H1: text-4xl sm:text-5xl lg:text-6xl xl:text-7xl, font-extrabold or
+  font-black, tracking-tight, leading-[1.05]. Keep to <= 12 words.
+- Section H2: text-3xl md:text-4xl lg:text-5xl, font-bold, tracking-tight.
+- Eyebrow/kicker above H2: text-sm font-semibold uppercase tracking-widest,
+  in the accent color — sets section context.
+- Body: text-base md:text-lg, leading-relaxed, max-w-prose (~65ch) for readability.
+- CTA label: text-sm md:text-base font-semibold.
+
+Pair fonts: an expressive heading font + a clean readable body font (from brand
+when provided). Use font-heading / font-body tokens. Avoid: huge headings inside
+small cards, body copy below text-sm, negative letter spacing on body, more than
+two font families.
+
+
+SPACING & RHYTHM (concrete)
+---------------------------
+
+- Section vertical padding: py-20 md:py-28 lg:py-32. Hero can be taller.
+- Content container: max-w-6xl (or max-w-7xl for media-heavy) mx-auto px-6 lg:px-8.
+- Grid/flex gaps: gap-8 lg:gap-12. Stack spacing: space-y-6.
+- Generous whitespace beats dense walls. Let the hero breathe.
+- Alternate section density: hero (high impact) -> proof (compact) ->
+  benefits/features (scannable) -> process/proof (reassuring) -> final CTA (focused).
+
+
+MODERN SURFACES & DEPTH (use tastefully — pick, don't stack)
+------------------------------------------------------------
+
+Choose a small, coherent depth language and reuse it:
+- Soft layered shadows: shadow-xl shadow-black/5, rounded-2xl or rounded-3xl.
+- Hairline borders: border border-black/5 (light) / border-white/10 (dark).
+- Subtle gradients: bg-gradient-to-b from-white to-slate-50, or a brand-tinted
+  hero scrim bg-gradient-to-tr from-primary/10 via-transparent to-accent/10.
+- Glass (only when it suits a premium/tech brand): backdrop-blur-md bg-white/70
+  ring-1 ring-black/5.
+- Tasteful accents: a single radial/blur "glow" blob behind the hero, a thin
+  accent underline (h-1 w-16 rounded-full bg-accent) under section headers.
+
+Hard rule: do NOT combine heavy gradient + glass + strong shadow + borders on the
+same element. One or two depth cues per surface. Decoration must never beat content.
 
 
 COLOR USE
 ---------
 
-Use company colors when provided.
+Use the brand colors retrieved from the company store. Map them:
+- primary: hero accents, key section backgrounds, important visual elements.
+- accent: CTAs, key highlights, selected/hover states (the one "pop" color).
+- neutrals: build surfaces from a neutral ramp (slate/zinc/stone) for bg, cards,
+  borders, muted text — this is what makes it look modern, not flat.
+- text: high-contrast on its background only.
 
-Primary:
-- hero accents
-- key section backgrounds
-- important visual elements
-
-Accent:
-- CTAs
-- key highlights
-- selected states
-
-Background:
-- page or section base
-
-Text:
-- use only when contrast is strong
-
-Do not make the whole page one color family unless the brand requires it.
+Create contrast moments: alternate light sections with one dark/brand-colored
+section (e.g. final CTA on bg-slate-900 or the primary color). Do not make the
+whole page one color family unless the brand strictly requires it. Do not use
+pure black (#000) for large areas — prefer slate-900/zinc-900.
 
 
-TYPOGRAPHY
-----------
+MICRO-INTERACTIONS & MOTION
+---------------------------
 
-Use strong type hierarchy:
-- H1: clear and dominant
-- H2: section promise
-- body: readable and concise
-- CTA: short and assertive
+Add restrained, modern motion (it reads as "polished"):
+- Hover: interactive cards/buttons use transition + hover:-translate-y-0.5 and a
+  shadow lift; CTAs use hover:brightness-105 or a subtle scale.
+- Scroll reveal: fade/slide-in on enter via IntersectionObserver, with a small
+  stagger (50-90ms) per item. Keep durations 300-600ms, ease-out. Respect
+  prefers-reduced-motion (disable transforms when set).
+- Focus: always keep focus-visible rings (focus-visible:ring-2 ring-accent).
+- Smooth-scroll for in-page anchor CTAs.
 
-Avoid:
-- huge headings inside small cards
-- tiny body copy
-- low contrast text
-- negative letter spacing
+Avoid: autoplay carousels/sliders, parallax that hurts readability, bouncing or
+infinite attention-grabbing animation, motion on every element at once.
 
 
-SECTION RHYTHM
---------------
+ACCESSIBILITY (non-negotiable)
+------------------------------
 
-Alternate section density:
-- hero: high impact
-- proof: compact
-- benefits/features: scannable
-- process/proof: reassuring
-- final CTA: focused
+- Body/heading text meets WCAG AA contrast against its actual background.
+- Text over images always sits on a scrim/overlay (bg-black/40 or gradient).
+- Tap targets >= 44px (buttons py-3 px-6 minimum).
+- Every input has a visible label; icons that convey meaning have aria-label.
+- Don't rely on hover alone to reveal essential content.
 
-Avoid repetitive card grids in every section.
-Avoid using the same card radius, shadow, icon treatment, and section layout
-throughout the entire page unless the brand specifically requires strict
-utility.
+
+BRAND ALIGNMENT (make it visibly on-brand)
+------------------------------------------
+
+- Apply the company's primary/secondary/accent colors and heading/body fonts so
+  the page is unmistakably this brand — visible in hero, CTAs, and section accents,
+  not only in the copy.
+- Use the provided logo in nav + footer only; never as a hero/section image.
+- If multiple personality traits are provided, pick one dominant visual direction
+  and one supporting accent. Do not average them into a generic SaaS template.
 
 
 STYLE KEYS
 ----------
 
 preferredStyle=modern
-- clean layouts
-- confident whitespace
-- sharp visual hierarchy
-- contemporary typography
+- clean layouts, confident whitespace, rounded-2xl cards, soft shadows,
+  contemporary sans type, one accent color, subtle gradient backgrounds.
 
 preferredStyle=minimal
-- fewer sections
-- concise copy
-- muted surfaces
-- strong spacing
+- fewer sections, lots of whitespace, monochrome + one accent, border-only or
+  ghost buttons, no shadows/gradients, thin dividers, large type, light weight.
 
 preferredStyle=premium
-- refined spacing
-- restrained motion/decor
-- elegant typography
-- strong image treatment
+- refined spacing, restrained motion, elegant serif/display headings, deep neutral
+  or navy + a metallic/gold accent, editorial imagery, glass used sparingly.
 
 preferredStyle=bold
-- large type
-- high contrast
-- strong color blocking
-- expressive section transitions
+- oversized font-black headings, high contrast, color-blocked sections, dark
+  alternating bands, strong CTAs, expressive section transitions.
 
 preferredStyle=playful
-- friendly shapes
-- warm interactions
-- approachable copy
-- lively but controlled color
+- friendly rounded-3xl shapes, warm lively (but controlled) color, soft blobs,
+  approachable copy, gentle bouncy hovers.
 
 preferredStyle=corporate
-- practical layout
-- trust signals
-- restrained palette
-- clear proof and process
+- practical structured layout, trust signals, restrained palette (blue/neutral),
+  clear proof and process, conservative motion.
 
 preferredStyle=luxury
-- high contrast
-- elegant imagery
-- minimal copy
-- subtle details
+- high contrast, generous whitespace, elegant imagery, minimal copy, fine serif
+  type, subtle gold/neutral accents, slow fades.
 
 preferredStyle=tech
-- modular structure
-- interface visuals
-- clean gradients
-- feature clarity
+- modular grid structure, interface/product visuals, clean gradients, mono or
+  geometric accents, feature clarity, dark-mode-friendly surfaces.
 
 
 TONE AND PERSONALITY TRANSLATION
 --------------------------------
 
-toneOfVoice=confident
-- decisive hero headline
-- strong CTAs
-- clean, assertive section hierarchy
+toneOfVoice=confident  -> decisive hero headline, strong solid CTAs, assertive hierarchy.
+toneOfVoice=friendly   -> warmer rounded shapes, approachable spacing, softer transitions.
+toneOfVoice=premium    -> refined spacing, editorial image treatment, fewer but stronger proof moments.
+toneOfVoice=urgent     -> direct CTA hierarchy, visible offer/urgency band, compact path to conversion.
 
-toneOfVoice=friendly
-- warmer shapes
-- approachable spacing
-- softer transitions between sections
-
-toneOfVoice=premium
-- refined spacing
-- editorial image treatment
-- restrained decorative elements
-- fewer but stronger proof moments
-
-toneOfVoice=urgent
-- direct CTA hierarchy
-- visible offer/urgency section
-- compact path to conversion
-
-brandPersonality=playful
-- expressive shapes, softer corners, lively but controlled color
-
-brandPersonality=trustworthy
-- proof-forward structure, clear process, calm hierarchy
-
-brandPersonality=luxury
-- high contrast, elegant imagery, less copy density
-
-brandPersonality=bold
-- oversized type, color blocking, memorable section transitions
-
-If multiple personality traits are provided, pick one dominant visual direction
-and one supporting accent. Do not average them into a generic SaaS layout.
+brandPersonality=playful     -> expressive shapes, softer corners, lively controlled color.
+brandPersonality=trustworthy -> proof-forward structure, clear process, calm hierarchy.
+brandPersonality=luxury      -> high contrast, elegant imagery, less copy density.
+brandPersonality=bold        -> oversized type, color blocking, memorable section transitions.
+brandPersonality=innovative  -> clean gradients, product/interface visuals, modern geometric accents.

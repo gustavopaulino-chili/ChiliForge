@@ -3,136 +3,147 @@ LANDING PAGE SECTION ARCHITECTURE
 
 KEYWORDS:
 sections, hero, benefits, features, process, proof, testimonials, pricing,
-faq, contact, final-cta
+faq, contact, final-cta, layout-variety, section-archetypes, anti-card-grid,
+navbar, footer, tailwind
+
+
+LAYOUT VARIETY RULE (read first)
+--------------------------------
+
+The #1 thing that makes a page look generic is "every section is the same
+3-column card grid". Across the page, mix at least 3 of these layout archetypes:
+- centered intro + grid (classic, use once or twice max)
+- asymmetric split (text one side, media/visual the other; alternate sides)
+- horizontal feature rows (icon/visual left, copy right, stacked rows)
+- bento grid (mixed-size tiles, one feature tile larger than the others)
+- full-bleed band (dark or brand-colored, edge-to-edge, for a statement/CTA)
+- stat/number strip (large font-black numbers in a row)
+- timeline/stepper (numbered steps with a connecting line)
+
+Alternate background tone between sections (white -> slate-50 -> white -> a dark
+or brand band) to create rhythm. Vary card radius/shadow treatment only within
+the page's chosen depth language (see lp-04), not randomly.
+
+
+NAVBAR
+------
+
+- Sticky top nav: fixed/sticky top-0 z-50, h-16, backdrop-blur bg-white/80 with a
+  hairline border-b that appears on scroll. Logo left, anchor links center/right,
+  primary CTA button on the right.
+- Mobile: collapse links into a toggle (hamburger) menu; CTA stays visible.
 
 
 HERO SECTION
 ------------
 
-Job:
-Explain who this is for, what is offered, and why the visitor should act.
+Job: explain who it's for, what's offered, and why act now — in one viewport.
 
-Required:
-- clear headline
-- supporting subheadline
-- primary CTA
-- brand/product/service visual signal
+Required: clear benefit-first headline, supporting subheadline, primary CTA,
+and a real brand/product/service visual signal.
 
-Good hero patterns:
-- product/service visual as background or focal point
-- immersive image-backed hero when the offer depends on visual inspection
-- operational/product UI hero when the user needs to understand a tool
-- editorial hero when the brand is premium, luxury, or authority-led
-- concise value proposition
-- one trust/proof element if available
-- secondary action only if it helps
+Modern hero patterns (pick one that fits the offer):
+- Asymmetric split (grid lg:grid-cols-12): copy in ~7 cols, media/product in ~5,
+  with a soft glow/gradient behind the media. Strongest default for most offers.
+- Full-bleed image hero: cover image + gradient scrim (bg-gradient-to-t from-black/60)
+  + left-aligned copy. Use when the offer is visual/experiential.
+- Product/UI hero: app or product mockup with soft shadow and slight rounded frame,
+  for tools/software.
+- Editorial hero: large serif headline, generous whitespace, minimal visual — for
+  premium/luxury/authority brands.
 
-Avoid:
-- vague headline
-- generic marketing language
-- hero that explains features before value
-- split text/media hero that feels like a template when a stronger full-bleed
-  or product-first hero would better communicate the offer
+Strong hero composition: eyebrow (context) -> H1 (outcome) -> 1-2 line sub ->
+primary CTA + optional ghost secondary CTA -> a slim trust row (rating, logos, or
+"used by N+").
+
+Avoid: vague headline, generic marketing language, listing features before value,
+a template-feeling split when a full-bleed or product-first hero is stronger.
 
 
 TRUST / PROOF STRIP
 -------------------
 
-Use when available:
-- client logos
-- ratings
-- number of customers
-- years in business
-- certifications
-- guarantees
-- press mentions
-
-Keep proof compact and scannable.
+Compact band right under the hero. Use when available: client logos (grayscale,
+opacity-70), star rating, customer count, years in business, certifications,
+guarantees, press mentions. Keep it one scannable row; logos in a responsive flex
+that wraps on mobile.
 
 
 BENEFITS SECTION
 ----------------
 
-Benefits answer: "What changes for me?"
-
-Use 3-6 benefit cards or rows.
-Each benefit should include:
-- outcome
-- short explanation
-- optional icon/visual
-
-Avoid turning benefits into generic features.
-Vary the section structure from the hero and features sections. Do not make
-every section a repeated card grid.
+Answers "what changes for me?". 3-6 benefits. Each: outcome headline + short
+explanation + an icon (Font Awesome) or small visual. Prefer horizontal rows or a
+bento layout here so it does NOT look like the features grid. Tie to outcomes, not
+specs.
 
 
 FEATURES / SERVICES SECTION
 ---------------------------
 
-Features answer: "What do I get?"
-
-For service businesses:
-- group services by customer need
-- emphasize results and deliverables
-
-For software/products:
-- show key capabilities
-- tie each feature to a user benefit
-- use real UI/product/service visuals when provided instead of abstract icons only
+Answers "what do I get?".
+- Services: group by customer need; emphasize results/deliverables; use real
+  service imagery when provided.
+- Software/products: show key capabilities, each tied to a benefit; use real
+  UI/product visuals over abstract icons when available.
+Use a different layout from the benefits section (e.g. if benefits were rows, make
+features a grid or bento). Consider one larger "hero feature" tile.
 
 
-PROCESS SECTION
----------------
+PROCESS / HOW IT WORKS
+----------------------
 
-Use when the buyer needs confidence.
-
-Pattern:
-1. First step / onboarding
-2. Main service/product experience
-3. Result / next action
-
-Keep process simple: 3-5 steps.
+Use when the buyer needs confidence. 3-5 steps as a numbered timeline/stepper with
+a connecting line (md:grid with step badges). Pattern: onboarding -> main
+experience -> result/next action. Keep copy tight.
 
 
-SOCIAL PROOF SECTION
---------------------
+SOCIAL PROOF / TESTIMONIALS
+---------------------------
 
-Use testimonials, case metrics, before/after, reviews, or short proof blocks.
-
-If no real proof is provided, do not invent testimonials.
-Use softer proof such as guarantees, credentials, or process clarity.
+Testimonials, case metrics, before/after, reviews. Use a real portrait avatar that
+matches the role (never reuse the same image, never use the logo). Quote mark
+accent (fa-quote-left). If NO real proof is provided, do not invent it — use
+guarantees, credentials, or process clarity instead. Big-number stat strips are a
+strong, modern proof format.
 
 
 PRICING / OFFER SECTION
 -----------------------
 
-Use when pricing, discount, package, trial, quote, or offer is provided.
-
-Make the offer visually clear:
-- what is included
-- price or starting point
-- urgency/bonus if real
-- CTA
+Use when pricing/discount/package/trial/quote/offer is provided. Make the offer
+visually clear: what's included (checklist with check icons), price or starting
+point, real urgency/bonus only if true, and a CTA. Highlight one recommended plan
+with an accent ring + "popular" badge.
 
 
 FAQ SECTION
 -----------
 
-FAQ should handle objections:
-- price concerns
-- time required
-- who it is for
-- what happens after CTA
-- guarantees or cancellation
-
-Do not use FAQ for filler.
+Accordion handling real objections: price, time required, who it's for, what
+happens after the CTA, guarantees/cancellation. Accessible accordion (button +
+aria-expanded, click to expand). No filler questions.
 
 
 FINAL CTA
 ---------
 
-Summarize the promise and make action easy.
-Final CTA should match the primary conversion goal.
-Its tone should match the brand personality: premium final CTAs should feel
-calm and confident; urgent offers should feel direct; playful brands can use
-warmer language and shape.
+A focused full-bleed band (dark or brand-colored) that summarizes the promise and
+makes action effortless. Matches the primary conversion goal. Tone follows brand
+personality: premium = calm and confident; urgent = direct; playful = warmer.
+
+
+FOOTER
+------
+
+Clean footer: logo, short blurb, quick links, contact (email/phone/whatsapp),
+social icons, and a fine top border. Keep it on a slightly darker or neutral
+surface. For WhatsApp/call goals, also add a floating fixed bottom-right contact
+button (z-50).
+
+
+USE-ONLY-WHAT-FITS
+------------------
+
+Only include sections the project data supports. Do not force pricing,
+testimonials, or FAQ when the data does not back them.
