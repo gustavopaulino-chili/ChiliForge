@@ -24,14 +24,16 @@ jobs:
         run: npm run build
 
       # ── Deploy dist/ → public_html/ ──────────────────────
-      # Entra na pasta public_html (a partir da home onde o FTP cai)
-      # e sobe o build. Protege api/, projects/, .env e db.php.
+      # FTPS explícito na porta 21. Entra em public_html/ e sobe o build.
+      # Protege api/, projects/, .env e db.php.
       - name: Deploy dist/ → public_html/
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: 195.35.41.130
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          port: 21
           local-dir: ./dist/
           server-dir: public_html/
           dangerous-clean-slate: false
@@ -52,6 +54,8 @@ jobs:
           server: 195.35.41.130
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          port: 21
           local-dir: ./api/
           server-dir: public_html/api/
           dangerous-clean-slate: false
