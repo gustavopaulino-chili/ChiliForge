@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
-import { AlignCenter, AlignLeft, AlignRight, ChevronDown, ChevronRight, Code2, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Layers, Palette, Pencil, Redo2, Settings2, Undo2, Upload, X } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, ChevronDown, ChevronRight, Code2, Eye, EyeOff, GripVertical, Lock, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Layers, Unlock, Palette, Pencil, Redo2, Settings2, Undo2, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -118,6 +118,9 @@ type AdsLayer = {
   title: string;
   depth: number;
   zIndex: string;
+  zIndexNum: number;
+  locked: boolean;
+  hidden: boolean;
 };
 
 type OverlayMode = 'none' | 'color' | 'gradient' | 'dark' | 'mask';
@@ -134,7 +137,7 @@ const BRIDGE_STYLE_CONTENT = [
   '.cf-editor-selected{outline:3px solid #0891b2 !important;outline-offset:2px !important;cursor:move !important;}',
   '.cf-editor-editing{outline:2px solid #3b82f6 !important;outline-offset:2px !important;cursor:text !important;background:rgba(59,130,246,0.04) !important;}',
   '.cf-editor-dragging{outline:3px solid #22d3ee !important;outline-offset:2px !important;cursor:grabbing !important;}',
-  '.ad-bg{pointer-events:none !important;user-select:none !important;-webkit-user-select:none !important;}',
+  '.ad-bg{user-select:none !important;-webkit-user-select:none !important;}',
   '.ad-banner,.creative-frame,.creative-scale{position:relative;}',
 ].join('\n');
 
@@ -244,6 +247,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
       clone.querySelectorAll('[data-cf-editor-id]').forEach(function(node){ node.removeAttribute('data-cf-editor-id'); });
       clone.querySelectorAll('[data-cf-editor-size-frozen]').forEach(function(node){ node.removeAttribute('data-cf-editor-size-frozen'); });
       clone.querySelectorAll('[data-cf-locked-layer]').forEach(function(node){ node.removeAttribute('data-cf-locked-layer'); });
+      clone.querySelectorAll('[data-cf-locked]').forEach(function(node){ node.removeAttribute('data-cf-locked'); });
     } catch(e) {}
     return '<!DOCTYPE html>\\n' + clone.outerHTML;
   }
@@ -263,7 +267,9 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
   }
   function isLockedLayer(el){
     if(!el || !el.classList) return false;
-    if(el.classList.contains('ad-bg')) return true;
+    var attr = el.getAttribute ? el.getAttribute('data-cf-locked') : null;
+    if(attr==='true') return true;
+    if(el.classList.contains('ad-bg') && attr!=='false') return true;
     return false;
   }
   function draggableTarget(target){
@@ -318,7 +324,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
   }, true);
   document.addEventListener('click', function(ev){
     if(isEditing) return;
-    if(Date.now()<suppressClickUntil){ ev.preventDefault(); ev.stopPropagation(); return; }
+    if(Date.now()<suppressClickUntil || Date.now()<parseInt(document.documentElement.dataset.cfSuppressClick||'0',10)){ ev.preventDefault(); ev.stopPropagation(); return; }
     var t=ev.target;
     if(!(t instanceof Element)) return;
     if(t instanceof HTMLElement && (isLockedLayer(t) || isCanvasRoot(t))) return;
@@ -337,81 +343,11 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     t.classList.add('cf-editor-selected');
     postSelect(t);
   }, true);
-  document.addEventListener('mousedown', function(ev){
-    if(document.documentElement.dataset.cfParentDrag === '1') return;
-    if(isEditing) return;
-    if(ev.button!==0 || ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
-    var t=draggableTarget(ev.target);
-    if(!t) return;
-    var parent=ensureCanvasParent(t);
-    var tr=t.getBoundingClientRect();
-    var pr=parent.getBoundingClientRect();
-    var cs=window.getComputedStyle(t);
-    var left=parseFloat(cs.left);
-    var top=parseFloat(cs.top);
-    dragState={
-      target:t,
-      parent:parent,
-      startX:ev.clientX,
-      startY:ev.clientY,
-      initialLeft:(cs.position==='absolute'||cs.position==='fixed') && Number.isFinite(left) ? left : tr.left - pr.left + parent.scrollLeft,
-      initialTop:(cs.position==='absolute'||cs.position==='fixed') && Number.isFinite(top) ? top : tr.top - pr.top + parent.scrollTop,
-      dragging:false
-    };
-  }, true);
-  document.addEventListener('mousemove', function(ev){
-    if(document.documentElement.dataset.cfParentDrag === '1') return;
-    if(!dragState) return;
-    var dx=ev.clientX-dragState.startX;
-    var dy=ev.clientY-dragState.startY;
-    if(!dragState.dragging && Math.sqrt(dx*dx+dy*dy)<3) return;
-    dragState.dragging=true;
-    ev.preventDefault();
-    ev.stopPropagation();
-    var t=dragState.target;
-    var cs=window.getComputedStyle(t);
-    if(cs.position==='static' || cs.position==='relative'){
-      var op=t.offsetParent instanceof HTMLElement ? t.offsetParent : document.body;
-      var tBr=t.getBoundingClientRect();
-      var opBr=op.getBoundingClientRect();
-      var absLeft=Math.round(tBr.left - opBr.left + op.scrollLeft);
-      var absTop=Math.round(tBr.top - opBr.top + op.scrollTop);
-      var w=tBr.width;
-      var h=tBr.height;
-      t.style.position='absolute';
-      t.style.margin='0';
-      t.style.left=absLeft+'px';
-      t.style.top=absTop+'px';
-      if(!t.style.width && w>0) t.style.width=Math.round(w)+'px';
-      if(!t.style.height && h>0 && ['IMG','VIDEO','CANVAS','SVG'].includes(t.tagName)) t.style.height=Math.round(h)+'px';
-      dragState.initialLeft=absLeft;
-      dragState.initialTop=absTop;
-      dragState.startX=ev.clientX;
-      dragState.startY=ev.clientY;
-      dx=0; dy=0;
-    }
-    if(!t.style.zIndex || t.style.zIndex==='auto') t.style.zIndex='20';
-    t.style.left=Math.round(dragState.initialLeft+dx)+'px';
-    t.style.top=Math.round(dragState.initialTop+dy)+'px';
-    t.classList.add('cf-editor-dragging');
-  }, true);
-  document.addEventListener('mouseup', function(ev){
-    if(document.documentElement.dataset.cfParentDrag === '1') { dragState=null; return; }
-    if(!dragState) return;
-    var state=dragState;
-    dragState=null;
-    if(state.dragging){
-      ev.preventDefault();
-      ev.stopPropagation();
-      suppressClickUntil=Date.now()+250;
-      state.target.classList.remove('cf-editor-dragging');
-      if(lastSelected){ lastSelected.classList.remove('cf-editor-selected'); }
-      lastSelected=state.target;
-      state.target.classList.add('cf-editor-selected');
-      postSelect(state.target);
-      postMutation();
-    }
-  }, true);
+  // Element dragging is handled by the editor-side snap engine (dragMouseDownHandler /
+  // dragMouseMoveHandler / dragMouseUpHandler), which provides grid + element-to-element
+  // snapping. The bridge no longer runs its own drag, so the two engines don't fight over the
+  // same mousemove. The snap engine signals drag-end via documentElement.dataset.cfSuppressClick,
+  // which the click handler above reads to swallow the synthetic post-drag click.
   document.addEventListener('dblclick', function(ev){
     if(isEditing) return;
     var t=ev.target;
@@ -427,7 +363,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     t.setAttribute('contenteditable','true');
     t.classList.remove('cf-editor-selected');
     t.classList.add('cf-editor-editing');
-    t.focus();
+    t.focus({ preventScroll: true });
     try {
       var range=document.createRange();
       range.selectNodeContents(t);
@@ -828,6 +764,12 @@ const cleanBridgeFromDocument = (doc: Document, preserveSelectionMarker = false)
     doc.querySelectorAll('[data-cf-editor-size-frozen]').forEach((node) => {
       node.removeAttribute('data-cf-editor-size-frozen');
     });
+    doc.querySelectorAll('[data-cf-locked-layer]').forEach((node) => {
+      node.removeAttribute('data-cf-locked-layer');
+    });
+    doc.querySelectorAll('[data-cf-locked]').forEach((node) => {
+      node.removeAttribute('data-cf-locked');
+    });
   }
 };
 
@@ -850,6 +792,7 @@ const serializeWithoutBridge = (doc: Document): string => {
   html = html.replace(/\s+data-cf-editor-id="[^"]*"/g, '');
   html = html.replace(/\s+data-cf-editor-size-frozen="[^"]*"/g, '');
   html = html.replace(/\s+data-cf-locked-layer="[^"]*"/g, '');
+  html = html.replace(/\s+data-cf-locked="[^"]*"/g, '');
   return html;
 };
 
@@ -1759,26 +1702,28 @@ export function AdsEditor({
         if (element.classList.contains('creative-grid')) return true;
         if (element.classList.contains('creative-frame')) return true;
         if (element.classList.contains('creative-scale')) return true;
-        if (element.classList.contains('ad-bg')) return true;
+        if (element.dataset.cfLocked === 'true') return true;
+        if (element.classList.contains('ad-bg') && element.dataset.cfLocked !== 'false') return true;
         return false;
       };
 
       const lockComposeBackgroundLayers = () => {
+        // Clean up legacy inline locks. Previous versions applied pointer-events:none to
+        // background layers, which cascades to descendants and froze the entire creative.
+        // Locking is now logical only (the drag/click/overlay guards check data-cf-locked / .ad-bg).
         Array.from(doc.querySelectorAll('[data-cf-locked-layer], [style*="pointer-events"]')).forEach((node) => {
           const el = node as HTMLElement;
-          if (el.classList.contains('ad-bg')) return;
           el.removeAttribute('data-cf-locked-layer');
           el.removeAttribute('aria-hidden');
           if (el.style.pointerEvents === 'none') el.style.pointerEvents = '';
           if (el.style.userSelect === 'none') el.style.userSelect = '';
         });
 
+        // Background layers stay locked by default, but only logically — no pointer-events:none,
+        // so sibling/child elements keep receiving mouse events and remain draggable.
         const candidates = Array.from(doc.querySelectorAll('.ad-bg')) as HTMLElement[];
         candidates.forEach((el) => {
-          el.dataset.cfLockedLayer = 'true';
-          el.setAttribute('aria-hidden', 'true');
-          el.style.pointerEvents = 'none';
-          el.style.userSelect = 'none';
+          el.dataset.cfLocked = 'true';
           if (el instanceof HTMLImageElement) el.draggable = false;
         });
       };
@@ -1932,6 +1877,7 @@ export function AdsEditor({
 
       const dragMouseDownHandler: EventListener = (event) => {
         const mouse = event as MouseEvent;
+        if (doc.documentElement.dataset.cfParentDrag === '1') return;
         if (mouse.button !== 0 || mouse.altKey || mouse.ctrlKey || mouse.metaKey || mouse.shiftKey) return;
         const target = getEditableDragTarget(mouse.target);
         if (!target) return;
@@ -1974,6 +1920,7 @@ export function AdsEditor({
 
       const dragMouseMoveHandler: EventListener = (event) => {
         if (!dragState) return;
+        if (doc.documentElement.dataset.cfParentDrag === '1') { dragState = null; return; }
         const mouse = event as MouseEvent;
         if (!(mouse.buttons & 1)) { dragState = null; return; }
         const dx = mouse.clientX - dragState.startX;
@@ -2046,6 +1993,9 @@ export function AdsEditor({
           mouse.preventDefault();
           mouse.stopPropagation();
           updateResizeOverlay(target); // full rebuild with handles
+          // Swallow the synthetic click the browser fires after a drag, so the bridge click
+          // handler doesn't re-select (or escalate to the parent via its repeat-click logic).
+          doc.documentElement.dataset.cfSuppressClick = String(Date.now() + 300);
           window.postMessage({ source: EDITOR_MESSAGE_SOURCE, type: 'select', payload: buildSelectionPayload(target) }, '*');
           emitChange(serializeWithoutBridge(doc));
         }
@@ -5023,14 +4973,17 @@ export function AdsEditor({
       const layers: AdsLayer[] = [];
       const isLockedLayer = (el: Element) => {
         if (!(el instanceof HTMLElement)) return false;
-        if (el.classList.contains('ad-bg')) return true;
+        if (el.dataset.cfLocked === 'true') return true;
+        if (el.classList.contains('ad-bg') && el.dataset.cfLocked !== 'false') return true;
         return false;
       };
 
       const walk = (el: Element, depth: number) => {
         const tag = el.tagName.toLowerCase();
         if (ignored.has(tag)) return;
-        if (isLockedLayer(el)) return;
+        // Locked layers (e.g. .ad-bg) are still listed — with a lock badge — so the user can
+        // unlock them. They are only excluded from selection/drag by the canvas guards.
+        const hel = el as HTMLElement;
         const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
         const label =
           el.getAttribute('aria-label') ||
@@ -5039,13 +4992,18 @@ export function AdsEditor({
           el.getAttribute('class')?.split(/\s+/).find(Boolean) ||
           text.slice(0, 42) ||
           tag;
+        const rawZ = hel.style?.zIndex || '';
+        const parsedZ = Number.parseInt(rawZ, 10);
         layers.push({
           path: buildPath(el),
           parentPath: buildPath(el.parentElement),
           tag,
           title: label,
           depth,
-          zIndex: (el as HTMLElement).style?.zIndex || '',
+          zIndex: rawZ,
+          zIndexNum: Number.isFinite(parsedZ) ? parsedZ : 0,
+          locked: isLockedLayer(el),
+          hidden: hel.style?.visibility === 'hidden' || hel.style?.display === 'none',
         });
         Array.from(el.children).forEach((child) => walk(child, depth + 1));
       };
@@ -5201,7 +5159,7 @@ export function AdsEditor({
     };
 
     window.postMessage({ source: EDITOR_MESSAGE_SOURCE, type: 'select', payload }, '*');
-    el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+    // No scrollIntoView here: selecting a layer must not yank/scroll the canvas.
   };
 
   // Render painel de sessões
@@ -5279,15 +5237,66 @@ export function AdsEditor({
     setDraggedSectionIdx(null);
   };
 
+  const LAYER_IGNORED_TAGS = new Set(['script', 'style', 'meta', 'link', 'title', 'base']);
+
+  // Rewrites z-index for an entire sibling group so the visual stacking matches the DOM order
+  // shown in the Layers panel: first child (top of the panel) = front = highest z-index.
+  // .ad-bg always stays at z-index 0 so the background never jumps in front of the artwork.
+  const reassignSiblingZIndex = (parentEl: HTMLElement, doc: Document) => {
+    const view = doc.defaultView;
+    const kids = Array.from(parentEl.children).filter(
+      (c) => c instanceof HTMLElement && !LAYER_IGNORED_TAGS.has(c.tagName.toLowerCase()),
+    ) as HTMLElement[];
+    const n = kids.length;
+    kids.forEach((kid, i) => {
+      if (kid.classList.contains('ad-bg')) { kid.style.zIndex = '0'; return; }
+      const pos = view ? view.getComputedStyle(kid).position : kid.style.position;
+      if (!pos || pos === 'static') kid.style.position = 'relative';
+      kid.style.zIndex = String((n - i) * 10);
+    });
+  };
+
   const moveLayerInStack = (path: string, direction: 'front' | 'back') => {
+    applyMutation(path, (el, doc) => {
+      const target = el as HTMLElement;
+      const parent = target.parentElement;
+      if (!(parent instanceof HTMLElement)) return;
+      const sibs = Array.from(parent.children).filter(
+        (c) => c instanceof HTMLElement && !LAYER_IGNORED_TAGS.has(c.tagName.toLowerCase()),
+      ) as HTMLElement[];
+      const idx = sibs.indexOf(target);
+      if (idx < 0) return;
+      // 'front' = move one step up in the panel (earlier in the DOM); 'back' = one step down.
+      if (direction === 'front' && idx > 0) {
+        parent.insertBefore(target, sibs[idx - 1]);
+      } else if (direction === 'back' && idx < sibs.length - 1) {
+        parent.insertBefore(target, sibs[idx + 1].nextSibling);
+      } else {
+        return;
+      }
+      reassignSiblingZIndex(parent, doc);
+    });
+  };
+
+  const toggleLayerLock = (path: string) => {
     applyMutation(path, (el) => {
       const target = el as HTMLElement;
-      const current = Number.parseInt(window.getComputedStyle(target).zIndex || target.style.zIndex || '0', 10);
-      const next = direction === 'front'
-        ? (Number.isFinite(current) ? current + 1 : 1)
-        : (Number.isFinite(current) ? current - 1 : -1);
-      target.style.position = target.style.position || 'absolute';
-      target.style.zIndex = String(next);
+      const isBg = target.classList.contains('ad-bg');
+      const currentlyLocked = target.dataset.cfLocked === 'true' || (isBg && target.dataset.cfLocked !== 'false');
+      target.dataset.cfLocked = currentlyLocked ? 'false' : 'true';
+    });
+  };
+
+  const toggleLayerVisibility = (path: string) => {
+    applyMutation(path, (el) => {
+      const target = el as HTMLElement;
+      const hidden = target.style.visibility === 'hidden' || target.style.display === 'none';
+      if (hidden) {
+        if (target.style.visibility === 'hidden') target.style.visibility = '';
+        if (target.style.display === 'none') target.style.display = '';
+      } else {
+        target.style.visibility = 'hidden';
+      }
     });
   };
 
@@ -5320,6 +5329,48 @@ export function AdsEditor({
       const nextTop = snapToGrid ? Math.round(rawTop / 8) * 8 : Math.round(rawTop);
       target.style.left = `${nextLeft}px`;
       target.style.top = `${nextTop}px`;
+    });
+  };
+
+  type AlignKind = 'left' | 'centerH' | 'right' | 'top' | 'middle' | 'bottom';
+  // Aligns the selected element to its parent box (the .ad-banner / offset parent),
+  // Canva/Figma style: left/center/right horizontally, top/middle/bottom vertically.
+  const alignSelectedElement = (kind: AlignKind) => {
+    if (!selected?.path) return;
+    applyMutation(selected.path, (el, doc) => {
+      const target = el as HTMLElement;
+      const view = doc.defaultView;
+      const parent = (target.offsetParent || target.parentElement || doc.body) as HTMLElement;
+      if (parent !== doc.body && view && view.getComputedStyle(parent).position === 'static') {
+        parent.style.position = 'relative';
+      }
+      if (view && view.getComputedStyle(target).position === 'static') {
+        target.style.position = 'absolute';
+        target.style.margin = '0';
+      }
+      const tRect = target.getBoundingClientRect();
+      const pRect = parent.getBoundingClientRect();
+      let left = tRect.left - pRect.left + parent.scrollLeft;
+      let top = tRect.top - pRect.top + parent.scrollTop;
+      const innerW = parent.clientWidth;
+      const innerH = parent.clientHeight;
+      if (kind === 'left') left = 0;
+      else if (kind === 'centerH') left = (innerW - tRect.width) / 2;
+      else if (kind === 'right') left = innerW - tRect.width;
+      else if (kind === 'top') top = 0;
+      else if (kind === 'middle') top = (innerH - tRect.height) / 2;
+      else if (kind === 'bottom') top = innerH - tRect.height;
+      target.style.left = `${Math.round(left)}px`;
+      target.style.top = `${Math.round(top)}px`;
+      // Keep the selection overlay in sync (align is triggered from the panel, not a canvas click).
+      const overlay = doc.getElementById('cf-editor-resize-overlay') as HTMLElement | null;
+      if (overlay) {
+        const r = target.getBoundingClientRect();
+        overlay.style.left = `${Math.round(r.left)}px`;
+        overlay.style.top = `${Math.round(r.top)}px`;
+        overlay.style.width = `${Math.max(1, Math.round(r.width))}px`;
+        overlay.style.height = `${Math.max(1, Math.round(r.height))}px`;
+      }
     });
   };
 
@@ -5418,15 +5469,19 @@ export function AdsEditor({
     const fromLayer = adsLayers.find((layer) => layer.path === draggedLayerPath);
     const toLayer = adsLayers.find((layer) => layer.path === targetPath);
     if (!fromLayer || !toLayer || fromLayer.parentPath !== toLayer.parentPath) {
-      toast.info('Layers can be reordered when they share the same parent.');
+      toast.info('Só dá para reordenar camadas que estão no mesmo nível/grupo.');
       setDraggedLayerPath(null);
       return;
     }
 
     applyMutation(draggedLayerPath, (fromEl, doc) => {
       const toEl = doc.querySelector(targetPath);
-      if (!toEl || !fromEl.parentElement || fromEl.parentElement !== toEl.parentElement) return;
-      fromEl.parentElement.insertBefore(fromEl, toEl);
+      const parent = fromEl.parentElement;
+      if (!(toEl instanceof HTMLElement) || !(parent instanceof HTMLElement) || parent !== toEl.parentElement) return;
+      // Move the node so the panel order updates, then rewrite the whole sibling group's
+      // z-index so the visual stacking follows the new order (top of panel = front).
+      parent.insertBefore(fromEl, toEl);
+      reassignSiblingZIndex(parent, doc);
     });
     setDraggedLayerPath(null);
   };
@@ -5706,13 +5761,13 @@ export function AdsEditor({
                   background: isActive ? 'rgba(153, 90, 242, 0.16)' : 'rgba(255,255,255,0.04)',
                 }}
               >
-                <div className="flex items-center gap-2 p-2" style={{ paddingLeft: `${8 + Math.min(layer.depth, 5) * 12}px` }}>
+                <div className="flex items-center gap-2 p-2" style={{ paddingLeft: `${8 + Math.min(layer.depth, 5) * 12}px`, opacity: layer.hidden ? 0.45 : 1 }}>
                   <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <button
                     type="button"
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
                     onClick={() => selectAdsLayer(layer.path)}
-                    title="Select layer"
+                    title="Selecionar camada"
                   >
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[10px] font-semibold uppercase shadow-sm" style={{ background: 'rgba(255,255,255,0.08)', color: 'var(--cf-ads-muted)' }}>
                       {layer.tag.slice(0, 3)}
@@ -5725,10 +5780,16 @@ export function AdsEditor({
                     </span>
                   </button>
                   <div className="flex shrink-0 items-center gap-0.5 opacity-80 group-hover:opacity-100">
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => moveLayerInStack(layer.path, 'front')} title="Bring forward">
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => toggleLayerVisibility(layer.path)} title={layer.hidden ? 'Mostrar camada' : 'Ocultar camada'}>
+                      {layer.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => toggleLayerLock(layer.path)} title={layer.locked ? 'Destravar camada' : 'Travar camada'} style={layer.locked ? { color: 'var(--cf-ads-accent)' } : undefined}>
+                      {layer.locked ? <Lock size={14} /> : <Unlock size={14} />}
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => moveLayerInStack(layer.path, 'front')} title="Trazer para frente">
                       <ArrowUp size={14} />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => moveLayerInStack(layer.path, 'back')} title="Send backward">
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => moveLayerInStack(layer.path, 'back')} title="Enviar para trás">
                       <ArrowDown size={14} />
                     </Button>
                   </div>
@@ -5868,6 +5929,23 @@ export function AdsEditor({
           </button>
         ))}
       </div>
+
+      {selected && (
+        <div className="rounded-md border" style={{ borderColor: 'var(--cf-ads-border)', background: 'rgba(255,255,255,0.04)' }}>
+          <div className="flex items-center gap-2 px-3 py-2">
+            <AlignCenter className="h-4 w-4" style={{ color: 'var(--cf-ads-accent)' }} />
+            <p className="text-sm font-medium" style={{ color: 'var(--cf-ads-text)' }}>Alinhar ao banner</p>
+          </div>
+          <div className="grid grid-cols-6 gap-1 border-t border-border/60 px-3 pb-3 pt-2">
+            <Button size="icon" variant="ghost" className="h-8 w-full" onClick={() => alignSelectedElement('left')} title="Alinhar à esquerda"><AlignLeft size={16} /></Button>
+            <Button size="icon" variant="ghost" className="h-8 w-full" onClick={() => alignSelectedElement('centerH')} title="Centralizar na horizontal"><AlignCenter size={16} /></Button>
+            <Button size="icon" variant="ghost" className="h-8 w-full" onClick={() => alignSelectedElement('right')} title="Alinhar à direita"><AlignRight size={16} /></Button>
+            <Button size="icon" variant="ghost" className="h-8 w-full" onClick={() => alignSelectedElement('top')} title="Alinhar ao topo"><AlignStartHorizontal size={16} /></Button>
+            <Button size="icon" variant="ghost" className="h-8 w-full" onClick={() => alignSelectedElement('middle')} title="Centralizar na vertical"><AlignCenterHorizontal size={16} /></Button>
+            <Button size="icon" variant="ghost" className="h-8 w-full" onClick={() => alignSelectedElement('bottom')} title="Alinhar à base"><AlignEndHorizontal size={16} /></Button>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-md border" style={{ borderColor: 'var(--cf-ads-border)', background: 'rgba(255,255,255,0.04)' }}>
         <button
