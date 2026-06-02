@@ -134,6 +134,7 @@ const BRIDGE_STYLE_CONTENT = [
   '.cf-editor-selected{outline:3px solid #0891b2 !important;outline-offset:2px !important;cursor:move !important;}',
   '.cf-editor-editing{outline:2px solid #3b82f6 !important;outline-offset:2px !important;cursor:text !important;background:rgba(59,130,246,0.04) !important;}',
   '.cf-editor-dragging{outline:3px solid #22d3ee !important;outline-offset:2px !important;cursor:grabbing !important;}',
+  '.ad-bg{pointer-events:none !important;user-select:none !important;-webkit-user-select:none !important;}',
   '.ad-banner,.creative-frame,.creative-scale{position:relative;}',
 ].join('\n');
 
@@ -241,6 +242,8 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
         if(!node.getAttribute('class')) node.removeAttribute('class');
       });
       clone.querySelectorAll('[data-cf-editor-id]').forEach(function(node){ node.removeAttribute('data-cf-editor-id'); });
+      clone.querySelectorAll('[data-cf-editor-size-frozen]').forEach(function(node){ node.removeAttribute('data-cf-editor-size-frozen'); });
+      clone.querySelectorAll('[data-cf-locked-layer]').forEach(function(node){ node.removeAttribute('data-cf-locked-layer'); });
     } catch(e) {}
     return '<!DOCTYPE html>\\n' + clone.outerHTML;
   }
@@ -258,6 +261,11 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
       el.classList.contains('creative-scale') ||
       el.classList.contains('ad-banner');
   }
+  function isLockedLayer(el){
+    if(!el || !el.classList) return false;
+    if(el.classList.contains('ad-bg')) return true;
+    return false;
+  }
   function draggableTarget(target){
     if(!(target instanceof HTMLElement)) return null;
     if(target.closest('[contenteditable="true"]')) return null;
@@ -266,7 +274,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     while(el && isCanvasRoot(el) && el.parentElement && el.parentElement!==document.body){
       el=el.parentElement.closest('img,a,button,h1,h2,h3,h4,h5,h6,p,span,strong,em,small,figure,svg,div');
     }
-    if(!el || el===document.body || el===document.documentElement || isCanvasRoot(el)) return null;
+    if(!el || el===document.body || el===document.documentElement || isCanvasRoot(el) || isLockedLayer(el)) return null;
     return el;
   }
   function ensureCanvasParent(target){
@@ -300,6 +308,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     if(isEditing) return;
     var t=ev.target;
     if(!(t instanceof Element)) return;
+    if(t instanceof HTMLElement && (isLockedLayer(t) || isCanvasRoot(t))) return;
     if(lastHover && lastHover!==lastSelected){ lastHover.classList.remove('cf-editor-hover'); }
     if(t !== lastSelected){ t.classList.add('cf-editor-hover'); lastHover=t; }
   }, true);
@@ -312,6 +321,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     if(Date.now()<suppressClickUntil){ ev.preventDefault(); ev.stopPropagation(); return; }
     var t=ev.target;
     if(!(t instanceof Element)) return;
+    if(t instanceof HTMLElement && (isLockedLayer(t) || isCanvasRoot(t))) return;
     ev.preventDefault();
     ev.stopPropagation();
     var now=Date.now();
@@ -328,6 +338,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     postSelect(t);
   }, true);
   document.addEventListener('mousedown', function(ev){
+    if(document.documentElement.dataset.cfParentDrag === '1') return;
     if(isEditing) return;
     if(ev.button!==0 || ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
     var t=draggableTarget(ev.target);
@@ -349,6 +360,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     };
   }, true);
   document.addEventListener('mousemove', function(ev){
+    if(document.documentElement.dataset.cfParentDrag === '1') return;
     if(!dragState) return;
     var dx=ev.clientX-dragState.startX;
     var dy=ev.clientY-dragState.startY;
@@ -384,6 +396,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     t.classList.add('cf-editor-dragging');
   }, true);
   document.addEventListener('mouseup', function(ev){
+    if(document.documentElement.dataset.cfParentDrag === '1') { dragState=null; return; }
     if(!dragState) return;
     var state=dragState;
     dragState=null;
@@ -403,6 +416,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
     if(isEditing) return;
     var t=ev.target;
     if(!(t instanceof Element)) return;
+    if(t instanceof HTMLElement && (isLockedLayer(t) || isCanvasRoot(t))) return;
     var tag=t.tagName.toLowerCase();
     if(!TEXT_EDIT_TAGS.has(tag)) return;
     ev.preventDefault();
@@ -811,6 +825,9 @@ const cleanBridgeFromDocument = (doc: Document, preserveSelectionMarker = false)
     doc.querySelectorAll('[data-cf-editor-id]').forEach((node) => {
       node.removeAttribute('data-cf-editor-id');
     });
+    doc.querySelectorAll('[data-cf-editor-size-frozen]').forEach((node) => {
+      node.removeAttribute('data-cf-editor-size-frozen');
+    });
   }
 };
 
@@ -831,6 +848,8 @@ const serializeWithoutBridge = (doc: Document): string => {
   });
   // Remove selection marker attributes
   html = html.replace(/\s+data-cf-editor-id="[^"]*"/g, '');
+  html = html.replace(/\s+data-cf-editor-size-frozen="[^"]*"/g, '');
+  html = html.replace(/\s+data-cf-locked-layer="[^"]*"/g, '');
   return html;
 };
 
@@ -1442,6 +1461,9 @@ export function AdsEditor({
   const [canvasZoom, setCanvasZoom] = useState(1);
   const [canvasNaturalSize, setCanvasNaturalSize] = useState({ width: 0, height: 0 });
   const [mouseCanvasPos, setMouseCanvasPos] = useState<{ x: number; y: number } | null>(null);
+  const [canvasGuides, setCanvasGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
+  const [activeRulerDrag, setActiveRulerDrag] = useState<'x' | 'y' | null>(null);
+  const activeGuideIndexRef = useRef<number | null>(null);
   const [showEditorGrid, setShowEditorGrid] = useState(false);
   const [showSafeZones, setShowSafeZones] = useState(false);
   const [snapToGrid, setSnapToGrid] = useState(false);
@@ -1480,6 +1502,13 @@ export function AdsEditor({
     const doc = iframeRef.current?.contentDocument;
     if (doc) doc.documentElement.dataset.cfSnap = snapToGrid ? '8' : '0';
   }, [snapToGrid, iframeReady]);
+
+  useEffect(() => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc) return;
+    doc.documentElement.dataset.cfGuideX = canvasGuides.x.join(',');
+    doc.documentElement.dataset.cfGuideY = canvasGuides.y.join(',');
+  }, [canvasGuides, iframeReady]);
 
   useEffect(() => {
     setGlobalBrandColors(initialBrandColors);
@@ -1564,6 +1593,7 @@ export function AdsEditor({
       }
 
       injectBridgeIntoDocument(doc);
+      doc.documentElement.dataset.cfParentDrag = '1';
 
       // Read natural canvas size and auto-fit zoom on first open
       requestAnimationFrame(() => {
@@ -1693,21 +1723,29 @@ export function AdsEditor({
         const top = Math.round(targetRect.top - parentRect.top + parent.scrollTop);
         const widthPx = Math.max(1, Math.round(targetRect.width));
         const heightPx = Math.max(1, Math.round(targetRect.height));
+        const needsAbsolutePosition = computed?.position === 'static' || computed?.position === 'relative' || !target.style.position;
+        const shouldFreezeSize = needsAbsolutePosition && !target.dataset.cfEditorSizeFrozen;
 
-        if (computed?.position === 'static' || computed?.position === 'relative' || !target.style.position) {
+        if (needsAbsolutePosition) {
           target.style.position = 'absolute';
           target.style.left = `${left}px`;
           target.style.top = `${top}px`;
           target.style.margin = '0';
         }
 
-        // Always freeze current rendered dimensions as explicit px so the element
-        // never relies on content/flow sizing after being made absolute.
-        if (widthPx > 0) {
+        // Freeze the rendered border-box only once when leaving normal flow.
+        // Rewriting getBoundingClientRect().width/height into content-box width on
+        // every drag compounds padding/border and makes elements grow.
+        if (shouldFreezeSize && widthPx > 0) {
+          target.style.boxSizing = 'border-box';
           target.style.width = `${widthPx}px`;
         }
-        if (heightPx > 0 && !['SPAN', 'STRONG', 'EM', 'SMALL'].includes(target.tagName)) {
+        if (shouldFreezeSize && heightPx > 0 && !['SPAN', 'STRONG', 'EM', 'SMALL'].includes(target.tagName)) {
+          target.style.boxSizing = 'border-box';
           target.style.height = `${heightPx}px`;
+        }
+        if (shouldFreezeSize) {
+          target.dataset.cfEditorSizeFrozen = '1';
         }
         if (!target.style.zIndex || target.style.zIndex === 'auto') {
           target.style.zIndex = '10';
@@ -1722,14 +1760,30 @@ export function AdsEditor({
         if (element.classList.contains('creative-frame')) return true;
         if (element.classList.contains('creative-scale')) return true;
         if (element.classList.contains('ad-bg')) return true;
-        // Detect background layer: img/div that is first child of .ad-banner with z-index <= 0
-        const parent = element.parentElement;
-        if (parent && (parent.classList.contains('ad-banner') || parent.classList.contains('creative-frame'))) {
-          const zIdx = parseInt(doc.defaultView?.getComputedStyle(element).zIndex || '0', 10);
-          if (zIdx <= 0) return true;
-        }
         return false;
       };
+
+      const lockComposeBackgroundLayers = () => {
+        Array.from(doc.querySelectorAll('[data-cf-locked-layer], [style*="pointer-events"]')).forEach((node) => {
+          const el = node as HTMLElement;
+          if (el.classList.contains('ad-bg')) return;
+          el.removeAttribute('data-cf-locked-layer');
+          el.removeAttribute('aria-hidden');
+          if (el.style.pointerEvents === 'none') el.style.pointerEvents = '';
+          if (el.style.userSelect === 'none') el.style.userSelect = '';
+        });
+
+        const candidates = Array.from(doc.querySelectorAll('.ad-bg')) as HTMLElement[];
+        candidates.forEach((el) => {
+          el.dataset.cfLockedLayer = 'true';
+          el.setAttribute('aria-hidden', 'true');
+          el.style.pointerEvents = 'none';
+          el.style.userSelect = 'none';
+          if (el instanceof HTMLImageElement) el.draggable = false;
+        });
+      };
+
+      lockComposeBackgroundLayers();
 
       // positionOnly=true: only reposition the overlay box, skip recreating handles.
       // Use during drag/resize mousemove to avoid per-frame DOM churn.
@@ -1811,6 +1865,16 @@ export function AdsEditor({
           { axis: 'x', value: br.left }, { axis: 'x', value: br.left + br.width / 2 }, { axis: 'x', value: br.right },
           { axis: 'y', value: br.top  }, { axis: 'y', value: br.top  + br.height / 2 }, { axis: 'y', value: br.bottom },
         );
+        const guideX = (doc.documentElement.dataset.cfGuideX || '')
+          .split(',')
+          .map((value) => Number.parseFloat(value))
+          .filter(Number.isFinite);
+        const guideY = (doc.documentElement.dataset.cfGuideY || '')
+          .split(',')
+          .map((value) => Number.parseFloat(value))
+          .filter(Number.isFinite);
+        guideX.forEach((value) => points.push({ axis: 'x', value: br.left + value }));
+        guideY.forEach((value) => points.push({ axis: 'y', value: br.top + value }));
         const all = Array.from(banner.querySelectorAll('*')) as HTMLElement[];
         for (const el of all) {
           if (el === target || el.id === 'cf-editor-resize-overlay' || el.id === 'cf-snap-guides' || isNonEditableCanvasLayer(el)) continue;
@@ -2021,6 +2085,12 @@ export function AdsEditor({
 
         const rect = target.getBoundingClientRect();
         const parentRect = parent.getBoundingClientRect();
+        target.style.boxSizing = 'border-box';
+        target.style.width = `${Math.max(1, Math.round(rect.width))}px`;
+        if (!['SPAN', 'STRONG', 'EM', 'SMALL'].includes(target.tagName)) {
+          target.style.height = `${Math.max(1, Math.round(rect.height))}px`;
+        }
+        target.dataset.cfEditorSizeFrozen = '1';
         resizeState = {
           target,
           parent,
@@ -2194,6 +2264,31 @@ export function AdsEditor({
     }
   }, [html]);
 
+  const buildHtmlWithBase = useCallback((nextHtml: string) => {
+    const base = (projectPublicUrl || '').trim();
+    if (!base) return nextHtml;
+    const normalized = base.replace(/\/index\.html$/i, '/').replace(/\/?$/, '/');
+    const absoluteBase = new URL(normalized, window.location.origin).href;
+    let result = nextHtml.replace(/<base\b[^>]*>/gi, '');
+    result = result.replace(/(<head\b[^>]*>)/i, `$1\n<base href="${absoluteBase}">`);
+    return result;
+  }, [projectPublicUrl]);
+
+  const writeHtmlToIframeDoc = useCallback((doc: Document, nextHtml: string) => {
+    doc.open();
+    doc.write(buildHtmlWithBase(nextHtml));
+    doc.close();
+    injectBridgeIntoDocument(doc);
+  }, [buildHtmlWithBase]);
+
+  const writeHtmlToIframe = useCallback((nextHtml: string) => {
+    setTimeout(() => {
+      const doc = iframeRef.current?.contentDocument;
+      if (!doc) return;
+      writeHtmlToIframeDoc(doc, nextHtml);
+    }, 0);
+  }, [writeHtmlToIframeDoc]);
+
   const undo = useCallback(() => {
     const previous = historyPastRef.current.pop();
     if (!previous) return;
@@ -2209,7 +2304,7 @@ export function AdsEditor({
       const doc = iframeRef.current?.contentDocument;
       if (doc) writeHtmlToIframeDoc(doc, previous);
     }, 0);
-  }, [html, emitChange]);
+  }, [html, emitChange, writeHtmlToIframeDoc]);
 
   const redo = useCallback(() => {
     const next = historyFutureRef.current.pop();
@@ -2228,14 +2323,9 @@ export function AdsEditor({
     // Força atualização do iframe e do editor
     setTimeout(() => {
       const doc = iframeRef.current?.contentDocument;
-      if (doc) {
-        doc.open();
-        doc.write(next);
-        doc.close();
-        injectBridgeIntoDocument(doc);
-      }
+      if (doc) writeHtmlToIframeDoc(doc, next);
     }, 0);
-  }, [html, emitChange]);
+  }, [html, emitChange, writeHtmlToIframeDoc]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -4071,31 +4161,6 @@ export function AdsEditor({
     applyColorsLive({ nextTextColor: next });
   };
 
-  const buildHtmlWithBase = (nextHtml: string) => {
-    const base = (projectPublicUrl || '').trim();
-    if (!base) return nextHtml;
-    const normalized = base.replace(/\/index\.html$/i, '/').replace(/\/?$/, '/');
-    const absoluteBase = new URL(normalized, window.location.origin).href;
-    let result = nextHtml.replace(/<base\b[^>]*>/gi, '');
-    result = result.replace(/(<head\b[^>]*>)/i, `$1\n<base href="${absoluteBase}">`);
-    return result;
-  };
-
-  const writeHtmlToIframeDoc = (doc: Document, nextHtml: string) => {
-    doc.open();
-    doc.write(buildHtmlWithBase(nextHtml));
-    doc.close();
-    injectBridgeIntoDocument(doc);
-  };
-
-  const writeHtmlToIframe = (nextHtml: string) => {
-    setTimeout(() => {
-      const doc = iframeRef.current?.contentDocument;
-      if (!doc) return;
-      writeHtmlToIframeDoc(doc, nextHtml);
-    }, 0);
-  };
-
   const applyGlobalBrandColor = (
     key: keyof typeof globalBrandColors,
     label: string,
@@ -4564,7 +4629,8 @@ export function AdsEditor({
   };
   const layerTagIcon = (tag: string) => TAG_ICONS[tag] || '○';
 
-  const leftSidebar = leftPanelOpen ? (
+  function renderLeftSidebar() {
+    return leftPanelOpen ? (
     <div
       className="flex flex-col h-full shrink-0 overflow-hidden"
       style={{
@@ -4638,7 +4704,8 @@ export function AdsEditor({
         </div>
       </div>
     </div>
-  ) : null;
+    ) : null;
+  }
 
   const handleCanvasWheel = useCallback((e: React.WheelEvent) => {
     if (!e.ctrlKey && !e.metaKey) return;
@@ -4674,6 +4741,76 @@ export function AdsEditor({
   }, [canvasZoom, canvasNaturalSize.width]);
 
   const handleWorkspaceMouseLeave = useCallback(() => setMouseCanvasPos(null), []);
+
+  const canvasCoordFromClient = useCallback((axis: 'x' | 'y', clientX: number, clientY: number) => {
+    const iframe = iframeRef.current;
+    const rect = iframe?.getBoundingClientRect();
+    if (!rect) return 0;
+    const raw = axis === 'x' ? (clientX - rect.left) / canvasZoom : (clientY - rect.top) / canvasZoom;
+    const max = axis === 'x' ? canvasNaturalSize.width : canvasNaturalSize.height;
+    return Math.max(0, Math.min(max || 0, Math.round(raw)));
+  }, [canvasNaturalSize.height, canvasNaturalSize.width, canvasZoom]);
+
+  const beginCanvasGuide = useCallback((axis: 'x' | 'y', value: number) => {
+    setCanvasGuides((prev) => {
+      const current = prev[axis];
+      const nearbyIndex = current.findIndex((guide) => Math.abs(guide - value) <= 2);
+      const next = [...current];
+      if (nearbyIndex >= 0) {
+        next[nearbyIndex] = value;
+        activeGuideIndexRef.current = nearbyIndex;
+      } else {
+        next.push(value);
+        activeGuideIndexRef.current = next.length - 1;
+      }
+      next.sort((a, b) => a - b);
+      activeGuideIndexRef.current = next.findIndex((guide) => guide === value);
+      return { ...prev, [axis]: next };
+    });
+  }, []);
+
+  const moveActiveCanvasGuide = useCallback((axis: 'x' | 'y', value: number) => {
+    setCanvasGuides((prev) => {
+      const index = activeGuideIndexRef.current;
+      if (index === null || index < 0 || index >= prev[axis].length) return prev;
+      const next = [...prev[axis]];
+      next[index] = value;
+      return { ...prev, [axis]: next };
+    });
+  }, []);
+
+  const beginRulerGuide = useCallback((axis: 'x' | 'y', event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const value = canvasCoordFromClient(axis, event.clientX, event.clientY);
+    beginCanvasGuide(axis, value);
+    setActiveRulerDrag(axis);
+  }, [beginCanvasGuide, canvasCoordFromClient]);
+
+  useEffect(() => {
+    if (!activeRulerDrag) return;
+    const handleMove = (event: MouseEvent) => {
+      const value = canvasCoordFromClient(activeRulerDrag, event.clientX, event.clientY);
+      moveActiveCanvasGuide(activeRulerDrag, value);
+    };
+    const handleUp = () => {
+      setActiveRulerDrag(null);
+      activeGuideIndexRef.current = null;
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp, { once: true });
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [activeRulerDrag, canvasCoordFromClient, moveActiveCanvasGuide]);
+
+  const removeCanvasGuide = useCallback((axis: 'x' | 'y', value: number) => {
+    setCanvasGuides((prev) => ({
+      ...prev,
+      [axis]: prev[axis].filter((guide) => guide !== value),
+    }));
+  }, []);
 
   const rulerTicksX = useMemo(() => {
     if (!canvasNaturalSize.width) return [];
@@ -4714,7 +4851,11 @@ export function AdsEditor({
       <div className="flex min-h-full w-full items-start justify-center py-8 px-8" style={{ paddingLeft: 36, paddingTop: 36 }}>
         {/* Ruler: horizontal */}
         {canvasStageW && rulerTicksX.length > 0 && (
-          <div style={{ position: 'absolute', top: 0, left: 20, right: 0, height: 20, background: '#1a1625', zIndex: 31, overflow: 'hidden', borderBottom: '1px solid rgba(153,90,242,0.25)', pointerEvents: 'none' }}>
+          <div
+            onMouseDown={(event) => beginRulerGuide('x', event)}
+            title="Click or drag to add a vertical guide"
+            style={{ position: 'absolute', top: 0, left: 20, right: 0, height: 20, background: '#1a1625', zIndex: 31, overflow: 'hidden', borderBottom: '1px solid rgba(153,90,242,0.25)', cursor: 'col-resize' }}
+          >
             {rulerTicksX.map((tick) => (
               <div key={tick.pos} style={{ position: 'absolute', left: tick.pos * canvasZoom + 36, top: 0, width: 1, height: tick.major ? 12 : 6, background: 'rgba(255,255,255,0.25)' }}>
                 {tick.major && <span style={{ position: 'absolute', top: 13, left: 2, fontSize: 8, color: 'rgba(255,255,255,0.45)', whiteSpace: 'nowrap', lineHeight: 1 }}>{tick.label}</span>}
@@ -4725,7 +4866,11 @@ export function AdsEditor({
         )}
         {/* Ruler: vertical */}
         {canvasStageH && rulerTicksY.length > 0 && (
-          <div style={{ position: 'absolute', left: 0, top: 20, bottom: 0, width: 20, background: '#1a1625', zIndex: 31, overflow: 'hidden', borderRight: '1px solid rgba(153,90,242,0.25)', pointerEvents: 'none' }}>
+          <div
+            onMouseDown={(event) => beginRulerGuide('y', event)}
+            title="Click or drag to add a horizontal guide"
+            style={{ position: 'absolute', left: 0, top: 20, bottom: 0, width: 20, background: '#1a1625', zIndex: 31, overflow: 'hidden', borderRight: '1px solid rgba(153,90,242,0.25)', cursor: 'row-resize' }}
+          >
             {rulerTicksY.map((tick) => (
               <div key={tick.pos} style={{ position: 'absolute', top: tick.pos * canvasZoom + 36, left: 0, height: 1, width: tick.major ? 12 : 6, background: 'rgba(255,255,255,0.25)' }}>
                 {tick.major && <span style={{ position: 'absolute', top: 2, left: 13, fontSize: 8, color: 'rgba(255,255,255,0.45)', whiteSpace: 'nowrap', lineHeight: 1, writingMode: 'vertical-lr' as const }}>{tick.label}</span>}
@@ -4743,6 +4888,22 @@ export function AdsEditor({
             ? { width: canvasStageW, height: canvasStageH }
             : { width: '100%', minHeight: 400 }}
         >
+          {canvasGuides.x.map((guide) => (
+            <div
+              key={`x-${guide}`}
+              title="Double-click to remove guide"
+              onDoubleClick={(event) => { event.stopPropagation(); removeCanvasGuide('x', guide); }}
+              style={{ position: 'absolute', left: guide * canvasZoom - 0.5, top: 0, bottom: 0, width: 1, zIndex: 8, background: 'rgba(244,63,94,0.82)', boxShadow: '0 0 0 1px rgba(244,63,94,0.18)', cursor: 'col-resize' }}
+            />
+          ))}
+          {canvasGuides.y.map((guide) => (
+            <div
+              key={`y-${guide}`}
+              title="Double-click to remove guide"
+              onDoubleClick={(event) => { event.stopPropagation(); removeCanvasGuide('y', guide); }}
+              style={{ position: 'absolute', top: guide * canvasZoom - 0.5, left: 0, right: 0, height: 1, zIndex: 8, background: 'rgba(244,63,94,0.82)', boxShadow: '0 0 0 1px rgba(244,63,94,0.18)', cursor: 'row-resize' }}
+            />
+          ))}
           {!livePreviewUrl && (
             <div className="absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-background/95 p-6 text-center">
               <div className="max-w-md space-y-2">
@@ -4860,10 +5021,16 @@ export function AdsEditor({
       const scope = roots.length > 0 ? roots : Array.from(doc.body.children);
       const ignored = new Set(['script', 'style', 'meta', 'link', 'title', 'base']);
       const layers: AdsLayer[] = [];
+      const isLockedLayer = (el: Element) => {
+        if (!(el instanceof HTMLElement)) return false;
+        if (el.classList.contains('ad-bg')) return true;
+        return false;
+      };
 
       const walk = (el: Element, depth: number) => {
         const tag = el.tagName.toLowerCase();
         if (ignored.has(tag)) return;
+        if (isLockedLayer(el)) return;
         const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
         const label =
           el.getAttribute('aria-label') ||
@@ -4968,6 +5135,7 @@ export function AdsEditor({
     const el = doc?.querySelector(path) as HTMLElement | null;
     const frameWindow = doc?.defaultView;
     if (!doc || !el || !frameWindow) return;
+    if (el.classList.contains('ad-bg')) return;
     const buildPath = (node: Element | null) => {
       if (!node || node === doc.documentElement) return 'html';
       const parts: string[] = [];
@@ -7677,6 +7845,15 @@ export function AdsEditor({
                     <input type="checkbox" checked={snapToGrid} onChange={(e) => setSnapToGrid(e.target.checked)} />
                     Snap nudges to 8px grid
                   </label>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    onClick={() => setCanvasGuides({ x: [], y: [] })}
+                    disabled={canvasGuides.x.length === 0 && canvasGuides.y.length === 0}
+                  >
+                    Clear ruler guides
+                  </Button>
                 </div>
               </div>
             </div>
@@ -8835,7 +9012,7 @@ export function AdsEditor({
         }}
       >
         {/* Left sidebar — Layers + Add element */}
-        {leftSidebar}
+        {renderLeftSidebar()}
 
         {/* Center — top mini-bar + canvas */}
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
@@ -8959,7 +9136,7 @@ export function AdsEditor({
       style={{ ...adsEditorChromeStyle }}
     >
       {/* Left sidebar — Layers + Add element */}
-      {leftSidebar}
+      {renderLeftSidebar()}
 
       {/* Center — canvas with top bar */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden rounded-xl border border-border shadow-lg" style={{ background: '#13111a', minHeight: '70vh' }}>

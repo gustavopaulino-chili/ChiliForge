@@ -29,10 +29,14 @@ type AgentsAdsPayload = {
   geminiApiKey?: string;
   agentConfig: AgentConfig;
   globalStoreName?: string;
+  globalGuidelinesData?: unknown;
+  guidelinesStoreData?: unknown;
   globalReferenceStoreName?: string;
   imageReferenceStoreName?: string;
   companyStoreName: string;
+  companyStoreData?: unknown;
   campaignGoodExamplesStore?: string;
+  examplesStoreData?: unknown;
   campaignMemoryStore?: string;
   campaignData: {
     brandName?: string;
@@ -76,8 +80,8 @@ type AgentsAdsPayload = {
 };
 
 const env = (globalThis as any).Deno?.env;
-const PLAN_MODEL_CHAIN   = ["gemini-3.5-flash"];
-const RENDER_MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
+const PLAN_MODEL_CHAIN   = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
+const RENDER_MODEL_CHAIN = ["gemini-2.5-flash"];
 const MODEL_CHAIN        = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
 
 const COPY_SYSTEM_PROMPT = `You are an expert direct-response ad copywriter. Generate concise, conversion-focused copy based on campaign data. Output ONLY valid JSON matching the schema.
@@ -632,6 +636,12 @@ function buildReferenceRetrievalGuide(
   ].join("\n");
 }
 
+function compactStoreData(value: unknown, maxChars = 6000): string {
+  if (value == null) return "";
+  const raw = typeof value === "string" ? value : JSON.stringify(value);
+  return (raw || "").replace(/\s+/g, " ").trim().slice(0, maxChars);
+}
+
 
 function getAbFocusDescription(focus: string): string {
   const descriptions: Record<string, string> = {
@@ -828,7 +838,18 @@ function extractInterpretJson(raw: string): { batchSpecs: Array<{ label: string;
   }
 }
 
-function buildPlanPrompt(campaignFacts: string, formatGroups: AdFormat[][], layoutSeed: string, retrievalHints: string, referenceGuide: string, formatNotes?: Record<string, string>, hasApprovedExamples = false): string {
+function buildPlanPrompt(
+  campaignFacts: string,
+  formatGroups: AdFormat[][],
+  layoutSeed: string,
+  retrievalHints: string,
+  referenceGuide: string,
+  formatNotes?: Record<string, string>,
+  hasApprovedExamples = false,
+  guidelinesStoreData?: unknown,
+  companyStoreData?: unknown,
+  examplesStoreData?: unknown,
+): string {
   const groupsSummary = formatGroups.map((g) => {
     const cat = deriveFormatCategory(g[0]);
     const items = buildFormatsList(g, formatNotes);
@@ -836,11 +857,18 @@ function buildPlanPrompt(campaignFacts: string, formatGroups: AdFormat[][], layo
   }).join("\n\n");
 
   const groupNames = formatGroups.map((g) => deriveFormatCategory(g[0]));
+  const guidelinesStoreBlock = compactStoreData(guidelinesStoreData, 8000);
+  const companyStoreBlock = compactStoreData(companyStoreData);
+  const examplesStoreBlock = compactStoreData(examplesStoreData);
   return [
     "You are a senior ad creative director. Create a concise creative plan. Plain text only — no HTML.",
     "",
     buildSourceOrchestration(hasApprovedExamples),
     "",
+    guidelinesStoreBlock ? `=== GLOBAL ADS GUIDELINES DATA ===\n${guidelinesStoreBlock}` : "",
+    companyStoreBlock ? `=== COMPANY STORE DATA ===\n${companyStoreBlock}` : "",
+    examplesStoreBlock ? `=== APPROVED EXAMPLES STORE DATA ===\n${examplesStoreBlock}` : "",
+    guidelinesStoreBlock || companyStoreBlock || examplesStoreBlock ? "" : "",
     "=== CAMPAIGN ===",
     campaignFacts,
     "",
@@ -862,9 +890,10 @@ function buildPlanPrompt(campaignFacts: string, formatGroups: AdFormat[][], layo
     "REFERENCE STORE TASK — Follow the targeted retrieval guide above when querying the reference store. Extract structural/compositional patterns only — never brand identity.",
     "VARIATION TASK - Give each exact format a distinct composition recipe. Do not scale or crop the same layout across ratios.",
     "OPEN LAYOUT TASK - Decide the final layout yourself like an art director. Use the global store for constraints, but choose the most persuasive composition for the exact objective, asset set, and format.",
-    "STEP 1 — Query stores: for each design parameter listed in campaign facts, retrieve the rule and write one line.",
-    "STEP 2 — For each format group, write one section starting with [GROUP: <name>] as a header. Name each group using platform-format style (e.g. [GROUP: social-story], [GROUP: display-banner], [GROUP: display-medium-rectangle]).",
-    "In each section cover: the creative thread (one specific concept tying all formats in this group), the composition approach, which asset goes at which z-index layer, CTA style and placement, and how layouts should vary across the formats in the group.",
+    "STEP 1 — Guidelines pass: before planning each group, resolve the applicable global ads guidelines from GLOBAL ADS GUIDELINES DATA and/or File Search for the selected objective, funnel, style, tone, urgency, logo strategy, image fallback, A/B focus, platform, format, and dimensions.",
+    "STEP 2 — Write guidelineApplications as concrete rules you applied. Include at least one format/layout guideline per group, and include source labels when available.",
+    "STEP 3 — For each format group, write one section/JSON group named with platform-format style (e.g. social-story, display-banner, display-medium-rectangle).",
+    "In each group cover: the creative thread (one specific concept tying all formats in this group), the composition approach, which guideline drove the layout, which asset goes at which z-index layer, CTA style and placement, and how layouts should vary across the formats in the group.",
     "Be specific and actionable — no generic filler.",
   ].join("\n");
 }
@@ -1696,11 +1725,13 @@ type CreativeGroupPlan = {
   layoutNotes: string;
   colorNotes?: string;
   imageNotes?: string;
+  guidelineApplications?: string[];
   abVariants?: Array<{ label: string; headline: string; cta: string }>;
 };
 
 type CreativePlanJson = {
   groups: CreativeGroupPlan[];
+  guidelineApplications?: string[];
   globalNotes?: string;
 };
 
@@ -1722,6 +1753,7 @@ const CREATIVE_PLAN_JSON_SCHEMA: Record<string, unknown> = {
           layoutNotes: { type: "string" },
           colorNotes:  { type: "string" },
           imageNotes:  { type: "string" },
+          guidelineApplications: { type: "array", items: { type: "string" } },
           abVariants: {
             type: "array",
             items: {
@@ -1738,6 +1770,7 @@ const CREATIVE_PLAN_JSON_SCHEMA: Record<string, unknown> = {
         required: ["groupKey", "formats", "headline", "cta", "layoutNotes"],
       },
     },
+    guidelineApplications: { type: "array", items: { type: "string" } },
     globalNotes: { type: "string" },
   },
   required: ["groups"],
@@ -1903,7 +1936,20 @@ serve(async (req: Request) => {
       });
     }
 
-    const { agentConfig, globalStoreName, globalReferenceStoreName, companyStoreName, campaignGoodExamplesStore, campaignMemoryStore, campaignData, useCampaignMemory } = payload;
+    const {
+      agentConfig,
+      globalStoreName,
+      globalGuidelinesData,
+      guidelinesStoreData,
+      globalReferenceStoreName,
+      companyStoreName,
+      companyStoreData,
+      campaignGoodExamplesStore,
+      examplesStoreData,
+      campaignMemoryStore,
+      campaignData,
+      useCampaignMemory,
+    } = payload;
     const apiKey = getApiKey(typeof payload.geminiApiKey === "string" ? payload.geminiApiKey : undefined);
 
     if (!apiKey) {
@@ -1971,12 +2017,9 @@ serve(async (req: Request) => {
     }
 
     const hasApprovedExamples = Boolean(campaignGoodExamplesStore?.trim());
-    const isUnified = mode === "unified";
     const formatsList = buildFormatsList(formats, campaignData.formatNotes);
     const campaignFacts = buildCampaignFacts(campaignData);
-    const sourceOrchestration = buildRendererSourceOrchestration(hasApprovedExamples, isUnified);
     const layoutSeed = getLayoutSeed();
-    const storeNotice = "";
 
     // Group formats by category early — used in both plan and generation
     const formatGroups = groupFormatsByCategory(formats);
@@ -2035,17 +2078,33 @@ serve(async (req: Request) => {
       let banners: Awaited<ReturnType<typeof runWithConcurrency>>;
 
       if (isAbVisual) {
+        const bgByVariantRatio = new Map<string, string>();
+        const uniqueVariantRatios = [...new Map(
+          imageTasks.map((task) => {
+            const aspectRatio = imageAspectRatioForFormat(task.format);
+            return [`${task.variantIndex}:${aspectRatio}`, { task, aspectRatio }] as const;
+          })
+        ).values()];
+
+        for (const { task, aspectRatio } of uniqueVariantRatios) {
+          const taskIndex = imageTasks.indexOf(task);
+          const layoutHint = LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
+          const visualDirection = BACKGROUND_DIRECTIONS[taskIndex % BACKGROUND_DIRECTIONS.length];
+          const taskBrandSpec = specForFormat(brandSpec, task.format);
+
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection);
+          const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
+            maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
+          });
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, bgDataUrl ?? "");
+        }
+
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
           const aspectRatio = imageAspectRatioForFormat(format);
           const layoutHint = LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
-          const visualDirection = BACKGROUND_DIRECTIONS[taskIndex % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, format);
-
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, format, aspectRatio, layoutHint, visualDirection);
-          const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
-            maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
-          });
+          const bgDataUrl = bgByVariantRatio.get(`${task.variantIndex}:${aspectRatio}`) ?? "";
 
           const bannerHtml = buildCompositionHtml(
             bgDataUrl ?? "", campaignData, format, taskBrandSpec, cssVars, fontUrl,
@@ -2179,14 +2238,25 @@ serve(async (req: Request) => {
     if (mode !== "render" && mode !== "unified") {
       const planResult = await generateWithRetry(
         "You are a senior performance ad creative director. Create concise planning notes only. Do not generate HTML.",
-        buildPlanPrompt(campaignFacts, formatGroups, layoutSeed, retrievalHints, referenceGuide, campaignData.formatNotes, hasApprovedExamples),
-        "gemini-3.5-flash",
+        buildPlanPrompt(
+          campaignFacts,
+          formatGroups,
+          layoutSeed,
+          retrievalHints,
+          referenceGuide,
+          campaignData.formatNotes,
+          hasApprovedExamples,
+          guidelinesStoreData ?? globalGuidelinesData,
+          companyStoreData,
+          examplesStoreData,
+        ),
+        PLAN_MODEL_CHAIN[0],
         0.65,
         8000,
         apiKey,
         fileSearchStores.length ? fileSearchStores : undefined,
         undefined,
-        { modelChain: PLAN_MODEL_CHAIN, thinkingLevel: "medium", responseMimeType: "application/json", responseSchema: CREATIVE_PLAN_JSON_SCHEMA },
+        { modelChain: PLAN_MODEL_CHAIN, responseMimeType: "application/json", responseSchema: CREATIVE_PLAN_JSON_SCHEMA },
       );
       creativePlan = planResult.text.trim().slice(0, 12000);
       if (planResult.groundingMetadata) groundingMetadata.push(planResult.groundingMetadata);
@@ -2238,11 +2308,6 @@ serve(async (req: Request) => {
       const planSection = creativePlan;
 
       const groupMessage = [
-        storeNotice,
-        sourceOrchestration,
-        "",
-        referenceGuide || "REFERENCE STORE TASK - If a global ad reference store is attached, query it for structural patterns only (layout, CTA zone, spacing). Never copy colors, fonts, logos, or brand identity from reference ads.",
-        "",
         cssVars ? `=== BRAND CSS TOKENS (inject as :root vars — use var(--primary) etc.) ===\n<style>:root{${cssVars}}</style>${fontUrl ? `\n@import: ${fontUrl}` : ""}` : "",
         "",
         "=== CAMPAIGN ===",
@@ -2288,11 +2353,11 @@ serve(async (req: Request) => {
       const result = await generateWithRetry(
         agentConfig.systemPrompt,
         groupMessage,
-        agentConfig.model || "gemini-2.5-flash",
+        "gemini-2.5-flash",
         agentConfig.temperature ?? 0.8,
         effectiveMaxTokens,
         apiKey,
-        fileSearchStores.length ? fileSearchStores : undefined,
+        undefined,
         referenceImages.length ? referenceImages : undefined,
         { modelChain: RENDER_MODEL_CHAIN },
       );
