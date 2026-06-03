@@ -5,7 +5,8 @@ import { Progress } from '@/components/ui/progress';
 import { AdCreativeFormData, AdLogoVariant, ComposeBackgroundSource } from '@/types/adCreativeForm';
 import { FieldLabel } from '@/components/generator/FieldLabel';
 import { getProjectAssets, type ProjectAsset } from '@/services/api';
-import { Upload, X, Image, Plus, Sparkles, Loader2, CheckCircle2, AlertCircle, Wand2, RefreshCw, Search, Shapes, Building2 } from 'lucide-react';
+import { Upload, X, Image, Plus, Sparkles, Loader2, CheckCircle2, AlertCircle, Wand2, RefreshCw, Search, Shapes, Building2, FolderOpen } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 
 interface AdImageGenerateContext {
@@ -138,36 +139,68 @@ function ImagePreview({ url, alt }: { url: string; alt: string }) {
   );
 }
 
-function AssetPickerRow({
+// Button that opens the company-images folder picker for a given field.
+function CompanyImagesButton({ count, onOpen }: { count: number; onOpen: () => void }) {
+  if (!count) return null;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+    >
+      <FolderOpen className="h-3.5 w-3.5" />
+      Selecionar das imagens da empresa ({count})
+    </button>
+  );
+}
+
+// Modal that browses the company's assets folder and lets the user pick an image.
+function CompanyImagePickerDialog({
+  open,
+  onOpenChange,
   assets,
   onSelect,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   assets: ProjectAsset[];
   onSelect: (url: string) => void;
 }) {
-  if (!assets.length) return null;
   return (
-    <div className="mt-1 space-y-1.5">
-      <p className="text-[11px] font-medium text-muted-foreground">Company images</p>
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {assets.map(asset => (
-          <button
-            key={asset.name}
-            type="button"
-            onClick={() => onSelect(asset.url)}
-            className="h-12 w-12 shrink-0 overflow-hidden rounded-md border-2 border-transparent bg-muted/40 transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            title={asset.name}
-          >
-            <img
-              src={asset.url}
-              alt={asset.name}
-              className="h-full w-full object-cover"
-              loading="lazy"
-            />
-          </button>
-        ))}
-      </div>
-    </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Imagens da empresa</DialogTitle>
+        </DialogHeader>
+        {assets.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            Esta empresa ainda não tem imagens salvas.
+          </p>
+        ) : (
+          <div className="grid max-h-[60vh] grid-cols-3 gap-3 overflow-y-auto p-1 sm:grid-cols-4 md:grid-cols-5">
+            {assets.map(asset => (
+              <button
+                key={asset.name}
+                type="button"
+                onClick={() => onSelect(asset.url)}
+                title={asset.name}
+                className="group flex flex-col gap-1 rounded-lg border border-border bg-card p-1.5 text-left transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <div className="aspect-square w-full overflow-hidden rounded-md bg-muted/40">
+                  <img
+                    src={asset.url}
+                    alt={asset.name}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                  />
+                </div>
+                <span className="truncate text-[10px] text-muted-foreground">{asset.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -195,6 +228,8 @@ export function StepAdImages({
   const [bulkGeneratedUrls, setBulkGeneratedUrls] = useState<string[]>([]);
   const [bulkHasRun, setBulkHasRun] = useState(false);
   const [companyAssets, setCompanyAssets] = useState<ProjectAsset[]>([]);
+  const [pickerTarget, setPickerTarget] = useState<{ apply: (url: string) => void } | null>(null);
+  const openCompanyPicker = (apply: (url: string) => void) => setPickerTarget({ apply });
 
   useEffect(() => {
     if (!companyProjectId || !userId) {
@@ -596,7 +631,7 @@ export function StepAdImages({
             isSearching={searchingKey === 'logoUrl'}
             anyGenerating={generatingKey !== null || searchingKey !== null}
           />
-          <AssetPickerRow assets={companyAssets} onSelect={url => onChange({ logoUrl: url })} />
+          <CompanyImagesButton count={companyAssets.length} onOpen={() => openCompanyPicker(url => onChange({ logoUrl: url }))} />
           <ImagePreview url={data.logoUrl} alt="Brand logo" />
           {!data.logoUrl && (
             <button
@@ -720,7 +755,7 @@ export function StepAdImages({
             isSearching={searchingKey === 'productImageUrl'}
             anyGenerating={generatingKey !== null || searchingKey !== null}
           />
-          <AssetPickerRow assets={companyAssets} onSelect={url => onChange({ productImageUrl: url })} />
+          <CompanyImagesButton count={companyAssets.length} onOpen={() => openCompanyPicker(url => onChange({ productImageUrl: url }))} />
           {data.productImageUrl
             ? <ImagePreview url={data.productImageUrl} alt="Product image" />
             : (
@@ -798,7 +833,7 @@ export function StepAdImages({
                 isSearching={searchingKey === 'backgroundImageUrl'}
                 anyGenerating={generatingKey !== null || searchingKey !== null}
               />
-              <AssetPickerRow assets={companyAssets} onSelect={url => onChange({ backgroundImageUrl: url })} />
+              <CompanyImagesButton count={companyAssets.length} onOpen={() => openCompanyPicker(url => onChange({ backgroundImageUrl: url }))} />
               {data.backgroundImageUrl
                 ? <ImagePreview url={data.backgroundImageUrl} alt="Background image" />
                 : (
@@ -927,6 +962,13 @@ export function StepAdImages({
         {onGenerateImage && <> Click <Sparkles className="inline h-3 w-3 mx-0.5" /> to generate any image with AI using your brand context.</>}
         {onSearchPexelsImage && <> Click <Search className="inline h-3 w-3 mx-0.5" /> to search Pexels with the same context.</>}
       </div>
+
+      <CompanyImagePickerDialog
+        open={pickerTarget !== null}
+        onOpenChange={(o) => { if (!o) setPickerTarget(null); }}
+        assets={companyAssets}
+        onSelect={(url) => { pickerTarget?.apply(url); setPickerTarget(null); }}
+      />
     </div>
   );
 }

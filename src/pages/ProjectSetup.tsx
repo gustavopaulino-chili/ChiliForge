@@ -9,7 +9,7 @@ import { PremiumParticleBackground, type ParticleTone } from '@/components/landi
 import { CompanyProjectForm } from '@/components/project/CompanyProjectForm';
 import { StepIndicator } from '@/components/generator/StepIndicator';
 import { useAuth } from '@/contexts/AuthContext';
-import { createProject, scrapeWebsite, uploadProjectAssets } from '@/services/api';
+import { createProject, scrapeWebsite, uploadProjectAssets, uploadProjectAssetsFromUrls } from '@/services/api';
 import {
   buildCompanyContext,
   companyToAdForm,
@@ -57,6 +57,8 @@ export default function ProjectSetup() {
   const [importContext, setImportContext] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [importedFields, setImportedFields] = useState<string[]>([]);
+  // Scraped image URLs waiting to be saved into the company assets folder once a project exists.
+  const [pendingScrapedImages, setPendingScrapedImages] = useState<string[]>([]);
 
   const companyContext = useMemo(() => buildCompanyContext(data), [data]);
   const canSave = data.businessName.trim() && data.projectSlug.trim() && data.businessDescription.trim() && data.valueProposition.trim();
@@ -151,6 +153,25 @@ export default function ProjectSetup() {
     return matched;
   };
 
+  const collectScrapedImageUrls = (extracted: Record<string, unknown>): string[] => {
+    const urls = new Set<string>();
+    const add = (v: unknown) => {
+      const s = String(v || '').trim();
+      if (/^https?:\/\//i.test(s)) urls.add(s);
+    };
+    ['heroImage1', 'heroImage2', 'logoUrl', 'brandImage', 'sectionImage1', 'sectionImage2', 'sectionImage3', 'aboutImage', 'teamImage']
+      .forEach((k) => add(extracted[k]));
+    if (Array.isArray(extracted.productImages)) extracted.productImages.forEach(add);
+    const imgs = extracted.images;
+    if (imgs && typeof imgs === 'object') {
+      Object.values(imgs as Record<string, unknown>).forEach((v) => {
+        if (Array.isArray(v)) v.forEach(add);
+        else add(v);
+      });
+    }
+    return [...urls];
+  };
+
   const handleImportWebsite = async () => {
     if (!importUrl.trim()) {
       toast.error('Enter a website URL to import company data.');
@@ -164,6 +185,21 @@ export default function ProjectSetup() {
       const extracted = result.extracted || {};
       const matched = applyExtractedData(extracted, importUrl.trim());
       toast.success(`Imported ${matched.length} company fields.`);
+
+      // Save the scraped images into the company's assets folder so they become
+      // selectable "company images". If the project does not exist yet, queue them
+      // to be downloaded when the project is created (ensureProject).
+      const imageUrls = collectScrapedImageUrls(extracted);
+      if (imageUrls.length && user?.id) {
+        if (savedProjectId) {
+          uploadProjectAssetsFromUrls(savedProjectId, user.id, imageUrls)
+            .then((r) => toast.success(`${r.uploaded?.length ?? 0} imagem(ns) do site salva(s) nas imagens da empresa.`))
+            .catch(() => undefined);
+        } else {
+          setPendingScrapedImages(imageUrls);
+        }
+      }
+
       setCurrentStep(1);
       setMaxVisitedStep((prev) => Math.max(prev, 1));
     } catch (error) {
@@ -210,6 +246,16 @@ export default function ProjectSetup() {
       setFolderPath(nextFolderPath);
       setPublicUrl(nextPublicUrl);
       toast.success('Project context saved.');
+
+      // Download any queued scraped images into the new project's assets folder.
+      if (pendingScrapedImages.length && user?.id) {
+        const queued = pendingScrapedImages;
+        setPendingScrapedImages([]);
+        uploadProjectAssetsFromUrls(Number(saved.id), user.id, queued)
+          .then((r) => toast.success(`${r.uploaded?.length ?? 0} imagem(ns) do site salva(s) nas imagens da empresa.`))
+          .catch(() => undefined);
+      }
+
       return { id: Number(saved.id), folderPath: nextFolderPath, publicUrl: nextPublicUrl };
     } finally {
       setIsSaving(false);
