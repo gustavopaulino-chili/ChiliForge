@@ -328,10 +328,18 @@ export function StepAdImages({
   const showBgInput = !isCompose || bgSource === 'reference';
   const setBgSource = (src: ComposeBackgroundSource) => {
     if (src === 'company') {
-      onChange({ composeBackgroundSource: src, composeCompanyRefs: companyAssets.slice(0, 4).map(a => a.url) });
+      // Seed with up to 4 company assets the first time; user adjusts the selection below.
+      const cur = data.composeCompanyRefs || [];
+      const seed = cur.length ? cur : companyAssets.slice(0, 4).map(a => a.url);
+      onChange({ composeBackgroundSource: src, composeCompanyRefs: seed });
     } else {
       onChange({ composeBackgroundSource: src, composeCompanyRefs: [] });
     }
+  };
+  const companyRefs = data.composeCompanyRefs || [];
+  const toggleCompanyRef = (url: string) => {
+    const next = companyRefs.includes(url) ? companyRefs.filter(u => u !== url) : [...companyRefs, url];
+    onChange({ composeCompanyRefs: next });
   };
 
   const updateProductVariant = (i: number, url: string) => {
@@ -804,9 +812,41 @@ export function StepAdImages({
                 </p>
               )}
               {bgSource === 'company' && (
-                <p className="text-[11px] text-muted-foreground rounded-md bg-muted/40 px-2.5 py-1.5">
-                  A IA gera o fundo inspirado nas imagens da empresa{companyAssets.length ? ` (${Math.min(companyAssets.length, 4)} usadas como referência)` : ''} — sem precisar enviar uma imagem.
-                </p>
+                <div className="space-y-2">
+                  <p className="text-[11px] text-muted-foreground rounded-md bg-muted/40 px-2.5 py-1.5">
+                    Selecione os design assets / imagens da empresa que a IA deve usar como referência do fundo
+                    {companyRefs.length ? ` (${companyRefs.length} selecionada${companyRefs.length === 1 ? '' : 's'})` : ''}.
+                  </p>
+                  {companyAssets.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      Nenhuma imagem da empresa ainda. Envie design assets na página da empresa.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+                      {companyAssets.map(asset => {
+                        const selected = companyRefs.includes(asset.url);
+                        return (
+                          <button
+                            key={asset.name}
+                            type="button"
+                            onClick={() => toggleCompanyRef(asset.url)}
+                            title={asset.name}
+                            className={`relative aspect-square overflow-hidden rounded-md border-2 transition-all ${
+                              selected ? 'border-primary ring-1 ring-primary' : 'border-transparent hover:border-muted-foreground/40'
+                            }`}
+                          >
+                            <img src={asset.url} alt={asset.name} loading="lazy" className="h-full w-full object-cover" />
+                            {selected && (
+                              <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-white">
+                                <CheckCircle2 className="h-3 w-3" />
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}

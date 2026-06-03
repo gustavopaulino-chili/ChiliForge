@@ -1625,6 +1625,14 @@ function buildBackgroundPrompt(
     "",
     sourceBlock,
     "",
+    "████ CAMPAIGN RELEVANCE — MAKE IT SPECIFIC, NOT RANDOM ████",
+    "The backdrop MUST visually evoke THIS specific campaign — never a generic, arbitrary scene.",
+    "Derive the setting, props, materials, color mood, lighting and atmosphere from the product/service, industry, audience, offer and tone described in the CAMPAIGN CONTEXT below.",
+    "It should be immediately plausible as the backdrop for what is being advertised (e.g. a fitness offer → energetic motion/gym/outdoor textures; a law firm → refined corporate materials; a dessert brand → warm, appetizing tones).",
+    bgSource === "shapes"
+      ? "Even though this is an ABSTRACT background, the palette, energy and mood must still reflect the campaign's product, audience and tone — not a decorative pattern unrelated to the offer."
+      : "Keep it cohesive with the brand colors and the chosen visual style/tone; do not drift into stock visuals that ignore what is being advertised.",
+    "",
     "████ ZERO-TEXT RULE — NO EXCEPTIONS ████",
     "❌ NO text of any kind — not headline, not body copy, not CTA, not tagline, not slogan, not offer, not brand name, not any word or letter.",
     "❌ NO logo, wordmark, icon, seal, emblem, monogram, or any brand symbol whatsoever.",
