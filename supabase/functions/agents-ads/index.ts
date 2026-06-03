@@ -366,6 +366,16 @@ function buildBrandConsistencyRules(data: AgentsAdsPayload["campaignData"]): str
 }
 
 
+// Pure-image mode facts: all assets are attached as inline reference images (the model draws
+// the whole ad, including text). Restored from the legacy image pipeline for the external API.
+function buildCampaignFactsForImage(data: AgentsAdsPayload["campaignData"]): string {
+  const full = buildCampaignFacts(data);
+  return full.replace(
+    /\nAssets:\n[\s\S]*?(?=\n\n|$)/,
+    "\nAssets: All logo, product, and background assets are attached as INLINE REFERENCE IMAGES — use them directly from the attached images. NEVER render URLs, domain names, file paths, or any URL string as visible text in the image.",
+  );
+}
+
 function buildCampaignFactsForCompose(data: AgentsAdsPayload["campaignData"]): string {
   const full = buildCampaignFacts(data);
   // In compose mode the logo is NOT passed as a reference image — it is composited in HTML.
@@ -2125,6 +2135,89 @@ serve(async (req: Request) => {
     const referenceImages: ReferenceImage[] = fetchedImages.filter((img): img is ReferenceImage => img !== null);
 
     // ── COMPOSE MODE: background image + HTML overlay ─────────────────────────
+    // ── IMAGE MODE: the model draws the WHOLE ad (text included) as a single image ──────────
+    // Restored from the legacy pipeline for the external API (pure-image generation). Returns
+    // hosted URLs (uploaded to ad-images) instead of base64; falls back to base64 if upload fails.
+    if (mode === "image") {
+      const campaignFactsImg = buildCampaignFactsForImage(campaignData);
+      const refImagesForGen = referenceImages.map((r) => ({ data: r.data, mimeType: r.mimeType }));
+      const IMAGE_LANGUAGE_NAMES: Record<string, string> = {
+        pt: "Portuguese (Brazilian)", en: "English", es: "Spanish", fr: "French",
+        de: "German", it: "Italian", ja: "Japanese", zh: "Chinese",
+      };
+      const imageLangCode = typeof campaignData.language === "string" ? campaignData.language.trim().toLowerCase() : "";
+      const imageLangLabel = imageLangCode && imageLangCode !== "auto" ? (IMAGE_LANGUAGE_NAMES[imageLangCode] || imageLangCode) : "";
+      const imageTasks = buildImageVariantTasks(formats, campaignData);
+
+      // Creative spec from interpret step — same pipeline as HTML mode, just different output model
+      const spec = String(payload.creativePlan || "").trim();
+
+      const imageFns = imageTasks.map((task) => async () => {
+        const { format, variantLabel, focusInstruction } = task;
+        const aspectRatio = imageAspectRatioForFormat(format);
+        const isSocial = isSocialFormat(format);
+        const hasLogo = Boolean(String(campaignData.logoUrl || "").trim());
+        const ctaForImage = String(campaignData.ctaText || "").trim();
+
+        const ctaInstruction = isSocial
+          ? `CTA RULE (SOCIAL FORMAT): Do NOT draw a button, pill, rectangle, or any UI element for the CTA. Instead, integrate the call-to-action as organic text — e.g. "${ctaForImage || "Swipe up"} ↑", "See more ↓", or a short phrase that matches the platform's native content style. It must look like in-feed content, not a paid ad button.`
+          : ctaForImage
+            ? `CTA RULE (DISPLAY FORMAT): Include a prominent CTA button with the exact text: "${ctaForImage}". Use a contrasting pill or rounded-rectangle button that stands out from the background. This is the only button in the image.`
+            : "Include a prominent CTA button suited to the brand style.";
+
+        const prompt = [
+          "Create a complete, professional advertising image for the following campaign. This must look like a real paid advertisement.",
+          "",
+          spec
+            ? `CREATIVE SPEC (authoritative visual direction — follow precisely):\n${spec}`
+            : "No creative spec provided. Use the campaign data to define a strong visual design.",
+          "",
+          "CAMPAIGN DATA:",
+          campaignFactsImg,
+          "",
+          `FORMAT: ${format.width}×${format.height}px | Platform: ${format.platform || "digital"} | Aspect ratio: ${aspectRatio}`,
+          variantLabel ? `A/B VARIANT ${variantLabel}: ${focusInstruction}` : focusInstruction,
+          "",
+          "TEXT HIERARCHY RULE:",
+          "• HEADLINE: one dominant line — the main hook or promise.",
+          "• BODY COPY: one or two supporting lines — clarify the offer. Keep it short.",
+          "• CTA: see CTA rule below. This is separate from body copy — do not repeat copy text as the CTA.",
+          "",
+          "████ TEXT ACCURACY — NO EXCEPTIONS ████",
+          "Every visible word must be spelled correctly with correct grammar and spacing. No invented words, no garbled letters, no duplicated/cut-off characters. Render only the copy provided/implied by the campaign data — proofread before output. A single typo is a failed creative.",
+          "",
+          ctaInstruction,
+          "",
+          hasLogo
+            ? "BRAND REFERENCE (logo): The first attached image shows the brand logo and its color identity. Study its color palette, typography style, and visual personality to inform the ad. Use the brand colors faithfully. Do NOT attempt to copy-paste or directly reproduce the logo image — render the brand name as text or a clean logotype area using the brand's color system."
+            : "No logo provided — use brand name as text only. Do not invent a symbol or icon.",
+          refImagesForGen.length > 1
+            ? "BRAND REFERENCE (product/background): Additional attached images show the brand's product and visual style. Use them as CREATIVE INSPIRATION — study their lighting, color mood, textures, and composition style, then create an ORIGINAL stylized visual that captures this brand's aesthetic. Do NOT copy, trace, or directly reproduce these reference images. Generate fresh, original visual elements inspired by this brand's visual language."
+            : "",
+          "",
+          imageLangLabel ? `All visible text in this image must be written in ${imageLangLabel}.` : "",
+          "Produce a polished, finished ad image with clear visual hierarchy: dominant headline, supporting copy, CTA (per CTA rule above), and brand identity.",
+        ].filter(Boolean).join("\n");
+
+        const gen = await generateAdImage(prompt, refImagesForGen, apiKey, aspectRatio);
+        const hosted = gen ? (await uploadImageToStorage(gen.url)) ?? gen.url : "";
+        return {
+          imageUrl: hosted,
+          platform: format.platform || "other",
+          format: format.format || "ad",
+          label: `${format.label || `${format.width}x${format.height}`}${variantLabel ? ` - Variant ${variantLabel}` : ""}`,
+          width: format.width || 1080,
+          height: format.height || 1080,
+          variant: variantLabel || null,
+        };
+      });
+
+      const images = await runWithConcurrency(imageFns, 1);
+      return new Response(JSON.stringify({ mode: "image", images }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (mode === "compose") {
       const campaignFactsImg = buildCampaignFactsForCompose(campaignData);
 
