@@ -16,6 +16,22 @@ function asUrl(v: unknown): string {
   return '';
 }
 
+// Derive a human name + type for any image src (hosted URL or base64 data URI).
+function imageMeta(url: string): { name: string; type: string } {
+  if (url.startsWith('data:')) {
+    const mime = url.slice(5, url.indexOf(';') > 0 ? url.indexOf(';') : 5) || 'image';
+    return { name: 'base64 inline', type: mime || 'image' };
+  }
+  try {
+    const clean = url.split('?')[0];
+    const file = decodeURIComponent(clean.substring(clean.lastIndexOf('/') + 1)) || 'imagem';
+    const ext = file.includes('.') ? file.substring(file.lastIndexOf('.') + 1).toLowerCase() : '';
+    return { name: file, type: ext ? `image/${ext}` : 'image' };
+  } catch {
+    return { name: 'imagem', type: 'image' };
+  }
+}
+
 // Input images the user provided for this campaign (from form_data).
 function collectInputImages(fd: Record<string, unknown> | undefined): UsedImage[] {
   if (!fd) return [];
@@ -33,40 +49,43 @@ function collectInputImages(fd: Record<string, unknown> | undefined): UsedImage[
   return out;
 }
 
-// Pull the AI-generated background URLs out of each creative's HTML
-// (the compose pipeline injects <img class="ad-bg" src="…ad-images…">).
+// Pull the AI-generated background URLs (or base64) out of each creative's HTML
+// (compose injects <img class="ad-bg" src="…">). Includes base64 so backgrounds are
+// visible even while the Storage upload is still falling back to base64.
 function extractAdBackgrounds(htmlList: { html?: string }[]): string[] {
   const urls = new Set<string>();
   for (const item of htmlList) {
     const html = String(item?.html || '');
     if (!html) continue;
-    // Look at every <img ...> tag that carries the ad-bg class.
-    const imgTags = html.split('<img').slice(1);
-    for (const frag of imgTags) {
-      const tag = frag.slice(0, frag.indexOf('>') + 1 || 400);
+    for (const frag of html.split('<img').slice(1)) {
+      const tag = frag.slice(0, (frag.indexOf('>') + 1) || 400);
       if (!/ad-bg/.test(tag)) continue;
       const m = tag.match(/src\s*=\s*"([^"]+)"/i) || tag.match(/src\s*=\s*'([^']+)'/i);
       const src = m?.[1]?.trim();
-      // Only real hosted images (skip leftover base64 if any).
-      if (src && /^https?:\/\//i.test(src)) urls.add(src);
+      if (src && (/^https?:\/\//i.test(src) || src.startsWith('data:image/'))) urls.add(src);
     }
   }
   return Array.from(urls);
 }
 
 function Card({ url, label }: { url: string; label: string }) {
+  const meta = imageMeta(url);
   return (
     <a
       href={url}
       target="_blank"
       rel="noreferrer"
       className="group flex flex-col gap-1.5 rounded-lg border border-border bg-card p-2 transition-colors hover:border-primary/50"
-      title={label}
+      title={`${label} — ${meta.name} (${meta.type})`}
     >
       <div className="aspect-square w-full overflow-hidden rounded-md bg-muted">
         <img src={url} alt={label} loading="lazy" className="h-full w-full object-contain" />
       </div>
-      <span className="truncate text-xs font-medium text-foreground">{label}</span>
+      <div className="min-w-0">
+        <span className="block truncate text-xs font-medium text-foreground">{label}</span>
+        <span className="block truncate text-[10px] text-muted-foreground">{meta.name}</span>
+        <span className="block truncate text-[10px] text-muted-foreground/70">{meta.type}</span>
+      </div>
     </a>
   );
 }
@@ -88,6 +107,8 @@ export function CampaignUsedImages({ formData, creativeIds, userId }: Props) {
   }, [creativeIds.join(','), userId]);
 
   if (inputs.length === 0 && aiBackgrounds.length === 0 && !loading) return null;
+
+  const hasBase64Bg = aiBackgrounds.some((u) => u.startsWith('data:'));
 
   return (
     <div className="mb-6 space-y-5 rounded-xl border border-border/50 bg-card/40 p-4">
@@ -121,9 +142,17 @@ export function CampaignUsedImages({ formData, creativeIds, userId }: Props) {
         {loading ? (
           <p className="text-sm text-muted-foreground">Carregando fundos…</p>
         ) : aiBackgrounds.length > 0 ? (
-          <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">
-            {aiBackgrounds.map((url, i) => <Card key={url} url={url} label={`Fundo IA ${i + 1}`} />)}
-          </div>
+          <>
+            <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">
+              {aiBackgrounds.map((url, i) => <Card key={url.slice(0, 64) + i} url={url} label={`Fundo IA ${i + 1}`} />)}
+            </div>
+            {hasBase64Bg && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                Alguns fundos ainda estão em base64 (o upload pro Storage caiu no fallback). Quando o upload
+                na Edge for corrigido, eles passam a ser URLs hospedadas no bucket <code>ad-images</code>.
+              </p>
+            )}
+          </>
         ) : (
           <p className="text-sm text-muted-foreground">Nenhum fundo gerado pela IA encontrado nesta campanha.</p>
         )}

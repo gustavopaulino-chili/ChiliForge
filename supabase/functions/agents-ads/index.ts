@@ -200,13 +200,44 @@ async function uploadImageToStorage(dataUrl: string | null): Promise<string | nu
   }
 }
 
+// Text-overlay recommendation the image model returns ALONGSIDE the background image
+// (response text part). Used to fine-tune the HTML overlay; always optional (fallback safe).
+type ComposeTextRec = { headlineScale?: number; align?: "left" | "center" | "right" };
+
+function extractTextFromGeminiPayload(data: any): string {
+  const parts = data?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return "";
+  return parts.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join(" ");
+}
+
+// Lenient parse — the image model is unreliable at JSON, so we extract the first {...}
+// after the CF_TEXT_REC marker (or anywhere) and clamp the values.
+function parseComposeTextRec(text: string): ComposeTextRec | null {
+  if (!text) return null;
+  const marker = text.indexOf("CF_TEXT_REC");
+  const slice = marker >= 0 ? text.slice(marker) : text;
+  const start = slice.indexOf("{");
+  const end = start >= 0 ? slice.indexOf("}", start) : -1;
+  if (start < 0 || end < 0) return null;
+  try {
+    const obj = JSON.parse(slice.slice(start, end + 1));
+    const rec: ComposeTextRec = {};
+    const s = Number(obj.headlineScale);
+    if (Number.isFinite(s)) rec.headlineScale = Math.min(1.4, Math.max(0.7, s));
+    if (obj.align === "left" || obj.align === "center" || obj.align === "right") rec.align = obj.align;
+    return rec.headlineScale !== undefined || rec.align ? rec : null;
+  } catch {
+    return null;
+  }
+}
+
 async function generateAdImage(
   prompt: string,
   refImages: Array<{ data: string; mimeType: string }>,
   apiKey: string,
   aspectRatio?: string,
   opts: GenerateAdImageOptions = {},
-): Promise<string | null> {
+): Promise<{ url: string; rec: ComposeTextRec | null } | null> {
   const { maxAttempts = 3, timeoutMs = 100000, singleConfig = false } = opts;
   const parts: unknown[] = [{ text: prompt }];
   for (const img of refImages) {
@@ -253,7 +284,7 @@ async function generateAdImage(
             break;
           }
           const url = data ? extractImageDataUrl(data) : null;
-          if (url) return url;
+          if (url) return { url, rec: parseComposeTextRec(extractTextFromGeminiPayload(data)) };
           lastError = `Gemini image ${model} returned no image part: ${summarizeGeminiImagePayload(data)}`;
           break;
         } catch (error) {
@@ -1559,6 +1590,11 @@ function buildBackgroundPrompt(
     `FORMAT: ${format.width}×${format.height}px | Aspect ratio: ${aspectRatio}`,
     "",
     "OUTPUT: Pure visual — brand colors, gradients, textures, product/scene photography. Zero text. Zero UI elements.",
+    "",
+    "████ TEXT-OVERLAY RECOMMENDATION — RESPONSE TEXT ONLY, NEVER DRAWN IN THE IMAGE ████",
+    "In your RESPONSE (as a short text note, not painted into the image), add exactly one line:",
+    'CF_TEXT_REC: {"headlineScale": <number 0.7-1.4>, "align": "left"|"center"|"right"}',
+    "headlineScale = how large the headline can be given the clean/calm space you actually left (1.0 = default; >1.0 if you left generous empty space, <1.0 if the calm area is tight). align = the best horizontal alignment for the overlay text in its zone. This only tunes the separate HTML overlay — the image itself must still contain ZERO text/letters.",
   ].filter(Boolean).join("\n");
 }
 
@@ -1589,6 +1625,7 @@ function buildCompositionHtml(
   fontUrl: string,
   layoutKey?: string,
   forceLayout?: boolean,
+  rec?: ComposeTextRec | null,
 ): string {
   const w = format.width ?? 1080;
   const h = format.height ?? 1080;
@@ -1607,9 +1644,12 @@ function buildCompositionHtml(
 
   // Bigger, more legible compose typography. Previous caps (68 headline / 28 CTA) were far
   // too small for 1080px+ creatives. min() keeps tiny banners (e.g. leaderboards) proportional.
-  const headlinePx = Math.round(Math.min(h * 0.088, w * 0.080, 104));
+  // sizeScale = optional hint from the image model (how much clean space it left); clamped, with
+  // 1.0 (= computed size) as the safe fallback when no/invalid recommendation.
+  const sizeScale = Math.min(1.4, Math.max(0.7, Number(rec?.headlineScale) || 1));
+  const headlinePx = Math.round(Math.min(h * 0.088, w * 0.080, 104) * sizeScale);
   const subPx     = Math.round(headlinePx * 0.5);
-  const ctaPx     = Math.round(Math.min(h * 0.050, w * 0.046, 44));
+  const ctaPx     = Math.round(Math.min(h * 0.050, w * 0.046, 44) * Math.min(1.2, sizeScale));
   const logoPx    = Math.round(subPx * 0.95);
 
   // Always use white text in compose mode — the scrim layer guarantees contrast
@@ -1618,6 +1658,7 @@ function buildCompositionHtml(
   const textColor = "#ffffff";
   const textShadow = "0 2px 12px rgba(0,0,0,0.70), 0 1px 3px rgba(0,0,0,0.50)";
   const subColor = "rgba(255,255,255,0.90)";
+  const textAlign = rec?.align ?? "left";
 
   const fontImport = fontUrl ? `<style>@import url('${fontUrl}');</style>` : "";
 
@@ -1634,11 +1675,11 @@ function buildCompositionHtml(
     : (data.brandName ? `<div style="position:absolute;${layout.logo}font-family:${fontFamily};font-size:${logoPx}px;font-weight:700;color:${textColor};z-index:20;white-space:nowrap;text-shadow:${textShadow}">${String(data.brandName).trim()}</div>` : "");
 
   const headlineLayer = headline
-    ? `<div style="position:absolute;${layout.headline}font-family:${fontFamily};font-size:${headlinePx}px;font-weight:900;color:${textColor};line-height:1.15;text-shadow:${textShadow};z-index:25">${headline}</div>`
+    ? `<div style="position:absolute;${layout.headline}font-family:${fontFamily};font-size:${headlinePx}px;font-weight:900;color:${textColor};line-height:1.15;text-align:${textAlign};text-shadow:${textShadow};z-index:25">${headline}</div>`
     : "";
 
   const subLayer = sub
-    ? `<div style="position:absolute;${layout.sub}font-family:${fontFamily};font-size:${subPx}px;font-weight:400;color:${subColor};line-height:1.4;text-shadow:${textShadow};z-index:25">${sub}</div>`
+    ? `<div style="position:absolute;${layout.sub}font-family:${fontFamily};font-size:${subPx}px;font-weight:400;color:${subColor};line-height:1.4;text-align:${textAlign};text-shadow:${textShadow};z-index:25">${sub}</div>`
     : "";
 
   // CTA layer — social formats get organic text gesture, display formats get a button
@@ -2126,7 +2167,7 @@ serve(async (req: Request) => {
       let banners: Awaited<ReturnType<typeof runWithConcurrency>>;
 
       if (isAbVisual) {
-        const bgByVariantRatio = new Map<string, string>();
+        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null }>();
         const uniqueVariantRatios = [...new Map(
           imageTasks.map((task) => {
             const aspectRatio = imageAspectRatioForFormat(task.format);
@@ -2141,11 +2182,11 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
           const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout));
-          const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
+          const gen = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
             maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
           });
-          const bgHosted = bgDataUrl ? (await uploadImageToStorage(bgDataUrl)) ?? bgDataUrl : "";
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, bgHosted);
+          const bgHosted = gen ? (await uploadImageToStorage(gen.url)) ?? gen.url : "";
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null });
         }
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -2153,11 +2194,11 @@ serve(async (req: Request) => {
           const aspectRatio = imageAspectRatioForFormat(format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
           const taskBrandSpec = specForFormat(brandSpec, format);
-          const bgDataUrl = bgByVariantRatio.get(`${task.variantIndex}:${aspectRatio}`) ?? "";
+          const bg = bgByVariantRatio.get(`${task.variantIndex}:${aspectRatio}`) ?? { url: "", rec: null };
 
           const bannerHtml = buildCompositionHtml(
-            bgDataUrl ?? "", campaignData, format, taskBrandSpec, cssVars, fontUrl,
-            layoutHint, true, // forceLayout=true: bypass spec, guarantee distinct layout per variant
+            bg.url, campaignData, format, taskBrandSpec, cssVars, fontUrl,
+            layoutHint, true, bg.rec, // forceLayout=true; bg.rec = model text-size hint
           );
           const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
           return {
@@ -2173,7 +2214,7 @@ serve(async (req: Request) => {
         banners = await runWithConcurrency(abComposeFns, 1);
       } else {
         // Standard path: deduplicate backgrounds by aspect ratio (cost saving)
-        const bgByRatio = new Map<string, string>();
+        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null }>();
         const uniqueRatios = [...new Set(imageTasks.map((task) => imageAspectRatioForFormat(task.format)))];
         for (const aspectRatio of uniqueRatios) {
           const task = imageTasks.find((candidate) => imageAspectRatioForFormat(candidate.format) === aspectRatio)!;
@@ -2183,22 +2224,22 @@ serve(async (req: Request) => {
           const layoutHint = userLayout ?? LAYOUT_KEYS[(taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[(taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
           const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout));
-          const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
+          const gen = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
             maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
           });
-          const bgHosted = bgDataUrl ? (await uploadImageToStorage(bgDataUrl)) ?? bgDataUrl : "";
-          bgByRatio.set(aspectRatio, bgHosted);
+          const bgHosted = gen ? (await uploadImageToStorage(gen.url)) ?? gen.url : "";
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null });
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
           const aspectRatio = imageAspectRatioForFormat(format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
-          const bgDataUrl = bgByRatio.get(aspectRatio) ?? "";
+          const bg = bgByRatio.get(aspectRatio) ?? { url: "", rec: null };
           const taskBrandSpec = specForFormat(brandSpec, format);
 
           const bannerHtml = buildCompositionHtml(
-            bgDataUrl, campaignData, format, taskBrandSpec, cssVars, fontUrl, layoutHint, Boolean(userLayout),
+            bg.url, campaignData, format, taskBrandSpec, cssVars, fontUrl, layoutHint, Boolean(userLayout), bg.rec,
           );
           const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
           return {
