@@ -96,7 +96,9 @@ export type AdOutputMode = 'compose' | 'html';
 //  - 'reference': the user's background image is used as the ACTUAL reference
 //  - 'shapes'   : no photo — abstract geometric/brand-color background
 //  - 'company'  : AI derives the background from the company's own images
-export type ComposeBackgroundSource = 'reference' | 'shapes' | 'company';
+//  - 'creative' : full creative freedom — Gemini designs the whole background
+//                 from the company + campaign description only (no references)
+export type ComposeBackgroundSource = 'reference' | 'shapes' | 'company' | 'creative';
 
 export type CreativeStrategy =
   | 'problem-solution'

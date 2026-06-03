@@ -1606,6 +1606,13 @@ function buildBackgroundPrompt(
       "• Study their palette, materials, textures, lighting and mood, then compose a fresh original backdrop in that language.",
       "• Do NOT copy, trace or paste the reference images — synthesize a new, cohesive brand-consistent scene/texture.",
     ].join("\n");
+  } else if (bgSource === "creative") {
+    sourceBlock = [
+      "████ BACKGROUND SOURCE: FULL CREATIVE FREEDOM ████",
+      "No reference image is provided and you are NOT limited to abstract shapes. You have FULL creative freedom to design the strongest possible background for this ad.",
+      "Invent the best visual concept for THIS campaign — photographic scene, illustration, 3D render, textured environment, or conceptual composition — whatever best sells the offer.",
+      "Base every decision ONLY on the company and campaign description below (product, industry, audience, offer, mood, brand colors/style). Make it look like a real, professionally art-directed ad background — not generic stock.",
+    ].join("\n");
   } else {
     // 'shapes' (default) OR any mode with no usable reference image → abstract.
     sourceBlock = [
@@ -1645,7 +1652,9 @@ function buildBackgroundPrompt(
     "Avoid the default centered product-on-plain-background look. Use varied crop, camera angle, depth, lighting, foreground layers, texture, and asymmetry.",
     bgSource === "shapes"
       ? "Compose with shapes, gradients and brand-color fields — no literal objects or photographic scenes."
-      : "Do not repeat the same asset placement unless the format absolutely requires it. Reinterpret the reference assets as a brand world, not a template.",
+      : bgSource === "creative"
+        ? "Be bold and original — invent a distinctive composition that fits the campaign; avoid generic stock looks."
+        : "Do not repeat the same asset placement unless the format absolutely requires it. Reinterpret the reference assets as a brand world, not a template.",
     "When a low-detail zone is requested, do not make it a blank panel. Use soft gradients, depth blur, atmospheric color, subtle materials, or low-contrast pattern.",
     "",
     "████ SPACE RULE — REQUIRED ████",
@@ -2306,15 +2315,15 @@ serve(async (req: Request) => {
       //  shapes   : no photo — abstract geometric/brand-color background (no refs)
       //  company  : derive the background from the company's own images
       const explicitBgSource = String((campaignData as any).composeBackgroundSource || "").toLowerCase();
-      const bgSource = ["reference", "shapes", "company"].includes(explicitBgSource)
+      const bgSource = ["reference", "shapes", "company", "creative"].includes(explicitBgSource)
         ? explicitBgSource
         // No explicit choice (older campaigns): infer — a provided background image
         // is treated as a real reference; otherwise an abstract shapes background.
         : (String(campaignData.backgroundImageUrl || "").startsWith("http") ? "reference" : "shapes");
 
       let bgRefImages = refImagesForGen;
-      if (bgSource === "shapes") {
-        bgRefImages = []; // abstract — give the model no photographic anchor
+      if (bgSource === "shapes" || bgSource === "creative") {
+        bgRefImages = []; // no reference image — abstract (shapes) or full freedom (creative)
       } else if (bgSource === "company") {
         const companyRefUrls = Array.isArray((campaignData as any).composeCompanyRefs)
           ? ((campaignData as any).composeCompanyRefs as unknown[])

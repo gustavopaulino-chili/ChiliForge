@@ -41,6 +41,7 @@ const BG_SOURCE_OPTIONS: { value: ComposeBackgroundSource; label: string; desc: 
   { value: 'reference', label: 'Imagem de referência', desc: 'Use sua imagem como base real do fundo', icon: Image },
   { value: 'shapes',    label: 'Formas e cores',       desc: 'Fundo abstrato com as cores da marca', icon: Shapes },
   { value: 'company',   label: 'Imagens da empresa',   desc: 'IA gera com base nos assets da empresa', icon: Building2 },
+  { value: 'creative',  label: 'Criatividade total',   desc: 'IA cria o fundo só pela descrição da empresa/campanha', icon: Wand2 },
 ];
 
 type AiLogEntry = {
@@ -823,7 +824,7 @@ export function StepAdImages({
               <FieldLabel hint="Define como a IA cria o fundo do anúncio no modo Compose.">
                 Fundo do Compose
               </FieldLabel>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {BG_SOURCE_OPTIONS.map(opt => {
                   const Icon = opt.icon;
                   const active = bgSource === opt.value;
@@ -851,6 +852,11 @@ export function StepAdImages({
               {bgSource === 'shapes' && (
                 <p className="text-[11px] text-muted-foreground rounded-md bg-muted/40 px-2.5 py-1.5">
                   Sem imagem de fundo: a IA cria um fundo abstrato com formas, gradientes e as cores da marca.
+                </p>
+              )}
+              {bgSource === 'creative' && (
+                <p className="text-[11px] text-muted-foreground rounded-md bg-muted/40 px-2.5 py-1.5">
+                  Liberdade total: a IA cria o fundo inteiro (cena, ilustração, textura — o que combinar) apenas com base na descrição da empresa e da campanha. Sem imagem de referência.
                 </p>
               )}
               {bgSource === 'company' && (
