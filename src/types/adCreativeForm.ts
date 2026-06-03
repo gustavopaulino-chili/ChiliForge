@@ -1,3 +1,5 @@
+import type { AdTextLayout } from '@/data/adLayouts';
+
 export type AdPlatform = 'social' | 'display' | 'video' | 'email';
 
 export type AdFormat =
@@ -169,6 +171,7 @@ export interface AdCreativeFormData {
 
   // Step 7: Formats & A/B
   formatNotes: Record<string, string>;
+  textLayout: AdTextLayout;
   abTestingEnabled: boolean;
   abVariantCount: 2 | 3;
   abTestFocus: 'headline' | 'cta' | 'visual' | 'color' | 'mixed';
@@ -238,6 +241,7 @@ export const defaultAdCreativeFormData: AdCreativeFormData = {
   creativeStrategyOther: '',
 
   formatNotes: {},
+  textLayout: 'auto',
   abTestingEnabled: false,
   abVariantCount: 2,
   abTestFocus: 'mixed',

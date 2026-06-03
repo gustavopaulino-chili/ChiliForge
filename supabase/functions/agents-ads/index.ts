@@ -1521,8 +1521,9 @@ function buildBackgroundPrompt(
   aspectRatio: string,
   layoutKey?: string,
   visualDirection?: string,
+  forceLayout?: boolean,
 ): string {
-  const layout = resolveCompositionLayout(spec, layoutKey);
+  const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
   const direction = visualDirection || BACKGROUND_DIRECTIONS[0];
   return [
@@ -2101,6 +2102,13 @@ serve(async (req: Request) => {
       const cssVars = specCssVars || buildComposeCssVars(campaignData);
       const imageTasks = buildImageVariantTasks(formats, campaignData);
 
+      // User-chosen text layout (from the form) overrides the auto-rotation and is FORCED
+      // across all formats so the background reserves the right negative space and the HTML
+      // overlay matches. "auto" / unknown keeps the automatic per-format rotation.
+      const userLayout = (LAYOUT_KEYS as readonly string[]).includes(String((campaignData as any).textLayout || ""))
+        ? String((campaignData as any).textLayout)
+        : null;
+
       // A/B visual focus: each variant gets its OWN background image and a FORCED
       // distinct layout so variants are visually differentiated. Bypasses ratio dedup.
       const isAbVisual = Boolean(campaignData.abTestingEnabled)
@@ -2119,11 +2127,11 @@ serve(async (req: Request) => {
 
         for (const { task, aspectRatio } of uniqueVariantRatios) {
           const taskIndex = imageTasks.indexOf(task);
-          const layoutHint = LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
+          const layoutHint = userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[taskIndex % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout));
           const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
             maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
           });
@@ -2134,7 +2142,7 @@ serve(async (req: Request) => {
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
           const aspectRatio = imageAspectRatioForFormat(format);
-          const layoutHint = LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
+          const layoutHint = userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
           const taskBrandSpec = specForFormat(brandSpec, format);
           const bgDataUrl = bgByVariantRatio.get(`${task.variantIndex}:${aspectRatio}`) ?? "";
 
@@ -2163,9 +2171,9 @@ serve(async (req: Request) => {
           const ratioIndex = uniqueRatios.indexOf(aspectRatio);
           const taskIndex = imageTasks.indexOf(task);
           const taskBrandSpec = specForFormat(brandSpec, task.format);
-          const layoutHint = LAYOUT_KEYS[(taskIndex + ratioIndex) % LAYOUT_KEYS.length];
+          const layoutHint = userLayout ?? LAYOUT_KEYS[(taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[(taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout));
           const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
             maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
           });
@@ -2176,12 +2184,12 @@ serve(async (req: Request) => {
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
           const aspectRatio = imageAspectRatioForFormat(format);
-          const layoutHint = LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
+          const layoutHint = userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
           const bgDataUrl = bgByRatio.get(aspectRatio) ?? "";
           const taskBrandSpec = specForFormat(brandSpec, format);
 
           const bannerHtml = buildCompositionHtml(
-            bgDataUrl, campaignData, format, taskBrandSpec, cssVars, fontUrl, layoutHint,
+            bgDataUrl, campaignData, format, taskBrandSpec, cssVars, fontUrl, layoutHint, Boolean(userLayout),
           );
           const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
           return {

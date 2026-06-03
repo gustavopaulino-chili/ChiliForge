@@ -1,6 +1,7 @@
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { AdCreativeFormData, AD_PLATFORM_LABELS, AdPlatform } from '@/types/adCreativeForm';
+import { AdLayoutPicker } from './AdLayoutPicker';
 
 interface Props {
   data: AdCreativeFormData;
@@ -189,6 +190,9 @@ export function StepAdFormats({ data, onChange }: Props) {
           </div>
         )}
       </div>
+
+      {/* Text layout (format-aware) */}
+      <AdLayoutPicker data={data} onChange={onChange} />
 
       {/* Per-format notes */}
       {Object.entries(grouped).map(([platform, formats]) => (
