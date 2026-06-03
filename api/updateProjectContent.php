@@ -54,6 +54,22 @@ if (($projectRow['project_type'] ?? '') === 'ad_creative') {
     exit;
 }
 
+// Safety net: never persist base64 images in generated_html. Convert any
+// inline data:image base64 payload into a real file under the project's
+// assets/ dir and rewrite the reference, so the DB + index.html stay base64-free.
+if (is_string($folderPath) && trim($folderPath) !== '') {
+    try {
+        $projectDirForAssets = resolve_project_directory_from_folder_path((string)$folderPath, (string)$publicUrl);
+        $generatedHtml = convert_inline_base64_images_to_files(
+            $generatedHtml,
+            $projectDirForAssets . DIRECTORY_SEPARATOR . 'assets',
+            'assets/'
+        );
+    } catch (Throwable $convError) {
+        // leave HTML as-is if the assets dir cannot be resolved (legacy/edge case)
+    }
+}
+
 $update = $conn->prepare(
     "INSERT INTO lps (project_id, public_url, folder_path, form_data, generated_html, current_step)
      SELECT p.id, ?, ?, COALESCE(l.form_data, '{}'), ?, COALESCE(l.current_step, 0)

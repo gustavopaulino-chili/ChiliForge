@@ -481,10 +481,21 @@ try {
     if ($isInlineDoc) {
         // Inline mode: HTML already contains everything. Save as-is.
         $hostedHtml = $html;
-        file_put_contents($projectPath . DIRECTORY_SEPARATOR . 'index.html', $hostedHtml);
     } else {
         $hostedHtml = build_hosted_html($name, $html, $css, $js);
-        file_put_contents($projectPath . DIRECTORY_SEPARATOR . 'index.html', $hostedHtml);
+    }
+
+    // Safety net: never persist base64 images in generated_html. Convert any
+    // inline data:image base64 payload into a real file under assets/ and
+    // rewrite the reference, so index.html and the DB stay base64-free.
+    try {
+        $hostedHtml = convert_inline_base64_images_to_files($hostedHtml, $assetsPath, 'assets/');
+    } catch (Throwable $convError) {
+        // leave HTML as-is on failure
+    }
+
+    file_put_contents($projectPath . DIRECTORY_SEPARATOR . 'index.html', $hostedHtml);
+    if (!$isInlineDoc) {
         file_put_contents($projectPath . DIRECTORY_SEPARATOR . 'style.css', $css);
         file_put_contents($projectPath . DIRECTORY_SEPARATOR . 'script.js', $js);
     }

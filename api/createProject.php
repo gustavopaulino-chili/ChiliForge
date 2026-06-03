@@ -308,6 +308,21 @@ if ($stmt->execute()) {
         }
     }
 
+    // Safety net: never persist base64 images in generated_html. Convert any
+    // inline data:image base64 payload into a real file under assets/ and
+    // rewrite the reference, so both index.html and the DB stay base64-free.
+    if (is_string($generated_html) && trim($generated_html) !== '') {
+        try {
+            $generated_html = convert_inline_base64_images_to_files(
+                (string)$generated_html,
+                $projectPath . DIRECTORY_SEPARATOR . 'assets',
+                'assets/'
+            );
+        } catch (Throwable $convError) {
+            // leave HTML as-is on failure
+        }
+    }
+
     if (is_string($generated_html) && trim($generated_html) !== '') {
         file_put_contents($projectPath . DIRECTORY_SEPARATOR . 'index.html', (string)$generated_html);
     }

@@ -34,6 +34,118 @@ function normalize_asset_url($url) {
     return is_string($normalized) ? $normalized : '';
 }
 
+/**
+ * Convert every inline `data:image/...;base64,...` payload found in an HTML
+ * string into a real image file saved under $assetsDirAbs, rewriting each
+ * occurrence to reference the saved file via $assetsUrlPrefix.
+ *
+ * Base64 images must NEVER be persisted in generated_html (token-bomb when fed
+ * back to Gemini, corrupts File Search stores, and blows past MySQL
+ * max_allowed_packet). This is the save-path safety net: regardless of what the
+ * frontend sends, the stored HTML comes out base64-free, and the image bytes
+ * are kept as a renamed PNG/file (never discarded).
+ *
+ * IMPORTANT: uses strpos/substr (NOT PCRE) to locate/extract the payload — a
+ * multi-MB base64 string exceeds PHP's pcre.backtrack_limit (default 1M), which
+ * makes preg_* silently return false and skip the extraction.
+ *
+ * @param string $html            HTML possibly containing data:image base64 URLs
+ * @param string $assetsDirAbs    absolute dir where image files are written (created if missing)
+ * @param string $assetsUrlPrefix prefix prepended to the filename in the rewritten ref (e.g. "assets/", "./")
+ * @param int    $counterStart    starting index used for filename uniqueness
+ * @return string HTML with no base64 image data URLs
+ */
+function convert_inline_base64_images_to_files($html, $assetsDirAbs, $assetsUrlPrefix = '', $counterStart = 0) {
+    if (!is_string($html) || stripos($html, 'data:image/') === false) {
+        return is_string($html) ? $html : '';
+    }
+
+    if (!is_dir($assetsDirAbs)) {
+        @mkdir($assetsDirAbs, 0775, true);
+    }
+    if (!is_dir($assetsDirAbs)) {
+        return $html; // cannot write — leave untouched (extremely rare)
+    }
+
+    $out     = $html;
+    $offset  = 0;
+    $counter = (int)$counterStart;
+
+    while (true) {
+        $pos = stripos($out, 'data:image/', $offset);
+        if ($pos === false) {
+            break;
+        }
+
+        // Identify the opening delimiter just before the data URL (skip whitespace).
+        $before = $pos - 1;
+        while ($before >= 0 && ($out[$before] === ' ' || $out[$before] === "\t" || $out[$before] === "\n" || $out[$before] === "\r")) {
+            $before--;
+        }
+        $openChar = $before >= 0 ? $out[$before] : '';
+
+        if ($openChar === '"') {
+            $terminators = ['"'];
+        } elseif ($openChar === "'") {
+            $terminators = ["'"];
+        } elseif ($openChar === '(') {
+            $terminators = [')'];
+        } else {
+            $terminators = ['"', "'", ')', ' ', '>', "\n", "\r", "\t"];
+        }
+
+        // Find the closest terminator after the data URL.
+        $end = false;
+        foreach ($terminators as $t) {
+            $p = strpos($out, $t, $pos);
+            if ($p !== false && ($end === false || $p < $end)) {
+                $end = $p;
+            }
+        }
+        if ($end === false) {
+            break;
+        }
+
+        $dataUrl  = substr($out, $pos, $end - $pos);
+        $commaPos = strpos($dataUrl, ',');
+        $header   = $commaPos !== false ? substr($dataUrl, 0, $commaPos) : '';
+
+        // Only handle base64 image payloads; skip non-base64 (e.g. utf8 svg).
+        if ($commaPos === false || !preg_match('/^data:image\/([a-zA-Z0-9.+\-]+);base64$/i', $header, $m)) {
+            $offset = $end;
+            continue;
+        }
+
+        $ext = strtolower($m[1]);
+        if ($ext === 'jpeg') {
+            $ext = 'jpg';
+        } elseif ($ext === 'svg+xml') {
+            $ext = 'svg';
+        }
+
+        $raw   = substr($dataUrl, $commaPos + 1);
+        $bytes = base64_decode(str_replace(["\n", "\r", " ", "\t"], '', $raw), true);
+        if ($bytes === false || strlen($bytes) < 100) {
+            $offset = $end;
+            continue;
+        }
+
+        $counter++;
+        $fileName = 'img-' . $counter . '-' . substr(md5($bytes), 0, 8) . '.' . $ext;
+        $filePath = rtrim($assetsDirAbs, "/\\") . DIRECTORY_SEPARATOR . $fileName;
+        if (file_put_contents($filePath, $bytes) === false) {
+            $offset = $end;
+            continue;
+        }
+
+        $replacement = $assetsUrlPrefix . $fileName;
+        $out    = substr($out, 0, $pos) . $replacement . substr($out, $end);
+        $offset = $pos + strlen($replacement);
+    }
+
+    return $out;
+}
+
 function strip_editor_bridge_artifacts($html) {
     if (!is_string($html) || trim($html) === '') {
         return is_string($html) ? $html : '';

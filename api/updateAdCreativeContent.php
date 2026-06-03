@@ -124,6 +124,19 @@ if (preg_match('/\.(png|jpe?g|webp|gif)(\?.*)?$/i', $targetPublicUrl)) {
 
 $html = rewrite_project_asset_refs_for_ad_creative($html, (string)$projectPublicUrl, '../');
 
+// Safety net: never persist base64 images in generated_html. Convert any
+// inline data:image base64 payload into a real file next to the creative's
+// index.html and rewrite the reference, so the DB + file stay base64-free.
+if (trim($targetPublicUrl) !== '') {
+    try {
+        $creativeDirForAssets = resolve_ad_creative_directory_from_public_url($targetPublicUrl);
+        ensure_directory($creativeDirForAssets);
+        $html = convert_inline_base64_images_to_files($html, $creativeDirForAssets, './');
+    } catch (Throwable $convError) {
+        // leave HTML as-is if the creative dir cannot be resolved
+    }
+}
+
 $metadata = json_decode((string)($metadataJson ?: '{}'), true);
 if (!is_array($metadata)) {
     $metadata = [];
