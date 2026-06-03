@@ -3,9 +3,56 @@ on:
   push:
     branches:
       - dev
+
 jobs:
-  deploy:
-    name: Build & Deploy
+  # ── API (PHP) ─────────────────────────────────────────────
+  # Roda SEMPRE e é INDEPENDENTE do build do React. Antes, o deploy do
+  # api/ ficava no mesmo job do `npm run build`; se o build falhasse, o
+  # job abortava e NENHUM arquivo PHP era enviado (ex.: helpers.php com a
+  # injeção do storageKey nunca chegava ao servidor → compose 400 "Invalid
+  # Compact JWS"). Separando, o PHP sempre publica.
+  deploy-api:
+    name: Deploy API (PHP)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      - name: Instalar lftp
+        run: sudo apt-get update && sudo apt-get install -y lftp
+
+      # NUNCA toca em: api/db.php, .env, projects/
+      - name: Deploy api/ via lftp
+        env:
+          FTP_HOST: 195.35.41.130
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          lftp -c "
+            set ftp:ssl-allow true;
+            set ftp:ssl-force false;
+            set ssl:verify-certificate no;
+            set ftp:passive-mode true;
+            set ftp:prefer-epsv false;
+            set net:timeout 30;
+            set net:max-retries 5;
+            set net:reconnect-interval-base 5;
+            open -u \"$FTP_USER\",\"$FTP_PASS\" \"$FTP_HOST\";
+            pwd;
+
+            # API (api/) -> ./api/  (sem --delete por seguranca)
+            mirror --reverse --verbose \
+              --exclude '^db\.php\$' \
+              --exclude '^\.env\$' \
+              --exclude '^projects/' \
+              api/ api/ ;
+
+            bye;
+          "
+
+  # ── Frontend (React/dist) ─────────────────────────────────
+  build-and-deploy-frontend:
+    name: Build & Deploy Frontend
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repositório
@@ -32,10 +79,9 @@ jobs:
       - name: Instalar lftp
         run: sudo apt-get update && sudo apt-get install -y lftp
 
-      # ── Deploy via lftp ──────────────────────────────────
       # PRE-REQUISITO: conta FTP apontada para public_html no hPanel.
-      # NUNCA toca em: api/db.php, .env, projects/
-      - name: Deploy → public_html via lftp
+      # NUNCA toca em: api/, projects/, db.php, .env
+      - name: Deploy dist/ -> public_html via lftp
         env:
           FTP_HOST: 195.35.41.130
           FTP_USER: ${{ secrets.FTP_USER }}
@@ -51,24 +97,15 @@ jobs:
             set net:max-retries 5;
             set net:reconnect-interval-base 5;
             open -u \"$FTP_USER\",\"$FTP_PASS\" \"$FTP_HOST\";
-
-            # Mostra onde caiu (deve ser o public_html)
             pwd;
 
-            # 1) Frontend (dist/) -> raiz do login (= public_html)
+            # Frontend (dist/) -> raiz do login (= public_html)
             mirror --reverse --delete --verbose \
               --exclude '^api/' \
               --exclude '^projects/' \
               --exclude '^db\.php\$' \
               --exclude '^\.env\$' \
               dist/ ./ ;
-
-            # 2) API (api/) -> ./api/  (sem --delete por seguranca)
-            mirror --reverse --verbose \
-              --exclude '^db\.php\$' \
-              --exclude '^\.env\$' \
-              --exclude '^projects/' \
-              api/ api/ ;
 
             bye;
           "
