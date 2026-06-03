@@ -1,8 +1,25 @@
 # ChiliForge — Claude Code Rules
 
+## Deploy — manual via FTP (NÃO existe mais GitHub Actions)
+
+O deploy é **100% manual** pelo script `scripts/deploy-ftp.ps1` (FTPS via curl; credenciais em `.deploy.env`, gitignorado). **Não há GitHub Actions** — commit/push NÃO publicam nada.
+
+**Regra:** ao final de TODO request que altere arquivos, além de commitar na `dev`, **rodar o deploy** dos arquivos alterados:
+
+```
+# PHP / API — arquivos específicos
+powershell -File scripts/deploy-ftp.ps1 api/caminho/arquivo.php
+
+# Frontend React — buildar e enviar dist/ inteiro para public_html
+npm run build
+powershell -File scripts/deploy-ftp.ps1 -Frontend
+```
+
+Enviar **apenas os arquivos alterados** naquele request (não o conjunto inteiro). Edge functions (`supabase/functions/*`) continuam fora do FTP — usar `npx supabase functions deploy <name>`.
+
 ## Before conversation compaction
 
-Before the conversation is compacted, commit all pending changes to `dev` and push:
+Before the conversation is compacted, commit all pending changes to `dev` and push, then run the manual FTP deploy of the changed files:
 
 ```
 git add -A
@@ -31,14 +48,14 @@ npx supabase functions deploy agents-ads
 
 Ao final de cada resposta que modifique arquivos, listar quais precisam ser enviados ao servidor (Hostinger ou Supabase), no formato:
 
-**Servidor Hostinger (FTP/SSH):**
-- `api/v1/...` — arquivos PHP da API
-- `public_html/...` — arquivos de front-end
+**Servidor Hostinger (deploy manual via `scripts/deploy-ftp.ps1`):**
+- `api/...` — arquivos PHP da API → `powershell -File scripts/deploy-ftp.ps1 api/...`
+- Frontend (`src/` alterado) → `npm run build` e depois `powershell -File scripts/deploy-ftp.ps1 -Frontend`
 
-**Supabase (deploy automático via CLI):**
+**Supabase (deploy via CLI):**
 - `supabase/functions/<name>/index.ts` → `npx supabase functions deploy <name>`
 
-Se apenas o frontend React foi alterado (`src/`, `dist/`), indicar que o `npm run build` gera `dist/` e esse diretório deve ser enviado ao servidor Hostinger.
+Não há GitHub Actions — o deploy só acontece quando o script FTP é executado.
 
 ## SQL changes
 
