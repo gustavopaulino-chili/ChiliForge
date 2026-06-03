@@ -118,6 +118,8 @@ export default function History() {
   const [deletingCreativeId, setDeletingCreativeId] = useState<number | null>(null);
   const [projectToMove, setProjectToMove] = useState<Project | null>(null);
   const [movingId, setMovingId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const fetchProjects = async () => {
     const resolvedUserId = Number(user?.id);
@@ -176,6 +178,41 @@ export default function History() {
     } finally {
       setDeletingId(null);
     }
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const bulkDelete = async () => {
+    if (!user?.id || selectedIds.size === 0) return;
+    if (!window.confirm(`Excluir ${selectedIds.size} item(s)? Empresas também removem seus projetos filhos (LPs e campanhas). Esta ação é permanente.`)) return;
+    const ids = Array.from(selectedIds);
+    setBulkDeleting(true);
+    let ok = 0;
+    for (const id of ids) {
+      const proj = projects.find((p) => p.id === id);
+      if (!proj) continue;
+      try {
+        const r = await fetch("/api/deleteProject.php", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, user_id: proj.user_id ?? user.id }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && !d?.error) ok += 1;
+      } catch { /* continue with the rest */ }
+    }
+    setSelectedIds(new Set());
+    setBulkDeleting(false);
+    // Re-fetch from server: deleting a company cascades its children, so local filtering
+    // wouldn't reflect the removed child rows.
+    await fetchProjects();
+    toast.success(`${ok} de ${ids.length} item(s) excluído(s)`);
   };
 
   const handleRestoreForm = async (project: Project) => {
@@ -575,7 +612,10 @@ export default function History() {
                         const primaryColor = fd.primaryColor || '';
                         const logoUrl = fd.images?.logoUrl || '';
                         return (
-                          <div key={company.id} className="border rounded-xl overflow-hidden hover:border-primary/40 transition-all">
+                          <div key={company.id} className={`relative border rounded-xl overflow-hidden transition-all ${selectedIds.has(company.id) ? 'border-primary ring-1 ring-primary' : 'hover:border-primary/40'}`}>
+                            <label className="absolute left-2 top-2 z-20 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border bg-background/90 shadow-sm" onClick={(e) => e.stopPropagation()} title="Selecionar para excluir">
+                              <input type="checkbox" checked={selectedIds.has(company.id)} onChange={() => toggleSelect(company.id)} className="h-4 w-4 accent-primary" />
+                            </label>
                             {/* Top: avatar/logo + name + delete */}
                             <button
                               className="w-full px-4 pt-4 pb-3 flex items-center gap-3 text-left hover:bg-muted/20 transition-colors"
@@ -673,8 +713,11 @@ export default function History() {
                           const loadingCreatives = loadingCreativesId === project.id;
 
                           return (
-                            <div key={project.id} className="border rounded-lg overflow-hidden">
-                              <div className="p-4 flex items-center justify-between gap-4">
+                            <div key={project.id} className={`relative border rounded-lg overflow-hidden ${selectedIds.has(project.id) ? 'border-primary ring-1 ring-primary' : ''}`}>
+                              <label className="absolute right-2 top-2 z-20 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border bg-background/90 shadow-sm" onClick={(e) => e.stopPropagation()} title="Selecionar para excluir">
+                                <input type="checkbox" checked={selectedIds.has(project.id)} onChange={() => toggleSelect(project.id)} className="h-4 w-4 accent-primary" />
+                              </label>
+                              <div className="p-4 flex items-center justify-between gap-4 pl-12">
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     {adCampaign && <FolderOpen className="h-4 w-4 text-primary shrink-0" />}
@@ -799,6 +842,17 @@ export default function History() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-border bg-background/95 px-4 py-2.5 shadow-lg backdrop-blur">
+          <span className="text-sm font-medium">{selectedIds.size} selecionado(s)</span>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())} disabled={bulkDeleting}>Limpar</Button>
+          <Button size="sm" variant="destructive" onClick={bulkDelete} disabled={bulkDeleting} className="gap-1.5">
+            {bulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Excluir selecionados
+          </Button>
+        </div>
+      )}
 
       <AlertDialog
         open={Boolean(projectToDelete)}

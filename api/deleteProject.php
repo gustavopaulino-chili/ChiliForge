@@ -43,6 +43,63 @@ if (!$row) {
 $folderPath      = (string)($row['folder_path'] ?? '');
 $effectiveUserId = (int)($row['actual_user_id'] ?? $userId);
 
+// Helper: recursively delete a project's published folder from disk (path is relative to repo root).
+$projectRoot = realpath(__DIR__ . DIRECTORY_SEPARATOR . '..');
+$deleteFolder = function (string $folderPath) use ($projectRoot) {
+    $folderPath = trim($folderPath);
+    if ($folderPath === '' || $projectRoot === false) return;
+    $normalized     = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, ltrim($folderPath, '/\\'));
+    $absoluteFolder = $projectRoot . DIRECTORY_SEPARATOR . $normalized;
+    // Safety: never escape the repo root.
+    $real = realpath($absoluteFolder);
+    if ($real === false || strpos($real, $projectRoot) !== 0 || !is_dir($real)) return;
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($real, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($iterator as $item) {
+        $item->isDir() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
+    }
+    @rmdir($real);
+};
+
+// If this is a COMPANY project, its child projects (LPs / ad campaigns) reference it via
+// company_project_id (FK is ON DELETE SET NULL, so they would be orphaned — rows AND server
+// folders left behind). Cascade them explicitly: collect children, delete their folders + rows
+// (their lps/ads_campaign/ads_creatives cascade via FK), and clean the company-scoped tables
+// that have no FK cascade (company_store_files, ad_generation_jobs).
+$childIds     = [];
+$childFolders = [];
+$childStmt = $conn->prepare("SELECT id, folder_path FROM projects WHERE company_project_id = ?");
+if ($childStmt) {
+    $childStmt->bind_param("i", $id);
+    $childStmt->execute();
+    $childRes = $childStmt->get_result();
+    while ($childRes && ($r = $childRes->fetch_assoc())) {
+        $childIds[] = (int)$r['id'];
+        if (!empty($r['folder_path'])) $childFolders[] = (string)$r['folder_path'];
+    }
+    $childStmt->close();
+}
+
+if (!empty($childIds)) {
+    $placeholders = implode(',', array_fill(0, count($childIds), '?'));
+    $types        = str_repeat('i', count($childIds));
+    $delChildren  = $conn->prepare("DELETE FROM projects WHERE id IN ($placeholders)");
+    if ($delChildren) {
+        $delChildren->bind_param($types, ...$childIds);
+        $delChildren->execute();
+        $delChildren->close();
+    }
+}
+
+// Non-cascading, company-scoped tables.
+foreach (['company_store_files', 'ad_generation_jobs'] as $tbl) {
+    $c = $conn->prepare("DELETE FROM {$tbl} WHERE company_project_id = ?");
+    if ($c) { $c->bind_param("i", $id); $c->execute(); $c->close(); }
+}
+
+// Delete the project (company or standalone) itself.
 $stmt = $conn->prepare("DELETE FROM projects WHERE id = ? AND user_id = ?");
 $stmt->bind_param("ii", $id, $effectiveUserId);
 
@@ -64,25 +121,13 @@ if ($stmt->affected_rows === 0) {
 
 $stmt->close();
 
-// Remove published files from disk.
-if ($folderPath !== '') {
-    $projectRoot      = realpath(__DIR__ . DIRECTORY_SEPARATOR . '..');
-    $normalizedFolder = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, ltrim($folderPath, '/\\'));
-    $absoluteFolder   = $projectRoot . DIRECTORY_SEPARATOR . $normalizedFolder;
-
-    if ($absoluteFolder !== false && is_dir($absoluteFolder)) {
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($absoluteFolder, FilesystemIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::CHILD_FIRST
-        );
-        foreach ($iterator as $item) {
-            $item->isDir() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
-        }
-        @rmdir($absoluteFolder);
-    }
+// Remove published files from disk — the project's own folder + all child folders.
+$deleteFolder($folderPath);
+foreach ($childFolders as $cf) {
+    $deleteFolder($cf);
 }
 
-echo json_encode(["success" => true]);
+echo json_encode(["success" => true, "deletedChildren" => count($childIds)]);
 $conn->close();
 ?>
 
