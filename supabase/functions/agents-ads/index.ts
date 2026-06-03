@@ -1726,15 +1726,20 @@ function buildCompositionHtml(
   const sub = String(data.subheadline || data.offer || "").trim();
   const logoUrl = String(data.logoUrl || "").trim();
 
-  // Bigger, more legible compose typography. Previous caps (68 headline / 28 CTA) were far
-  // too small for 1080px+ creatives. min() keeps tiny banners (e.g. leaderboards) proportional.
-  // sizeScale = optional hint from the image model (how much clean space it left); clamped, with
-  // 1.0 (= computed size) as the safe fallback when no/invalid recommendation.
+  // RESOLUTION-INDEPENDENT typography: font sizes are expressed in container-query
+  // units (cqw/cqh = % of the banner box) instead of fixed px, so the inserted HTML
+  // text always scales with the actual rendered resolution of the banner — whether
+  // it is a 320px mobile banner, a 1080px square, or exported/zoomed at any scale.
+  // The .ad-banner container sets `container-type:size` so cqw/cqh resolve to its box.
+  // min(cqh,cqw) keeps text proportional to the *binding* dimension (no overflow on
+  // extreme aspect ratios). sizeScale = optional hint from the image model (how much
+  // clean space it left); clamped, 1.0 = computed size when no/invalid recommendation.
   const sizeScale = Math.min(1.4, Math.max(0.7, Number(rec?.headlineScale) || 1));
-  const headlinePx = Math.round(Math.min(h * 0.088, w * 0.080, 104) * sizeScale);
-  const subPx     = Math.round(headlinePx * 0.5);
-  const ctaPx     = Math.round(Math.min(h * 0.050, w * 0.046, 44) * Math.min(1.2, sizeScale));
-  const logoPx    = Math.round(subPx * 0.95);
+  const ctaScale  = Math.min(1.2, sizeScale);
+  const headlineFs = `calc(min(8.8cqh, 8cqw) * ${sizeScale.toFixed(3)})`;
+  const subFs      = `calc(min(8.8cqh, 8cqw) * ${(sizeScale * 0.5).toFixed(3)})`;
+  const ctaFs      = `calc(min(5cqh, 4.6cqw) * ${ctaScale.toFixed(3)})`;
+  const logoFs     = `calc(min(8.8cqh, 8cqw) * ${(sizeScale * 0.475).toFixed(3)})`;
 
   // Always use white text in compose mode — the scrim layer guarantees contrast
   // regardless of what the AI generated. Using brand color for text caused
@@ -1756,14 +1761,14 @@ function buildCompositionHtml(
 
   const logoLayer = logoUrl
     ? `<img src="${logoUrl}" style="position:absolute;${layout.logo}object-fit:contain;z-index:20" alt="logo" />`
-    : (data.brandName ? `<div style="position:absolute;${layout.logo}font-family:${fontFamily};font-size:${logoPx}px;font-weight:700;color:${textColor};z-index:20;white-space:nowrap;text-shadow:${textShadow}">${String(data.brandName).trim()}</div>` : "");
+    : (data.brandName ? `<div style="position:absolute;${layout.logo}font-family:${fontFamily};font-size:${logoFs};font-weight:700;color:${textColor};z-index:20;white-space:nowrap;text-shadow:${textShadow}">${String(data.brandName).trim()}</div>` : "");
 
   const headlineLayer = headline
-    ? `<div style="position:absolute;${layout.headline}font-family:${fontFamily};font-size:${headlinePx}px;font-weight:900;color:${textColor};line-height:1.15;text-align:${textAlign};text-shadow:${textShadow};z-index:25">${headline}</div>`
+    ? `<div style="position:absolute;${layout.headline}font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:${textColor};line-height:1.15;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word">${headline}</div>`
     : "";
 
   const subLayer = sub
-    ? `<div style="position:absolute;${layout.sub}font-family:${fontFamily};font-size:${subPx}px;font-weight:400;color:${subColor};line-height:1.4;text-align:${textAlign};text-shadow:${textShadow};z-index:25">${sub}</div>`
+    ? `<div style="position:absolute;${layout.sub}font-family:${fontFamily};font-size:${subFs};font-weight:400;color:${subColor};line-height:1.4;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word">${sub}</div>`
     : "";
 
   // CTA layer — social formats get organic text gesture, display formats get a button
@@ -1773,21 +1778,18 @@ function buildCompositionHtml(
   if (ctaRaw) {
     if (isSocialFmt) {
       // Organic CTA: plain text + gesture indicator, no button shape
-      ctaLayer = `<div style="position:absolute;${layout.cta}font-family:${fontFamily};font-size:${ctaPx}px;font-weight:600;color:${textColor};text-shadow:${textShadow};z-index:25;white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`;
+      ctaLayer = `<div style="position:absolute;${layout.cta}font-family:${fontFamily};font-size:${ctaFs};font-weight:600;color:${textColor};text-shadow:${textShadow};z-index:25;white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`;
     } else {
-      // Display CTA: contrasting button
+      // Display CTA: contrasting button. Padding/radius in em so the button scales with its font.
       const isDark = contrastTextColor(primaryColor).color === "#ffffff";
       const btnBg    = isDark ? "rgba(255,255,255,0.95)" : "rgba(20,20,20,0.88)";
       const btnColor = isDark ? "#111111"                : "#ffffff";
-      const padV = Math.round(ctaPx * 0.42);
-      const padH = Math.round(ctaPx * 0.90);
-      const br   = Math.round(ctaPx * 0.38);
-      ctaLayer = `<div style="position:absolute;${layout.cta}display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaPx}px;font-weight:700;padding:${padV}px ${padH}px;border-radius:${br}px;box-shadow:0 4px 18px rgba(0,0,0,0.22);z-index:25;white-space:nowrap;">${ctaRaw}</div>`;
+      ctaLayer = `<div style="position:absolute;${layout.cta}display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.42em 0.90em;border-radius:0.38em;box-shadow:0 4px 18px rgba(0,0,0,0.22);z-index:25;white-space:nowrap;">${ctaRaw}</div>`;
     }
   }
 
   return `<!-- BANNER_START -->
-<div class="ad-banner" data-platform="${platform}" data-format="${formatName}" style="position:relative;width:${w}px;height:${h}px;overflow:hidden;font-family:${fontFamily}">
+<div class="ad-banner" data-platform="${platform}" data-format="${formatName}" style="position:relative;width:${w}px;height:${h}px;overflow:hidden;font-family:${fontFamily};container-type:size">
   ${fontImport}
   ${bgLayer}
   ${scrimLayer}
