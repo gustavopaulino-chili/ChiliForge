@@ -161,6 +161,29 @@ if (!function_exists('agents_env_value')) {
     }
 }
 
+if (!function_exists('agents_env_value_from_file')) {
+    // Read a key ONLY from the .env file, ignoring getenv()/$_ENV. Used to
+    // recover the legacy service-role JWT when a host-level env var overrides
+    // it with the new (non-JWT) sb_secret key format.
+    function agents_env_value_from_file(string $key, string $default = ''): string {
+        $envPath = realpath(__DIR__ . '/../../../.env');
+        if ($envPath && is_readable($envPath)) {
+            $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            foreach ($lines ?: [] as $line) {
+                $line = trim($line);
+                if ($line === '' || agents_starts_with($line, '#') || !agents_contains($line, '=')) {
+                    continue;
+                }
+                [$envKey, $envValue] = explode('=', $line, 2);
+                if (trim($envKey) === $key) {
+                    return trim(trim((string)$envValue), "\"'");
+                }
+            }
+        }
+        return $default;
+    }
+}
+
 if (!function_exists('agents_is_jwt')) {
     function agents_is_jwt(string $value): bool {
         return substr_count($value, '.') === 2;
@@ -259,6 +282,16 @@ if (!function_exists('agents_call_edge_function')) {
 
         $baseUrl = rtrim(agents_env_value('SUPABASE_URL', 'https://vehowvyqxhelyfdesmog.supabase.co'), '/');
         $key     = agents_env_value('SUPABASE_SERVICE_ROLE_KEY');
+
+        // A host-level env var may override the .env with the new (non-JWT)
+        // sb_secret key, which Storage rejects ("Invalid Compact JWS"). When the
+        // resolved value is not a JWT, recover the legacy JWT directly from .env.
+        if (!agents_is_jwt($key)) {
+            $fromFile = agents_env_value_from_file('SUPABASE_SERVICE_ROLE_KEY');
+            if (agents_is_jwt($fromFile)) {
+                $key = $fromFile;
+            }
+        }
 
         if ($key === '' || !agents_is_jwt($key)) {
             throw new RuntimeException('SUPABASE_SERVICE_ROLE_KEY is missing or is not a JWT. Configure the service role JWT on the PHP server; sb_publishable keys cannot call protected Edge Functions as Bearer tokens.');

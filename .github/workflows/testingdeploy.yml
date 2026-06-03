@@ -4,15 +4,13 @@ on:
     branches:
       - dev
 
+# Um único job, uma única sessão FTP por vez. Dois jobs em paralelo abriam
+# duas conexões FTP na MESMA conta Hostinger (limite de conexões) → um ia e o
+# outro era recusado. Aqui o api/ (PHP) publica PRIMEIRO, antes do build do
+# React, então o PHP sempre chega ao servidor mesmo se o build falhar.
 jobs:
-  # ── API (PHP) ─────────────────────────────────────────────
-  # Roda SEMPRE e é INDEPENDENTE do build do React. Antes, o deploy do
-  # api/ ficava no mesmo job do `npm run build`; se o build falhasse, o
-  # job abortava e NENHUM arquivo PHP era enviado (ex.: helpers.php com a
-  # injeção do storageKey nunca chegava ao servidor → compose 400 "Invalid
-  # Compact JWS"). Separando, o PHP sempre publica.
-  deploy-api:
-    name: Deploy API (PHP)
+  deploy:
+    name: Build & Deploy
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repositório
@@ -21,6 +19,7 @@ jobs:
       - name: Instalar lftp
         run: sudo apt-get update && sudo apt-get install -y lftp
 
+      # ── 1) API (PHP) primeiro — independe do build do React ──
       # NUNCA toca em: api/db.php, .env, projects/
       - name: Deploy api/ via lftp
         env:
@@ -40,7 +39,6 @@ jobs:
             open -u \"$FTP_USER\",\"$FTP_PASS\" \"$FTP_HOST\";
             pwd;
 
-            # API (api/) -> ./api/  (sem --delete por seguranca)
             mirror --reverse --verbose \
               --exclude '^db\.php\$' \
               --exclude '^\.env\$' \
@@ -49,14 +47,6 @@ jobs:
 
             bye;
           "
-
-  # ── Frontend (React/dist) ─────────────────────────────────
-  build-and-deploy-frontend:
-    name: Build & Deploy Frontend
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repositório
-        uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -76,12 +66,8 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_SUPABASE_PROJECT_ID: ${{ secrets.VITE_SUPABASE_PROJECT_ID }}
 
-      - name: Instalar lftp
-        run: sudo apt-get update && sudo apt-get install -y lftp
-
-      # PRE-REQUISITO: conta FTP apontada para public_html no hPanel.
-      # NUNCA toca em: api/, projects/, db.php, .env
-      - name: Deploy dist/ -> public_html via lftp
+      # ── 2) Frontend (dist/) -> public_html ──
+      - name: Deploy dist/ via lftp
         env:
           FTP_HOST: 195.35.41.130
           FTP_USER: ${{ secrets.FTP_USER }}
@@ -99,7 +85,6 @@ jobs:
             open -u \"$FTP_USER\",\"$FTP_PASS\" \"$FTP_HOST\";
             pwd;
 
-            # Frontend (dist/) -> raiz do login (= public_html)
             mirror --reverse --delete --verbose \
               --exclude '^api/' \
               --exclude '^projects/' \
