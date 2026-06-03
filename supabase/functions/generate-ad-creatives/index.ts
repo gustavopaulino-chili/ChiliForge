@@ -243,6 +243,37 @@ function extractGeminiImageDataUrl(payload: any) {
   return imagePart ? `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}` : null;
 }
 
+// Save a base64 data URL to Supabase Storage (public bucket "ad-images") and return its public
+// URL, so the fallback image is referenced as a URL instead of inline base64. Falls back to the
+// original data URL on ANY failure (missing bucket/env/network) — never breaks generation.
+async function uploadImageToStorage(dataUrl: string | null): Promise<string | null> {
+  if (!dataUrl || !dataUrl.startsWith("data:")) return dataUrl;
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!m) return dataUrl;
+  try {
+    const mime = m[1];
+    const ext = (mime.split("/")[1] || "png").split("+")[0];
+    const b64 = m[2];
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const e = (globalThis as any).Deno?.env;
+    const base = e?.get("SUPABASE_URL");
+    const key = e?.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!base || !key) return dataUrl;
+    const path = `creatives/${bytes.length}-${b64.slice(0, 32).replace(/[^a-zA-Z0-9]/g, "")}.${ext}`;
+    const res = await fetch(`${base}/storage/v1/object/ad-images/${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": mime, "x-upsert": "true" },
+      body: bytes,
+    });
+    if (!res.ok) return dataUrl;
+    return `${base}/storage/v1/object/public/ad-images/${path}`;
+  } catch {
+    return dataUrl;
+  }
+}
+
 async function generateGeminiFallbackImage(prompt: string, accountType: unknown) {
   let keys: string[] = [];
   try {
@@ -271,8 +302,8 @@ async function generateGeminiFallbackImage(prompt: string, accountType: unknown)
         });
         clearTimeout(timeoutId);
         if (!response.ok) continue;
-        const imageUrl = extractGeminiImageDataUrl(await response.json());
-        if (imageUrl) return imageUrl;
+        const rawImageUrl = extractGeminiImageDataUrl(await response.json());
+        if (rawImageUrl) return (await uploadImageToStorage(rawImageUrl)) ?? rawImageUrl;
       } catch {
         clearTimeout(timeoutId);
       }

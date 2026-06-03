@@ -169,6 +169,37 @@ type GenerateAdImageOptions = {
   singleConfig?: boolean;
 };
 
+// Save a base64 data URL to Supabase Storage (public bucket "ad-images") and return its public
+// URL, so a generated image is NEVER carried as base64 through Edge -> PHP -> browser. Falls back
+// to the original data URL on ANY failure (missing bucket/env/network) — never breaks generation.
+async function uploadImageToStorage(dataUrl: string | null): Promise<string | null> {
+  if (!dataUrl || !dataUrl.startsWith("data:")) return dataUrl;
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!m) return dataUrl;
+  try {
+    const mime = m[1];
+    const ext = (mime.split("/")[1] || "png").split("+")[0];
+    const b64 = m[2];
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const e = (globalThis as any).Deno?.env;
+    const base = e?.get("SUPABASE_URL");
+    const key = e?.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!base || !key) return dataUrl;
+    const path = `compose/${bytes.length}-${b64.slice(0, 32).replace(/[^a-zA-Z0-9]/g, "")}.${ext}`;
+    const res = await fetch(`${base}/storage/v1/object/ad-images/${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": mime, "x-upsert": "true" },
+      body: bytes,
+    });
+    if (!res.ok) return dataUrl;
+    return `${base}/storage/v1/object/public/ad-images/${path}`;
+  } catch {
+    return dataUrl;
+  }
+}
+
 async function generateAdImage(
   prompt: string,
   refImages: Array<{ data: string; mimeType: string }>,
@@ -2096,7 +2127,8 @@ serve(async (req: Request) => {
           const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
             maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
           });
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, bgDataUrl ?? "");
+          const bgHosted = bgDataUrl ? (await uploadImageToStorage(bgDataUrl)) ?? bgDataUrl : "";
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, bgHosted);
         }
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -2137,7 +2169,8 @@ serve(async (req: Request) => {
           const bgDataUrl = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
             maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
           });
-          bgByRatio.set(aspectRatio, bgDataUrl ?? "");
+          const bgHosted = bgDataUrl ? (await uploadImageToStorage(bgDataUrl)) ?? bgDataUrl : "";
+          bgByRatio.set(aspectRatio, bgHosted);
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {

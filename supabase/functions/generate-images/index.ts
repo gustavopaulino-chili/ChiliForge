@@ -245,6 +245,37 @@ function extractGeminiImageDataUrl(payload: any) {
   return `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
 }
 
+// Save a base64 data URL to Supabase Storage (public bucket "ad-images") and return its public
+// URL, so generated images are returned as URLs instead of base64. Falls back to the original
+// data URL on ANY failure (missing bucket/env/network) — never breaks generation.
+async function uploadImageToStorage(dataUrl: string | null): Promise<string | null> {
+  if (!dataUrl || !dataUrl.startsWith("data:")) return dataUrl;
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!m) return dataUrl;
+  try {
+    const mime = m[1];
+    const ext = (mime.split("/")[1] || "png").split("+")[0];
+    const b64 = m[2];
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const e = (globalThis as any).Deno?.env;
+    const base = e?.get("SUPABASE_URL");
+    const key = e?.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!base || !key) return dataUrl;
+    const path = `generated/${bytes.length}-${b64.slice(0, 32).replace(/[^a-zA-Z0-9]/g, "")}.${ext}`;
+    const res = await fetch(`${base}/storage/v1/object/ad-images/${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": mime, "x-upsert": "true" },
+      body: bytes,
+    });
+    if (!res.ok) return dataUrl;
+    return `${base}/storage/v1/object/public/ad-images/${path}`;
+  } catch {
+    return dataUrl;
+  }
+}
+
 async function generateImageWithGemini(prompt: string, geminiApiKeys: string[], referenceImageUrl?: string) {
   const parts: any[] = [{ text: prompt }];
   const referenceInlineData = await buildReferenceInlineData(referenceImageUrl);
@@ -309,12 +340,13 @@ async function generateImageWithGemini(prompt: string, geminiApiKeys: string[], 
         continue;
       }
 
-      const imageUrl = extractGeminiImageDataUrl(payload);
-      if (!imageUrl) {
+      const rawImageUrl = extractGeminiImageDataUrl(payload);
+      if (!rawImageUrl) {
         lastError = `Gemini ${model} returned no image data`;
         continue;
       }
 
+      const imageUrl = (await uploadImageToStorage(rawImageUrl)) ?? rawImageUrl;
       return { ok: true as const, imageUrl, model };
     }
   }
@@ -382,7 +414,8 @@ async function generateImageWithOpenAi(prompt: string, openAiApiKey: string) {
     }
 
     if (typeof b64Data === "string" && b64Data) {
-      return { ok: true as const, imageUrl: `data:image/png;base64,${b64Data}`, model };
+      const dataUrl = `data:image/png;base64,${b64Data}`;
+      return { ok: true as const, imageUrl: (await uploadImageToStorage(dataUrl)) ?? dataUrl, model };
     }
 
     lastError = `OpenAI ${model} returned no image payload`;
