@@ -1,0 +1,140 @@
+import { useEffect, useState } from 'react';
+import { listCompanyFiles } from '@/services/api';
+import { ImageIcon, FileImage } from 'lucide-react';
+
+interface Props {
+  images: Record<string, unknown> | undefined;
+  projectId: number;
+  userId: number;
+}
+
+interface BrandImage { key: string; label: string; url: string }
+interface StoreImageFile { id: number; display_name: string; mime_type: string; file_size_bytes?: number | null }
+
+// Labels for the known brand-image slots stored in company_form_data.images.
+const IMAGE_LABELS: { key: string; label: string }[] = [
+  { key: 'logoUrl', label: 'Logo' },
+  { key: 'brandImage', label: 'Imagem da marca' },
+  { key: 'heroImage1', label: 'Hero 1' },
+  { key: 'heroImage2', label: 'Hero 2' },
+  { key: 'aboutImage', label: 'Sobre' },
+  { key: 'teamImage', label: 'Equipe' },
+  { key: 'sectionImage1', label: 'Seção 1' },
+  { key: 'sectionImage2', label: 'Seção 2' },
+  { key: 'sectionImage3', label: 'Seção 3' },
+];
+
+function collectBrandImages(images: Record<string, unknown> | undefined): BrandImage[] {
+  if (!images) return [];
+  const out: BrandImage[] = [];
+  for (const { key, label } of IMAGE_LABELS) {
+    const url = String(images[key] || '').trim();
+    if (url) out.push({ key, label, url });
+  }
+  const products = Array.isArray(images.productImages) ? (images.productImages as unknown[]) : [];
+  products.forEach((p, i) => {
+    const url = String(p || '').trim();
+    if (url) out.push({ key: `product-${i}`, label: `Produto ${i + 1}`, url });
+  });
+  return out;
+}
+
+function ImageCard({ url, label }: { url: string; label: string }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="group flex flex-col gap-1.5 rounded-lg border border-border bg-card p-2 transition-colors hover:border-primary/50"
+      title={label}
+    >
+      <div className="relative aspect-square w-full overflow-hidden rounded-md bg-muted">
+        <img src={url} alt={label} loading="lazy" className="h-full w-full object-contain" />
+      </div>
+      <span className="truncate text-xs font-medium text-foreground">{label}</span>
+    </a>
+  );
+}
+
+export function CompanyImagesTab({ images, projectId, userId }: Props) {
+  const brandImages = collectBrandImages(images);
+  const [storeImages, setStoreImages] = useState<StoreImageFile[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    listCompanyFiles({ user_id: userId, company_project_id: projectId })
+      .then((res) => {
+        if (!active) return;
+        const files = Array.isArray(res?.files) ? res.files : [];
+        setStoreImages(
+          files.filter((f: StoreImageFile) => String(f.mime_type || '').startsWith('image/')),
+        );
+      })
+      .catch(() => { if (active) setStoreImages([]); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [projectId, userId]);
+
+  const hasAny = brandImages.length > 0 || storeImages.length > 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Brand images assimilated to the company */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <ImageIcon className="h-4 w-4 text-primary" />
+          <h4 className="text-sm font-semibold text-foreground">
+            Imagens da marca <span className="text-xs font-normal text-muted-foreground">({brandImages.length})</span>
+          </h4>
+        </div>
+        {brandImages.length > 0 ? (
+          <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">
+            {brandImages.map((img) => (
+              <ImageCard key={img.key} url={img.url} label={img.label} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Nenhuma imagem da marca salva ainda.</p>
+        )}
+      </div>
+
+      {/* Images uploaded to the company knowledge base (Gemini store) */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <FileImage className="h-4 w-4 text-primary" />
+          <h4 className="text-sm font-semibold text-foreground">
+            Imagens enviadas à base da empresa{' '}
+            <span className="text-xs font-normal text-muted-foreground">({storeImages.length})</span>
+          </h4>
+        </div>
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Carregando…</p>
+        ) : storeImages.length > 0 ? (
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {storeImages.map((f) => (
+              <li key={f.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                <span className="flex items-center gap-2 min-w-0">
+                  <FileImage className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm text-foreground">{f.display_name}</span>
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {f.mime_type}{f.file_size_bytes ? ` · ${Math.round(f.file_size_bytes / 1024)} KB` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">Nenhuma imagem enviada à base da empresa.</p>
+        )}
+      </div>
+
+      {!hasAny && !loading && (
+        <p className="text-sm text-muted-foreground text-center py-6">
+          Esta empresa ainda não tem imagens salvas.
+        </p>
+      )}
+    </div>
+  );
+}

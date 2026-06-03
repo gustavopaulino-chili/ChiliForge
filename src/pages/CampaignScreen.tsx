@@ -18,6 +18,7 @@ import {
   type ProjectAsset, type GenerationJob, type GenerationJobBatch, type ComposeAdResult,
 } from '@/services/api';
 import { AD_PLATFORM_LABELS } from '@/types/adCreativeForm';
+import { CampaignUsedImages } from '@/components/ad-generator/CampaignUsedImages';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 
@@ -1728,6 +1729,11 @@ export default function CampaignScreen() {
 
               {/* Images tab */}
               <TabsContent value="images">
+                <CampaignUsedImages
+                  formData={campaign.form_data}
+                  creativeIds={banners.map((b) => Number((b as any).id)).filter((n) => n > 0)}
+                  userId={Number(user?.id) || 0}
+                />
                 <div className="mb-4 flex flex-col gap-3 rounded-xl border border-border/50 bg-card/50 p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm font-semibold">Company Images</p>

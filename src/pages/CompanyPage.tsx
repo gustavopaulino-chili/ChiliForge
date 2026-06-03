@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Edit3, Save, X, FileText, Megaphone, Plus,
   Eye, ExternalLink, Loader2, Globe, Target, Users, Sparkles,
-  Layers, MapPin, Phone, Mail, Building2, RotateCcw, Trash2,
+  Layers, MapPin, Phone, Mail, Building2, RotateCcw, Trash2, Image as ImageIcon,
 } from 'lucide-react';
+import { CompanyImagesTab } from '@/components/project/CompanyImagesTab';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
@@ -570,6 +571,10 @@ export default function CompanyPage() {
                 Ad Campaigns
                 <span className="ml-1 text-xs opacity-60">({adProjects.length})</span>
               </TabsTrigger>
+              <TabsTrigger value="images" className="gap-1.5">
+                <ImageIcon className="h-4 w-4" />
+                Imagens
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="lp" className="space-y-3">
@@ -635,6 +640,10 @@ export default function CompanyPage() {
                   No ad campaigns yet for this company.
                 </p>
               )}
+            </TabsContent>
+
+            <TabsContent value="images">
+              <CompanyImagesTab images={formData.images} projectId={projectId} userId={Number(user?.id) || 0} />
             </TabsContent>
           </Tabs>
         </main>
