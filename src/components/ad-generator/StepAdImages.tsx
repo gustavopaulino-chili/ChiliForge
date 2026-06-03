@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { AdCreativeFormData, AdLogoVariant, ComposeBackgroundSource } from '@/types/adCreativeForm';
 import { FieldLabel } from '@/components/generator/FieldLabel';
-import { getProjectAssets, type ProjectAsset } from '@/services/api';
+import { getProjectAssets, getProjectById, type ProjectAsset } from '@/services/api';
 import { Upload, X, Image, Plus, Sparkles, Loader2, CheckCircle2, AlertCircle, Wand2, RefreshCw, Search, Shapes, Building2, FolderOpen } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
@@ -208,6 +208,26 @@ const isImageAsset = (asset: ProjectAsset) =>
   /\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i.test(asset.url || '') ||
   /\.(png|jpe?g|webp|gif|svg|avif)$/i.test(asset.name || '');
 
+// Brand images stored in company_form_data.images — offered as selectable
+// company images alongside the design assets (assets folder).
+const BRAND_IMAGE_KEYS: [string, string][] = [
+  ['logoUrl', 'Logo'], ['brandImage', 'Marca'], ['heroImage1', 'Hero 1'], ['heroImage2', 'Hero 2'],
+  ['aboutImage', 'Sobre'], ['teamImage', 'Equipe'], ['sectionImage1', 'Seção 1'], ['sectionImage2', 'Seção 2'], ['sectionImage3', 'Seção 3'],
+];
+function collectBrandAssets(formData: unknown): ProjectAsset[] {
+  const images = (formData as { images?: Record<string, unknown> } | null)?.images;
+  if (!images || typeof images !== 'object') return [];
+  const out: ProjectAsset[] = [];
+  const push = (name: string, raw: unknown) => {
+    const url = String(raw || '').trim();
+    if (/^https?:\/\//i.test(url)) out.push({ name, url, size: 0, modifiedAt: 0 });
+  };
+  for (const [key, label] of BRAND_IMAGE_KEYS) push(label, (images as Record<string, unknown>)[key]);
+  const products = (images as Record<string, unknown>).productImages;
+  if (Array.isArray(products)) products.forEach((p, i) => push(`Produto ${i + 1}`, p));
+  return out;
+}
+
 export function StepAdImages({
   data,
   onChange,
@@ -236,9 +256,31 @@ export function StepAdImages({
       setCompanyAssets([]);
       return;
     }
-    getProjectAssets(companyProjectId, userId)
-      .then(result => setCompanyAssets((result.assets || []).filter(isImageAsset)))
-      .catch(() => setCompanyAssets([]));
+    let active = true;
+    // Selectable company images = design assets (assets folder) + brand images
+    // (company_form_data.images). Both are offered in the picker / company-bg mode.
+    Promise.allSettled([
+      getProjectAssets(companyProjectId, userId),
+      getProjectById(companyProjectId, userId),
+    ]).then(([assetsRes, projRes]) => {
+      if (!active) return;
+      const folder: ProjectAsset[] = assetsRes.status === 'fulfilled'
+        ? (assetsRes.value.assets || []).filter(isImageAsset)
+        : [];
+      const brand: ProjectAsset[] = projRes.status === 'fulfilled' && projRes.value
+        ? collectBrandAssets(projRes.value.company_form_data || projRes.value.form_data)
+        : [];
+      const seen = new Set<string>();
+      const merged: ProjectAsset[] = [];
+      for (const a of [...folder, ...brand]) {
+        const u = (a.url || '').trim();
+        if (!u || seen.has(u)) continue;
+        seen.add(u);
+        merged.push(a);
+      }
+      setCompanyAssets(merged);
+    });
+    return () => { active = false; };
   }, [companyProjectId, userId]);
 
   const buildCtx = (): AdImageGenerateContext => ({

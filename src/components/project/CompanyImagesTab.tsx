@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { listCompanyFiles, getProjectAssets, uploadProjectAssets, type ProjectAsset } from '@/services/api';
-import { ImageIcon, FileImage, Palette, Upload, Loader2 } from 'lucide-react';
+import { getProjectAssets, uploadProjectAssets, type ProjectAsset } from '@/services/api';
+import { ImageIcon, Palette, Upload, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Props {
@@ -10,7 +10,6 @@ interface Props {
 }
 
 interface BrandImage { key: string; label: string; url: string }
-interface StoreImageFile { id: number; display_name: string; mime_type: string; file_size_bytes?: number | null }
 
 // Labels for the known brand-image slots stored in company_form_data.images.
 const IMAGE_LABELS: { key: string; label: string }[] = [
@@ -63,27 +62,9 @@ const isImageAsset = (asset: ProjectAsset) =>
 
 export function CompanyImagesTab({ images, projectId, userId }: Props) {
   const brandImages = collectBrandImages(images);
-  const [storeImages, setStoreImages] = useState<StoreImageFile[]>([]);
-  const [loading, setLoading] = useState(true);
   const [designAssets, setDesignAssets] = useState<ProjectAsset[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    listCompanyFiles({ user_id: userId, company_project_id: projectId })
-      .then((res) => {
-        if (!active) return;
-        const files = Array.isArray(res?.files) ? res.files : [];
-        setStoreImages(
-          files.filter((f: StoreImageFile) => String(f.mime_type || '').startsWith('image/')),
-        );
-      })
-      .catch(() => { if (active) setStoreImages([]); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [projectId, userId]);
 
   const loadDesignAssets = () => {
     getProjectAssets(projectId, userId)
@@ -91,7 +72,7 @@ export function CompanyImagesTab({ images, projectId, userId }: Props) {
       .catch(() => setDesignAssets([]));
   };
 
-  useEffect(() => { loadDesignAssets(); /* eslint-disable-next-line */ }, [projectId, userId]);
+  useEffect(() => { loadDesignAssets(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [projectId, userId]);
 
   const handleUploadDesignAssets = async (files: File[]) => {
     if (!files.length || !projectId || !userId) return;
@@ -108,7 +89,7 @@ export function CompanyImagesTab({ images, projectId, userId }: Props) {
     }
   };
 
-  const hasAny = brandImages.length > 0 || storeImages.length > 0 || designAssets.length > 0;
+  const hasAny = brandImages.length > 0 || designAssets.length > 0;
 
   return (
     <div className="space-y-6">
@@ -173,37 +154,7 @@ export function CompanyImagesTab({ images, projectId, userId }: Props) {
         )}
       </div>
 
-      {/* Images uploaded to the company knowledge base (Gemini store) */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <FileImage className="h-4 w-4 text-primary" />
-          <h4 className="text-sm font-semibold text-foreground">
-            Imagens enviadas à base da empresa{' '}
-            <span className="text-xs font-normal text-muted-foreground">({storeImages.length})</span>
-          </h4>
-        </div>
-        {loading ? (
-          <p className="text-sm text-muted-foreground">Carregando…</p>
-        ) : storeImages.length > 0 ? (
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {storeImages.map((f) => (
-              <li key={f.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                <span className="flex items-center gap-2 min-w-0">
-                  <FileImage className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate text-sm text-foreground">{f.display_name}</span>
-                </span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {f.mime_type}{f.file_size_bytes ? ` · ${Math.round(f.file_size_bytes / 1024)} KB` : ''}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">Nenhuma imagem enviada à base da empresa.</p>
-        )}
-      </div>
-
-      {!hasAny && !loading && (
+      {!hasAny && (
         <p className="text-sm text-muted-foreground text-center py-6">
           Esta empresa ainda não tem imagens salvas.
         </p>
