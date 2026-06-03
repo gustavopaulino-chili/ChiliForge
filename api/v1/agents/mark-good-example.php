@@ -116,6 +116,11 @@ try {
 
         if (!$fetched || empty($adHtml)) continue;
 
+        // Never push base64 image bytes into the File Search store — a single inlined
+        // image becomes hundreds of KB of TEXT and is then retrieved into every future
+        // generation, costing millions of tokens. The example only needs the layout.
+        $adHtml = agents_strip_base64_images($adHtml);
+
         $exampleDoc  = "# Good Ad Example\n\n";
         $exampleDoc .= "Campaign ID: {$campaignId}\n";
         $exampleDoc .= "Creative ID: {$adId}\n";

@@ -22,6 +22,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $storeType   = $_POST['store_type']  ?? '';
 $displayName = trim($_POST['display_name'] ?? '');
 $textContent = trim($_POST['text'] ?? '');
+// Strip base64 image bytes from HTML/text before it is indexed in the store, so a
+// single reference creative can't balloon every future generation's token usage.
+// (Binary file uploads — real images — go through the $_FILES path and are untouched.)
+$textContent = agents_strip_base64_images($textContent);
 
 // Auth: accept either admin_key (CLI/server) or user_id (frontend, validates via DB)
 $adminKey = $_POST['admin_key'] ?? '';

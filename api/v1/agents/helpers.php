@@ -13,6 +13,80 @@ if (!function_exists('agents_contains')) {
     }
 }
 
+if (!function_exists('agents_has_base64_image')) {
+    /**
+     * Detect a base64 image data URI (data:image/...;base64,...) anywhere in the text.
+     * Bounded scan (checks only the 64 chars after each "data:image/"), no preg_*.
+     */
+    function agents_has_base64_image(string $content): bool {
+        if ($content === '') return false;
+        $offset = 0;
+        while (($pos = stripos($content, 'data:image/', $offset)) !== false) {
+            if (stripos(substr($content, $pos, 64), 'base64,') !== false) return true;
+            $offset = $pos + 11;
+        }
+        return false;
+    }
+}
+
+if (!function_exists('agents_strip_base64_images')) {
+    /**
+     * Replace base64 image data URIs in HTML/markdown with a short placeholder BEFORE
+     * the content is sent to Gemini (File Search store or text prompts).
+     *
+     * Why: a single inlined `data:image/...;base64,...` can be hundreds of KB of text.
+     * Once indexed in a store and retrieved into every generation, it costs millions of
+     * TEXT tokens. The model only needs the example's layout/structure, not the raw bytes.
+     *
+     * Uses strpos/substr/strcspn (NOT preg_*) on purpose: multi-MB base64 blows
+     * pcre.backtrack_limit and makes preg_* fail silently.
+     */
+    function agents_strip_base64_images(string $content): string {
+        if ($content === '' || stripos($content, 'data:image/') === false) {
+            return $content;
+        }
+        $out = '';
+        $offset = 0;
+        $len = strlen($content);
+        while (($pos = stripos($content, 'data:image/', $offset)) !== false) {
+            $out .= substr($content, $offset, $pos - $offset);
+            // The data URI runs until the next delimiter (quote, paren, angle, space).
+            $tokenLen = strcspn($content, "\"')<> \t\r\n", $pos);
+            $uri = substr($content, $pos, $tokenLen);
+            if (stripos($uri, 'base64,') !== false) {
+                $out .= '[base64-image-removed]';
+            } else {
+                // Small non-base64 data URIs (e.g. svg+xml;utf8,...) are kept as-is.
+                $out .= $uri;
+            }
+            $offset = $pos + $tokenLen;
+            if ($offset >= $len) break;
+        }
+        $out .= substr($content, $offset);
+        return $out;
+    }
+}
+
+if (!function_exists('agents_assert_no_base64_for_gemini')) {
+    /**
+     * Fail-closed guard: if base64 image data is present in text bound for Gemini,
+     * reject the request (HTTP 422) instead of sending it. Prevents the massive token
+     * cost of a base64 image being tokenized as text. Legitimate images must be sent
+     * as files/URLs (proper inline_data image parts are handled separately).
+     */
+    function agents_assert_no_base64_for_gemini(string $content, string $context = 'request'): void {
+        if (agents_has_base64_image($content)) {
+            http_response_code(422);
+            echo json_encode([
+                'error' => 'Blocked: base64 image detected in Gemini input (' . $context . '). '
+                         . 'Images must be saved to a file and referenced by URL — base64 in prompt text is rejected to avoid massive token cost.',
+                'code'  => 'base64_in_gemini_input',
+            ]);
+            exit;
+        }
+    }
+}
+
 if (!function_exists('agents_strip_base64_images')) {
     /**
      * Replace base64 image data URIs in HTML/markdown with a short placeholder
@@ -154,6 +228,35 @@ if (!function_exists('agents_call_edge_function')) {
         if ($geminiApiKey !== null && trim($geminiApiKey) !== '') {
             $payload['geminiApiKey'] = trim($geminiApiKey);
         }
+
+        // Defense-in-depth chokepoint: no base64 image may reach Gemini via an edge call.
+        // - Store-bound text (documentText/learningsText) is STRIPPED so the File Search
+        //   store stays lean (a single inlined image otherwise costs millions of tokens on
+        //   every later retrieval).
+        // - Any other text field carrying a base64 image is a leak and is BLOCKED
+        //   (fail-closed): images must be saved to files and passed as URLs.
+        // - fileBase64 (raw file-upload channel) and geminiApiKey are exempt.
+        $guardBase64 = function ($val, string $key) use (&$guardBase64, $name) {
+            if (is_array($val)) {
+                $out = [];
+                foreach ($val as $k => $v) { $out[$k] = $guardBase64($v, (string)$k); }
+                return $out;
+            }
+            if (is_string($val) && $val !== '') {
+                if ($key === 'documentText' || $key === 'learningsText') {
+                    return agents_strip_base64_images($val);
+                }
+                if ($key !== 'fileBase64' && $key !== 'geminiApiKey' && agents_has_base64_image($val)) {
+                    throw new RuntimeException(
+                        'Blocked: base64 image detected in field "' . $key . '" sent to Gemini edge function "'
+                        . $name . '". Save the image to a file and pass its URL instead of inline base64.'
+                    );
+                }
+            }
+            return $val;
+        };
+        $payload = $guardBase64($payload, '');
+
         $baseUrl = rtrim(agents_env_value('SUPABASE_URL', 'https://vehowvyqxhelyfdesmog.supabase.co'), '/');
         $key     = agents_env_value('SUPABASE_SERVICE_ROLE_KEY');
 
