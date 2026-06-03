@@ -264,6 +264,14 @@ if (!function_exists('agents_call_edge_function')) {
             throw new RuntimeException('SUPABASE_SERVICE_ROLE_KEY is missing or is not a JWT. Configure the service role JWT on the PHP server; sb_publishable keys cannot call protected Edge Functions as Bearer tokens.');
         }
 
+        // Pass the working service-role JWT to the Edge so it can upload generated images to
+        // Supabase Storage. The Edge's auto-injected SUPABASE_SERVICE_ROLE_KEY is the new
+        // (non-JWT) key format, which the Storage API rejects ("Invalid Compact JWS"); this
+        // legacy JWT is the one proven to authenticate against Storage.
+        if (!isset($payload['storageKey'])) {
+            $payload['storageKey'] = $key;
+        }
+
         $url     = $baseUrl . '/functions/v1/' . $name;
 
         $ch = curl_init($url);

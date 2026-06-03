@@ -172,10 +172,15 @@ type GenerateAdImageOptions = {
 // Save a base64 data URL to Supabase Storage (public bucket "ad-images") and return its public
 // URL, so a generated image is NEVER carried as base64 through Edge -> PHP -> browser. Falls back
 // to the original data URL on ANY failure (missing bucket/env/network) — never breaks generation.
-async function uploadImageToStorage(dataUrl: string | null): Promise<string | null> {
+// Uploads a base64 data URL to Supabase Storage (ad-images) and returns its public URL.
+// strict=true (used by COMPOSE): NEVER returns base64 — throws on any failure, so a base64
+// background can never be embedded/persisted in the banner HTML. strict=false (image mode /
+// frontend): returns the original base64 as a fallback (it is converted to a PNG file later).
+async function uploadImageToStorage(dataUrl: string | null, strict = false, storageKey?: string): Promise<string | null> {
   if (!dataUrl || !dataUrl.startsWith("data:")) return dataUrl;
   const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-  if (!m) return dataUrl;
+  if (!m) { if (strict) throw new Error("uploadImageToStorage: input is not a base64 data URL"); return dataUrl; }
+  let reason = "";
   try {
     const mime = m[1];
     const ext = (mime.split("/")[1] || "png").split("+")[0];
@@ -185,19 +190,26 @@ async function uploadImageToStorage(dataUrl: string | null): Promise<string | nu
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const e = (globalThis as any).Deno?.env;
     const base = e?.get("SUPABASE_URL");
-    const key = e?.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!base || !key) return dataUrl;
-    const path = `compose/${bytes.length}-${b64.slice(0, 32).replace(/[^a-zA-Z0-9]/g, "")}.${ext}`;
-    const res = await fetch(`${base}/storage/v1/object/ad-images/${path}`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": mime, "x-upsert": "true" },
-      body: bytes,
-    });
-    if (!res.ok) return dataUrl;
-    return `${base}/storage/v1/object/public/ad-images/${path}`;
-  } catch {
-    return dataUrl;
+    // Prefer the service-role JWT passed by PHP (storageKey) — the Edge's auto-injected
+    // SUPABASE_SERVICE_ROLE_KEY is the new non-JWT key the Storage API rejects.
+    const key = (storageKey && storageKey.trim()) ? storageKey.trim() : e?.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!base || !key) {
+      reason = `missing env (SUPABASE_URL=${Boolean(base)}, key=${Boolean(key)})`;
+    } else {
+      const path = `compose/${bytes.length}-${b64.slice(0, 32).replace(/[^a-zA-Z0-9]/g, "")}.${ext}`;
+      const res = await fetch(`${base}/storage/v1/object/ad-images/${path}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": mime, "x-upsert": "true" },
+        body: bytes,
+      });
+      if (res.ok) return `${base}/storage/v1/object/public/ad-images/${path}`;
+      reason = `upload HTTP ${res.status} — ${(await res.text().catch(() => "")).slice(0, 200)}`;
+    }
+  } catch (err) {
+    reason = `exception — ${err instanceof Error ? err.message : String(err)}`;
   }
+  if (strict) throw new Error(`uploadImageToStorage failed (no base64 fallback in compose): ${reason}`);
+  return dataUrl;
 }
 
 // Text-overlay recommendation the image model returns ALONGSIDE the background image
@@ -2200,7 +2212,7 @@ serve(async (req: Request) => {
         ].filter(Boolean).join("\n");
 
         const gen = await generateAdImage(prompt, refImagesForGen, apiKey, aspectRatio);
-        const hosted = gen ? (await uploadImageToStorage(gen.url)) ?? gen.url : "";
+        const hosted = gen ? (await uploadImageToStorage(gen.url, false, (payload as any).storageKey)) ?? gen.url : "";
         return {
           imageUrl: hosted,
           platform: format.platform || "other",
@@ -2278,7 +2290,7 @@ serve(async (req: Request) => {
           const gen = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
             maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
           });
-          const bgHosted = gen ? (await uploadImageToStorage(gen.url)) ?? gen.url : "";
+          const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null });
         }
 
@@ -2320,7 +2332,7 @@ serve(async (req: Request) => {
           const gen = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
             maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
           });
-          const bgHosted = gen ? (await uploadImageToStorage(gen.url)) ?? gen.url : "";
+          const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null });
         }
 
