@@ -1605,10 +1605,12 @@ function buildCompositionHtml(
   const sub = String(data.subheadline || data.offer || "").trim();
   const logoUrl = String(data.logoUrl || "").trim();
 
-  const headlinePx = Math.round(Math.min(h * 0.072, w * 0.062, 68));
-  const subPx     = Math.round(headlinePx * 0.54);
-  const ctaPx     = Math.round(Math.min(h * 0.044, w * 0.040, 28));
-  const logoPx    = Math.round(subPx * 0.92);
+  // Bigger, more legible compose typography. Previous caps (68 headline / 28 CTA) were far
+  // too small for 1080px+ creatives. min() keeps tiny banners (e.g. leaderboards) proportional.
+  const headlinePx = Math.round(Math.min(h * 0.088, w * 0.080, 104));
+  const subPx     = Math.round(headlinePx * 0.5);
+  const ctaPx     = Math.round(Math.min(h * 0.050, w * 0.046, 44));
+  const logoPx    = Math.round(subPx * 0.95);
 
   // Always use white text in compose mode — the scrim layer guarantees contrast
   // regardless of what the AI generated. Using brand color for text caused
@@ -2034,18 +2036,25 @@ serve(async (req: Request) => {
       );
     }
 
-    if (!companyStoreName?.trim()) {
-      return new Response(
-        JSON.stringify({ error: "companyStoreName is required. Sync the company store before generation." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
+    // HTML ad modes (render/full/unified/interpret/plan) are grounded by the global ads
+    // guidelines/examples store + the company store. COMPOSE (image ads) must NOT depend on
+    // those: its only references are the background + image refs (logo/product/background).
+    // The HTML-examples store is not even queried in the compose path, and requiring it was
+    // both blocking generation and (per feedback) homogenizing the creatives.
+    if (mode !== "compose") {
+      if (!companyStoreName?.trim()) {
+        return new Response(
+          JSON.stringify({ error: "companyStoreName is required. Sync the company store before generation." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
 
-    if (!globalStoreName?.trim()) {
-      return new Response(
-        JSON.stringify({ error: "globalStoreName is required. Upload the global ads store first in the admin panel." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      if (!globalStoreName?.trim()) {
+        return new Response(
+          JSON.stringify({ error: "globalStoreName is required. Upload the global ads store first in the admin panel." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
     }
 
     const hasApprovedExamples = Boolean(campaignGoodExamplesStore?.trim());
