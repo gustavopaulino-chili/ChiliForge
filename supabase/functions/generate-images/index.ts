@@ -261,7 +261,9 @@ async function uploadImageToStorage(dataUrl: string | null): Promise<string | nu
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const e = (globalThis as any).Deno?.env;
     const base = e?.get("SUPABASE_URL");
-    const key = e?.get("SUPABASE_SERVICE_ROLE_KEY");
+    // Prefer the legacy service-role JWT (custom secret) — the auto-injected
+    // SUPABASE_SERVICE_ROLE_KEY is the new non-JWT format Storage rejects.
+    const key = e?.get("STORAGE_SERVICE_ROLE_KEY") || e?.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!base || !key) return dataUrl;
     const path = `generated/${bytes.length}-${b64.slice(0, 32).replace(/[^a-zA-Z0-9]/g, "")}.${ext}`;
     const res = await fetch(`${base}/storage/v1/object/ad-images/${path}`, {

@@ -190,9 +190,16 @@ async function uploadImageToStorage(dataUrl: string | null, strict = false, stor
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const e = (globalThis as any).Deno?.env;
     const base = e?.get("SUPABASE_URL");
-    // Prefer the service-role JWT passed by PHP (storageKey) — the Edge's auto-injected
-    // SUPABASE_SERVICE_ROLE_KEY is the new non-JWT key the Storage API rejects.
-    const key = (storageKey && storageKey.trim()) ? storageKey.trim() : e?.get("SUPABASE_SERVICE_ROLE_KEY");
+    // Key priority for Storage auth:
+    //  1) storageKey from PHP (when called via agents_call_edge_function)
+    //  2) STORAGE_SERVICE_ROLE_KEY custom secret (frontend-direct path: the app
+    //     calls agents-ads directly, so no PHP storageKey is present)
+    //  3) auto-injected SUPABASE_SERVICE_ROLE_KEY (new non-JWT format; Storage
+    //     rejects it with "Invalid Compact JWS" — last-resort only)
+    // The legacy service-role JWT (eyJ...) is the one Storage accepts.
+    const key = (storageKey && storageKey.trim())
+      ? storageKey.trim()
+      : (e?.get("STORAGE_SERVICE_ROLE_KEY") || e?.get("SUPABASE_SERVICE_ROLE_KEY"));
     if (!base || !key) {
       reason = `missing env (SUPABASE_URL=${Boolean(base)}, key=${Boolean(key)})`;
     } else {
