@@ -22,14 +22,18 @@ jobs:
 
       - name: Build React
         run: npm run build
+        env:
+          # Variáveis VITE_ precisam existir no BUILD (o Vite as embute no bundle).
+          # Sem isso o app quebra com "supabaseUrl is required".
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_PROJECT_ID: ${{ secrets.VITE_SUPABASE_PROJECT_ID }}
 
       - name: Instalar lftp
         run: sudo apt-get update && sudo apt-get install -y lftp
 
       # ── Deploy via lftp ──────────────────────────────────
-      # PRE-REQUISITO: a conta FTP usada deve ter o diretório
-      # apontado para public_html no hPanel. Assim o login JA cai
-      # dentro do public_html e o mirror vai para ./ (= public_html).
+      # PRE-REQUISITO: conta FTP apontada para public_html no hPanel.
       # NUNCA toca em: api/db.php, .env, projects/
       - name: Deploy → public_html via lftp
         env:
@@ -38,9 +42,13 @@ jobs:
           FTP_PASS: ${{ secrets.FTP_PASSWORD }}
         run: |
           lftp -c "
-            set ftp:ssl-allow false;
-            set net:timeout 20;
-            set net:max-retries 3;
+            set ftp:ssl-allow true;
+            set ftp:ssl-force false;
+            set ssl:verify-certificate no;
+            set ftp:passive-mode true;
+            set ftp:prefer-epsv false;
+            set net:timeout 30;
+            set net:max-retries 5;
             set net:reconnect-interval-base 5;
             open -u \"$FTP_USER\",\"$FTP_PASS\" \"$FTP_HOST\";
 
@@ -48,9 +56,7 @@ jobs:
             pwd;
 
             # 1) Frontend (dist/) -> raiz do login (= public_html)
-            #    --delete limpa o que sumiu do build, mas os exclude
-            #    protegem api/, projects/, .env e db.php de envio E remocao.
-            mirror --reverse --delete --verbose --parallel=4 \
+            mirror --reverse --delete --verbose \
               --exclude '^api/' \
               --exclude '^projects/' \
               --exclude '^db\.php\$' \
@@ -58,7 +64,7 @@ jobs:
               dist/ ./ ;
 
             # 2) API (api/) -> ./api/  (sem --delete por seguranca)
-            mirror --reverse --verbose --parallel=4 \
+            mirror --reverse --verbose \
               --exclude '^db\.php\$' \
               --exclude '^\.env\$' \
               --exclude '^projects/' \
