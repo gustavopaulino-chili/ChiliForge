@@ -1582,14 +1582,48 @@ function buildBackgroundPrompt(
   layoutKey?: string,
   visualDirection?: string,
   forceLayout?: boolean,
+  bgSource: string = "shapes",
+  hasRefImages: boolean = false,
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
   const direction = visualDirection || BACKGROUND_DIRECTIONS[0];
+
+  // Source-specific guidance for HOW to treat (or not) the attached reference images.
+  let sourceBlock = "";
+  if (bgSource === "reference" && hasRefImages) {
+    sourceBlock = [
+      "████ BACKGROUND SOURCE: USER REFERENCE — FOLLOW CLOSELY ████",
+      "The attached image(s) are the user's chosen REFERENCE for this background. Treat them as the ACTUAL basis:",
+      "• Preserve the main subject, scene, composition, color mood and overall style of the reference.",
+      "• Adapt only what is needed: reframe/extend for the target aspect ratio and open up the reserved text-safe zone.",
+      "• Do NOT invent an unrelated scene and do NOT drift to a generic stock look. This must clearly read as the same visual the user provided.",
+    ].join("\n");
+  } else if (bgSource === "company" && hasRefImages) {
+    sourceBlock = [
+      "████ BACKGROUND SOURCE: COMPANY IMAGES — DERIVE FROM BRAND WORLD ████",
+      "The attached image(s) are the company's own brand images. Create an ORIGINAL background that captures this brand's visual world:",
+      "• Study their palette, materials, textures, lighting and mood, then compose a fresh original backdrop in that language.",
+      "• Do NOT copy, trace or paste the reference images — synthesize a new, cohesive brand-consistent scene/texture.",
+    ].join("\n");
+  } else {
+    // 'shapes' (default) OR any mode with no usable reference image → abstract.
+    sourceBlock = [
+      "████ BACKGROUND SOURCE: ABSTRACT SHAPES — NO PHOTOGRAPHY ████",
+      "No reference image is provided. Build a fully ABSTRACT background — do NOT render realistic product or scene photography.",
+      "• Use geometric shapes, clean gradients, brand-color fields, subtle patterns, soft light and depth.",
+      "• Modern, premium and on-brand; the brand colors must dominate. Avoid literal objects, people or photographic scenes.",
+    ].join("\n");
+  }
+
   return [
     "You are generating the BACKGROUND LAYER of a composite ad.",
     "An HTML overlay placed on top will add: the brand logo, headline, body copy, and CTA. Your image must contain NONE of those.",
-    "Your job is purely the visual backdrop: colors, textures, gradients, shapes, product/scene photography, atmospheric elements.",
+    bgSource === "shapes"
+      ? "Your job is purely the visual backdrop: brand colors, gradients, geometric shapes, textures, atmospheric elements (NO photography)."
+      : "Your job is purely the visual backdrop: colors, textures, gradients, shapes, product/scene photography, atmospheric elements.",
+    "",
+    sourceBlock,
     "",
     "████ ZERO-TEXT RULE — NO EXCEPTIONS ████",
     "❌ NO text of any kind — not headline, not body copy, not CTA, not tagline, not slogan, not offer, not brand name, not any word or letter.",
@@ -1601,7 +1635,9 @@ function buildBackgroundPrompt(
     "CREATIVE DIRECTION:",
     direction,
     "Avoid the default centered product-on-plain-background look. Use varied crop, camera angle, depth, lighting, foreground layers, texture, and asymmetry.",
-    "Do not repeat the same asset placement unless the format absolutely requires it. Reinterpret the reference assets as a brand world, not a template.",
+    bgSource === "shapes"
+      ? "Compose with shapes, gradients and brand-color fields — no literal objects or photographic scenes."
+      : "Do not repeat the same asset placement unless the format absolutely requires it. Reinterpret the reference assets as a brand world, not a template.",
     "When a low-detail zone is requested, do not make it a blank panel. Use soft gradients, depth blur, atmospheric color, subtle materials, or low-contrast pattern.",
     "",
     "████ SPACE RULE — REQUIRED ████",
@@ -1618,7 +1654,9 @@ function buildBackgroundPrompt(
     "",
     `FORMAT: ${format.width}×${format.height}px | Aspect ratio: ${aspectRatio}`,
     "",
-    "OUTPUT: Pure visual — brand colors, gradients, textures, product/scene photography. Zero text. Zero UI elements.",
+    bgSource === "shapes"
+      ? "OUTPUT: Pure abstract visual — brand colors, gradients, geometric shapes, textures. NO photography. Zero text. Zero UI elements."
+      : "OUTPUT: Pure visual — brand colors, gradients, textures, product/scene photography. Zero text. Zero UI elements.",
     "",
     "████ TEXT-OVERLAY RECOMMENDATION — RESPONSE TEXT ONLY, NEVER DRAWN IN THE IMAGE ████",
     "In your RESPONSE (as a short text note, not painted into the image), add exactly one line:",
@@ -2255,6 +2293,40 @@ serve(async (req: Request) => {
         .filter((r) => r.data.length <= MAX_REF_IMAGE_B64)
         .map((r) => ({ data: r.data, mimeType: r.mimeType }));
 
+      // ── Background source (compose) ────────────────────────────────────────
+      //  reference: the user's product/background images ARE the reference
+      //  shapes   : no photo — abstract geometric/brand-color background (no refs)
+      //  company  : derive the background from the company's own images
+      const explicitBgSource = String((campaignData as any).composeBackgroundSource || "").toLowerCase();
+      const bgSource = ["reference", "shapes", "company"].includes(explicitBgSource)
+        ? explicitBgSource
+        // No explicit choice (older campaigns): infer — a provided background image
+        // is treated as a real reference; otherwise an abstract shapes background.
+        : (String(campaignData.backgroundImageUrl || "").startsWith("http") ? "reference" : "shapes");
+
+      let bgRefImages = refImagesForGen;
+      if (bgSource === "shapes") {
+        bgRefImages = []; // abstract — give the model no photographic anchor
+      } else if (bgSource === "company") {
+        const companyRefUrls = Array.isArray((campaignData as any).composeCompanyRefs)
+          ? ((campaignData as any).composeCompanyRefs as unknown[])
+              .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
+              .slice(0, 4)
+          : [];
+        const companyFetched = await Promise.all(
+          companyRefUrls.map((url) => fetchImageBase64(url).then((img) => img).catch(() => null)),
+        );
+        bgRefImages = companyFetched
+          .filter((img): img is { mimeType: string; data: string } => Boolean(img && img.data))
+          .filter((r) => r.data.length <= MAX_REF_IMAGE_B64)
+          .map((r) => ({ data: r.data, mimeType: r.mimeType }));
+        // No company images available → fall back to abstract shapes.
+        if (!bgRefImages.length) {
+          // keep empty refs; prompt uses the company-but-no-refs guidance below
+        }
+      }
+      // 'reference' keeps refImagesForGen (product + user background) as-is.
+
       // brandSpec: use creativePlan if provided (e.g. from external API worker),
       // otherwise derive instantly from campaignData — PHP already enriched it with
       // company colors/fonts/style, so no store query is needed.
@@ -2293,8 +2365,8 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[taskIndex % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout));
-          const gen = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0);
+          const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
             maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
@@ -2335,8 +2407,8 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[(taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[(taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout));
-          const gen = await generateAdImage(bgPrompt, refImagesForGen, apiKey, aspectRatio, {
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0);
+          const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
             maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";

@@ -11,6 +11,7 @@ import { StepAdStrategy } from '@/components/ad-generator/StepAdStrategy';
 import { StepAdFormats } from '@/components/ad-generator/StepAdFormats';
 import { StepAdCopyAI } from '@/components/ad-generator/StepAdCopyAI';
 import { StepAdImages } from '@/components/ad-generator/StepAdImages';
+import { StepAdOutput } from '@/components/ad-generator/StepAdOutput';
 import { StepAdReview } from '@/components/ad-generator/StepAdReview';
 import { BannerLightbox } from '@/components/ad-generator/BannerLightbox';
 import { Button } from '@/components/ui/button';
@@ -45,13 +46,14 @@ type GeneratedBanner = {
 const STEPS: StepDef[] = [
   { id: 'import',    label: 'Campaign' },
   { id: 'objective', label: 'Objective' },
-  { id: 'platform',  label: 'Platforms' },
-  { id: 'brand',     label: 'Brand' },
-  { id: 'copy',      label: 'Offer & Audience' },
   { id: 'strategy',  label: 'Strategy' },
+  { id: 'copy',      label: 'Offer & Audience' },
+  { id: 'brand',     label: 'Brand' },
+  { id: 'output',    label: 'Output' },
+  { id: 'platform',  label: 'Platforms' },
   { id: 'formats',   label: 'Formats & A/B' },
-  { id: 'ai_copy',   label: 'Ad Copy' },
   { id: 'images',    label: 'Images' },
+  { id: 'ai_copy',   label: 'Ad Copy' },
   { id: 'review',    label: 'Review' },
 ];
 
@@ -652,7 +654,9 @@ export default function AdCreatives() {
     return id > 0 ? id : null;
   });
   const [showResults, setShowResults] = useState(Boolean(routeState?.showResults));
-  const [generateAsImage, setGenerateAsImage] = useState(false);
+  // Output type now comes from the dedicated Output step (formData.outputMode).
+  // 'compose' → AI background + HTML overlay; 'html' → pure HTML/CSS ad.
+  const generateAsImage = (formData.outputMode || 'compose') === 'compose';
   const [generatedImages, setGeneratedImages] = useState<AdImageResult[]>([]);
   const [generatedHtml, setGeneratedHtml] = useState(routeState?.generatedHtml || '');
   const [generatedPublicUrl, setGeneratedPublicUrl] = useState(routeState?.generatedPublicUrl || '');
@@ -1975,6 +1979,13 @@ export default function AdCreatives() {
           {currentStepId === 'brand' && (
             <StepAdBrand data={formData} onChange={updateForm} />
           )}
+          {currentStepId === 'output' && (
+            <StepAdOutput
+              data={formData}
+              onChange={updateForm}
+              hasCompany={Boolean(routeState?.companyProjectId)}
+            />
+          )}
           {currentStepId === 'copy' && (
             <StepAdCopy data={formData} onChange={updateForm} />
           )}
@@ -2007,35 +2018,31 @@ export default function AdCreatives() {
           {currentStepId === 'review' && (
             <>
               <StepAdReview data={formData} />
-              {/* Output format toggle */}
-              <div className="mt-5 rounded-xl border border-border bg-card/40 p-4 space-y-3">
+              {/* Output summary (chosen in the Output step) */}
+              <div className="mt-5 rounded-xl border border-border bg-card/40 p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-2.5">
                     <Image className="h-4 w-4 text-muted-foreground shrink-0" />
                     <div>
-                      <p className="text-sm font-medium leading-none">Output format</p>
+                      <p className="text-sm font-medium leading-none">
+                        Output: {generateAsImage ? 'Compose' : 'HTML'}
+                      </p>
                       <p className="text-xs text-muted-foreground mt-1">
                         {generateAsImage
-                          ? 'Compose — fundo gerado por IA, textos e logo editáveis'
-                          : 'HTML — banners totalmente editáveis no editor visual'}
+                          ? 'Fundo gerado por IA, textos e logo editáveis no editor visual.'
+                          : 'Anúncio 100% em HTML/CSS — tudo editável no editor visual.'}
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setGenerateAsImage(v => !v)}
-                    className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none cursor-pointer ${
-                      generateAsImage ? 'bg-primary' : 'bg-muted-foreground/30'
-                    }`}
-                    aria-label="Toggle image generation mode"
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => setCurrentStep(STEPS.findIndex(s => s.id === 'output'))}
                   >
-                    <span className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transform transition-transform ${generateAsImage ? 'translate-x-5' : 'translate-x-0'}`} />
-                  </button>
+                    Alterar
+                  </Button>
                 </div>
-                {generateAsImage && (
-                  <div className="rounded-md bg-blue-500/10 border border-blue-500/30 px-3 py-2 text-xs text-blue-700 dark:text-blue-400 font-medium">
-                    ℹ COMPOSE MODE: O fundo é gerado por IA e não é editável. Textos, headlines e logo são editáveis normalmente no editor visual. Imagens enviadas no passo "Images" são usadas como inspiração visual para o fundo.
-                  </div>
-                )}
               </div>
             </>
           )}

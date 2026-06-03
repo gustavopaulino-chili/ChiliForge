@@ -88,6 +88,16 @@ export type CampaignObjective =
 
 export type FunnelStage = 'awareness' | 'consideration' | 'conversion';
 
+// Output type the wizard generates (in-app). 'image' (whole ad as one picture)
+// stays exclusive to the external API and is not offered in the wizard.
+export type AdOutputMode = 'compose' | 'html';
+
+// Compose-only: how the AI background layer is produced.
+//  - 'reference': the user's background image is used as the ACTUAL reference
+//  - 'shapes'   : no photo — abstract geometric/brand-color background
+//  - 'company'  : AI derives the background from the company's own images
+export type ComposeBackgroundSource = 'reference' | 'shapes' | 'company';
+
 export type CreativeStrategy =
   | 'problem-solution'
   | 'before-after'
@@ -169,6 +179,14 @@ export interface AdCreativeFormData {
   creativeStrategy: CreativeStrategy;
   creativeStrategyOther: string;
 
+  // Output type (Compose vs HTML) — chosen in the dedicated Output step
+  outputMode: AdOutputMode;
+  // Compose background behaviour (see ComposeBackgroundSource)
+  composeBackgroundSource: ComposeBackgroundSource;
+  // When composeBackgroundSource === 'company': company image URLs used as
+  // visual references for the AI background (filled from the company assets).
+  composeCompanyRefs: string[];
+
   // Step 7: Formats & A/B
   formatNotes: Record<string, string>;
   textLayout: AdTextLayout;
@@ -239,6 +257,10 @@ export const defaultAdCreativeFormData: AdCreativeFormData = {
 
   creativeStrategy: '',
   creativeStrategyOther: '',
+
+  outputMode: 'compose',
+  composeBackgroundSource: 'shapes',
+  composeCompanyRefs: [],
 
   formatNotes: {},
   textLayout: 'auto',

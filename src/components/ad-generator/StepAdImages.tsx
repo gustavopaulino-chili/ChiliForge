@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-import { AdCreativeFormData, AdLogoVariant } from '@/types/adCreativeForm';
+import { AdCreativeFormData, AdLogoVariant, ComposeBackgroundSource } from '@/types/adCreativeForm';
 import { FieldLabel } from '@/components/generator/FieldLabel';
 import { getProjectAssets, type ProjectAsset } from '@/services/api';
-import { Upload, X, Image, Plus, Sparkles, Loader2, CheckCircle2, AlertCircle, Wand2, RefreshCw, Search } from 'lucide-react';
+import { Upload, X, Image, Plus, Sparkles, Loader2, CheckCircle2, AlertCircle, Wand2, RefreshCw, Search, Shapes, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AdImageGenerateContext {
@@ -35,6 +35,12 @@ interface Props {
 
 const LOGO_VARIANT_LABELS = ['Full color', 'White', 'Black', 'Monochrome', 'Horizontal', 'Icon only'];
 const VARIANT_LABELS = ['A', 'B', 'C'];
+
+const BG_SOURCE_OPTIONS: { value: ComposeBackgroundSource; label: string; desc: string; icon: typeof Image }[] = [
+  { value: 'reference', label: 'Imagem de referência', desc: 'Use sua imagem como base real do fundo', icon: Image },
+  { value: 'shapes',    label: 'Formas e cores',       desc: 'Fundo abstrato com as cores da marca', icon: Shapes },
+  { value: 'company',   label: 'Imagens da empresa',   desc: 'IA gera com base nos assets da empresa', icon: Building2 },
+];
 
 type AiLogEntry = {
   label: string;
@@ -281,6 +287,17 @@ export function StepAdImages({
 
   const productVariants = data.productImageVariants || [];
   const bgVariants = data.backgroundImageVariants || [];
+
+  const isCompose = (data.outputMode || 'compose') === 'compose';
+  const bgSource: ComposeBackgroundSource = data.composeBackgroundSource || 'shapes';
+  const showBgInput = !isCompose || bgSource === 'reference';
+  const setBgSource = (src: ComposeBackgroundSource) => {
+    if (src === 'company') {
+      onChange({ composeBackgroundSource: src, composeCompanyRefs: companyAssets.slice(0, 4).map(a => a.url) });
+    } else {
+      onChange({ composeBackgroundSource: src, composeCompanyRefs: [] });
+    }
+  };
 
   const updateProductVariant = (i: number, url: string) => {
     const next = [...productVariants];
@@ -714,35 +731,84 @@ export function StepAdImages({
             )}
         </div>
 
-        {/* Background Image */}
-        <div className="space-y-2">
-          <FieldLabel htmlFor="backgroundImageUrl" hint="Optional background image for the ads. A dark overlay is applied automatically so text stays readable.">
-            Background Image
-          </FieldLabel>
-          <input type="file" accept="image/*" className="hidden" ref={el => { fileRefs.current['backgroundImageUrl'] = el; }}
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload('backgroundImageUrl', f, url => onChange({ backgroundImageUrl: url })); e.currentTarget.value = ''; }} />
-          <ImageInput
-            id="backgroundImageUrl"
-            value={data.backgroundImageUrl}
-            placeholder="https://... or upload / generate"
-            onUrlChange={url => onChange({ backgroundImageUrl: url })}
-            onUpload={() => fileRefs.current['backgroundImageUrl']?.click()}
-            onGenerate={onGenerateImage ? () => handleGenerate('background', 'backgroundImageUrl', url => onChange({ backgroundImageUrl: url })) : undefined}
-            onSearchPexels={onSearchPexelsImage ? () => handleSearchPexels('background', 'backgroundImageUrl', url => onChange({ backgroundImageUrl: url })) : undefined}
-            onRemove={() => removeImage(data.backgroundImageUrl, 'backgroundImageUrl', () => onChange({ backgroundImageUrl: '' }))}
-            isGenerating={generatingKey === 'backgroundImageUrl'}
-            isSearching={searchingKey === 'backgroundImageUrl'}
-            anyGenerating={generatingKey !== null || searchingKey !== null}
-          />
-          <AssetPickerRow assets={companyAssets} onSelect={url => onChange({ backgroundImageUrl: url })} />
-          {data.backgroundImageUrl
-            ? <ImagePreview url={data.backgroundImageUrl} alt="Background image" />
-            : (
-              <button type="button" onClick={() => fileRefs.current['backgroundImageUrl']?.click()}
-                className="w-full h-16 rounded-lg border-2 border-dashed border-border hover:border-primary/50 flex items-center justify-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
-                <Image className="h-4 w-4" /><span className="text-sm">Drop image here or click to upload</span>
-              </button>
-            )}
+        {/* Background — Compose source selector + image field */}
+        <div className="space-y-3">
+          {isCompose && (
+            <div className="space-y-2">
+              <FieldLabel hint="Define como a IA cria o fundo do anúncio no modo Compose.">
+                Fundo do Compose
+              </FieldLabel>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {BG_SOURCE_OPTIONS.map(opt => {
+                  const Icon = opt.icon;
+                  const active = bgSource === opt.value;
+                  const disabled = opt.value === 'company' && companyAssets.length === 0;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => setBgSource(opt.value)}
+                      title={disabled ? 'Nenhuma imagem da empresa disponível' : undefined}
+                      className={`rounded-lg border p-3 text-left transition-all ${
+                        active
+                          ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                          : 'border-border hover:border-muted-foreground/30 bg-card'
+                      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <Icon className={`h-4 w-4 mb-1.5 ${active ? 'text-primary' : 'text-muted-foreground'}`} />
+                      <div className="text-xs font-semibold text-foreground">{opt.label}</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5 leading-tight">{opt.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
+              {bgSource === 'shapes' && (
+                <p className="text-[11px] text-muted-foreground rounded-md bg-muted/40 px-2.5 py-1.5">
+                  Sem imagem de fundo: a IA cria um fundo abstrato com formas, gradientes e as cores da marca.
+                </p>
+              )}
+              {bgSource === 'company' && (
+                <p className="text-[11px] text-muted-foreground rounded-md bg-muted/40 px-2.5 py-1.5">
+                  A IA gera o fundo inspirado nas imagens da empresa{companyAssets.length ? ` (${Math.min(companyAssets.length, 4)} usadas como referência)` : ''} — sem precisar enviar uma imagem.
+                </p>
+              )}
+            </div>
+          )}
+
+          {showBgInput && (
+            <div className="space-y-2">
+              <FieldLabel htmlFor="backgroundImageUrl" hint={isCompose
+                ? 'Esta imagem é usada como referência REAL do fundo: a IA mantém composição, tema e estilo, adaptando só o espaço dos textos.'
+                : 'Optional background image for the ads. A dark overlay is applied automatically so text stays readable.'}>
+                {isCompose ? 'Imagem de referência do fundo' : 'Background Image'}
+              </FieldLabel>
+              <input type="file" accept="image/*" className="hidden" ref={el => { fileRefs.current['backgroundImageUrl'] = el; }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload('backgroundImageUrl', f, url => onChange({ backgroundImageUrl: url })); e.currentTarget.value = ''; }} />
+              <ImageInput
+                id="backgroundImageUrl"
+                value={data.backgroundImageUrl}
+                placeholder="https://... or upload / generate"
+                onUrlChange={url => onChange({ backgroundImageUrl: url })}
+                onUpload={() => fileRefs.current['backgroundImageUrl']?.click()}
+                onGenerate={onGenerateImage ? () => handleGenerate('background', 'backgroundImageUrl', url => onChange({ backgroundImageUrl: url })) : undefined}
+                onSearchPexels={onSearchPexelsImage ? () => handleSearchPexels('background', 'backgroundImageUrl', url => onChange({ backgroundImageUrl: url })) : undefined}
+                onRemove={() => removeImage(data.backgroundImageUrl, 'backgroundImageUrl', () => onChange({ backgroundImageUrl: '' }))}
+                isGenerating={generatingKey === 'backgroundImageUrl'}
+                isSearching={searchingKey === 'backgroundImageUrl'}
+                anyGenerating={generatingKey !== null || searchingKey !== null}
+              />
+              <AssetPickerRow assets={companyAssets} onSelect={url => onChange({ backgroundImageUrl: url })} />
+              {data.backgroundImageUrl
+                ? <ImagePreview url={data.backgroundImageUrl} alt="Background image" />
+                : (
+                  <button type="button" onClick={() => fileRefs.current['backgroundImageUrl']?.click()}
+                    className="w-full h-16 rounded-lg border-2 border-dashed border-border hover:border-primary/50 flex items-center justify-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
+                    <Image className="h-4 w-4" /><span className="text-sm">Drop image here or click to upload</span>
+                  </button>
+                )}
+            </div>
+          )}
         </div>
       </div>
 
