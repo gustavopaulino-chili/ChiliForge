@@ -20,12 +20,19 @@ if ($creativeId <= 0 || $userId <= 0) {
 
 include "db.php";
 
+// Ownership: allow access when the creative's project is owned directly by the user
+// OR when it belongs to a child project linked to one of the user's company projects.
+// This MUST match getAdCreatives.php (the board) — otherwise creatives that show on
+// the board (via company linkage) would 404 when opened in the editor.
 $stmt = $conn->prepare(
     "SELECT c.id, c.project_id, c.campaign_id, c.name, c.platform, c.format, c.label, c.width, c.height, c.generated_html, c.public_url, c.sort_order, c.metadata, p.user_id, a.form_data
      FROM ads_creatives c
      INNER JOIN projects p ON p.id = c.project_id
      LEFT JOIN ads_campaign a ON a.id = c.campaign_id
-     WHERE c.id = ? AND p.user_id = ?
+     WHERE c.id = ? AND (
+        p.user_id = ?
+        OR p.company_project_id IN (SELECT id FROM projects WHERE user_id = ? AND project_type = 'project')
+     )
      LIMIT 1"
 );
 
@@ -36,7 +43,7 @@ if (!$stmt) {
     exit;
 }
 
-$stmt->bind_param("ii", $creativeId, $userId);
+$stmt->bind_param("iii", $creativeId, $userId, $userId);
 $stmt->execute();
 $stmt->store_result();
 $stmt->bind_result($id, $projectId, $campaignId, $name, $platform, $format, $label, $width, $height, $html, $publicUrl, $sortOrder, $metadata, $ownerId, $campaignFormData);

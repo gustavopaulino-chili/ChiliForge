@@ -87,12 +87,17 @@ if ($creativeId <= 0 || $userId <= 0) {
 
 include "db.php";
 
+// Ownership must match getAdCreative.php / getAdCreatives.php: direct owner OR
+// a child project linked to one of the user's company projects.
 $stmt = $conn->prepare(
     "SELECT c.public_url, c.metadata,
         (SELECT ac.public_url FROM ads_campaign ac WHERE ac.project_id = c.project_id ORDER BY ac.id DESC LIMIT 1) AS project_public_url
      FROM ads_creatives c
      INNER JOIN projects p ON p.id = c.project_id
-     WHERE c.id = ? AND p.user_id = ?
+     WHERE c.id = ? AND (
+        p.user_id = ?
+        OR p.company_project_id IN (SELECT id FROM projects WHERE user_id = ? AND project_type = 'project')
+     )
      LIMIT 1"
 );
 
@@ -103,7 +108,7 @@ if (!$stmt) {
     exit;
 }
 
-$stmt->bind_param("ii", $creativeId, $userId);
+$stmt->bind_param("iii", $creativeId, $userId, $userId);
 $stmt->execute();
 $stmt->store_result();
 $stmt->bind_result($publicUrl, $metadataJson, $projectPublicUrl); // project_public_url from ads_campaign
