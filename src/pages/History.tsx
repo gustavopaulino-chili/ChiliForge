@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, ChevronDown, Edit3, ExternalLink, Eye, FileText, FolderInput, FolderOpen, Loader2, Megaphone, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, Edit3, ExternalLink, Eye, FileText, FolderInput, FolderOpen, Loader2, Megaphone, Plug, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { ClickUpImportDialog } from "@/components/project/ClickUpImportDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -120,6 +121,18 @@ export default function History() {
   const [movingId, setMovingId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [clickupOpen, setClickupOpen] = useState(false);
+
+  // Handle the ClickUp OAuth redirect (clickup_callback.php → /projects?clickup=...)
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const c = p.get("clickup");
+    if (!c) return;
+    if (c === "connected") { toast.success("ClickUp conectado!"); setClickupOpen(true); }
+    else if (c === "denied") toast.error("Conexão com o ClickUp foi cancelada.");
+    else if (c === "error") toast.error("Erro ao conectar o ClickUp" + (p.get("msg") ? `: ${p.get("msg")}` : ""));
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
 
   const fetchProjects = async () => {
     const resolvedUserId = Number(user?.id);
@@ -503,11 +516,23 @@ export default function History() {
         </Button>
         <div className="flex items-center gap-3">
           <h1 className="font-bold">Projects</h1>
+          <Button size="sm" variant="outline" onClick={() => setClickupOpen(true)} className="gap-2">
+            <Plug className="h-4 w-4" /> ClickUp
+          </Button>
           <Button size="sm" onClick={() => navigate("/projects/new")} className="gap-2">
             <FolderOpen className="h-4 w-4" /> New Project
           </Button>
         </div>
       </header>
+
+      {Number(user?.id) > 0 && (
+        <ClickUpImportDialog
+          open={clickupOpen}
+          onOpenChange={setClickupOpen}
+          userId={Number(user?.id)}
+          onImported={() => { setClickupOpen(false); fetchProjects(); }}
+        />
+      )}
 
       <main className="max-w-4xl mx-auto p-6">
         <Tabs defaultValue={location.pathname === "/history" ? "history" : "projects"}>

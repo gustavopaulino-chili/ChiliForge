@@ -1327,3 +1327,36 @@ export const setupWizardChat = (payload: {
   current_form?: Record<string, unknown>;
 }): Promise<SetupWizardResponse> =>
   agentsPost("setup-wizard.php", payload);
+
+// ── ClickUp integration ──────────────────────────────────────────────────────
+import type {
+  ClickUpStatus, ClickUpListResponse, ClickUpCompany, ClickUpImportResultItem,
+} from "@/types/clickup";
+
+const clickupGet = async <T>(endpoint: string, params: Record<string, string>): Promise<T> => {
+  const qs = new URLSearchParams(params).toString();
+  const response = await fetch(`${API}/${endpoint}?${qs}`, { method: "GET", cache: "no-store" });
+  const data = await readJson(response);
+  if (!response.ok || data?.error) {
+    throw new Error(data?.message || data?.error || `Request failed with status ${response.status}`);
+  }
+  return data as T;
+};
+
+export const clickupStatus = (userId: number): Promise<ClickUpStatus> =>
+  clickupGet<ClickUpStatus>("clickup_status.php", { user_id: String(userId) });
+
+export const clickupStartOAuth = (userId: number): Promise<{ success: boolean; authorize_url: string }> =>
+  clickupGet<{ success: boolean; authorize_url: string }>("clickup_oauth_start.php", { user_id: String(userId) });
+
+export const clickupListFolders = (userId: number): Promise<ClickUpListResponse> =>
+  clickupGet<ClickUpListResponse>("clickup_list_companies.php", { user_id: String(userId) });
+
+export const clickupListCompanies = (userId: number, folderId: string): Promise<ClickUpListResponse> =>
+  clickupGet<ClickUpListResponse>("clickup_list_companies.php", { user_id: String(userId), folder_id: folderId });
+
+export const clickupImportCompanies = (
+  userId: number,
+  companies: Array<Pick<ClickUpCompany, "company" | "channels" | "list_ids"> & { website_url: string; form_data?: Record<string, unknown> }>,
+): Promise<{ success: boolean; results: ClickUpImportResultItem[] }> =>
+  postApi<{ success: boolean; results: ClickUpImportResultItem[] }>("clickup_import_companies.php", { user_id: userId, companies });
