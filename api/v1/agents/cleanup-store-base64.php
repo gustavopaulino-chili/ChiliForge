@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $scope  = strtolower(trim($_POST['scope'] ?? 'all'));
 $dryRun = (string)($_POST['dry_run'] ?? '') === '1';
-if (!in_array($scope, ['global', 'examples', 'all'], true)) $scope = 'all';
+if (!in_array($scope, ['global', 'examples', 'company', 'all'], true)) $scope = 'all';
 
 // ── Auth: admin_key (server/CLI) or admin user_id ──────────────────────────
 $authorized = false;
@@ -63,6 +63,7 @@ $report = [
     'scope'    => $scope,
     'global'   => ['scanned' => 0, 'polluted' => 0, 'cleaned' => 0, 'errors' => []],
     'examples' => ['scanned' => 0, 'polluted' => 0, 'cleaned' => 0, 'errors' => []],
+    'company'  => ['scanned' => 0, 'polluted' => 0, 'cleaned' => 0, 'errors' => []],
 ];
 
 $baseDir = realpath(__DIR__ . '/../../') ?: (__DIR__ . '/../../');
@@ -181,6 +182,62 @@ if ($scope === 'examples' || $scope === 'all') {
                 $report['examples']['cleaned']++;
             } catch (Throwable $e) {
                 $report['examples']['errors'][] = "ex $eid: " . $e->getMessage();
+            }
+        }
+        $res->free();
+    }
+}
+
+// ── 3) COMPANY PROFILE STORES ────────────────────────────────────────────────
+// The company brand-guidelines document is rebuilt from company_form_data and
+// embeds logo/hero/image URLs (the logo URL is written 3x). If any of those are
+// base64 data URLs, the document — retrieved on EVERY generation — explodes the
+// token count. Rebuild from current form data, strip base64, replace the doc.
+if ($scope === 'company' || $scope === 'all') {
+    $sql = "SELECT f.id, f.company_project_id, f.gemini_store_name, f.gemini_file_uri, p.company_form_data
+            FROM company_store_files f
+            JOIN projects p ON p.id = f.company_project_id
+            WHERE f.record_type = 'company_profile'
+              AND f.gemini_store_name IS NOT NULL AND f.gemini_store_name <> ''";
+    $res = $conn->query($sql);
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $report['company']['scanned']++;
+            $fid       = (int)$row['id'];
+            $storeName = (string)$row['gemini_store_name'];
+            $oldDoc    = (string)($row['gemini_file_uri'] ?? '');
+            $formData  = json_decode((string)($row['company_form_data'] ?? '{}'), true);
+            if (!is_array($formData)) $formData = [];
+
+            $doc = function_exists('buildCompanyDocument') ? buildCompanyDocument($formData) : '';
+            if ($doc === '' || !agents_has_base64_image($doc)) continue;
+
+            $report['company']['polluted']++;
+            if ($dryRun) continue;
+
+            try {
+                $clean  = agents_strip_base64_images($doc);
+                $upload = agents_call_edge_function('agents-store', [
+                    'action'      => 'upload_file',
+                    'storeName'   => $storeName,
+                    'fileBase64'  => base64_encode($clean),
+                    'mimeType'    => 'text/markdown',
+                    'displayName' => 'Company Profile / Brand Guidelines (cleaned)',
+                    'accountType' => 'admin',
+                ]);
+                if (!empty($upload['error'])) throw new RuntimeException($upload['error']);
+                $newDoc = agents_extract_document_name($upload);
+
+                $upd = $conn->prepare("UPDATE company_store_files SET gemini_file_uri = ? WHERE id = ?");
+                if ($upd) { $upd->bind_param('si', $newDoc, $fid); $upd->execute(); $upd->close(); }
+
+                if ($oldDoc !== '') {
+                    try { agents_delete_gemini_file_search_document($oldDoc); }
+                    catch (Throwable $e) { $report['company']['errors'][] = "company $fid delete old: " . $e->getMessage(); }
+                }
+                $report['company']['cleaned']++;
+            } catch (Throwable $e) {
+                $report['company']['errors'][] = "company $fid: " . $e->getMessage();
             }
         }
         $res->free();

@@ -302,6 +302,10 @@ async function generateAdImage(
             lastError = `Gemini image ${model} returned invalid JSON: ${bodyText.slice(0, 240)}`;
             break;
           }
+          try {
+            const u = (data as any)?.usageMetadata ?? (data as any)?.usage_metadata ?? {};
+            console.log(`[token-usage] IMAGE model=${model} inputImgs=${parts.length - 1} prompt=${u.promptTokenCount ?? "?"} candidates=${u.candidatesTokenCount ?? "?"} total=${u.totalTokenCount ?? "?"}`);
+          } catch (_) { /* never break generation on logging */ }
           const url = data ? extractImageDataUrl(data) : null;
           if (url) return { url, rec: parseComposeTextRec(extractTextFromGeminiPayload(data)) };
           lastError = `Gemini image ${model} returned no image part: ${summarizeGeminiImagePayload(data)}`;
@@ -2010,6 +2014,13 @@ async function callGemini(
   }
 
   const data = await res.json();
+  // TOKEN DIAGNOSTICS — visible in `supabase functions logs agents-ads`.
+  // promptTokenCount includes File Search retrieved content, so a big number here
+  // points at heavy store retrieval (the usual culprit for token spikes).
+  try {
+    const u = data?.usageMetadata ?? data?.usage_metadata ?? {};
+    console.log(`[token-usage] model=${model} stores=${fileSearchStores?.length ?? 0}(${(fileSearchStores ?? []).join(",")}) refImgs=${referenceImages?.length ?? 0} prompt=${u.promptTokenCount ?? u.prompt_token_count ?? "?"} candidates=${u.candidatesTokenCount ?? u.candidates_token_count ?? "?"} toolUse=${u.toolUsePromptTokenCount ?? u.tool_use_prompt_token_count ?? 0} total=${u.totalTokenCount ?? u.total_token_count ?? "?"}`);
+  } catch (_) { /* logging must never break generation */ }
   const text = data?.candidates?.[0]?.content?.parts
     ?.filter((p: any) => typeof p.text === "string")
     ?.map((p: any) => p.text)
