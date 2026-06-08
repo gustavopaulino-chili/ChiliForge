@@ -2228,11 +2228,19 @@ serve(async (req: Request) => {
       { url: productUrl, label: "Product / Hero Image — render as <img> in the product layer (z-index:10)" },
       { url: bgUrl,      label: "Background Image — render as full-bleed <img> with object-fit:cover in the background layer (z-index:0)" },
     ].filter((s): s is { url: string; label: string } => typeof s.url === "string" && s.url.startsWith("http"));
-    const fetchedImages = await Promise.all(
-      imageSpecs.map(({ url, label }) =>
-        fetchImageBase64(url).then((img) => (img ? { label, ...img } : null)).catch(() => null)
-      )
-    );
+    // Only the pixel-drawing models (image / compose-background) actually need the
+    // reference image bytes. The HTML render uses a TEXT model that references the
+    // images by URL (campaignFacts) + brand colors (CSS tokens) + the creative plan,
+    // so sending base64 there only inflates INPUT TOKENS — and it was re-sent on
+    // every format/batch request. Fetch the bytes only for the modes that draw.
+    const needsReferenceImages = mode === "image" || mode === "compose";
+    const fetchedImages = needsReferenceImages
+      ? await Promise.all(
+          imageSpecs.map(({ url, label }) =>
+            fetchImageBase64(url).then((img) => (img ? { label, ...img } : null)).catch(() => null)
+          )
+        )
+      : [];
     const referenceImages: ReferenceImage[] = fetchedImages.filter((img): img is ReferenceImage => img !== null);
 
     // ── COMPOSE MODE: background image + HTML overlay ─────────────────────────
