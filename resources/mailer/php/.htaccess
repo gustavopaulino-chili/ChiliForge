@@ -1,0 +1,15 @@
+# Protect the mailer kit: only send_lead.php is meant to be hit directly.
+# Block direct access to credentials and the vendored library.
+<Files "config.php">
+  Require all denied
+  Order deny,allow
+  Deny from all
+</Files>
+<Files "config.example.php">
+  Require all denied
+  Order deny,allow
+  Deny from all
+</Files>
+
+# Block the whole lib/ directory (PHPMailer source).
+RedirectMatch 403 (?i)/lib/.*\.php$

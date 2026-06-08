@@ -1,0 +1,24 @@
+{
+  "id": "lead-mailer",
+  "version": "1.0.0",
+  "description": "Self-contained lead-capture mailer copied into each generated Landing Page. Receives the form POST and delivers the lead by e-mail (SMTP).",
+  "languages": {
+    "php": {
+      "entrypoint": "send_lead.php",
+      "configFile": "config.php",
+      "configTemplate": "config.example.php",
+      "dir": "php",
+      "vendored": ["lib/PHPMailer.php", "lib/SMTP.php", "lib/Exception.php"],
+      "vendor": "PHPMailer 6.9.1"
+    }
+  },
+  "transports": ["smtp"],
+  "plannedTransports": ["webhook"],
+  "configKeys": [
+    "mode",
+    "smtp_host", "smtp_port", "smtp_secure", "smtp_user", "smtp_pass",
+    "from", "reply_to", "subject_template",
+    "to_live", "to_test",
+    "field_map", "allowed_origin", "transport"
+  ]
+}

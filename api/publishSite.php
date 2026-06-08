@@ -494,6 +494,13 @@ try {
         // leave HTML as-is on failure
     }
 
+    // Lead-capture mailer: copy the SMTP kit into the LP, generate its config.php
+    // and rewrite the <form>s to POST to the local send_lead.php. No-op if the LP
+    // didn't enable lead capture. Only for LP projects (not ad creatives).
+    if ($project_type !== 'ad_creative') {
+        $hostedHtml = maybe_provision_lp_mailer($projectPath, $hostedHtml, $formDataPayload, $public_url);
+    }
+
     file_put_contents($projectPath . DIRECTORY_SEPARATOR . 'index.html', $hostedHtml);
     if (!$isInlineDoc) {
         file_put_contents($projectPath . DIRECTORY_SEPARATOR . 'style.css', $css);

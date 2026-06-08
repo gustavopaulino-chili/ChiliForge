@@ -80,6 +80,25 @@ export interface PageItem {
   formFields?: FormFieldConfig[];
 }
 
+// Lead capture by e-mail (SMTP) — the generated LP ships a PHP mailer kit that
+// receives the form POST and delivers the lead. Credentials live only in the
+// generated config.php on the server, never in the bundle/repo.
+export interface LeadCaptureConfig {
+  enabled: boolean;
+  mode: 'test' | 'live';      // test -> toTest (safe while drafting); live -> toLive
+  smtpHost: string;
+  smtpPort: number;           // 465 (SSL) or 587 (TLS)
+  smtpSecure: 'ssl' | 'tls';
+  smtpUser: string;
+  smtpPass: string;
+  fromEmail: string;
+  fromName: string;
+  replyTo: string;
+  toLive: string;             // client inbox or CRM email-to-lead address
+  toTest: string;             // sandbox/test inbox
+  subjectTemplate: string;    // {name}, {email}, {field} placeholders
+}
+
 export type ContentMode = 'ai' | 'manual';
 
 export interface PagesConfig {
@@ -204,6 +223,9 @@ export interface BusinessFormData {
 
   // Download files (PDFs, docs, etc.) to link according to the user-described page context
   downloadFiles: Array<{ name: string; url: string; label?: string; context?: string; mime?: string }>;
+
+  // Lead capture by e-mail (SMTP) for the generated LP forms.
+  leadCapture: LeadCaptureConfig;
 }
 
 export const defaultFormData: BusinessFormData = {
@@ -291,6 +313,21 @@ export const defaultFormData: BusinessFormData = {
   countdownTimer: false,
   guarantee: '',
   downloadFiles: [],
+  leadCapture: {
+    enabled: false,
+    mode: 'test',
+    smtpHost: '',
+    smtpPort: 587,
+    smtpSecure: 'tls',
+    smtpUser: '',
+    smtpPass: '',
+    fromEmail: '',
+    fromName: '',
+    replyTo: '',
+    toLive: '',
+    toTest: '',
+    subjectTemplate: 'Novo lead: {name}',
+  },
 };
 
 export const LANDING_PRESETS: { value: LandingPreset; label: string; desc: string; emoji: string }[] = [
