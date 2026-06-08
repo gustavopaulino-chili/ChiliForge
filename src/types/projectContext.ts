@@ -217,10 +217,10 @@ export function applyScrapedToCompanyForm(
   const diffs = list('differentiators', 'features', 'benefits');
   if (diffs.length) out.differentiators = diffs;
 
-  (['primaryColor', 'secondaryColor', 'accentColor', 'textColor', 'backgroundColor'] as const).forEach((k) => {
-    const v = extracted[k];
-    if (typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v.trim())) (out as Record<string, unknown>)[k] = v.trim();
-  });
+  // BRAND COLORS ARE IMMUTABLE: a re-scrape must NEVER change the company's
+  // palette (primary/secondary/accent/text/background). The colors are rules of
+  // generation, not something the source site is allowed to overwrite. They are
+  // only set when the company is first created — never replaced here.
 
   const nextImages: Record<string, unknown> = { ...(out.images as Record<string, unknown>) };
   ['heroImage1', 'heroImage2', 'logoUrl', 'logoAlt', 'brandImage', 'sectionImage1', 'sectionImage2', 'sectionImage3', 'aboutImage', 'teamImage'].forEach((k) => {

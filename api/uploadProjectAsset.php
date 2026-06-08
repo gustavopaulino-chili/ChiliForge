@@ -305,6 +305,7 @@ try {
         $uploaded[] = [
             'name' => $candidate,
             'url' => $publicBase . 'assets/' . rawurlencode($candidate),
+            'sourceUrl' => (string)$rawUrl,
             'size' => @filesize($targetPath) ?: 0,
             'modifiedAt' => @filemtime($targetPath) ?: 0,
         ];

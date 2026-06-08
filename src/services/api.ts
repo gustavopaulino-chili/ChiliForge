@@ -433,7 +433,7 @@ export const uploadProjectAssetsFromUrls = async (
     throw new Error(data?.error || `Request failed with status ${response.status}`);
   }
 
-  return data as { success: boolean; uploaded: ProjectAsset[]; skipped?: Array<{ url: string; reason: string }> };
+  return data as { success: boolean; uploaded: Array<ProjectAsset & { sourceUrl?: string }>; skipped?: Array<{ url: string; reason: string }> };
 };
 
 export const deleteProjectAssetFile = async (projectId: number, userId: number, fileName: string) => {

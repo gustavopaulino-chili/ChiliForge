@@ -234,7 +234,32 @@ export default function CompanyPage() {
     try {
       const res = await scrapeWebsite(site, false);
       const extracted = (res?.extracted || {}) as Record<string, unknown>;
-      const next = applyScrapedToCompanyForm(formData, extracted, site);
+      let next = applyScrapedToCompanyForm(formData, extracted, site);
+
+      // Re-host every scraped image into the company's assets folder and rewrite
+      // the image fields to the LOCAL urls. The raw source-site urls are often
+      // hotlink-protected / temporary and would render as broken images in the
+      // generated LP. Fields whose source could not be downloaded are cleared so
+      // we never store a broken url.
+      const urls = collectRescrapeImageUrls(extracted, next);
+      if (urls.length) {
+        try {
+          const up = await uploadProjectAssetsFromUrls(company.id, user.id, urls);
+          const hostedBySource = new Map<string, string>();
+          (up.uploaded || []).forEach((a) => { if (a.sourceUrl && a.url) hostedBySource.set(a.sourceUrl.trim(), a.url); });
+          const remap = (raw: unknown): string => {
+            const s = String(raw || '').trim();
+            if (!/^https?:\/\//i.test(s)) return s;          // local/empty: keep
+            return hostedBySource.get(s) || '';               // hosted, or drop if it failed
+          };
+          const imgs: Record<string, unknown> = { ...(next.images as Record<string, unknown>) };
+          ['logoUrl', 'heroImage1', 'heroImage2', 'brandImage', 'sectionImage1', 'sectionImage2', 'sectionImage3', 'aboutImage', 'teamImage']
+            .forEach((k) => { imgs[k] = remap(imgs[k]); });
+          if (Array.isArray(imgs.productImages)) imgs.productImages = (imgs.productImages as unknown[]).map(remap).filter(Boolean);
+          next = { ...next, images: imgs as CompanyProjectFormData['images'] };
+        } catch { /* keep scraped urls if re-hosting fails entirely */ }
+      }
+
       await updateCompanyProject({
         id: company.id,
         user_id: user.id,
@@ -243,9 +268,7 @@ export default function CompanyPage() {
         context: buildCompanyContext(next),
       });
       setFormData(next);
-      const urls = collectRescrapeImageUrls(extracted, next);
-      if (urls.length) void uploadProjectAssetsFromUrls(company.id, user.id, urls).catch(() => {});
-      toast.success('Site re-scrapeado — dados da empresa atualizados.');
+      toast.success('Site re-scrapeado — dados da empresa atualizados (cores da marca preservadas).');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Falha ao re-scrapear o site.');
     } finally {
