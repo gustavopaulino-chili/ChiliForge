@@ -7,6 +7,7 @@ import { StepWebsiteType } from '@/components/generator/StepWebsiteType';
 import { StepImages } from '@/components/generator/StepImages';
 import { StepReview } from '@/components/generator/StepReview';
 import { StepPages } from '@/components/generator/StepPages';
+import { StepLeads } from '@/components/generator/StepLeads';
 import { PromptPreview } from '@/components/generator/PromptPreview';
 import { HeroLanding } from '@/components/landing/HeroLanding';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
@@ -27,6 +28,7 @@ const STEPS: StepDef[] = [
   { id: 'type', label: 'Preset' },
   { id: 'pages', label: 'Sections' },
   { id: 'images', label: 'Images' },
+  { id: 'leads', label: 'Leads' },
   { id: 'review', label: 'Review' },
 ];
 
@@ -2241,6 +2243,7 @@ const Index = () => {
           {currentStepId === 'pages' && <StepPages data={formData} onChange={updateForm} />}
           {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} onGenerateAiImages={handleAiImagesGenerate} isGeneratingAiImages={stepImagesAiGenerating} aiPercent={stepImagesAiPercent} aiLog={stepImagesAiLog} onUploadImages={handleUploadImagesForStep} aiImagesGenerated={aiImagesGenerated} generatedImageUrls={aiGeneratedImageUrls} />}
           {/* Files step removed: download files will be created automatically from AI references to ./files/ in generated content. */}
+          {currentStepId === 'leads' && <StepLeads data={formData} onChange={updateForm} />}
           {currentStepId === 'review' && <StepReview data={formData} />}
         </div>
 
