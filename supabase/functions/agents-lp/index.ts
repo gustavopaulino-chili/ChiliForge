@@ -25,7 +25,9 @@ type AgentsLpPayload = {
 };
 
 const env = (globalThis as any).Deno?.env;
-const MODEL_CHAIN = ["gemini-2.5-pro", "gemini-2.5-flash"];
+// flash first: a full LP must finish within the synchronous browser->PHP->edge
+// request window (LiteSpeed/Hostinger times out ~60-120s). pro stays as fallback.
+const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.5-pro"];
 
 function getApiKey(userKey?: string): string {
   if (userKey?.trim()) return userKey.trim();
@@ -142,7 +144,8 @@ async function generateWithRetry(
           );
         }
         if (status === "429" || status === "503") {
-          await new Promise((r) => setTimeout(r, attempt === 0 ? 3000 : 8000));
+          // Keep backoff short — the whole request must fit the server timeout window.
+          await new Promise((r) => setTimeout(r, attempt === 0 ? 2000 : 4000));
         } else {
           break;
         }
@@ -238,9 +241,9 @@ serve(async (req: Request) => {
     const result = await generateWithRetry(
       agentConfig.systemPrompt,
       userMessage,
-      agentConfig.model || "gemini-2.5-pro",
+      agentConfig.model || "gemini-2.5-flash",
       agentConfig.temperature ?? 0.9,
-      agentConfig.maxTokens ?? 65000,
+      agentConfig.maxTokens ?? 32000,
       apiKey,
       fileSearchStores.length ? fileSearchStores : undefined,
       { thinkingLevel: "medium" }

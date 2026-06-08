@@ -242,13 +242,21 @@ try {
         ? implode("\n", $choices)
         : 'Generate the best possible landing page for this company.';
 
-    // 8. Call agents-lp edge function
+    // 8. Call agents-lp edge function.
+    // Force gemini-2.5-flash for LP generation: a single synchronous request goes
+    // browser -> PHP -> edge -> Gemini, and Hostinger/LiteSpeed times the request
+    // out (~60-120s, not configurable on shared hosting). gemini-2.5-pro + thinking
+    // routinely exceeds that window; flash produces a full LP well within it. The
+    // edge keeps pro as a fallback in its MODEL_CHAIN if flash fails.
+    $lpModel = 'gemini-2.5-flash';
+    // Cap output tokens so a runaway generation can't blow past the server timeout.
+    $lpMaxTokens = min((int)$maxTokens ?: 32000, 32000);
     $result = agents_call_edge_function('agents-lp', [
         'agentConfig' => [
             'systemPrompt' => $systemPrompt,
-            'model'        => $model,
+            'model'        => $lpModel,
             'temperature'  => (float)$temperature,
-            'maxTokens'    => (int)$maxTokens,
+            'maxTokens'    => $lpMaxTokens,
             'version'      => (int)$agentVersion,
         ],
         'globalStoreName'        => $globalStore ?: null,
