@@ -105,31 +105,41 @@ function provision_lp_mailer(string $projectDir, array $cfg): bool {
     return file_put_contents($dest . DIRECTORY_SEPARATOR . 'config.php', lp_mailer_render_config($cfg)) !== false;
 }
 
-function rewrite_lp_forms(string $html, string $action = 'mailer/send_lead.php'): string {
+function rewrite_lp_forms(string $html, string $action = 'mailer/send_lead.php', bool $emailEnabled = true, string $waNumber = ''): string {
     if (stripos($html, '<form') === false) return $html;
+    if (!$emailEnabled && $waNumber === '') return $html;
 
     $honeypot = '<input type="text" name="_company_hp" tabindex="-1" autocomplete="off" aria-hidden="true" '
         . 'style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">';
+    $formAction = $emailEnabled ? $action : '#';
+    $emailAttr  = $emailEnabled ? ' data-cf-email="1"' : '';
+    $waAttr     = $waNumber !== '' ? ' data-cf-wa="' . htmlspecialchars($waNumber, ENT_QUOTES) . '"' : '';
 
-    $html = preg_replace_callback('/<form\b([^>]*)>/i', function ($m) use ($action, $honeypot) {
+    $html = preg_replace_callback('/<form\b([^>]*)>/i', function ($m) use ($formAction, $honeypot, $emailAttr, $waAttr) {
         $attrs = (string)$m[1];
         $attrs = preg_replace('/\s+action\s*=\s*("[^"]*"|\'[^\']*\'|\S+)/i', '', $attrs);
         $attrs = preg_replace('/\s+method\s*=\s*("[^"]*"|\'[^\']*\'|\S+)/i', '', $attrs);
-        return '<form' . $attrs . ' action="' . $action . '" method="post" data-cf-lead="1">' . $honeypot;
+        return '<form' . $attrs . ' action="' . $formAction . '" method="post" data-cf-lead="1"' . $emailAttr . $waAttr . '>' . $honeypot;
     }, $html);
 
-    // Inject the submit handler once (intercepts data-cf-lead forms, posts via fetch,
-    // shows inline success/error). Avoids navigating to the JSON response.
+    // Inject the submit handler once: sends to WhatsApp (wa.me with all fields)
+    // and/or POSTs to the SMTP endpoint, then shows inline feedback. preventDefault
+    // avoids navigating to the JSON response.
     if (strpos($html, 'cf-lead-handler') === false) {
         $script = '<script id="cf-lead-handler">(function(){'
             . 'function msg(f,t,ok){var e=f.querySelector(".cf-lead-msg");if(!e){e=document.createElement("p");e.className="cf-lead-msg";e.style.marginTop="10px";e.style.fontSize="14px";f.appendChild(e);}e.textContent=t;e.style.color=ok?"#16a34a":"#dc2626";}'
+            . 'function waText(f){var L=[];new FormData(f).forEach(function(v,k){if(k==="_company_hp")return;v=String(v||"").trim();if(!v)return;var label=k.replace(/[_-]+/g," ").replace(/\\b\\w/g,function(c){return c.toUpperCase();});L.push(label+": "+v);});return "Novo lead:%0A"+L.map(encodeURIComponent).join("%0A");}'
             . 'document.querySelectorAll("form[data-cf-lead]").forEach(function(f){f.addEventListener("submit",function(ev){ev.preventDefault();'
             . 'var b=f.querySelector("[type=submit]");if(b){b.disabled=true;}'
-            . 'fetch(f.getAttribute("action"),{method:"POST",body:new FormData(f)})'
+            . 'var wa=f.getAttribute("data-cf-wa");var hasEmail=f.getAttribute("data-cf-email")==="1";'
+            . 'if(wa){window.open("https://wa.me/"+wa+"?text="+waText(f),"_blank");}'
+            . 'if(hasEmail){fetch(f.getAttribute("action"),{method:"POST",body:new FormData(f)})'
             . '.then(function(r){return r.json().then(function(d){return d;},function(){return {ok:r.ok};});})'
-            . '.then(function(d){if(d&&d.ok){f.reset();msg(f,"Recebido! Em breve entraremos em contato.",true);}else{msg(f,(d&&d.error)||"Não foi possível enviar. Tente novamente.",false);}})'
-            . '.catch(function(){msg(f,"Erro de conexão. Tente novamente.",false);})'
-            . '.finally(function(){if(b){b.disabled=false;}});});});})();</script>';
+            . '.then(function(d){if(d&&d.ok){f.reset();msg(f,"Recebido! Em breve entraremos em contato.",true);}else{msg(f,(d&&d.error)||"Nao foi possivel enviar. Tente novamente.",false);}})'
+            . '.catch(function(){msg(f,"Erro de conexao. Tente novamente.",false);})'
+            . '.finally(function(){if(b){b.disabled=false;}});}'
+            . 'else{f.reset();msg(f,"Abrindo o WhatsApp para enviar seus dados...",true);if(b){b.disabled=false;}}'
+            . '});});})();</script>';
         if (stripos($html, '</body>') !== false) {
             $html = preg_replace('/<\/body>/i', $script . '</body>', $html, 1);
         } else {
@@ -146,15 +156,30 @@ function rewrite_lp_forms(string $html, string $action = 'mailer/send_lead.php')
  */
 function maybe_provision_lp_mailer(string $projectDir, string $html, $formData, string $publicUrl): string {
     try {
+        $lc = is_array($formData) ? ($formData['leadCapture'] ?? null) : null;
+        if (!is_array($lc)) return $html;
+
+        $emailOn  = !empty($lc['enabled']);
+        $waNumber = preg_replace('/\D+/', '', (string)($lc['whatsappNumber'] ?? ''));
+        $waOn     = !empty($lc['whatsappEnabled']) && $waNumber !== '';
+        if (!$emailOn && !$waOn) return $html;
+
         $origin = '';
         $parsed = parse_url((string)$publicUrl);
         if (!empty($parsed['scheme']) && !empty($parsed['host'])) {
             $origin = $parsed['scheme'] . '://' . $parsed['host'] . (empty($parsed['port']) ? '' : ':' . $parsed['port']);
         }
-        $cfg = lp_mailer_config_from_formdata($formData, $origin);
-        if ($cfg === null) return $html;
-        provision_lp_mailer($projectDir, $cfg);
-        return rewrite_lp_forms($html);
+
+        if ($emailOn) {
+            $cfg = lp_mailer_config_from_formdata($formData, $origin);
+            if ($cfg !== null) {
+                provision_lp_mailer($projectDir, $cfg);
+            } else {
+                $emailOn = false; // incomplete SMTP config — skip email, keep WhatsApp
+            }
+        }
+
+        return rewrite_lp_forms($html, 'mailer/send_lead.php', $emailOn, $waOn ? $waNumber : '');
     } catch (Throwable $e) {
         error_log('[lp-mailer] provisioning failed: ' . $e->getMessage());
         return $html;

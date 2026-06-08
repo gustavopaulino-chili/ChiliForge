@@ -134,6 +134,44 @@ export function StepLeads({ data, onChange }: Props) {
           </div>
         )}
       </div>
+
+      {/* WhatsApp */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-semibold text-foreground">Enviar lead por WhatsApp</h4>
+            <p className="text-xs text-muted-foreground mt-1">
+              No envio do formulário, abre o WhatsApp com TODOS os dados preenchidos, direcionado ao número da empresa (wa.me). Funciona junto ou no lugar do e-mail.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => updateLead({ whatsappEnabled: !lc.whatsappEnabled })}
+            className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${lc.whatsappEnabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+            aria-label="Ativar envio por WhatsApp"
+          >
+            <span className={`inline-block h-5 w-5 translate-y-0.5 rounded-full bg-white shadow transition-transform ${lc.whatsappEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </button>
+        </div>
+
+        {lc.whatsappEnabled && (
+          <div>
+            <FieldLabel htmlFor="waNumber" hint="Número da empresa com DDI, só dígitos. Ex.: 55 (Brasil) + DDD + número = 5511999999999.">
+              Número do WhatsApp da empresa
+            </FieldLabel>
+            <Input
+              id="waNumber"
+              value={lc.whatsappNumber}
+              onChange={e => updateLead({ whatsappNumber: e.target.value.replace(/[^0-9]/g, '') })}
+              placeholder="5511999999999"
+              className="mt-1.5"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Só dígitos (DDI + DDD + número). O lead confirma o envio no app do WhatsApp.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -97,6 +97,10 @@ export interface LeadCaptureConfig {
   toLive: string;             // client inbox or CRM email-to-lead address
   toTest: string;             // sandbox/test inbox
   subjectTemplate: string;    // {name}, {email}, {field} placeholders
+  // Send the form submission to the company's WhatsApp (wa.me click-to-chat with
+  // all collected fields). Works alongside or instead of e-mail.
+  whatsappEnabled: boolean;
+  whatsappNumber: string;     // E.164 digits only, e.g. 5511999999999
 }
 
 export type ContentMode = 'ai' | 'manual';
@@ -330,6 +334,8 @@ export const defaultFormData: BusinessFormData = {
     toLive: '',
     toTest: '',
     subjectTemplate: 'Novo lead: {name}',
+    whatsappEnabled: false,
+    whatsappNumber: '',
   },
 };
 
