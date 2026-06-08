@@ -169,6 +169,69 @@ try {
     ensure_directory($assetsPath);
     ensure_directory($downloadsPath);
 
+    // ── Copy the linked company's images into THIS LP's assets folder ──────────
+    // The LP should ship the exact same images saved on the company. We copy the
+    // files on the filesystem (reliable — no hotlink/download failures) and build
+    // a URL map so any reference to the company's asset URLs is rewritten to this
+    // LP's local assets/. This also fixes broken logos that pointed at the
+    // company's URL and could not be mirrored over HTTP.
+    $companyAssetMap = [];      // raw company asset URL  => 'assets/<file>'
+    $companyAssetMapNorm = [];  // normalized URL         => 'assets/<file>'
+    $linkedCompanyId = $company_project_id;
+    if (!$linkedCompanyId && $project_id > 0) {
+        $lcStmt = $conn->prepare("SELECT company_project_id FROM projects WHERE id = ? AND user_id = ? LIMIT 1");
+        if ($lcStmt) {
+            $lcStmt->bind_param("ii", $project_id, $effectiveUserId);
+            $lcStmt->execute();
+            $lcRes = $lcStmt->get_result();
+            $lcRow = $lcRes ? $lcRes->fetch_assoc() : null;
+            $lcStmt->close();
+            if ($lcRow && !empty($lcRow['company_project_id'])) {
+                $linkedCompanyId = (int)$lcRow['company_project_id'];
+            }
+        }
+    }
+    if ($linkedCompanyId) {
+        $cStmt = $conn->prepare("SELECT public_url, folder_path FROM projects WHERE id = ? AND project_type = 'project' LIMIT 1");
+        if ($cStmt) {
+            $cStmt->bind_param("i", $linkedCompanyId);
+            $cStmt->execute();
+            $cRes = $cStmt->get_result();
+            $cRow = $cRes ? $cRes->fetch_assoc() : null;
+            $cStmt->close();
+            if ($cRow) {
+                $cFolder = (string)($cRow['folder_path'] ?? '');
+                $cPublic = (string)($cRow['public_url'] ?? '');
+                try {
+                    $companyDir = resolve_project_directory_from_folder_path($cFolder, $cPublic);
+                } catch (Throwable $e) {
+                    $companyDir = '';
+                }
+                $companyAssetsDir = $companyDir !== '' ? ($companyDir . DIRECTORY_SEPARATOR . 'assets') : '';
+                $cPrefix = $cPublic !== '' ? $cPublic : project_public_prefix_from_folder_path($cFolder, $cPublic);
+                $cPrefix = preg_replace('/\/index\.html$/i', '/', (string)$cPrefix);
+                if ($cPrefix !== '' && !str_ends_with($cPrefix, '/')) $cPrefix .= '/';
+                if ($companyAssetsDir !== '' && is_dir($companyAssetsDir)) {
+                    foreach (scandir($companyAssetsDir) as $cf) {
+                        if ($cf === '.' || $cf === '..') continue;
+                        $srcF = $companyAssetsDir . DIRECTORY_SEPARATOR . $cf;
+                        if (!is_file($srcF)) continue;
+                        @copy($srcF, $assetsPath . DIRECTORY_SEPARATOR . $cf);
+                        $localRel = 'assets/' . $cf;
+                        if ($cPrefix !== '') {
+                            $companyAssetMap[$cPrefix . 'assets/' . $cf] = $localRel;
+                            $companyAssetMap[$cPrefix . 'assets/' . rawurlencode($cf)] = $localRel;
+                        }
+                    }
+                    foreach ($companyAssetMap as $k => $v) {
+                        $nk = normalize_asset_url((string)$k);
+                        if ($nk !== '') $companyAssetMapNorm[$nk] = $v;
+                    }
+                }
+            }
+        }
+    }
+
     $projectRootPath = realpath(__DIR__ . DIRECTORY_SEPARATOR . '..');
     $sharedFilesPath = $projectRootPath ? ($projectRootPath . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'files') : null;
     $downloadFileUrlMap = [];
@@ -334,6 +397,14 @@ try {
         }
 
         $normalizedAssetUrl = normalize_asset_url($assetUrl);
+
+        // Already copied from the linked company's assets folder — reuse the local
+        // file instead of downloading it over HTTP (which often fails / hotlink).
+        if (isset($companyAssetMapNorm[$normalizedAssetUrl])) {
+            $assetMap[$assetUrl] = $companyAssetMapNorm[$normalizedAssetUrl];
+            continue;
+        }
+
         $assetPath = (string)(parse_url($normalizedAssetUrl, PHP_URL_PATH) ?: '');
         $expectedPrefix = $currentProjectAssetPrefix !== ''
             ? (string)(parse_url($currentProjectAssetPrefix, PHP_URL_PATH) ?: $currentProjectAssetPrefix)
@@ -400,16 +471,25 @@ try {
 
     $html = replace_asset_paths($html, $assetMap);
     $html = replace_placeholder_asset_paths($html, $preferredAssetPaths);
+    if (!empty($companyAssetMap)) {
+        $html = str_replace(array_keys($companyAssetMap), array_values($companyAssetMap), $html);
+    }
     if (!empty($downloadFileUrlMap)) {
         $html = str_replace(array_keys($downloadFileUrlMap), array_values($downloadFileUrlMap), $html);
     }
     if (!$isInlineDoc) {
         $css = replace_asset_paths($css, $assetMap);
         $css = replace_placeholder_asset_paths($css, $preferredAssetPaths);
+        if (!empty($companyAssetMap)) {
+            $css = str_replace(array_keys($companyAssetMap), array_values($companyAssetMap), $css);
+        }
         if (!empty($downloadFileUrlMap)) {
             $css = str_replace(array_keys($downloadFileUrlMap), array_values($downloadFileUrlMap), $css);
         }
         $js = replace_asset_paths($js, $assetMap);
+        if (!empty($companyAssetMap)) {
+            $js = str_replace(array_keys($companyAssetMap), array_values($companyAssetMap), $js);
+        }
         if (!empty($downloadFileUrlMap)) {
             $js = str_replace(array_keys($downloadFileUrlMap), array_values($downloadFileUrlMap), $js);
         }
