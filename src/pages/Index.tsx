@@ -2913,6 +2913,11 @@ function buildMandatorySections(data: BusinessFormData): Array<{ name: string; k
   const cfg = data.pagesConfig;
   if (!cfg || !Array.isArray(cfg.pages)) return [];
 
+  // A section must generate a real form when its description / item text mentions
+  // one — even if the user left form generation off in the step that asks about it.
+  const mentionsForm = (txt: string) =>
+    /\bform\b|formul[aá]rio|lead\s*form|contact\s*form|cadastro|newsletter|inscri[cç][aã]o|registration|subscribe/i.test(txt || '');
+
   return cfg.pages
     .filter(p => p.enabled)
     .map(p => {
@@ -2924,6 +2929,13 @@ function buildMandatorySections(data: BusinessFormData): Array<{ name: string; k
         kind = resolveSectionKind(p.name);
       }
       if (kind === null) return null; // hero and faq go to dedicated plan fields; all other kinds (including embed without embedCode) pass as sections
+
+      // Description-driven form override: if the section text asks for a form,
+      // force kind='form' so the generator always builds it.
+      if (kind !== 'form') {
+        const sectionText = [p.description, ...(p.sections || []).map(s => `${s.title || ''} ${s.description || ''}`)].join(' ');
+        if (mentionsForm(sectionText)) kind = 'form';
+      }
       const directives = [
         p.description,
         p.kind === 'form' && p.formAction ? `FORM_ACTION: ${p.formAction}` : '',

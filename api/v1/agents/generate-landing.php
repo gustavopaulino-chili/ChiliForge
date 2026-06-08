@@ -195,7 +195,44 @@ try {
     if (!empty($body['language']))        $choices[] = 'Language: '            . $body['language'];
     if (!empty($body['target_url']))      $choices[] = 'Target URL for CTAs: ' . $body['target_url'];
     if (!empty($body['sections']) && is_array($body['sections'])) {
-        $choices[] = 'Include sections: ' . implode(', ', $body['sections']);
+        // Sections may arrive as plain strings OR as structured objects
+        // ({name, kind, required, description, formFields, formButton}). Serialize
+        // each properly — a previous bug imploded the objects into "Array, Array".
+        $sectionLines = [];
+        foreach ($body['sections'] as $sec) {
+            if (is_string($sec)) {
+                $t = trim($sec);
+                if ($t !== '') $sectionLines[] = '- ' . $t;
+                continue;
+            }
+            if (!is_array($sec)) continue;
+            $name = trim((string)($sec['name'] ?? ''));
+            $kind = trim((string)($sec['kind'] ?? ''));
+            $desc = trim((string)($sec['description'] ?? ''));
+            $req  = !empty($sec['required']) ? ' [REQUIRED]' : '';
+            $line = '- ' . ($name !== '' ? $name : ($kind !== '' ? $kind : 'section')) . $req;
+            if ($kind !== '') $line .= ' (type: ' . $kind . ')';
+            if ($desc !== '') $line .= ': ' . $desc;
+            if ($kind === 'form') {
+                $fields = [];
+                if (!empty($sec['formFields']) && is_array($sec['formFields'])) {
+                    foreach ($sec['formFields'] as $f) {
+                        if (!is_array($f)) continue;
+                        $fl = trim((string)($f['label'] ?? ''));
+                        $ft = trim((string)($f['type'] ?? 'text'));
+                        $fr = !empty($f['required']) ? ',required' : '';
+                        if ($fl !== '') $fields[] = $fl . '(' . $ft . $fr . ')';
+                    }
+                }
+                $btn = trim((string)($sec['formButton'] ?? ''));
+                if (!empty($fields)) $line .= ' | FIELDS: ' . implode(', ', $fields);
+                if ($btn !== '') $line .= ' | SUBMIT BUTTON: ' . $btn;
+            }
+            $sectionLines[] = $line;
+        }
+        if (!empty($sectionLines)) {
+            $choices[] = "Include these sections (keep this order). For any section whose type is 'form' OR whose description mentions a form/formulário/cadastro/newsletter/inscrição, you MUST build a real working <form> with labeled fields + a submit button:\n" . implode("\n", $sectionLines);
+        }
     }
     if (!empty($body['additional_images']) && is_array($body['additional_images'])) {
         $choices[] = 'Additional images: ' . implode(', ', $body['additional_images']);
