@@ -286,6 +286,12 @@ async function generateAdImage(
           });
           const bodyText = await res.text();
           if (!res.ok) {
+            // Depleted prepay credits / quota come back as 429 RESOURCE_EXHAUSTED.
+            // Retrying other models/configs/formats is pointless and just burns calls —
+            // abort the whole generation immediately with a clear marker.
+            if (res.status === 429 && /credit|deplet|RESOURCE_EXHAUSTED|quota|billing/i.test(bodyText)) {
+              throw new Error("GEMINI_CREDITS_DEPLETED");
+            }
             const isTransient = res.status === 503 || res.status === 502 || res.status === 529;
             if (isTransient && attempt < maxAttempts - 1) {
               await new Promise(r => setTimeout(r, 3000 + attempt * 2000));
@@ -311,7 +317,9 @@ async function generateAdImage(
           lastError = `Gemini image ${model} returned no image part: ${summarizeGeminiImagePayload(data)}`;
           break;
         } catch (error) {
-          lastError = error instanceof Error ? error.message : String(error);
+          const msg = error instanceof Error ? error.message : String(error);
+          if (msg === "GEMINI_CREDITS_DEPLETED") throw error; // fail fast, don't retry
+          lastError = msg;
           break;
         }
       }
@@ -2010,6 +2018,9 @@ async function callGemini(
 
   if (!res.ok) {
     const err = await res.text().catch(() => "");
+    if (res.status === 429 && /credit|deplet|RESOURCE_EXHAUSTED|quota|billing/i.test(err)) {
+      throw new Error("GEMINI_CREDITS_DEPLETED");
+    }
     throw new Error(`Gemini ${model} returned ${res.status}: ${err.slice(0, 300)}`);
   }
 
@@ -2055,6 +2066,7 @@ async function generateWithRetry(
         );
       } catch (e) {
         lastError = e instanceof Error ? e : new Error(String(e));
+        if (lastError.message === "GEMINI_CREDITS_DEPLETED") throw lastError; // no point retrying other models
         const status = lastError.message.match(/returned (\d+)/)?.[1];
         if (model !== preferredModel || attempt > 0) {
           console.warn(
@@ -2709,8 +2721,18 @@ serve(async (req: Request) => {
     );
   } catch (error) {
     console.error("[agents-ads] error:", error);
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    if (msg === "GEMINI_CREDITS_DEPLETED") {
+      return new Response(
+        JSON.stringify({
+          error: "gemini_credits_depleted",
+          message: "Créditos da API Gemini esgotados. Recarregue/ative o billing em https://ai.studio/projects e tente de novo.",
+        }),
+        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      JSON.stringify({ error: msg }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

@@ -80,7 +80,7 @@ const invokeAiFunction = async <T>(name: string, payload: unknown, options?: Inv
   }
 
   if (!response.ok || data?.error) {
-    const baseMessage = data?.details || data?.error || `Request failed with status ${response.status}`;
+    const baseMessage = data?.message || data?.details || data?.error || `Request failed with status ${response.status}`;
     const retryAfterSeconds = Number(data?.retryAfterSeconds);
     const retryHint = response.status === 429 && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
       ? ` Try again in about ${Math.ceil(retryAfterSeconds)}s.`
