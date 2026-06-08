@@ -7,7 +7,7 @@ import { FieldLabel } from './FieldLabel';
 import { ImageUploadField } from './ImageUploadField';
 import { CompanyImagePicker } from './CompanyImagePicker';
 import { Progress } from '@/components/ui/progress';
-import { getProjectAssets, getProjectById, searchImages, type ProjectAsset } from '@/services/api';
+import { getProjectAssets, getProjectById, getProjects, searchImages, type ProjectAsset } from '@/services/api';
 import { toast } from 'sonner';
 
 // Brand images stored in company_form_data.images — offered alongside the assets folder.
@@ -68,6 +68,30 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
   const [pickerTarget, setPickerTarget] = useState<{ apply: (url: string) => void } | null>(null);
   const openCompanyPicker = (apply: (url: string) => void) => setPickerTarget({ apply });
 
+  // List of the user's companies so the picker works even when we didn't arrive
+  // from a company page (no companyProjectId in route state). The user can pick
+  // which company's saved images to use.
+  const [companies, setCompanies] = useState<{ id: number; name: string }[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<number | undefined>(companyProjectId);
+  useEffect(() => { if (companyProjectId) setSelectedCompanyId(companyProjectId); }, [companyProjectId]);
+  const effectiveCompanyId = selectedCompanyId ?? companyProjectId;
+
+  useEffect(() => {
+    if (!userId) { setCompanies([]); return; }
+    let active = true;
+    getProjects(userId)
+      .then((rows: unknown) => {
+        if (!active) return;
+        const list = (Array.isArray(rows) ? rows : [])
+          .filter((p: any) => p?.project_type === 'project')
+          .map((p: any) => ({ id: Number(p.id), name: String(p.name || p.businessName || `Empresa ${p.id}`) }))
+          .filter(c => Number.isFinite(c.id));
+        setCompanies(list);
+      })
+      .catch(() => { if (active) setCompanies([]); });
+    return () => { active = false; };
+  }, [userId]);
+
   // Pexels stock-image search per field (mirrors the ads flow).
   const [searchingKey, setSearchingKey] = useState<string | null>(null);
   const recentPexelsRef = useRef<string[]>([]);
@@ -113,11 +137,11 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
   };
 
   useEffect(() => {
-    if (!companyProjectId || !userId) { setCompanyAssets([]); return; }
+    if (!effectiveCompanyId || !userId) { setCompanyAssets([]); return; }
     let active = true;
     Promise.allSettled([
-      getProjectAssets(companyProjectId, userId),
-      getProjectById(companyProjectId, userId),
+      getProjectAssets(effectiveCompanyId, userId),
+      getProjectById(effectiveCompanyId, userId),
     ]).then(([assetsRes, projRes]) => {
       if (!active) return;
       const folder: ProjectAsset[] = assetsRes.status === 'fulfilled' ? (assetsRes.value.assets || []).filter(isImageAsset) : [];
@@ -133,11 +157,11 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
       setCompanyAssets(merged);
     });
     return () => { active = false; };
-  }, [companyProjectId, userId]);
+  }, [effectiveCompanyId, userId]);
 
-  // Show the "Empresa" picker whenever we're in a company context (even before the
+  // Show the "Empresa" picker whenever a company is selected (even before the
   // assets finish loading / even if empty — the modal explains the empty state).
-  const hasCompany = Boolean(companyProjectId && userId);
+  const hasCompany = Boolean(effectiveCompanyId && userId);
   const companyPickerProps = (apply: (url: string) => void) =>
     hasCompany ? () => openCompanyPicker(apply) : undefined;
 
@@ -196,6 +220,36 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
         <h3 className="form-section-title">Images</h3>
         <p className="form-section-desc">Add image URLs for your website sections</p>
       </div>
+
+      {/* Company image source — pick a company to reuse its saved images via the
+          "Empresa" button on each field (works even outside the company flow). */}
+      {companies.length > 0 && (
+        <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <FolderOpen className="h-4 w-4 text-primary" />
+            <FieldLabel className="text-foreground font-medium" hint="Escolha uma empresa para reutilizar as imagens salvas dela. Depois use o botão 'Empresa' em cada campo de imagem para escolher.">
+              Usar imagens da empresa
+            </FieldLabel>
+          </div>
+          <select
+            value={effectiveCompanyId ?? ''}
+            onChange={e => setSelectedCompanyId(e.target.value ? Number(e.target.value) : undefined)}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+          >
+            <option value="">Nenhuma (não usar imagens de empresa)</option>
+            {companies.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            {hasCompany
+              ? (companyAssets.length > 0
+                  ? `${companyAssets.length} imagem(ns) disponível(is) — clique em "Empresa" em cada campo abaixo para escolher.`
+                  : 'Esta empresa ainda não tem imagens salvas.')
+              : 'Selecione uma empresa para liberar o botão "Empresa" nos campos.'}
+          </p>
+        </div>
+      )}
 
       {/* ─── AI Generation (FIRST) ─── */}
       <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
