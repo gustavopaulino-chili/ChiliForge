@@ -980,6 +980,10 @@ export type ReforgeResult = {
 export const reforgeLp = (payload: { user_id: number; project_id: number; instruction: string; html: string; history?: ChatMessage[] }): Promise<ReforgeResult> =>
   agentsPost<ReforgeResult>("reforge-lp.php", payload);
 
+// Split a free-form feedback into distinct edit tasks (applied one by one).
+export const reforgeLpPlan = (payload: { user_id: number; instruction: string }): Promise<{ success: boolean; tasks: string[] }> =>
+  agentsPost<{ success: boolean; tasks: string[] }>("reforge-lp.php", { ...payload, mode: 'plan' });
+
 type TrackedProgressEvent =
   | { type: "plan" }
   | { type: "batch_start"; batchIndex: number; totalBatches: number; label: string }

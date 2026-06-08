@@ -109,6 +109,8 @@ type VisualEditorProps = {
   };
   /** 'split' = iframe left + panel right (default); 'overlay' = iframe full-screen + floating toggle panel */
   layout?: 'split' | 'overlay';
+  /** Bump this to force the iframe to re-render from the current `html` (e.g. after a ReForge/chat edit set the html externally). */
+  applyExternalNonce?: number;
 };
 
 type OverlayMode = 'none' | 'color' | 'gradient' | 'dark' | 'mask';
@@ -690,6 +692,7 @@ export function VisualEditor({
   brandPalette = [],
   brandColors,
   layout = 'split',
+  applyExternalNonce,
 }: VisualEditorProps) {
   // ...existing code...
 
@@ -1440,6 +1443,28 @@ export function VisualEditor({
       setHistoryVersion((value) => value + 1);
     }
   }, [html]);
+
+  // External html replacement (ReForge / chat edit): the preview iframe shows the
+  // live DOM, not the `html` prop, so setting html alone won't update it. When the
+  // nonce bumps, rewrite the iframe document from the current html (same mechanism
+  // as undo/redo) so chat edits are visible immediately.
+  const lastAppliedNonceRef = useRef(0);
+  useEffect(() => {
+    if (!applyExternalNonce || applyExternalNonce === lastAppliedNonceRef.current) return;
+    lastAppliedNonceRef.current = applyExternalNonce;
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc) return;
+    skipHistoryRecordRef.current = true;
+    lastHtmlRef.current = html;
+    lastEmittedHtmlRef.current = stripEditorBridge(html);
+    setSelected(null);
+    try {
+      doc.open();
+      doc.write(html);
+      doc.close();
+      injectBridgeIntoDocument(doc);
+    } catch { /* iframe not ready — ignore */ }
+  }, [applyExternalNonce, html]);
 
   const undo = useCallback(() => {
     const previous = historyPastRef.current.pop();

@@ -21,7 +21,39 @@ type ReforgePayload = {
   generationContext?: string;   // original brief / brand facts so edits stay on-brand
   geminiApiKey?: string;
   model?: string;
+  mode?: "edit" | "plan";       // 'plan' = split a feedback text into distinct tasks
 };
+
+// Split a free-form feedback text into distinct, self-contained edit tasks so the
+// editor can apply them one at a time (asking the user to advance between each).
+async function planTasks(feedback: string, apiKey: string): Promise<string[]> {
+  const sys = [
+    "You split a user's landing-page feedback into a list of DISTINCT, self-contained edit tasks.",
+    "Each task = ONE concrete change, phrased as a short imperative instruction in the user's language.",
+    "Do not merge unrelated changes; do not invent changes the user didn't ask for. Preserve the user's intent and order.",
+    "Return JSON only: {\"tasks\":[\"...\",\"...\"]}. For a single change, return exactly one task.",
+  ].join("\n");
+  const body = {
+    systemInstruction: { parts: [{ text: sys }] },
+    contents: [{ parts: [{ text: feedback }] }],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 1200,
+      responseMimeType: "application/json",
+      responseSchema: { type: "object", properties: { tasks: { type: "array", items: { type: "string" } } }, required: ["tasks"] },
+    },
+  };
+  const res = await fetch(`${buildAiUrl("gemini-2.5-flash")}?key=${apiKey}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`plan ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
+  let tasks: string[] = [];
+  try { const j = JSON.parse(text); if (Array.isArray(j?.tasks)) tasks = j.tasks.map((t: unknown) => String(t || "").trim()).filter(Boolean); } catch { /* ignore */ }
+  if (!tasks.length) tasks = [feedback.trim()];
+  return tasks.slice(0, 12);
+}
 
 const env = (globalThis as any).Deno?.env;
 const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.5-pro"];
@@ -178,15 +210,22 @@ serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const payload = await req.json() as ReforgePayload;
-    if (!payload?.html?.trim()) {
-      return new Response(JSON.stringify({ error: "html is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
     if (!payload?.instruction?.trim()) {
       return new Response(JSON.stringify({ error: "instruction is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const apiKey = getApiKey(typeof payload.geminiApiKey === "string" ? payload.geminiApiKey : undefined);
     if (!apiKey) {
       return new Response(JSON.stringify({ error: "Gemini API key not configured" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // PLAN mode: just split the feedback into tasks (no html / stores needed).
+    if (payload.mode === "plan") {
+      const tasks = await planTasks(payload.instruction, apiKey);
+      return new Response(JSON.stringify({ tasks }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (!payload?.html?.trim()) {
+      return new Response(JSON.stringify({ error: "html is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const preferred = payload.model || MODEL_CHAIN[0];

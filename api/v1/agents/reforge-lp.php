@@ -23,6 +23,25 @@ $projectId   = (int)($body['project_id'] ?? 0);
 $instruction = trim((string)($body['instruction'] ?? ''));
 $html        = (string)($body['html'] ?? '');
 $history     = is_array($body['history'] ?? null) ? $body['history'] : [];
+$mode        = ($body['mode'] ?? '') === 'plan' ? 'plan' : 'edit';
+
+// PLAN mode: split a feedback text into distinct tasks. No html / store resolution.
+if ($mode === 'plan') {
+    if ($userId <= 0 || $instruction === '') {
+        http_response_code(400);
+        echo json_encode(['error' => 'user_id and instruction are required']);
+        exit;
+    }
+    $passKey = agents_env_value('GEMINI_API_KEY_PRODUCTION') ?: agents_env_value('GEMINI_API_KEY_TESTING') ?: null;
+    $res = agents_call_edge_function('agents-lp-reforge', [
+        'mode'         => 'plan',
+        'instruction'  => $instruction,
+        'geminiApiKey' => $passKey,
+    ], $passKey);
+    if (!empty($res['error'])) { http_response_code(500); echo json_encode(['error' => $res['error']]); exit; }
+    echo json_encode(['success' => true, 'tasks' => $res['tasks'] ?? []], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 if ($userId <= 0 || $projectId <= 0 || $instruction === '' || trim($html) === '') {
     http_response_code(400);
