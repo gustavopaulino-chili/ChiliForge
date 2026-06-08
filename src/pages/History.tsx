@@ -563,7 +563,7 @@ export default function History() {
       )}
 
       {Number(user?.id) > 0 && (
-        <ClickUpWikiDialog open={wikiOpen} onOpenChange={setWikiOpen} userId={Number(user?.id)} />
+        <ClickUpWikiDialog open={wikiOpen} onOpenChange={setWikiOpen} userId={Number(user?.id)} onImported={fetchProjects} />
       )}
 
       {/* New-company detections from ClickUp — import via the normal flow or dismiss. */}
