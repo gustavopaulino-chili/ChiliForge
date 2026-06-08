@@ -2241,7 +2241,7 @@ const Index = () => {
         <div className="mt-8 glass-card rounded-xl p-6 sm:p-8" key={currentStepId}>
           {currentStepId === 'type' && <StepWebsiteType data={formData} onChange={updateForm} />}
           {currentStepId === 'pages' && <StepPages data={formData} onChange={updateForm} />}
-          {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} onGenerateAiImages={handleAiImagesGenerate} isGeneratingAiImages={stepImagesAiGenerating} aiPercent={stepImagesAiPercent} aiLog={stepImagesAiLog} onUploadImages={handleUploadImagesForStep} aiImagesGenerated={aiImagesGenerated} generatedImageUrls={aiGeneratedImageUrls} />}
+          {currentStepId === 'images' && <StepImages data={formData} onChange={updateForm} onGenerateAiImages={handleAiImagesGenerate} isGeneratingAiImages={stepImagesAiGenerating} aiPercent={stepImagesAiPercent} aiLog={stepImagesAiLog} onUploadImages={handleUploadImagesForStep} aiImagesGenerated={aiImagesGenerated} generatedImageUrls={aiGeneratedImageUrls} companyProjectId={routeState?.companyProjectId} userId={user?.id} />}
           {/* Files step removed: download files will be created automatically from AI references to ./files/ in generated content. */}
           {currentStepId === 'leads' && <StepLeads data={formData} onChange={updateForm} />}
           {currentStepId === 'review' && <StepReview data={formData} />}

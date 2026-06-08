@@ -216,6 +216,8 @@ serve(async (req: Request) => {
     const userMessage = [
       storeInstruction,
       "",
+      "HERO IMAGE RULE: The hero/header section MUST always contain a prominent image (an <img> or a CSS background-image with object-fit:cover). If the campaign data has no hero image URL, use this neutral placeholder so the hero is NEVER empty: https://placehold.co/1280x720?text=Imagem — keep it as a real <img> so the user can swap it later. Never output a hero without a visible image.",
+      "",
       `=== GENERATION REQUEST ===\n${generationChoices.trim()}`,
     ].filter(Boolean).join("\n");
 

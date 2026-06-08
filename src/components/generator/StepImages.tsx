@@ -1,11 +1,35 @@
-import { useRef, useState, DragEvent } from 'react';
+import { useEffect, useRef, useState, DragEvent } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { BusinessFormData, ImageUrls } from '@/types/businessForm';
 import { Image, Sparkles, Plus, X, CheckCircle2, AlertCircle, Loader2, Wand2, Upload, FolderOpen, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FieldLabel } from './FieldLabel';
 import { ImageUploadField } from './ImageUploadField';
+import { CompanyImagePicker } from './CompanyImagePicker';
 import { Progress } from '@/components/ui/progress';
+import { getProjectAssets, getProjectById, type ProjectAsset } from '@/services/api';
+
+// Brand images stored in company_form_data.images — offered alongside the assets folder.
+const BRAND_IMAGE_KEYS: [string, string][] = [
+  ['logoUrl', 'Logo'], ['logo', 'Logo'], ['brandImage', 'Marca'], ['heroImage1', 'Hero 1'], ['heroImage2', 'Hero 2'],
+  ['aboutImage', 'Sobre'], ['teamImage', 'Equipe'], ['sectionImage1', 'Seção 1'], ['sectionImage2', 'Seção 2'], ['sectionImage3', 'Seção 3'],
+];
+function collectBrandAssets(formData: unknown): ProjectAsset[] {
+  const images = (formData as { images?: Record<string, unknown> } | null)?.images;
+  if (!images || typeof images !== 'object') return [];
+  const out: ProjectAsset[] = [];
+  const seen = new Set<string>();
+  const push = (name: string, raw: unknown) => {
+    const url = String(raw || '').trim();
+    if (/^https?:\/\//i.test(url) && !seen.has(url)) { seen.add(url); out.push({ name, url, size: 0, modifiedAt: 0 }); }
+  };
+  for (const [key, label] of BRAND_IMAGE_KEYS) push(label, (images as Record<string, unknown>)[key]);
+  const products = (images as Record<string, unknown>).productImages;
+  if (Array.isArray(products)) products.forEach((p, i) => push(`Produto ${i + 1}`, p));
+  return out;
+}
+const isImageAsset = (a: ProjectAsset) =>
+  /\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i.test(a.url || '') || /\.(png|jpe?g|webp|gif|svg|avif)$/i.test(a.name || '');
 
 interface AiLogEntry {
   label: string;
@@ -27,14 +51,47 @@ interface Props {
   onUploadImages?: (files: File[]) => Promise<UploadedAsset[]>;
   aiImagesGenerated?: boolean;
   generatedImageUrls?: string[];
+  companyProjectId?: number;
+  userId?: number;
 }
 
-export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiImages, aiPercent = 0, aiLog = [], onUploadImages, aiImagesGenerated = false, generatedImageUrls = [] }: Props) {
+export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiImages, aiPercent = 0, aiLog = [], onUploadImages, aiImagesGenerated = false, generatedImageUrls = [], companyProjectId, userId }: Props) {
   const dropRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedAssets, setUploadedAssets] = useState<UploadedAsset[]>([]);
+
+  // Company images (assets folder + brand images) for the "Empresa" picker.
+  const [companyAssets, setCompanyAssets] = useState<ProjectAsset[]>([]);
+  const [pickerTarget, setPickerTarget] = useState<{ apply: (url: string) => void } | null>(null);
+  const openCompanyPicker = (apply: (url: string) => void) => setPickerTarget({ apply });
+
+  useEffect(() => {
+    if (!companyProjectId || !userId) { setCompanyAssets([]); return; }
+    let active = true;
+    Promise.allSettled([
+      getProjectAssets(companyProjectId, userId),
+      getProjectById(companyProjectId, userId),
+    ]).then(([assetsRes, projRes]) => {
+      if (!active) return;
+      const folder: ProjectAsset[] = assetsRes.status === 'fulfilled' ? (assetsRes.value.assets || []).filter(isImageAsset) : [];
+      const brand: ProjectAsset[] = projRes.status === 'fulfilled' && projRes.value
+        ? collectBrandAssets(projRes.value.company_form_data || projRes.value.form_data) : [];
+      const seen = new Set<string>();
+      const merged: ProjectAsset[] = [];
+      for (const a of [...folder, ...brand]) {
+        const u = (a.url || '').trim();
+        if (!u || seen.has(u)) continue;
+        seen.add(u); merged.push(a);
+      }
+      setCompanyAssets(merged);
+    });
+    return () => { active = false; };
+  }, [companyProjectId, userId]);
+
+  const companyPickerProps = (apply: (url: string) => void) =>
+    companyAssets.length > 0 ? () => openCompanyPicker(apply) : undefined;
 
   const updateImage = (key: keyof ImageUrls, value: string) => {
     onChange({ images: { ...data.images, [key]: value } });
@@ -293,6 +350,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               hint="Main hero banner image. Should be eye-catching and represent your brand."
               value={data.images.heroImage1}
               onChange={v => updateImage('heroImage1', v)}
+              onPickCompany={companyPickerProps((url) => updateImage('heroImage1', url))}
               imageType="hero1"
             />
             <ImageUploadField
@@ -300,6 +358,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               hint="Secondary hero image for slideshow or alternate sections."
               value={data.images.heroImage2}
               onChange={v => updateImage('heroImage2', v)}
+              onPickCompany={companyPickerProps((url) => updateImage('heroImage2', url))}
               imageType="hero2"
             />
           </div>
@@ -319,6 +378,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               hint="Your company logo. PNG or SVG with transparent background works best. Used in header and footer."
               value={data.images.logoUrl}
               onChange={v => updateImage('logoUrl', v)}
+              onPickCompany={companyPickerProps((url) => updateImage('logoUrl', url))}
               imageType="logo"
               required
             />
@@ -327,6 +387,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               hint="An image that represents your brand identity — team photo, office, or lifestyle image."
               value={data.images.brandImage}
               onChange={v => updateImage('brandImage', v)}
+              onPickCompany={companyPickerProps((url) => updateImage('brandImage', url))}
               imageType="brand"
             />
           </div>
@@ -346,6 +407,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               hint="First section image. Used in feature, benefit, or service section."
               value={data.images.sectionImage1}
               onChange={v => updateImage('sectionImage1', v)}
+              onPickCompany={companyPickerProps((url) => updateImage('sectionImage1', url))}
               imageType="section1"
             />
             <ImageUploadField
@@ -353,6 +415,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               hint="Second section image. Used in another content section."
               value={data.images.sectionImage2}
               onChange={v => updateImage('sectionImage2', v)}
+              onPickCompany={companyPickerProps((url) => updateImage('sectionImage2', url))}
               imageType="section2"
             />
             <ImageUploadField
@@ -360,6 +423,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               hint="Third section image. Used in additional content section."
               value={data.images.sectionImage3}
               onChange={v => updateImage('sectionImage3', v)}
+              onPickCompany={companyPickerProps((url) => updateImage('sectionImage3', url))}
               imageType="section3"
             />
           </div>
@@ -379,6 +443,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               hint="Image for your about section. It should reflect your company culture or values."
               value={data.images.aboutImage}
               onChange={v => updateImage('aboutImage', v)}
+              onPickCompany={companyPickerProps((url) => updateImage('aboutImage', url))}
               imageType="about"
             />
             <ImageUploadField
@@ -386,6 +451,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               hint="Team photo or group image representing your company personnel."
               value={data.images.teamImage}
               onChange={v => updateImage('teamImage', v)}
+              onPickCompany={companyPickerProps((url) => updateImage('teamImage', url))}
               imageType="team"
             />
           </div>
@@ -423,6 +489,13 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
           </div>
         )}
       </div>
+
+      <CompanyImagePicker
+        open={pickerTarget !== null}
+        onOpenChange={(o) => { if (!o) setPickerTarget(null); }}
+        assets={companyAssets}
+        onSelect={(url) => { pickerTarget?.apply(url); setPickerTarget(null); }}
+      />
     </div>
   );
 }

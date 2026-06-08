@@ -13,6 +13,8 @@ interface ImageUploadFieldProps {
   onChange: (value: string) => void;
   imageType: 'logo' | 'hero1' | 'hero2' | 'section1' | 'section2' | 'section3' | 'brand' | 'about' | 'team' | 'product';
   required?: boolean;
+  /** When provided, shows a "Empresa" button that opens the company-image picker. */
+  onPickCompany?: () => void;
 }
 
 export function ImageUploadField({
@@ -22,6 +24,7 @@ export function ImageUploadField({
   onChange,
   imageType,
   required = false,
+  onPickCompany,
 }: ImageUploadFieldProps) {
   const { user } = useAuth();
   const [isUploading, setIsUploading] = useState(false);
@@ -66,6 +69,16 @@ export function ImageUploadField({
           >
             Upload
           </button>
+          {onPickCompany && (
+            <button
+              type="button"
+              onClick={onPickCompany}
+              className="px-2 py-1 rounded text-muted-foreground hover:text-foreground"
+              title="Escolher das imagens da empresa"
+            >
+              Empresa
+            </button>
+          )}
         </div>
       </div>
 

@@ -510,8 +510,15 @@ try {
     if ($existingProject) {
         $project_id = (int)$existingProject['id'];
 
-        $updP = $conn->prepare("UPDATE projects SET name = ?, project_type = ? WHERE id = ? AND user_id = ?");
-        $updP->bind_param("ssii", $name, $project_type, $project_id, $effectiveUserId);
+        // Persist the company link too (so LPs generated from a company show up on
+        // its page). Only set it when provided — never clear an existing link.
+        if ($company_project_id !== null) {
+            $updP = $conn->prepare("UPDATE projects SET name = ?, project_type = ?, company_project_id = ? WHERE id = ? AND user_id = ?");
+            $updP->bind_param("ssiii", $name, $project_type, $company_project_id, $project_id, $effectiveUserId);
+        } else {
+            $updP = $conn->prepare("UPDATE projects SET name = ?, project_type = ? WHERE id = ? AND user_id = ?");
+            $updP->bind_param("ssii", $name, $project_type, $project_id, $effectiveUserId);
+        }
         if (!$updP->execute()) {
             throw new RuntimeException('Erro ao atualizar projeto: ' . $updP->error);
         }
