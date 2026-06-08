@@ -34,16 +34,39 @@ if ($workspaceId === '') {
 }
 if ($workspaceId === '') { http_response_code(502); echo json_encode(["error" => "no_workspace", "message" => "No ClickUp workspace found."]); exit; }
 
-// Fetch the full page tree of the Wiki Doc (titles only — content is loaded on click).
-$pagesRes = clickup_api_request($token, 'GET', "/workspaces/{$workspaceId}/docs/{$docId}/pages?max_page_depth=-1", null, 'v3');
+// Fetch the page tree of the Wiki Doc. Mirror the proven v1 call (no max_page_depth,
+// which ClickUp can reject). Try a couple of shapes and surface the real error.
+$pagesRes = clickup_api_request($token, 'GET', "/workspaces/{$workspaceId}/docs/{$docId}/pages?content_format=text/md", null, 'v3');
 if (($pagesRes['code'] ?? 0) === 401) { echo json_encode(["error" => "token_invalid", "message" => "ClickUp session expired. Reconnect."]); exit; }
+
+// Fallback A: plain /pages (no query).
 if (($pagesRes['code'] ?? 0) !== 200) {
-    http_response_code(502);
-    echo json_encode(["error" => "wiki_fetch_failed", "message" => $pagesRes['error'] ?: 'Could not load the Wiki pages.', "doc_id" => $docId]);
-    exit;
+    $pagesRes = clickup_api_request($token, 'GET', "/workspaces/{$workspaceId}/docs/{$docId}/pages", null, 'v3');
 }
-$d = $pagesRes['data'];
-$rawPages = is_array($d['pages'] ?? null) ? $d['pages'] : (is_array($d) ? $d : []);
+// Fallback B: fetch the Doc itself and read its embedded pages.
+$d = is_array($pagesRes['data'] ?? null) ? $pagesRes['data'] : [];
+$rawPages = is_array($d['pages'] ?? null) ? $d['pages'] : (isset($d[0]) ? $d : []);
+if (($pagesRes['code'] ?? 0) !== 200 || empty($rawPages)) {
+    $docRes = clickup_api_request($token, 'GET', "/workspaces/{$workspaceId}/docs/{$docId}", null, 'v3');
+    if (($docRes['code'] ?? 0) === 200) {
+        $dd = is_array($docRes['data'] ?? null) ? $docRes['data'] : [];
+        $rawPages = is_array($dd['pages'] ?? null) ? $dd['pages'] : $rawPages;
+        if (!empty($rawPages)) $pagesRes = $docRes;
+    }
+    if (($pagesRes['code'] ?? 0) !== 200 && ($docRes['code'] ?? 0) !== 200) {
+        $cuCode = (int)($pagesRes['code'] ?? 0);
+        $cuMsg  = $pagesRes['error'] ?: ($docRes['error'] ?? 'Could not load the Wiki pages.');
+        http_response_code(502);
+        echo json_encode([
+            "error"        => "wiki_fetch_failed",
+            "message"      => "ClickUp respondeu {$cuCode} para o doc {$docId} (ws {$workspaceId}): {$cuMsg}",
+            "doc_id"       => $docId,
+            "workspace_id" => $workspaceId,
+            "clickup_code" => $cuCode,
+        ]);
+        exit;
+    }
+}
 $flat = clickup_flatten_doc_pages($rawPages);
 
 $companies = [];
