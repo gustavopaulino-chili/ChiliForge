@@ -175,3 +175,70 @@ export function companyToAdForm(company: CompanyProjectFormData, existing?: Part
     backgroundImageUrl: company.images.heroImage1 || company.images.heroImage2 || '',
   };
 }
+
+// Merge freshly scraped data onto an existing company form, REPLACING any field
+// the scrape returns (used by the company page "re-scrape site" action).
+export function applyScrapedToCompanyForm(
+  prev: CompanyProjectFormData,
+  extracted: Record<string, unknown>,
+  sourceWebsite?: string,
+): CompanyProjectFormData {
+  const out: CompanyProjectFormData = { ...prev };
+  const str = (...keys: string[]): string | undefined => {
+    const v = keys.map((k) => extracted[k]).find((x) => typeof x === 'string' && (x as string).trim());
+    return typeof v === 'string' ? v.trim() : undefined;
+  };
+  const list = (...keys: string[]): string[] => {
+    for (const k of keys) {
+      const v = extracted[k];
+      if (Array.isArray(v)) return v.map((x) => String(x || '').trim()).filter(Boolean);
+    }
+    return [];
+  };
+  const setIf = (key: keyof CompanyProjectFormData, val?: string) => { if (val) (out as Record<string, unknown>)[key] = val; };
+
+  setIf('businessName', str('businessName', 'brandName', 'name'));
+  setIf('businessDescription', str('businessDescription', 'description', 'about'));
+  setIf('businessCategory', str('businessCategory', 'industry', 'category'));
+  setIf('targetAudience', str('targetAudience', 'audience'));
+  setIf('valueProposition', str('valueProposition', 'uniqueValueProposition', 'offer'));
+  setIf('designNotes', str('designNotes', 'visualStyle', 'brandNotes'));
+  setIf('brandKeywords', str('brandKeywords', 'keywords'));
+  setIf('forbiddenWords', str('forbiddenWords'));
+  setIf('headingFont', str('headingFont'));
+  setIf('bodyFont', str('bodyFont'));
+  setIf('phone', str('phone'));
+  setIf('email', str('email'));
+  setIf('city', str('city'));
+  setIf('country', str('country'));
+
+  const services = list('services', 'products');
+  if (services.length) out.services = services;
+  const diffs = list('differentiators', 'features', 'benefits');
+  if (diffs.length) out.differentiators = diffs;
+
+  (['primaryColor', 'secondaryColor', 'accentColor', 'textColor', 'backgroundColor'] as const).forEach((k) => {
+    const v = extracted[k];
+    if (typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v.trim())) (out as Record<string, unknown>)[k] = v.trim();
+  });
+
+  const nextImages: Record<string, unknown> = { ...(out.images as Record<string, unknown>) };
+  ['heroImage1', 'heroImage2', 'logoUrl', 'logoAlt', 'brandImage', 'sectionImage1', 'sectionImage2', 'sectionImage3', 'aboutImage', 'teamImage'].forEach((k) => {
+    const v = extracted[k];
+    if (typeof v === 'string' && v.trim()) nextImages[k] = v.trim();
+  });
+  if (Array.isArray(extracted.productImages)) nextImages.productImages = extracted.productImages.map((x) => String(x || '').trim()).filter(Boolean);
+  if (extracted.images && typeof extracted.images === 'object') Object.assign(nextImages, extracted.images);
+  out.images = nextImages as CompanyProjectFormData['images'];
+
+  const nextSocial: Record<string, unknown> = { ...(out.socialLinks as Record<string, unknown>) };
+  ['facebook', 'instagram', 'twitter', 'linkedin', 'youtube'].forEach((k) => {
+    const v = extracted[k];
+    if (typeof v === 'string' && v.trim()) nextSocial[k] = v.trim();
+  });
+  if (extracted.socialLinks && typeof extracted.socialLinks === 'object') Object.assign(nextSocial, extracted.socialLinks);
+  out.socialLinks = nextSocial as CompanyProjectFormData['socialLinks'];
+
+  if (sourceWebsite) out.sourceWebsite = sourceWebsite;
+  return out;
+}

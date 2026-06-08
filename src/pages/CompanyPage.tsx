@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PremiumParticleBackground } from '@/components/landing/PremiumParticleBackground';
 import { CompanyProjectForm } from '@/components/project/CompanyProjectForm';
 import { useAuth } from '@/contexts/AuthContext';
-import { createProject, getAdCreatives, getProjectById, getProjects, updateCompanyProject, uploadProjectAssets, uploadProjectAssetsFromUrls } from '@/services/api';
+import { createProject, getAdCreatives, getProjectById, getProjects, scrapeWebsite, updateCompanyProject, uploadProjectAssets, uploadProjectAssetsFromUrls } from '@/services/api';
 import {
   CompanyProjectFormData,
   defaultCompanyProjectFormData,
@@ -19,6 +19,7 @@ import {
   companyToLandingForm,
   companyToAdForm,
   buildCompanyContext,
+  applyScrapedToCompanyForm,
 } from '@/types/projectContext';
 import { toast } from 'sonner';
 import '@/components/landing/HeroLanding.css';
@@ -105,6 +106,7 @@ export default function CompanyPage() {
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isRescraping, setIsRescraping] = useState(false);
   const [editSection, setEditSection] = useState<typeof EDIT_SECTIONS[number]['id']>('basics');
   const [busyChildId, setBusyChildId] = useState<number | null>(null);
 
@@ -203,6 +205,51 @@ export default function CompanyPage() {
       toast.error(err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const collectRescrapeImageUrls = (extracted: Record<string, unknown>, form: CompanyProjectFormData): string[] => {
+    const set = new Set<string>();
+    const add = (v: unknown) => { const s = String(v || '').trim(); if (/^https?:\/\//i.test(s)) set.add(s); };
+    if (Array.isArray(extracted.allImages)) extracted.allImages.forEach(add);
+    if (Array.isArray(extracted.productImages)) extracted.productImages.forEach(add);
+    const img = (form.images || {}) as Record<string, unknown>;
+    ['logoUrl', 'heroImage1', 'heroImage2', 'brandImage', 'sectionImage1', 'sectionImage2', 'sectionImage3', 'aboutImage', 'teamImage'].forEach((k) => add(img[k]));
+    if (Array.isArray(img.productImages)) (img.productImages as unknown[]).forEach(add);
+    return [...set];
+  };
+
+  // Re-scrape the company's source website and REPLACE the stored data with the
+  // fresh extraction (texts, colors, fonts, images) + re-sync the company store
+  // (updateCompanyProject.php syncs it) + save new images to the assets folder.
+  const handleRescrape = async () => {
+    if (!user?.id || !company?.id) return;
+    const site = (formData.sourceWebsite || '').trim();
+    if (!site) {
+      toast.error('Esta empresa não tem um site de origem salvo. Edite a empresa e adicione o site primeiro.');
+      return;
+    }
+    if (!window.confirm('Re-scrapear vai SUBSTITUIR os dados atuais da empresa (textos, cores, fontes, imagens) pelos extraídos do site. Continuar?')) return;
+    setIsRescraping(true);
+    try {
+      const res = await scrapeWebsite(site, false);
+      const extracted = (res?.extracted || {}) as Record<string, unknown>;
+      const next = applyScrapedToCompanyForm(formData, extracted, site);
+      await updateCompanyProject({
+        id: company.id,
+        user_id: user.id,
+        name: next.businessName || company.name,
+        company_form_data: next,
+        context: buildCompanyContext(next),
+      });
+      setFormData(next);
+      const urls = collectRescrapeImageUrls(extracted, next);
+      if (urls.length) void uploadProjectAssetsFromUrls(company.id, user.id, urls).catch(() => {});
+      toast.success('Site re-scrapeado — dados da empresa atualizados.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao re-scrapear o site.');
+    } finally {
+      setIsRescraping(false);
     }
   };
 
@@ -389,10 +436,22 @@ export default function CompanyPage() {
                 </Button>
               </>
             ) : (
-              <Button variant="outline" size="sm" onClick={startEdit}>
-                <Edit3 className="h-4 w-4 mr-1" />
-                Edit
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRescrape}
+                  disabled={isRescraping || !formData.sourceWebsite}
+                  title={formData.sourceWebsite ? `Re-scrapear ${formData.sourceWebsite} e substituir os dados` : 'Sem site de origem salvo'}
+                >
+                  {isRescraping ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RotateCcw className="h-4 w-4 mr-1" />}
+                  {isRescraping ? 'Re-scrapeando…' : 'Re-scrapear site'}
+                </Button>
+                <Button variant="outline" size="sm" onClick={startEdit}>
+                  <Edit3 className="h-4 w-4 mr-1" />
+                  Edit
+                </Button>
+              </>
             )}
           </div>
         </header>
