@@ -173,6 +173,46 @@ function clickup_verify_webhook_signature(string $rawBody, string $signatureHead
     return hash_equals($expected, trim($signatureHeader));
 }
 
+// ── Wiki (Docs v3) → companies ──────────────────────────────────────────────
+// The main "Chili Wiki" is a Doc whose subpages are clients/companies, titled
+// "{Company} - {Service} {Region}" (e.g. "Joico - SEO BR", "Rodelag - SEO & PPC INT").
+function clickup_wiki_doc_id(): string {
+    return clickup_env('CLICKUP_WIKI_DOC_ID', '8cnb3qu-16234');
+}
+
+// Parse a Wiki subpage title → ['company','services'[],'region','raw'] or null.
+function clickup_parse_wiki_title(string $title): ?array {
+    $title = trim($title);
+    if ($title === '') return null;
+    $pos = mb_strpos($title, ' - ');
+    if ($pos === false) return null;                 // not "{Company} - ..." → not a client page
+    $company = trim(mb_substr($title, 0, $pos));
+    $rest    = trim(mb_substr($title, $pos + 3));
+    if ($company === '') return null;
+
+    $services = [];
+    if (preg_match('/\bSEO\b/i', $rest)) $services[] = 'SEO';
+    if (preg_match('/\bPPC\b/i', $rest)) $services[] = 'PPC';
+
+    $region = '';
+    if (preg_match('/\bINT\b/i', $rest))      $region = 'INT';
+    elseif (preg_match('/\bBR\b/i', $rest))   $region = 'BR';
+
+    return ['company' => $company, 'services' => $services, 'region' => $region, 'raw' => $title];
+}
+
+// Recursively flatten a Docs v3 page tree into a flat [['id','name'], ...] list.
+function clickup_flatten_doc_pages($pages, array &$out = []): array {
+    if (!is_array($pages)) return $out;
+    foreach ($pages as $p) {
+        if (!is_array($p)) continue;
+        $id = (string)($p['id'] ?? '');
+        if ($id !== '') $out[] = ['id' => $id, 'name' => (string)($p['name'] ?? '')];
+        if (isset($p['pages']) && is_array($p['pages'])) clickup_flatten_doc_pages($p['pages'], $out);
+    }
+    return $out;
+}
+
 // ── ClickUp REST helper ─────────────────────────────────────────────────────
 // CRITICAL: ClickUp API v2 takes the token RAW in Authorization (no "Bearer").
 // Returns ['code'=>int, 'data'=>array, 'error'=>string]. Retries 429 with backoff.

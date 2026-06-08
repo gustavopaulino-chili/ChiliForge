@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, ChevronDown, Edit3, ExternalLink, Eye, FileText, FolderInput, FolderOpen, Loader2, Megaphone, Plug, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { ClickUpImportDialog } from "@/components/project/ClickUpImportDialog";
+import { ClickUpWikiDialog } from "@/components/project/ClickUpWikiDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -123,6 +124,7 @@ export default function History() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [clickupOpen, setClickupOpen] = useState(false);
+  const [wikiOpen, setWikiOpen] = useState(false);
   const [detections, setDetections] = useState<ClickUpDetection[]>([]);
 
   // New-company detections from ClickUp (webhook). Shown as a badge + panel.
@@ -542,6 +544,9 @@ export default function History() {
               </span>
             )}
           </Button>
+          <Button size="sm" variant="outline" onClick={() => setWikiOpen(true)} className="gap-2">
+            <FileText className="h-4 w-4" /> Wiki
+          </Button>
           <Button size="sm" onClick={() => navigate("/projects/new")} className="gap-2">
             <FolderOpen className="h-4 w-4" /> New Project
           </Button>
@@ -555,6 +560,10 @@ export default function History() {
           userId={Number(user?.id)}
           onImported={() => { setClickupOpen(false); fetchProjects(); fetchDetections(); }}
         />
+      )}
+
+      {Number(user?.id) > 0 && (
+        <ClickUpWikiDialog open={wikiOpen} onOpenChange={setWikiOpen} userId={Number(user?.id)} />
       )}
 
       {/* New-company detections from ClickUp — import via the normal flow or dismiss. */}

@@ -1330,7 +1330,7 @@ export const setupWizardChat = (payload: {
 
 // ── ClickUp integration ──────────────────────────────────────────────────────
 import type {
-  ClickUpStatus, ClickUpListResponse, ClickUpCompany, ClickUpDoc, ClickUpImportResultItem, ClickUpDetection,
+  ClickUpStatus, ClickUpListResponse, ClickUpCompany, ClickUpDoc, ClickUpImportResultItem, ClickUpDetection, ClickUpWikiCompany,
 } from "@/types/clickup";
 
 const clickupGet = async <T>(endpoint: string, params: Record<string, string>): Promise<T> => {
@@ -1381,3 +1381,10 @@ export const clickupListDetected = (userId: number): Promise<{ success: boolean;
 
 export const clickupDetectedAction = (userId: number, id: number, action: 'dismiss' | 'imported'): Promise<{ success: boolean; status: string }> =>
   postApi<{ success: boolean; status: string }>("clickup_detected_action.php", { user_id: userId, id, action });
+
+// Wiki — load companies parsed from a ClickUp Doc's subpages, and a single page's content.
+export const clickupWikiCompanies = (userId: number, docId?: string): Promise<{ success: boolean; doc_id: string; count: number; companies: ClickUpWikiCompany[]; error?: string; message?: string }> =>
+  clickupGet<{ success: boolean; doc_id: string; count: number; companies: ClickUpWikiCompany[]; error?: string; message?: string }>("clickup_wiki_companies.php", { user_id: String(userId), ...(docId ? { doc_id: docId } : {}) });
+
+export const clickupWikiPage = (userId: number, pageId: string, docId?: string): Promise<{ success: boolean; name: string; content: string; error?: string; message?: string }> =>
+  clickupGet<{ success: boolean; name: string; content: string; error?: string; message?: string }>("clickup_wiki_page.php", { user_id: String(userId), page_id: pageId, ...(docId ? { doc_id: docId } : {}) });

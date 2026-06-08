@@ -54,3 +54,13 @@ export interface ClickUpDetection {
   list_ids: string[];
   detected_at: string;
 }
+
+// Wiki — a client parsed from a ClickUp Doc subpage title "{Company} - {Service} {Region}".
+export interface ClickUpWikiCompany {
+  company: string;
+  services: string[];   // SEO, PPC
+  region: string;       // BR | INT | ''
+  title: string;        // original subpage title
+  doc_id: string;
+  page_id: string;
+}
