@@ -8,6 +8,11 @@ export interface ClickUpStatus {
   configured: boolean; // server has CLICKUP_CLIENT_ID set
 }
 
+export interface ClickUpSpace {
+  id: string;
+  name: string;
+}
+
 export interface ClickUpFolder {
   id: string;
   name: string;
@@ -24,6 +29,7 @@ export interface ClickUpCompany {
 }
 
 export type ClickUpListResponse =
+  | { success: true; mode: 'spaces'; workspace_id: string; spaces: ClickUpSpace[] }
   | { success: true; mode: 'folders'; space_id: string; workspace_id: string; folders: ClickUpFolder[] }
   | { success: true; mode: 'companies'; space_id: string; folder_id: string; companies: ClickUpCompany[] };
 

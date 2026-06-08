@@ -47,30 +47,34 @@ if ($workspaceId === '') {
     exit;
 }
 
-// ── Resolve the FIXED Space (by id, else by name match) ─────────────────────
-$spaceId   = clickup_fixed_space_id();
-$spaceName = clickup_fixed_space_name();
-if ($spaceId === '') {
+// Space: free choice by the user. The env CLICKUP_SPACE_ID still PINS it if an
+// admin wants to lock the integration to a single Space.
+$spaceId = trim((string)($_REQUEST['space_id'] ?? '')) ?: clickup_fixed_space_id();
+
+// ── Mode A1: no space chosen (and none pinned) -> return the Spaces ──────────
+if ($spaceId === '' && $folderId === '') {
     $spaceRes = clickup_api_request($token, 'GET', "/team/{$workspaceId}/space");
+    if (($spaceRes['code'] ?? 0) === 401) { echo json_encode(["error" => "token_invalid", "message" => "ClickUp session expired. Reconnect."]); exit; }
     if (($spaceRes['code'] ?? 0) !== 200) {
         http_response_code(502);
         echo json_encode(["error" => "space_fetch_failed", "message" => $spaceRes['error'] ?: 'Could not list spaces.']);
         exit;
     }
-    $spaces = is_array($spaceRes['data']['spaces'] ?? null) ? $spaceRes['data']['spaces'] : [];
-    $needle = mb_strtolower($spaceName);
-    foreach ($spaces as $sp) {
-        if (mb_strpos(mb_strtolower((string)($sp['name'] ?? '')), $needle) !== false) { $spaceId = (string)$sp['id']; break; }
-    }
-    if ($spaceId === '' && count($spaces) === 1) $spaceId = (string)$spaces[0]['id'];
-}
-if ($spaceId === '') {
-    http_response_code(404);
-    echo json_encode(["error" => "space_not_found", "message" => "Fixed Space '{$spaceName}' not found. Set CLICKUP_SPACE_ID on the server."]);
+    $spaces = array_map(fn($s) => [
+        'id'   => (string)($s['id'] ?? ''),
+        'name' => (string)($s['name'] ?? ''),
+    ], is_array($spaceRes['data']['spaces'] ?? null) ? $spaceRes['data']['spaces'] : []);
+    echo json_encode([
+        "success"      => true,
+        "mode"         => "spaces",
+        "workspace_id" => $workspaceId,
+        "spaces"       => $spaces,
+    ]);
+    $conn->close();
     exit;
 }
 
-// ── Mode A: no folder chosen yet -> return the Folders of the Space ──────────
+// ── Mode A2: space chosen, no folder yet -> return the Folders of the Space ──
 if ($folderId === '') {
     $folderRes = clickup_api_request($token, 'GET', "/space/{$spaceId}/folder");
     if (($folderRes['code'] ?? 0) !== 200) {

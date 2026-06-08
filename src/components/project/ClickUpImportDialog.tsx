@@ -6,9 +6,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, Plug, RefreshCw, CheckCircle2, AlertCircle, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  clickupStatus, clickupStartOAuth, clickupConnectToken, clickupListFolders, clickupListCompanies, clickupImportCompanies, scrapeWebsite,
+  clickupStatus, clickupStartOAuth, clickupConnectToken, clickupListSpaces, clickupListFolders, clickupListCompanies, clickupImportCompanies, scrapeWebsite,
 } from '@/services/api';
-import type { ClickUpFolder, ClickUpCompany } from '@/types/clickup';
+import type { ClickUpSpace, ClickUpFolder, ClickUpCompany } from '@/types/clickup';
 
 interface Props {
   open: boolean;
@@ -37,6 +37,8 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
   const [loading, setLoading] = useState(true);
   const [configured, setConfigured] = useState(true);
   const [connected, setConnected] = useState(false);
+  const [spaces, setSpaces] = useState<ClickUpSpace[]>([]);
+  const [spaceId, setSpaceId] = useState('');
   const [folders, setFolders] = useState<ClickUpFolder[]>([]);
   const [folderId, setFolderId] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
@@ -53,8 +55,14 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
       setConfigured(s.configured);
       setConnected(s.connected);
       if (s.connected) {
-        const res = await clickupListFolders(userId);
-        if (res.mode === 'folders') setFolders(res.folders);
+        const res = await clickupListSpaces(userId);
+        if (res.mode === 'spaces') {
+          setSpaces(res.spaces);
+          setFolders([]); setSpaceId('');
+        } else if (res.mode === 'folders') {
+          // server pinned a space → skip the space picker
+          setSpaces([]); setSpaceId(res.space_id); setFolders(res.folders);
+        }
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to load ClickUp status');
@@ -87,6 +95,21 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
       toast.error(e instanceof Error ? e.message : 'Não foi possível conectar com a API key');
     } finally {
       setConnecting(false);
+    }
+  };
+
+  const loadFolders = async (sid: string) => {
+    setSpaceId(sid);
+    setFolders([]); setFolderId(''); setRows([]); setPhase('select');
+    if (!sid) return;
+    setBusy(true);
+    try {
+      const res = await clickupListFolders(userId, sid);
+      if (res.mode === 'folders') setFolders(res.folders);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not list folders');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -209,17 +232,36 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Pasta (Folder):</span>
-              <select
-                className="flex h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
-                value={folderId}
-                onChange={(e) => loadCompanies(e.target.value)}
-              >
-                <option value="">Selecione a pasta…</option>
-                {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
-              <Button variant="outline" size="icon" onClick={refreshStatus} title="Atualizar"><RefreshCw className="h-4 w-4" /></Button>
+            <div className="space-y-2">
+              {spaces.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="w-12 text-xs font-medium text-muted-foreground">Space:</span>
+                  <select
+                    className="flex h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                    value={spaceId}
+                    onChange={(e) => loadFolders(e.target.value)}
+                  >
+                    <option value="">Selecione o space…</option>
+                    {spaces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  <Button variant="outline" size="icon" onClick={refreshStatus} title="Atualizar"><RefreshCw className="h-4 w-4" /></Button>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <span className="w-12 text-xs font-medium text-muted-foreground">Folder:</span>
+                <select
+                  className="flex h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                  value={folderId}
+                  disabled={spaces.length > 0 && !spaceId}
+                  onChange={(e) => loadCompanies(e.target.value)}
+                >
+                  <option value="">{spaces.length > 0 && !spaceId ? 'Escolha o space primeiro…' : 'Selecione a pasta…'}</option>
+                  {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+                {spaces.length === 0 && (
+                  <Button variant="outline" size="icon" onClick={refreshStatus} title="Atualizar"><RefreshCw className="h-4 w-4" /></Button>
+                )}
+              </div>
             </div>
 
             {busy ? (

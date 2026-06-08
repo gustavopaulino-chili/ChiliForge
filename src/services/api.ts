@@ -1349,8 +1349,13 @@ export const clickupStatus = (userId: number): Promise<ClickUpStatus> =>
 export const clickupStartOAuth = (userId: number): Promise<{ success: boolean; authorize_url: string }> =>
   clickupGet<{ success: boolean; authorize_url: string }>("clickup_oauth_start.php", { user_id: String(userId) });
 
-export const clickupListFolders = (userId: number): Promise<ClickUpListResponse> =>
+// No space_id and no pinned space → returns mode 'spaces'. If the server pins a
+// space (CLICKUP_SPACE_ID), it returns mode 'folders' directly.
+export const clickupListSpaces = (userId: number): Promise<ClickUpListResponse> =>
   clickupGet<ClickUpListResponse>("clickup_list_companies.php", { user_id: String(userId) });
+
+export const clickupListFolders = (userId: number, spaceId: string): Promise<ClickUpListResponse> =>
+  clickupGet<ClickUpListResponse>("clickup_list_companies.php", { user_id: String(userId), space_id: spaceId });
 
 export const clickupListCompanies = (userId: number, folderId: string): Promise<ClickUpListResponse> =>
   clickupGet<ClickUpListResponse>("clickup_list_companies.php", { user_id: String(userId), folder_id: folderId });
