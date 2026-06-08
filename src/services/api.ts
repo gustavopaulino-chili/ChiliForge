@@ -1360,3 +1360,6 @@ export const clickupImportCompanies = (
   companies: Array<Pick<ClickUpCompany, "company" | "channels" | "list_ids"> & { website_url: string; form_data?: Record<string, unknown> }>,
 ): Promise<{ success: boolean; results: ClickUpImportResultItem[] }> =>
   postApi<{ success: boolean; results: ClickUpImportResultItem[] }>("clickup_import_companies.php", { user_id: userId, companies });
+
+export const clickupConnectToken = (userId: number, apiToken: string): Promise<{ success: boolean; connected: boolean; workspace_id?: string | null }> =>
+  postApi<{ success: boolean; connected: boolean; workspace_id?: string | null }>("clickup_connect_token.php", { user_id: userId, api_token: apiToken });

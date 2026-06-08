@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, Plug, RefreshCw, CheckCircle2, AlertCircle, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  clickupStatus, clickupStartOAuth, clickupListFolders, clickupListCompanies, clickupImportCompanies, scrapeWebsite,
+  clickupStatus, clickupStartOAuth, clickupConnectToken, clickupListFolders, clickupListCompanies, clickupImportCompanies, scrapeWebsite,
 } from '@/services/api';
 import type { ClickUpFolder, ClickUpCompany } from '@/types/clickup';
 
@@ -28,6 +28,8 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [apiToken, setApiToken] = useState('');
+  const [connecting, setConnecting] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     setLoading(true);
@@ -54,6 +56,22 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
       window.location.href = authorize_url; // ClickUp redirects back to /projects?clickup=connected
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not start ClickUp connection');
+    }
+  };
+
+  const handleConnectToken = async () => {
+    const t = apiToken.trim();
+    if (!t) { toast.error('Cole a API key do ClickUp (pk_...).'); return; }
+    setConnecting(true);
+    try {
+      await clickupConnectToken(userId, t);
+      setApiToken('');
+      toast.success('ClickUp conectado!');
+      await refreshStatus();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível conectar com a API key');
+    } finally {
+      setConnecting(false);
     }
   };
 
@@ -126,14 +144,33 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
 
         {loading ? (
           <div className="flex items-center gap-2 py-8 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Carregando…</div>
-        ) : !configured ? (
-          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-            A integração ClickUp ainda não está configurada no servidor (faltam as credenciais do app). Avise o admin.
-          </div>
         ) : !connected ? (
-          <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">Você ainda não conectou o ClickUp.</p>
-            <Button onClick={handleConnect} className="gap-2"><Plug className="h-4 w-4" /> Conectar ClickUp</Button>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-foreground">Conectar com API key</p>
+              <p className="text-xs text-muted-foreground">
+                Cole sua API key pessoal do ClickUp. Em ClickUp: Settings → Apps → API Token (começa com <code>pk_</code>).
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  type="password"
+                  value={apiToken}
+                  onChange={(e) => setApiToken(e.target.value)}
+                  placeholder="pk_..."
+                  className="flex-1 text-sm"
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleConnectToken(); }}
+                />
+                <Button onClick={handleConnectToken} disabled={connecting} className="gap-2">
+                  {connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />} Conectar
+                </Button>
+              </div>
+            </div>
+            {configured && (
+              <div className="border-t border-border/60 pt-3">
+                <p className="mb-2 text-xs text-muted-foreground">ou conecte via OAuth (login na conta ClickUp):</p>
+                <Button variant="outline" onClick={handleConnect} className="gap-2"><Plug className="h-4 w-4" /> Conectar via OAuth</Button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
