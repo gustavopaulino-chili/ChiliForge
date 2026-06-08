@@ -88,6 +88,19 @@ if ($folderId === '') {
         'list_count' => isset($f['lists']) && is_array($f['lists']) ? count($f['lists']) : (int)($f['task_count'] ?? 0),
     ], is_array($folderRes['data']['folders'] ?? null) ? $folderRes['data']['folders'] : []);
 
+    // Also expose FOLDERLESS lists (lists created directly in the Space, no Folder —
+    // ClickUp shows these under the Space root / "Todas as tarefas"). Surfaced as a
+    // synthetic folder so the user can pick them too.
+    $flRes = clickup_api_request($token, 'GET', "/space/{$spaceId}/list");
+    $folderless = is_array($flRes['data']['lists'] ?? null) ? $flRes['data']['lists'] : [];
+    if (count($folderless) > 0) {
+        array_unshift($folders, [
+            'id'         => 'space:' . $spaceId,
+            'name'       => '📋 Lists sem pasta (direto no space)',
+            'list_count' => count($folderless),
+        ]);
+    }
+
     echo json_encode([
         "success"     => true,
         "mode"        => "folders",
@@ -100,7 +113,12 @@ if ($folderId === '') {
 }
 
 // ── Mode B: folder chosen -> parse + dedup companies from its Lists ──────────
-$listRes = clickup_api_request($token, 'GET', "/folder/{$folderId}/list");
+// A "space:<id>" pseudo-folder means the folderless lists of that Space.
+if (strncmp($folderId, 'space:', 6) === 0) {
+    $listRes = clickup_api_request($token, 'GET', "/space/" . substr($folderId, 6) . "/list");
+} else {
+    $listRes = clickup_api_request($token, 'GET', "/folder/{$folderId}/list");
+}
 if (($listRes['code'] ?? 0) !== 200) {
     http_response_code(502);
     echo json_encode(["error" => "list_fetch_failed", "message" => $listRes['error'] ?: 'Could not list the folder lists.']);
