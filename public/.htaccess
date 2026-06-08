@@ -30,6 +30,15 @@
   # Keep API routes intact — explicit pass-through BEFORE SPA fallback
   RewriteRule ^api/ - [L]
 
+  # Hosted pages (generated LPs / ad creatives) are REAL folders with their own
+  # index.html. Serve those directly instead of the SPA shell — otherwise the
+  # rule below would hijack /projects/<slug>/ to the app (blank/looping preview).
+  # App routes (/projects, /projects/new, /projects/123, /history…) are NOT real
+  # folders with an index.html, so they still fall through to the SPA fallback.
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteCond %{REQUEST_FILENAME}/index.html -f
+  RewriteRule ^ - [L]
+
   # Known SPA routes — only redirect to app shell if the path is NOT a real file on disk.
   # This allows /projects/slug/b0/image.png (and other static assets) to be served directly.
   RewriteCond %{REQUEST_FILENAME} !-f
