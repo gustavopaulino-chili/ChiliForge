@@ -17,7 +17,21 @@ interface Props {
   onImported?: () => void;
 }
 
-type Row = ClickUpCompany & { selected: boolean; url: string; status?: 'scraping' | 'importing' | 'done' | 'error'; note?: string };
+type Row = ClickUpCompany & { selected: boolean; url: string; status?: 'scraping' | 'importing' | 'done' | 'error'; note?: string; form?: Record<string, unknown> };
+
+// Pull a few human-readable fields from the scraped profile for the review gate.
+function previewFields(form?: Record<string, unknown>): { description: string; primary: string; logo: string; services: number } {
+  const f = form || {};
+  const images = (f.images && typeof f.images === 'object') ? f.images as Record<string, unknown> : {};
+  const theme = (f.theme && typeof f.theme === 'object') ? f.theme as Record<string, unknown> : {};
+  const services = Array.isArray(f.services) ? f.services.length : (Array.isArray(f.products) ? (f.products as unknown[]).length : 0);
+  return {
+    description: String(f.businessDescription || f.valueProposition || '').slice(0, 220),
+    primary: String(theme.primary || f.primaryColor || ''),
+    logo: String(images.logo || images.logoUrl || f.logoUrl || ''),
+    services,
+  };
+}
 
 export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: Props) {
   const [loading, setLoading] = useState(true);
@@ -30,6 +44,7 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
   const [importing, setImporting] = useState(false);
   const [apiToken, setApiToken] = useState('');
   const [connecting, setConnecting] = useState(false);
+  const [phase, setPhase] = useState<'select' | 'review'>('select');
 
   const refreshStatus = useCallback(async () => {
     setLoading(true);
@@ -78,6 +93,7 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
   const loadCompanies = async (fid: string) => {
     setFolderId(fid);
     setRows([]);
+    setPhase('select');
     if (!fid) return;
     setBusy(true);
     try {
@@ -95,28 +111,46 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
   const setRow = (i: number, patch: Partial<Row>) =>
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
-  const handleImport = async () => {
+  // PORTÃO 1: confirma URLs → scrape → mostra o perfil pra revisão (não cria nada ainda).
+  const handlePrepare = async () => {
     const selected = rows.map((r, i) => ({ r, i })).filter(({ r }) => r.selected);
-    if (!selected.length) { toast.info('Select at least one company.'); return; }
+    if (!selected.length) { toast.info('Selecione ao menos uma empresa.'); return; }
     const missingUrl = selected.find(({ r }) => !r.url.trim());
-    if (missingUrl) { toast.error(`Confirm the site URL for "${missingUrl.r.company}".`); return; }
+    if (missingUrl) { toast.error(`Confirme a URL do site de "${missingUrl.r.company}".`); return; }
 
     setImporting(true);
     try {
-      const payload: Array<{ company: string; channels: string[]; list_ids: string[]; website_url: string; form_data?: Record<string, unknown> }> = [];
       for (const { r, i } of selected) {
         setRow(i, { status: 'scraping', note: '' });
         let form: Record<string, unknown> = { businessName: r.company, sourceWebsite: r.url.trim() };
         try {
           const scraped = await scrapeWebsite(r.url.trim());
           form = { ...(scraped.extracted || {}), businessName: r.company, sourceWebsite: r.url.trim() };
+          setRow(i, { status: undefined, note: '' });
         } catch {
-          setRow(i, { note: 'scrape failed — importing with basic data' });
+          setRow(i, { status: undefined, note: 'não consegui ler o site — vai importar com dados básicos' });
         }
-        payload.push({ company: r.company, channels: r.channels, list_ids: r.list_ids, website_url: r.url.trim(), form_data: form });
-        setRow(i, { status: 'importing' });
+        setRow(i, { form });
       }
+      setPhase('review');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao preparar a importação');
+    } finally {
+      setImporting(false);
+    }
+  };
 
+  // PORTÃO 2: usuário revisou os perfis → cria/atualiza as empresas.
+  const handleConfirmImport = async () => {
+    const selected = rows.filter((r) => r.selected);
+    if (!selected.length) { setPhase('select'); return; }
+    setImporting(true);
+    try {
+      const payload = selected.map((r) => ({
+        company: r.company, channels: r.channels, list_ids: r.list_ids,
+        website_url: r.url.trim(),
+        form_data: r.form || { businessName: r.company, sourceWebsite: r.url.trim() },
+      }));
       const res = await clickupImportCompanies(userId, payload);
       const byName = new Map(res.results.map((x) => [x.company, x]));
       setRows((prev) => prev.map((r) => {
@@ -125,7 +159,8 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
         return { ...r, status: out.status === 'error' ? 'error' : 'done', note: out.status === 'error' ? out.reason : out.status, already_imported: out.status !== 'error' };
       }));
       const ok = res.results.filter((x) => x.status === 'created' || x.status === 'updated').length;
-      toast.success(`${ok} company(ies) imported from ClickUp.`);
+      toast.success(`${ok} empresa(s) importada(s) do ClickUp.`);
+      setPhase('select');
       onImported?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Import failed');
@@ -191,11 +226,17 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
               <div className="flex items-center gap-2 py-6 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Detectando empresas…</div>
             ) : rows.length > 0 ? (
               <>
+                {phase === 'review' && (
+                  <p className="text-xs text-muted-foreground">Revise o perfil lido de cada site antes de criar as empresas. Nada é criado até confirmar.</p>
+                )}
                 <div className="max-h-[46vh] space-y-2 overflow-y-auto pr-1">
-                  {rows.map((r, i) => (
+                  {rows.map((r, i) => {
+                    if (phase === 'review' && !r.selected) return null;
+                    const pv = phase === 'review' ? previewFields(r.form) : null;
+                    return (
                     <div key={r.company + i} className="rounded-lg border border-border p-3 space-y-2">
                       <div className="flex items-start gap-2">
-                        <Checkbox checked={r.selected} onCheckedChange={(v) => setRow(i, { selected: Boolean(v) })} className="mt-1" />
+                        <Checkbox checked={r.selected} disabled={phase === 'review'} onCheckedChange={(v) => setRow(i, { selected: Boolean(v) })} className="mt-1" />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
@@ -205,10 +246,21 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
                           </div>
                           <Input
                             value={r.url}
+                            disabled={phase === 'review'}
                             onChange={(e) => setRow(i, { url: e.target.value })}
                             placeholder="https://site-da-empresa.com (confirme a URL)"
                             className="mt-2 h-8 text-sm"
                           />
+                          {pv && (
+                            <div className="mt-2 rounded-md bg-muted/40 p-2 space-y-1.5">
+                              <div className="flex items-center gap-2">
+                                {pv.logo ? <img src={pv.logo} alt="" className="h-6 w-6 rounded object-contain bg-background" onError={(e) => { e.currentTarget.style.display = 'none'; }} /> : null}
+                                {pv.primary ? <span className="inline-block h-4 w-4 rounded-full border border-border" style={{ background: pv.primary }} title={pv.primary} /> : null}
+                                <span className="text-[11px] text-muted-foreground">{pv.services > 0 ? `${pv.services} serviço(s)/produto(s)` : 'sem serviços detectados'}</span>
+                              </div>
+                              {pv.description ? <p className="text-[11px] text-foreground/80 leading-snug">{pv.description}{pv.description.length >= 220 ? '…' : ''}</p> : <p className="text-[11px] text-muted-foreground">Sem descrição lida do site.</p>}
+                            </div>
+                          )}
                           {r.status && (
                             <p className={`mt-1 text-[11px] flex items-center gap-1 ${r.status === 'error' ? 'text-destructive' : r.status === 'done' ? 'text-green-600' : 'text-muted-foreground'}`}>
                               {r.status === 'done' && <CheckCircle2 className="h-3 w-3" />}
@@ -217,15 +269,20 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
                               {r.status === 'scraping' ? 'lendo o site…' : r.status === 'importing' ? 'importando…' : r.note || r.status}
                             </p>
                           )}
+                          {!r.status && r.note && <p className="mt-1 text-[11px] text-amber-600">{r.note}</p>}
                         </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
-                <div className="flex justify-end">
-                  <Button onClick={handleImport} disabled={importing} className="gap-2">
+                <div className="flex justify-end gap-2">
+                  {phase === 'review' && (
+                    <Button variant="outline" onClick={() => setPhase('select')} disabled={importing}>Voltar</Button>
+                  )}
+                  <Button onClick={phase === 'review' ? handleConfirmImport : handlePrepare} disabled={importing} className="gap-2">
                     {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                    Importar selecionadas
+                    {phase === 'review' ? 'Confirmar e importar' : 'Revisar selecionadas'}
                   </Button>
                 </div>
               </>
