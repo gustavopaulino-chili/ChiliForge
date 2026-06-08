@@ -80,7 +80,11 @@ async function callGemini(
   ].filter(Boolean).join("\n\n");
 
   const generationConfig: Record<string, unknown> = { temperature, maxOutputTokens: maxTokens };
-  if (options?.thinkingLevel) {
+  // `thinkingLevel` (minimal|low|medium|high) is a Gemini 3.x parameter. The 2.5
+  // models reject it with 400 "Thinking level is not supported for this model"
+  // (they use thinkingConfig.thinkingBudget instead, and reason by default).
+  // Only send it for models that support it.
+  if (options?.thinkingLevel && /gemini-3/i.test(model)) {
     generationConfig.thinkingConfig = { thinkingLevel: options.thinkingLevel };
   }
 

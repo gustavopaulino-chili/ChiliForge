@@ -1989,7 +1989,9 @@ async function callGemini(
   parts.push({ text: userMessage });
 
   const generationConfig: Record<string, unknown> = { temperature, maxOutputTokens: maxTokens };
-  if (options?.thinkingLevel) {
+  // `thinkingLevel` is Gemini 3.x only; 2.5 models reject it (400 "Thinking level
+  // is not supported for this model"). Only send it to models that support it.
+  if (options?.thinkingLevel && /gemini-3/i.test(model)) {
     generationConfig.thinkingConfig = { thinkingLevel: options.thinkingLevel };
   }
   if (options?.responseMimeType) {
