@@ -12,8 +12,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { exit(0); }
 include "db.php";
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'clickup_common.php';
 
-$userId = isset($_REQUEST['user_id']) ? (int)$_REQUEST['user_id'] : 0;
-$docId  = trim((string)($_REQUEST['doc_id'] ?? '')) ?: clickup_wiki_doc_id();
+$userId     = isset($_REQUEST['user_id']) ? (int)$_REQUEST['user_id'] : 0;
+$docId      = trim((string)($_REQUEST['doc_id'] ?? '')) ?: clickup_wiki_doc_id();    // "Wiki Template" container
+$wikiPageId = trim((string)($_REQUEST['page_id'] ?? '')) ?: clickup_wiki_page_id();  // "Chili Wiki" page
 if ($userId <= 0) { http_response_code(400); echo json_encode(["error" => "user_id is required"]); exit; }
 
 clickup_ensure_schema($conn);
@@ -80,7 +81,7 @@ foreach ($workspaces as $ws) {
         if (!is_array($dd)) continue;
         $id = (string)($dd['id'] ?? ''); $nm = (string)($dd['name'] ?? '');
         if ($nm !== '') $docsSeen[] = $nm;
-        if ($id === $docId || ($nm !== '' && mb_stripos($nm, 'chili wiki') !== false)) { $match = $id; break; }
+        if ($id === $docId || ($nm !== '' && mb_stripos($nm, clickup_wiki_doc_name()) !== false)) { $match = $id; break; }
     }
     if ($match !== '') {
         $pf2 = $fetchPages($ws, $match);
@@ -106,13 +107,33 @@ if (empty($rawPages)) {
 }
 
 $docId = $resolvedDocId ?: $docId;   // use the resolved id for the page links
-$flat = clickup_flatten_doc_pages($rawPages);
+
+// Scope to the "Chili Wiki" page: its DIRECT subpages are the companies. Each
+// child is a client (titles may be bare names or "{Company} - {Service} {Region}").
+$wikiNode = clickup_find_page_node($rawPages, $wikiPageId, 'chili wiki');
+$scoped = false;
+$sourcePages = [];
+if ($wikiNode !== null && isset($wikiNode['pages']) && is_array($wikiNode['pages'])) {
+    // DIRECT children only — each is a company. Their own subpages are internal
+    // sections of that client, not separate companies, so don't recurse.
+    foreach ($wikiNode['pages'] as $child) {
+        if (!is_array($child)) continue;
+        $cid = (string)($child['id'] ?? '');
+        if ($cid !== '') $sourcePages[] = ['id' => $cid, 'name' => (string)($child['name'] ?? '')];
+    }
+    $scoped = true;
+} else {
+    // Fallback: no "Chili Wiki" page found — scan the whole doc and keep only
+    // titles that match the "{Company} - {Service} {Region}" pattern.
+    $sourcePages = clickup_flatten_doc_pages($rawPages);
+}
 
 $companies = [];
 $seen = [];
-foreach ($flat as $pg) {
-    $parsed = clickup_parse_wiki_title((string)$pg['name']);
-    if ($parsed === null) continue;                       // not a "{Company} - ..." page
+foreach ($sourcePages as $pg) {
+    // Scoped: every child is a company (accept bare names). Fallback: require pattern.
+    $parsed = clickup_parse_wiki_title((string)$pg['name'], !$scoped);
+    if ($parsed === null) continue;
     $key = mb_strtolower($parsed['company']) . '|' . $pg['id'];
     if (isset($seen[$key])) continue;
     $seen[$key] = true;
@@ -129,6 +150,8 @@ foreach ($flat as $pg) {
 echo json_encode([
     "success"   => true,
     "doc_id"    => $docId,
+    "wiki_page_id" => $wikiPageId,
+    "scoped"    => $scoped,
     "count"     => count($companies),
     "companies" => $companies,
 ]);

@@ -174,18 +174,30 @@ function clickup_verify_webhook_signature(string $rawBody, string $signatureHead
 }
 
 // ── Wiki (Docs v3) → companies ──────────────────────────────────────────────
-// The main "Chili Wiki" is a Doc whose subpages are clients/companies, titled
-// "{Company} - {Service} {Region}" (e.g. "Joico - SEO BR", "Rodelag - SEO & PPC INT").
+// Structure: a CONTAINER Doc ("Wiki Template") holds a PAGE ("Chili Wiki") whose
+// DIRECT SUBPAGES are the clients/companies (Joico, Bybit, Rodelag, …). Each
+// subpage title may be just the company name or "{Company} - {Service} {Region}".
 function clickup_wiki_doc_id(): string {
-    return clickup_env('CLICKUP_WIKI_DOC_ID', '8cnb3qu-16234');
+    return clickup_env('CLICKUP_WIKI_DOC_ID', '8cnb3qu-240854');   // "Wiki Template" container Doc
+}
+function clickup_wiki_page_id(): string {
+    return clickup_env('CLICKUP_WIKI_PAGE_ID', '4020841349323522576'); // "Chili Wiki" page
+}
+function clickup_wiki_doc_name(): string {
+    return clickup_env('CLICKUP_WIKI_DOC_NAME', 'wiki template');  // name fallback for doc resolution
 }
 
-// Parse a Wiki subpage title → ['company','services'[],'region','raw'] or null.
-function clickup_parse_wiki_title(string $title): ?array {
+// Parse a Wiki subpage title → ['company','services'[],'region','raw'].
+// $requirePattern=false (scoped mode): titles without " - " are accepted as the
+// bare company name. $requirePattern=true (loose scan): only "{Company} - ..." titles.
+function clickup_parse_wiki_title(string $title, bool $requirePattern = true): ?array {
     $title = trim($title);
     if ($title === '') return null;
     $pos = mb_strpos($title, ' - ');
-    if ($pos === false) return null;                 // not "{Company} - ..." → not a client page
+    if ($pos === false) {
+        if ($requirePattern) return null;
+        return ['company' => $title, 'services' => [], 'region' => '', 'raw' => $title];
+    }
     $company = trim(mb_substr($title, 0, $pos));
     $rest    = trim(mb_substr($title, $pos + 3));
     if ($company === '') return null;
@@ -199,6 +211,26 @@ function clickup_parse_wiki_title(string $title): ?array {
     elseif (preg_match('/\bBR\b/i', $rest))   $region = 'BR';
 
     return ['company' => $company, 'services' => $services, 'region' => $region, 'raw' => $title];
+}
+
+// Recursively find a page node in a Docs v3 page tree by id or by name substring.
+// Returns the node (with its 'pages' children) or null.
+function clickup_find_page_node($pages, string $wantId, string $wantNameNeedle = ''): ?array {
+    if (!is_array($pages)) return null;
+    $needle = mb_strtolower(trim($wantNameNeedle));
+    foreach ($pages as $p) {
+        if (!is_array($p)) continue;
+        $id = (string)($p['id'] ?? '');
+        $nm = (string)($p['name'] ?? '');
+        if (($wantId !== '' && $id === $wantId) || ($needle !== '' && mb_stripos($nm, $needle) !== false)) {
+            return $p;
+        }
+        if (isset($p['pages']) && is_array($p['pages'])) {
+            $found = clickup_find_page_node($p['pages'], $wantId, $wantNameNeedle);
+            if ($found !== null) return $found;
+        }
+    }
+    return null;
 }
 
 // Recursively flatten a Docs v3 page tree into a flat [['id','name'], ...] list.
