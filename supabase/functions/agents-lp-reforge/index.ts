@@ -61,6 +61,7 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 type EditBlock = { search: string; replace: string };
+type Unmatched = { search: string; reason: "not_found" | "ambiguous" | "empty" };
 
 function parseEditBlocks(text: string): { reply: string; blocks: EditBlock[] } {
   const re = /<<<<<<< SEARCH\r?\n([\s\S]*?)\r?\n=======\r?\n([\s\S]*?)\r?\n>>>>>>> REPLACE/g;
@@ -75,32 +76,60 @@ function parseEditBlocks(text: string): { reply: string; blocks: EditBlock[] } {
   return { reply, blocks };
 }
 
-// Apply edit blocks to the HTML. Exact match first; if not found, a whitespace-
-// tolerant fallback (trim trailing spaces per line). Never apply a non-matching
-// block — surface it as unmatched so nothing gets corrupted.
-function applyEdits(html: string, blocks: EditBlock[]): { html: string; applied: number; unmatched: string[] } {
+function indexAll(haystack: string, needle: string): number[] {
+  const out: number[] = [];
+  if (!needle) return out;
+  let i = haystack.indexOf(needle);
+  while (i >= 0) { out.push(i); i = haystack.indexOf(needle, i + 1); }
+  return out;
+}
+
+// Line-trimmed match: compare blocks ignoring trailing whitespace per line, but
+// map back to the EXACT original line range so replacement stays position-accurate.
+function lineTrimMatchStarts(htmlLines: string[], searchLines: string[]): number[] {
+  const n = searchLines.length;
+  const st = searchLines.map((l) => l.replace(/\s+$/, ""));
+  const starts: number[] = [];
+  for (let i = 0; i + n <= htmlLines.length; i++) {
+    let ok = true;
+    for (let j = 0; j < n; j++) {
+      if (htmlLines[i + j].replace(/\s+$/, "") !== st[j]) { ok = false; break; }
+    }
+    if (ok) starts.push(i);
+  }
+  return starts;
+}
+
+// Apply edit blocks SURGICALLY and SAFELY. A block is applied only when it matches
+// the current HTML UNIQUELY (exact, else line-trim fallback). Ambiguous or missing
+// blocks are never guessed — they're reported so the model can correct them.
+function applyEdits(html: string, blocks: EditBlock[]): { html: string; applied: number; unmatched: Unmatched[] } {
   let out = html;
   let applied = 0;
-  const unmatched: string[] = [];
+  const unmatched: Unmatched[] = [];
   for (const b of blocks) {
-    if (b.search === "") { unmatched.push("(empty search)"); continue; }
-    if (out.includes(b.search)) {
-      out = out.replace(b.search, b.replace);
+    if (b.search === "") { unmatched.push({ search: "", reason: "empty" }); continue; }
+
+    const exact = indexAll(out, b.search);
+    if (exact.length === 1) {
+      out = out.slice(0, exact[0]) + b.replace + out.slice(exact[0] + b.search.length);
       applied++;
       continue;
     }
-    // Fallback: normalize trailing whitespace per line on both sides.
-    const norm = (s: string) => s.split("\n").map((l) => l.replace(/\s+$/, "")).join("\n");
-    const nHtml = norm(out);
-    const nSearch = norm(b.search);
-    const idx = nHtml.indexOf(nSearch);
-    if (idx >= 0) {
-      // Map back is unreliable after normalization; rebuild by replacing in normalized
-      // space then keeping it (acceptable — only trailing spaces differ).
-      out = nHtml.replace(nSearch, b.replace);
+    if (exact.length > 1) { unmatched.push({ search: b.search, reason: "ambiguous" }); continue; }
+
+    // Fallback: line-trim match mapped back to the exact original lines.
+    const hl = out.split("\n");
+    const sl = b.search.split("\n");
+    const starts = lineTrimMatchStarts(hl, sl);
+    if (starts.length === 1) {
+      const i = starts[0];
+      out = [...hl.slice(0, i), b.replace, ...hl.slice(i + sl.length)].join("\n");
       applied++;
+    } else if (starts.length > 1) {
+      unmatched.push({ search: b.search, reason: "ambiguous" });
     } else {
-      unmatched.push(b.search.slice(0, 120));
+      unmatched.push({ search: b.search, reason: "not_found" });
     }
   }
   return { html: out, applied, unmatched };
@@ -160,25 +189,71 @@ serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: "Gemini API key not configured" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const chain = [payload.model || MODEL_CHAIN[0], ...MODEL_CHAIN.filter((m) => m !== (payload.model || MODEL_CHAIN[0]))];
-    let raw = "";
-    let lastErr: Error | null = null;
-    for (const model of chain) {
-      try { raw = await callGemini(payload, model, apiKey); break; }
-      catch (e) { lastErr = e instanceof Error ? e : new Error(String(e)); }
-    }
-    if (!raw) throw lastErr ?? new Error("All models failed");
+    const preferred = payload.model || MODEL_CHAIN[0];
+    const chain = [preferred, ...MODEL_CHAIN.filter((m) => m !== preferred)];
+    const runModel = async (p: ReforgePayload): Promise<string> => {
+      let lastErr: Error | null = null;
+      for (const model of chain) {
+        try { return await callGemini(p, model, apiKey); }
+        catch (e) { lastErr = e instanceof Error ? e : new Error(String(e)); }
+      }
+      throw lastErr ?? new Error("All models failed");
+    };
 
-    const { reply, blocks } = parseEditBlocks(raw);
-    const { html, applied, unmatched } = blocks.length ? applyEdits(payload.html, blocks) : { html: payload.html, applied: 0, unmatched: [] };
+    // Round 0: the user's request. Rounds 1-2: auto-correct the blocks that did not
+    // match, re-issued against the (already partially-updated) HTML — so edits land
+    // reliably without the user having to rephrase.
+    let html = payload.html;
+    let firstReply = "";
+    let totalApplied = 0;
+    let lastUnmatched: Unmatched[] = [];
+
+    for (let round = 0; round < 3; round++) {
+      const roundInstruction = round === 0
+        ? payload.instruction
+        : [
+            `The previous edits for this request could NOT be applied because their SEARCH text did not match the current HTML uniquely.`,
+            `Original request: "${payload.instruction}"`,
+            `Re-issue SEARCH/REPLACE blocks ONLY for the following failed changes. Copy the SEARCH VERBATIM from the CURRENT HTML below, and include MORE surrounding context so each SEARCH is unique. Do not touch anything else.`,
+            `Failed targets:\n` + lastUnmatched.map((u, i) => `${i + 1}. [${u.reason}] ${u.search.slice(0, 200)}`).join("\n"),
+          ].join("\n");
+
+      const raw = await runModel({ ...payload, html, instruction: roundInstruction });
+      const { reply, blocks } = parseEditBlocks(raw);
+      if (round === 0) firstReply = reply;
+
+      if (!blocks.length) { lastUnmatched = []; break; }  // a question or nothing to do
+
+      const r = applyEdits(html, blocks);
+      html = r.html;
+      totalApplied += r.applied;
+      lastUnmatched = r.unmatched;
+      if (!lastUnmatched.length) break;                    // everything landed
+    }
+
+    // Safety guard: never return structurally-broken HTML. If the page lost its
+    // closing tags after edits, revert entirely and report instead of corrupting.
+    let reverted = false;
+    const hadHtmlClose = /<\/html>/i.test(payload.html);
+    const hadBodyClose = /<\/body>/i.test(payload.html);
+    if (totalApplied > 0 && ((hadHtmlClose && !/<\/html>/i.test(html)) || (hadBodyClose && !/<\/body>/i.test(html)))) {
+      html = payload.html;
+      totalApplied = 0;
+      reverted = true;
+    }
+
+    const unmatchedSnippets = lastUnmatched.map((u) => u.search.slice(0, 120)).filter(Boolean);
+    const reply = firstReply
+      || (reverted ? "Detectei que a alteração quebraria a página, então não apliquei. Pode reformular?"
+        : totalApplied ? "Pronto, apliquei a alteração." : "Não fiz alterações.");
 
     return new Response(JSON.stringify({
-      reply: reply || (applied ? "Pronto, apliquei a alteração." : "Não fiz alterações."),
+      reply,
       html,
-      changed: applied > 0,
-      applied,
-      total_blocks: blocks.length,
-      unmatched,
+      changed: totalApplied > 0,
+      applied: totalApplied,
+      unmatched: unmatchedSnippets,
+      reverted,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("[agents-lp-reforge] error:", error);

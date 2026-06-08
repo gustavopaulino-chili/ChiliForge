@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Wand2, X, Send, Loader2, Sparkles } from 'lucide-react';
+import { Wand2, X, Send, Loader2, Sparkles, Undo2 } from 'lucide-react';
 import { reforgeLp, type ChatMessage } from '@/services/api';
 import { stripEditorBridge } from '@/components/editor/VisualEditor';
 import { toast } from 'sonner';
@@ -40,6 +40,7 @@ export function ReforgeChat({ projectId, userId, html, onApply }: Props) {
   const [history, setHistory] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [undoStack, setUndoStack] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const htmlRef = useRef(html);
@@ -64,7 +65,10 @@ export function ReforgeChat({ projectId, userId, html, onApply }: Props) {
         history: priorHistory,
       });
       let reply = res.reply || (res.changed ? 'Pronto, apliquei a alteração.' : 'Não fiz alterações.');
-      if (res.changed && res.html) onApply(res.html);
+      if (res.changed && res.html) {
+        setUndoStack((prev) => [...prev, htmlRef.current]); // snapshot BEFORE applying
+        onApply(res.html);
+      }
       if (res.unmatched && res.unmatched.length) {
         reply += `\n\n⚠️ ${res.unmatched.length} trecho(s) não localizado(s) — descreva o ponto com mais detalhe e eu refaço.`;
       }
@@ -75,6 +79,17 @@ export function ReforgeChat({ projectId, userId, html, onApply }: Props) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const undo = () => {
+    setUndoStack((prev) => {
+      if (!prev.length) return prev;
+      const next = [...prev];
+      const last = next.pop()!;
+      onApply(last);
+      setHistory((h) => [...h, { role: 'assistant', content: '↩ Desfiz a última alteração.' }]);
+      return next;
+    });
   };
 
   return (
@@ -99,6 +114,11 @@ export function ReforgeChat({ projectId, userId, html, onApply }: Props) {
               <p className="text-sm font-semibold leading-tight">Chilito · ReForge</p>
               <p className="text-[10px] opacity-75 leading-tight">Edições no chat, fiéis à marca</p>
             </div>
+            {undoStack.length > 0 && (
+              <button onClick={undo} disabled={loading} className="shrink-0 h-7 px-2 rounded-full flex items-center gap-1 bg-white/10 hover:bg-white/25 transition-colors text-[11px] font-medium disabled:opacity-50" title="Desfazer última alteração">
+                <Undo2 className="h-3.5 w-3.5" /> Desfazer
+              </button>
+            )}
             <button onClick={() => setIsOpen(false)} className="shrink-0 h-7 w-7 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/25 transition-colors" aria-label="Fechar">
               <X className="h-3.5 w-3.5" />
             </button>

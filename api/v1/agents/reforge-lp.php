@@ -119,6 +119,7 @@ try {
         'changed'  => (bool)($result['changed'] ?? false),
         'applied'  => (int)($result['applied'] ?? 0),
         'unmatched'=> $result['unmatched'] ?? [],
+        'reverted' => (bool)($result['reverted'] ?? false),
     ], JSON_UNESCAPED_UNICODE);
 
 } catch (Throwable $e) {
