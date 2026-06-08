@@ -19,6 +19,11 @@ export interface ClickUpFolder {
   list_count: number;
 }
 
+export interface ClickUpDoc {
+  id: string;
+  name: string;
+}
+
 export interface ClickUpCompany {
   company: string;
   channels: string[];

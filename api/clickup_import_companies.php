@@ -43,6 +43,55 @@ if ($eStmt = $conn->prepare("SELECT email, account_type FROM users WHERE id = ? 
     $accountType = $resolved['accountType'] ?? 'user';
 }
 
+// If any company attaches ClickUp Docs (wikis), load the connection (token + workspace).
+$ccToken = ''; $ccWorkspace = ''; $needDocs = false;
+foreach ($companies as $c) { if (is_array($c) && !empty($c['doc_ids'])) { $needDocs = true; break; } }
+if ($needDocs) {
+    $cc = clickup_get_connection($conn, $userId);
+    if ($cc) {
+        $ccToken = (string)$cc['access_token'];
+        $ccWorkspace = (string)($cc['workspace_id'] ?? '');
+        if ($ccWorkspace === '' && $ccToken !== '') {
+            $tr = clickup_api_request($ccToken, 'GET', '/team');
+            if (!empty($tr['data']['teams'][0]['id'])) $ccWorkspace = (string)$tr['data']['teams'][0]['id'];
+        }
+    }
+}
+
+// Ingest selected ClickUp Docs into a company's store (sanitized, origin=clickup).
+$ingestDocs = function (int $companyProjectId, string $storeName, array $docIds) use ($conn, $ccToken, $ccWorkspace, $accountType, $userId): int {
+    if ($ccToken === '' || $ccWorkspace === '' || $storeName === '' || empty($docIds)) return 0;
+    $count = 0;
+    foreach ($docIds as $docId) {
+        $docId = (string)$docId;
+        if ($docId === '') continue;
+        $md = clickup_fetch_doc_markdown($ccToken, $ccWorkspace, $docId);
+        if ($md === '') continue;
+        $md = agents_strip_base64_images($md); // NEVER push base64 into the store
+        $doc = "# ClickUp Doc (origem: clickup)\n\n" . $md . "\n";
+        try {
+            $up = agents_call_edge_function('agents-store', [
+                'action'      => 'upload_file',
+                'storeName'   => $storeName,
+                'fileBase64'  => base64_encode($doc),
+                'mimeType'    => 'text/markdown',
+                'displayName' => 'ClickUp Doc ' . substr($docId, 0, 8),
+                'accountType' => $accountType,
+            ]);
+            if (!empty($up['error'])) continue;
+            $count++;
+            try {
+                if (function_exists('agents_ensure_company_store_files_table')) agents_ensure_company_store_files_table($conn);
+                $docName = function_exists('agents_extract_document_name') ? agents_extract_document_name($up) : '';
+                $rt = 'uploaded_file'; $dn = 'ClickUp Doc ' . substr($docId, 0, 8); $on = $dn; $mt = 'text/markdown'; $fs = strlen($doc);
+                $insF = $conn->prepare("INSERT INTO company_store_files (company_project_id, gemini_file_uri, gemini_store_name, record_type, display_name, original_name, mime_type, file_size_bytes, uploaded_by) VALUES (?,?,?,?,?,?,?,?,?)");
+                if ($insF) { $insF->bind_param('issssssii', $companyProjectId, $docName, $storeName, $rt, $dn, $on, $mt, $fs, $userId); $insF->execute(); $insF->close(); }
+            } catch (Throwable $te) { /* tracking row is best-effort */ }
+        } catch (Throwable $e) { error_log('[clickup_import] doc ingest ' . $docId . ': ' . $e->getMessage()); }
+    }
+    return $count;
+};
+
 // Pre-load this user's existing ClickUp companies for idempotency.
 $existing = []; // [ ['id'=>, 'list_ids'=>[], 'channels'=>[], 'form'=>[] ] ]
 if ($exRes = $conn->query("SELECT id, clickup_list_ids, channels, company_form_data FROM projects WHERE user_id = " . (int)$userId . " AND source = 'clickup' AND project_type = 'project'")) {
@@ -68,6 +117,7 @@ foreach ($companies as $entry) {
     $channels = array_values(array_unique(array_map('strval', (array)($entry['channels'] ?? []))));
     $website  = trim((string)($entry['website_url'] ?? ''));
     $formData = is_array($entry['form_data'] ?? null) ? $entry['form_data'] : [];
+    $docIds   = array_values(array_filter(array_map('strval', (array)($entry['doc_ids'] ?? []))));
     if ($name === '') { $results[] = ['company' => '', 'status' => 'skipped', 'reason' => 'empty name']; continue; }
 
     // Ensure minimum form fields so the store doc + scrape pipeline have context.
@@ -95,13 +145,15 @@ foreach ($companies as $entry) {
             $upd->execute();
             $upd->close();
 
-            try { agents_sync_company_store($conn, $match['id'], $mergedForm, $accountType, $userId, null); }
+            $storeName = '';
+            try { $storeName = agents_sync_company_store($conn, $match['id'], $mergedForm, $accountType, $userId, null); }
             catch (Throwable $se) { error_log('[clickup_import] store sync (update) ' . $match['id'] . ': ' . $se->getMessage()); }
+            $docsIn = $ingestDocs($match['id'], (string)$storeName, $docIds);
 
             $match['list_ids'] = $mergedListIds;
             $match['channels'] = $mergedChannels;
             $match['form']     = $mergedForm;
-            $results[] = ['company' => $name, 'status' => 'updated', 'project_id' => $match['id']];
+            $results[] = ['company' => $name, 'status' => 'updated', 'project_id' => $match['id'], 'docs_ingested' => $docsIn];
             continue;
         }
 
@@ -126,12 +178,14 @@ foreach ($companies as $entry) {
         $projectId = (int)$conn->insert_id;
         $ins->close();
 
-        try { agents_sync_company_store($conn, $projectId, $formData, $accountType, $userId, null); }
+        $storeName = '';
+        try { $storeName = agents_sync_company_store($conn, $projectId, $formData, $accountType, $userId, null); }
         catch (Throwable $se) { error_log('[clickup_import] store sync (create) ' . $projectId . ': ' . $se->getMessage()); }
+        $docsIn = $ingestDocs($projectId, (string)$storeName, $docIds);
 
         // Track so a duplicate within the same request also dedups.
         $existing[] = ['id' => $projectId, 'list_ids' => $listIds, 'channels' => $channels, 'form' => $formData];
-        $results[] = ['company' => $name, 'status' => 'created', 'project_id' => $projectId, 'public_url' => $publicUrl];
+        $results[] = ['company' => $name, 'status' => 'created', 'project_id' => $projectId, 'public_url' => $publicUrl, 'docs_ingested' => $docsIn];
     } catch (Throwable $e) {
         error_log('[clickup_import] ' . $name . ': ' . $e->getMessage());
         $results[] = ['company' => $name, 'status' => 'error', 'reason' => $e->getMessage()];

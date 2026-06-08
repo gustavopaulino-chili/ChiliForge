@@ -117,8 +117,9 @@ function clickup_ensure_schema(mysqli $conn): void {
 // ── ClickUp REST helper ─────────────────────────────────────────────────────
 // CRITICAL: ClickUp API v2 takes the token RAW in Authorization (no "Bearer").
 // Returns ['code'=>int, 'data'=>array, 'error'=>string]. Retries 429 with backoff.
-function clickup_api_request(string $token, string $method, string $path, ?array $body = null): array {
-    $url = 'https://api.clickup.com/api/v2' . $path;
+function clickup_api_request(string $token, string $method, string $path, ?array $body = null, string $version = 'v2'): array {
+    $base = $version === 'v3' ? 'https://api.clickup.com/api/v3' : 'https://api.clickup.com/api/v2';
+    $url = $base . $path;
     $attempt = 0;
     while (true) {
         $ch = curl_init($url);
@@ -163,6 +164,23 @@ function clickup_api_request(string $token, string $method, string $path, ?array
         }
         return ['code' => $code, 'data' => $data, 'error' => $error];
     }
+}
+
+// ── Docs API v3: fetch a Doc's full text (all pages, markdown) ──────────────
+function clickup_fetch_doc_markdown(string $token, string $workspaceId, string $docId): string {
+    $res = clickup_api_request($token, 'GET', "/workspaces/{$workspaceId}/docs/{$docId}/pages?content_format=text/md", null, 'v3');
+    if (($res['code'] ?? 0) !== 200) return '';
+    $d = $res['data'];
+    $pages = is_array($d['pages'] ?? null) ? $d['pages'] : (is_array($d) ? $d : []);
+    $out = [];
+    foreach ($pages as $pg) {
+        if (!is_array($pg)) continue;
+        $title   = trim((string)($pg['name'] ?? ''));
+        $content = (string)($pg['content'] ?? '');
+        if ($title !== '')   $out[] = '## ' . $title;
+        if ($content !== '') $out[] = $content;
+    }
+    return trim(implode("\n\n", $out));
 }
 
 // ── OAuth state (CSRF + binds the callback to the Forge user) ───────────────

@@ -6,9 +6,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, Plug, RefreshCw, CheckCircle2, AlertCircle, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  clickupStatus, clickupStartOAuth, clickupConnectToken, clickupListSpaces, clickupListFolders, clickupListCompanies, clickupImportCompanies, scrapeWebsite,
+  clickupStatus, clickupStartOAuth, clickupConnectToken, clickupListSpaces, clickupListFolders, clickupListCompanies, clickupListDocs, clickupImportCompanies, scrapeWebsite,
 } from '@/services/api';
-import type { ClickUpSpace, ClickUpFolder, ClickUpCompany } from '@/types/clickup';
+import type { ClickUpSpace, ClickUpFolder, ClickUpCompany, ClickUpDoc } from '@/types/clickup';
+import { FileText, X } from 'lucide-react';
 
 interface Props {
   open: boolean;
@@ -17,7 +18,7 @@ interface Props {
   onImported?: () => void;
 }
 
-type Row = ClickUpCompany & { selected: boolean; url: string; status?: 'scraping' | 'importing' | 'done' | 'error'; note?: string; form?: Record<string, unknown> };
+type Row = ClickUpCompany & { selected: boolean; url: string; status?: 'scraping' | 'importing' | 'done' | 'error'; note?: string; form?: Record<string, unknown>; docIds?: string[]; docNames?: Record<string, string> };
 
 // Pull a few human-readable fields from the scraped profile for the review gate.
 function previewFields(form?: Record<string, unknown>): { description: string; primary: string; logo: string; services: number } {
@@ -47,6 +48,37 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
   const [apiToken, setApiToken] = useState('');
   const [connecting, setConnecting] = useState(false);
   const [phase, setPhase] = useState<'select' | 'review'>('select');
+  const [docs, setDocs] = useState<ClickUpDoc[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [docSearch, setDocSearch] = useState('');
+  const [docPickerFor, setDocPickerFor] = useState<number | null>(null);
+
+  const loadDocs = useCallback(async () => {
+    if (docs.length > 0 || docsLoading) return;
+    setDocsLoading(true);
+    try {
+      const res = await clickupListDocs(userId);
+      setDocs(res.docs || []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não consegui listar os Docs do ClickUp');
+    } finally {
+      setDocsLoading(false);
+    }
+  }, [userId, docs.length, docsLoading]);
+
+  const toggleDoc = (rowIdx: number, doc: ClickUpDoc) => {
+    setRows((prev) => prev.map((r, i) => {
+      if (i !== rowIdx) return r;
+      const ids = r.docIds || [];
+      const names = { ...(r.docNames || {}) };
+      if (ids.includes(doc.id)) {
+        delete names[doc.id];
+        return { ...r, docIds: ids.filter((x) => x !== doc.id), docNames: names };
+      }
+      names[doc.id] = doc.name;
+      return { ...r, docIds: [...ids, doc.id], docNames: names };
+    }));
+  };
 
   const refreshStatus = useCallback(async () => {
     setLoading(true);
@@ -173,6 +205,7 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
         company: r.company, channels: r.channels, list_ids: r.list_ids,
         website_url: r.url.trim(),
         form_data: r.form || { businessName: r.company, sourceWebsite: r.url.trim() },
+        doc_ids: r.docIds || [],
       }));
       const res = await clickupImportCompanies(userId, payload);
       const byName = new Map(res.results.map((x) => [x.company, x]));
@@ -301,6 +334,41 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
                                 <span className="text-[11px] text-muted-foreground">{pv.services > 0 ? `${pv.services} serviço(s)/produto(s)` : 'sem serviços detectados'}</span>
                               </div>
                               {pv.description ? <p className="text-[11px] text-foreground/80 leading-snug">{pv.description}{pv.description.length >= 220 ? '…' : ''}</p> : <p className="text-[11px] text-muted-foreground">Sem descrição lida do site.</p>}
+                            </div>
+                          )}
+                          {phase === 'review' && (
+                            <div className="mt-2 space-y-1.5">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {(r.docIds || []).map((id) => (
+                                  <span key={id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
+                                    <FileText className="h-3 w-3" />{r.docNames?.[id] || id}
+                                    <button type="button" onClick={() => toggleDoc(i, { id, name: r.docNames?.[id] || id })}><X className="h-3 w-3" /></button>
+                                  </span>
+                                ))}
+                                <button type="button" onClick={() => { setDocPickerFor(docPickerFor === i ? null : i); loadDocs(); }} className="text-[11px] text-muted-foreground underline-offset-2 hover:underline">
+                                  + Anexar Doc do ClickUp (wiki)
+                                </button>
+                              </div>
+                              {docPickerFor === i && (
+                                <div className="rounded-md border border-border p-2 space-y-1.5">
+                                  <Input value={docSearch} onChange={(e) => setDocSearch(e.target.value)} placeholder="Buscar Doc por nome…" className="h-7 text-xs" />
+                                  {docsLoading ? (
+                                    <p className="text-[11px] text-muted-foreground">carregando docs…</p>
+                                  ) : (
+                                    <div className="max-h-32 space-y-0.5 overflow-y-auto">
+                                      {docs.filter((d) => d.name.toLowerCase().includes(docSearch.toLowerCase())).slice(0, 50).map((d) => {
+                                        const on = (r.docIds || []).includes(d.id);
+                                        return (
+                                          <button key={d.id} type="button" onClick={() => toggleDoc(i, d)} className={`flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] ${on ? 'bg-primary/10 text-primary' : 'hover:bg-muted'}`}>
+                                            <FileText className="h-3 w-3 shrink-0" /><span className="truncate">{d.name || d.id}</span>{on && <CheckCircle2 className="ml-auto h-3 w-3" />}
+                                          </button>
+                                        );
+                                      })}
+                                      {docs.length === 0 && <p className="text-[11px] text-muted-foreground">nenhum Doc encontrado</p>}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                           {r.status && (

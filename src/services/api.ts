@@ -1330,7 +1330,7 @@ export const setupWizardChat = (payload: {
 
 // ── ClickUp integration ──────────────────────────────────────────────────────
 import type {
-  ClickUpStatus, ClickUpListResponse, ClickUpCompany, ClickUpImportResultItem,
+  ClickUpStatus, ClickUpListResponse, ClickUpCompany, ClickUpDoc, ClickUpImportResultItem,
 } from "@/types/clickup";
 
 const clickupGet = async <T>(endpoint: string, params: Record<string, string>): Promise<T> => {
@@ -1360,9 +1360,12 @@ export const clickupListFolders = (userId: number, spaceId: string): Promise<Cli
 export const clickupListCompanies = (userId: number, folderId: string): Promise<ClickUpListResponse> =>
   clickupGet<ClickUpListResponse>("clickup_list_companies.php", { user_id: String(userId), folder_id: folderId });
 
+export const clickupListDocs = (userId: number, q = ''): Promise<{ success: boolean; docs: ClickUpDoc[] }> =>
+  clickupGet<{ success: boolean; docs: ClickUpDoc[] }>("clickup_list_docs.php", { user_id: String(userId), q });
+
 export const clickupImportCompanies = (
   userId: number,
-  companies: Array<Pick<ClickUpCompany, "company" | "channels" | "list_ids"> & { website_url: string; form_data?: Record<string, unknown> }>,
+  companies: Array<Pick<ClickUpCompany, "company" | "channels" | "list_ids"> & { website_url: string; form_data?: Record<string, unknown>; doc_ids?: string[] }>,
 ): Promise<{ success: boolean; results: ClickUpImportResultItem[] }> =>
   postApi<{ success: boolean; results: ClickUpImportResultItem[] }>("clickup_import_companies.php", { user_id: userId, companies });
 
