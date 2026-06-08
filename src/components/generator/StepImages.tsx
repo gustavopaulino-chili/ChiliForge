@@ -7,7 +7,8 @@ import { FieldLabel } from './FieldLabel';
 import { ImageUploadField } from './ImageUploadField';
 import { CompanyImagePicker } from './CompanyImagePicker';
 import { Progress } from '@/components/ui/progress';
-import { getProjectAssets, getProjectById, type ProjectAsset } from '@/services/api';
+import { getProjectAssets, getProjectById, searchImages, type ProjectAsset } from '@/services/api';
+import { toast } from 'sonner';
 
 // Brand images stored in company_form_data.images — offered alongside the assets folder.
 const BRAND_IMAGE_KEYS: [string, string][] = [
@@ -67,6 +68,50 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
   const [pickerTarget, setPickerTarget] = useState<{ apply: (url: string) => void } | null>(null);
   const openCompanyPicker = (apply: (url: string) => void) => setPickerTarget({ apply });
 
+  // Pexels stock-image search per field (mirrors the ads flow).
+  const [searchingKey, setSearchingKey] = useState<string | null>(null);
+  const recentPexelsRef = useRef<string[]>([]);
+
+  // Build a context-aware Pexels query from the business data + field purpose.
+  const PEXELS_HINTS: Record<string, string> = {
+    hero1: 'hero banner', hero2: 'hero banner', brand: 'brand lifestyle',
+    section1: 'feature', section2: 'feature', section3: 'feature',
+    about: 'office culture', team: 'team people', product: 'product',
+  };
+  const buildPexelsQuery = (imageType: string) => {
+    const hint = PEXELS_HINTS[imageType] ?? (imageType.startsWith('product') ? 'product' : '');
+    return [
+      data.businessCategory || data.businessName || 'business',
+      hint,
+      (data.services || []).filter(Boolean)[0] || '',
+      data.preferredStyle || 'modern',
+    ].filter(Boolean).join(' ').trim();
+  };
+
+  const handleSearchPexels = async (imageType: string, apply: (url: string) => void) => {
+    const query = buildPexelsQuery(imageType);
+    if (!query) { toast.error('Preencha a categoria ou o nome do negócio antes de buscar no Pexels.'); return; }
+    setSearchingKey(imageType);
+    try {
+      const result = await searchImages(query, 10);
+      const candidates = (result.images || [])
+        .map(img => img?.url)
+        .filter((u): u is string => typeof u === 'string' && u.trim() !== '');
+      if (!candidates.length) { toast.error('Nenhuma imagem encontrada no Pexels para este contexto.'); return; }
+      const recent = recentPexelsRef.current;
+      const fresh = candidates.filter(u => !recent.includes(u));
+      const pool = fresh.length ? fresh : candidates;
+      const url = pool[Math.floor(Math.random() * pool.length)];
+      recentPexelsRef.current = [url, ...recent.filter(u => u !== url)].slice(0, 20);
+      apply(url);
+      toast.success('Imagem do Pexels adicionada.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao buscar no Pexels.');
+    } finally {
+      setSearchingKey(null);
+    }
+  };
+
   useEffect(() => {
     if (!companyProjectId || !userId) { setCompanyAssets([]); return; }
     let active = true;
@@ -95,6 +140,12 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
   const hasCompany = Boolean(companyProjectId && userId);
   const companyPickerProps = (apply: (url: string) => void) =>
     hasCompany ? () => openCompanyPicker(apply) : undefined;
+
+  // Props that wire the Pexels search button on an ImageUploadField for a given slot.
+  const pexelsProps = (imageType: string, apply: (url: string) => void) => ({
+    onSearchPexels: () => handleSearchPexels(imageType, apply),
+    isSearchingPexels: searchingKey === imageType,
+  });
 
   const updateImage = (key: keyof ImageUrls, value: string) => {
     onChange({ images: { ...data.images, [key]: value } });
@@ -354,6 +405,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               value={data.images.heroImage1}
               onChange={v => updateImage('heroImage1', v)}
               onPickCompany={companyPickerProps((url) => updateImage('heroImage1', url))}
+              {...pexelsProps('hero1', (url) => updateImage('heroImage1', url))}
               imageType="hero1"
             />
             <ImageUploadField
@@ -362,6 +414,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               value={data.images.heroImage2}
               onChange={v => updateImage('heroImage2', v)}
               onPickCompany={companyPickerProps((url) => updateImage('heroImage2', url))}
+              {...pexelsProps('hero2', (url) => updateImage('heroImage2', url))}
               imageType="hero2"
             />
           </div>
@@ -413,6 +466,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               value={data.images.brandImage}
               onChange={v => updateImage('brandImage', v)}
               onPickCompany={companyPickerProps((url) => updateImage('brandImage', url))}
+              {...pexelsProps('brand', (url) => updateImage('brandImage', url))}
               imageType="brand"
             />
           </div>
@@ -433,6 +487,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               value={data.images.sectionImage1}
               onChange={v => updateImage('sectionImage1', v)}
               onPickCompany={companyPickerProps((url) => updateImage('sectionImage1', url))}
+              {...pexelsProps('section1', (url) => updateImage('sectionImage1', url))}
               imageType="section1"
             />
             <ImageUploadField
@@ -441,6 +496,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               value={data.images.sectionImage2}
               onChange={v => updateImage('sectionImage2', v)}
               onPickCompany={companyPickerProps((url) => updateImage('sectionImage2', url))}
+              {...pexelsProps('section2', (url) => updateImage('sectionImage2', url))}
               imageType="section2"
             />
             <ImageUploadField
@@ -449,6 +505,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               value={data.images.sectionImage3}
               onChange={v => updateImage('sectionImage3', v)}
               onPickCompany={companyPickerProps((url) => updateImage('sectionImage3', url))}
+              {...pexelsProps('section3', (url) => updateImage('sectionImage3', url))}
               imageType="section3"
             />
           </div>
@@ -469,6 +526,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               value={data.images.aboutImage}
               onChange={v => updateImage('aboutImage', v)}
               onPickCompany={companyPickerProps((url) => updateImage('aboutImage', url))}
+              {...pexelsProps('about', (url) => updateImage('aboutImage', url))}
               imageType="about"
             />
             <ImageUploadField
@@ -477,6 +535,7 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               value={data.images.teamImage}
               onChange={v => updateImage('teamImage', v)}
               onPickCompany={companyPickerProps((url) => updateImage('teamImage', url))}
+              {...pexelsProps('team', (url) => updateImage('teamImage', url))}
               imageType="team"
             />
           </div>
@@ -499,6 +558,8 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
                       label={`Product Image ${i + 1}`}
                       value={img}
                       onChange={v => updateProductImage(i, v)}
+                      onPickCompany={companyPickerProps((url) => updateProductImage(i, url))}
+                      {...pexelsProps(`product-${i}`, (url) => updateProductImage(i, url))}
                       imageType={`product-${i}`}
                     />
                   </div>

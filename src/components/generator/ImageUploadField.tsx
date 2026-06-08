@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { FieldLabel } from './FieldLabel';
-import { Loader2, Upload, X, CheckCircle } from 'lucide-react';
+import { Loader2, Upload, X, CheckCircle, Search } from 'lucide-react';
 import { uploadImageToStorage, isValidUrl, isUploadedImage } from '@/services/imageUpload';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -15,6 +15,10 @@ interface ImageUploadFieldProps {
   required?: boolean;
   /** When provided, shows a "Empresa" button that opens the company-image picker. */
   onPickCompany?: () => void;
+  /** When provided, shows a "Pexels" button that searches stock images for this field. */
+  onSearchPexels?: () => void;
+  /** Spinner state for the Pexels search button. */
+  isSearchingPexels?: boolean;
 }
 
 export function ImageUploadField({
@@ -25,6 +29,8 @@ export function ImageUploadField({
   imageType,
   required = false,
   onPickCompany,
+  onSearchPexels,
+  isSearchingPexels = false,
 }: ImageUploadFieldProps) {
   const { user } = useAuth();
   const [isUploading, setIsUploading] = useState(false);
@@ -77,6 +83,18 @@ export function ImageUploadField({
               title="Escolher das imagens da empresa"
             >
               Empresa
+            </button>
+          )}
+          {onSearchPexels && (
+            <button
+              type="button"
+              onClick={onSearchPexels}
+              disabled={isSearchingPexels}
+              className="px-2 py-1 rounded text-muted-foreground hover:text-foreground inline-flex items-center gap-1 disabled:opacity-50"
+              title="Buscar imagem no Pexels com o contexto da empresa"
+            >
+              {isSearchingPexels ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+              Pexels
             </button>
           )}
         </div>
