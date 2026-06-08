@@ -2557,8 +2557,7 @@ function generatePrompt(data: BusinessFormData, aiImages: string[]): string {
 
   const sourceReference = data.sourceWebsite
     ? `SOURCE WEBSITE REFERENCE: ${data.sourceWebsite}
-SOURCE WEBSITE ROLE: Reference only for visual cues, market context, and optional inspiration.
-DO NOT reproduce the same copy, same section narrative, same offer framing, or same positioning from the source website unless that direction is explicitly repeated in the user objective or form fields.`
+SOURCE WEBSITE ROLE (STRONG REFERENCE — be faithful): Closely follow the scraped site's STRUCTURE, section set, content depth, imagery intent and overall vibe — the result should clearly read as the SAME business's site. Reuse its real content (services, sections, claims). Adapt the copy to the user's objective, but do NOT invent a generic page that ignores the source. ALWAYS apply the brand colors/fonts defined below (the source informs layout/tone/content — never the colors).`
     : 'No source website reference provided.';
 
   const intentPriorityBlock = `
@@ -2580,8 +2579,9 @@ ${hasMandatorySections ? `- ⚠️ SECTION CONTRACT IS BINDING: The MANDATORY SE
 - Scraped website content is reference material only. It must NOT dominate the final messaging if the user has provided a different goal.
 - If the user objective conflicts with the scraped site content, FOLLOW THE USER OBJECTIVE.
 - If the user changed the form fields after scraping, FOLLOW THE CURRENT FORM FIELDS.
-- Do NOT clone the scraped site's copy, section order, or business framing by default.
-- The result must feel intentionally adapted to the requested objective, not a rewrite of the scraped site.
+- When a source website was scraped, USE its structure, sections and real content as the PRIMARY basis — the page should feel like the same business's site — then adapt the copy to the user's objective.
+- Only the user's explicit objective and edited form fields override SPECIFIC parts; do not discard the scraped content wholesale.
+- Colors are NOT negotiable: always use the brand colors below regardless of the source site's palette.
 `.trim();
 
   const presetLabel = LANDING_PRESETS.find(p => p.value === data.landingPreset)?.label || 'Landing Page';
@@ -2738,7 +2738,7 @@ ${typeof data.designNotes === 'string' && data.designNotes.trim() ? data.designN
 ${typeof data.designNotes === 'string' && data.designNotes.trim() ? `VISUAL DIRECTION (BINDING — these notes define the design aesthetic):
 - The design notes above capture the visual identity and aesthetic of the source website. Apply this direction firmly.
 - Tone, energy level, sophistication, density, and emotional register of ALL copy MUST mirror that source.
-- If the source is dark, luxurious, or bold — the output must feel dark, luxurious, and bold.
+- Mirror the source's ENERGY, density and sophistication — BUT always use the BRAND COLORS below. Never adopt the source's palette or switch to a dark background if the brand BG is light (and vice-versa).
 - If the source is minimal, airy, and typographic — match that restraint and whitespace.
 - The design notes override generic style defaults for tone, messaging register, and visual energy.
 - You must not keep the same business promise, copy angle, CTA framing, or section story if the user objective asks for something different.
@@ -2779,8 +2779,11 @@ BRAND & VISUAL IDENTITY
 ═══════════════════════════════════════════════════════════
 
 VISUAL STYLE: ${data.preferredStyle || 'modern'} — ${styleGuide[data.preferredStyle] || styleGuide['modern']}
+⚠️ STYLE SCOPE: the visual style controls LAYOUT, TYPOGRAPHY, SPACING, SHAPES and MOOD ONLY — it must NEVER change the brand colors or the background color. Ignore any color/background suggestion implied by the style name; the BRAND COLORS below are mandatory.
 FONTS: Heading — "${data.headingFont || 'Inter'}" | Body — "${data.bodyFont || 'Inter'}"
-BRAND COLORS (pre-applied via skeleton — echo back in theme.* exactly): Primary ${data.primaryColor} · Secondary ${data.secondaryColor} · Accent ${data.accentColor} · Text ${data.textColor} · BG ${data.backgroundColor}
+████ BRAND COLORS — IMMUTABLE RULE (NOT a suggestion) ████
+Use these EXACT hex values everywhere and wire them into the inline tailwind.config (theme.extend.colors). Do NOT substitute, darken, lighten, recolor, or "improve" them. The visual style and the source website affect layout/typography/mood ONLY — never the colors. The PAGE BACKGROUND must be the brand BG color (do not switch to a dark theme unless the brand BG itself is dark).
+  Primary ${data.primaryColor} · Secondary ${data.secondaryColor} · Accent ${data.accentColor} · Text ${data.textColor} · BG ${data.backgroundColor}
 LOGO ENFORCEMENT: ${data.images.logoUrl ? `Use EXACTLY this logo URL in header/footer brand image and do not replace it: ${/^data:image\//i.test(data.images.logoUrl) ? '[logo provided via formData — see images.logo field]' : data.images.logoUrl}` : 'No logo URL provided. Use business name as text only and do not promote any other image to logo.'}
 LOGO COLOR STRATEGY: ${(() => { const s = data.logoStrategy || 'auto'; const map: Record<string,string> = { 'auto': 'Decide the logo treatment per surface — keep it legible: on dark headers/footers render it light (e.g. CSS filter brightness(0) invert(1)); on light surfaces keep it as-is.', 'light': 'Always render the logo LIGHT/white (use CSS filter brightness(0) invert(1) when the source is dark). Designed for dark headers/footers.', 'dark': 'Always render the logo DARK (use filter brightness(0) when needed). Designed for light backgrounds.', 'monochrome': 'Render the logo MONOCHROME (grayscale filter) for a refined, uniform look.', 'full-color': 'Keep the logo in FULL ORIGINAL COLOR — do not apply color filters; ensure the surface behind it provides enough contrast.' }; return map[s] || map['auto']; })()}
 

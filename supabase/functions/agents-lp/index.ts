@@ -221,7 +221,9 @@ serve(async (req: Request) => {
       [
         "████ BRAND-SPECIFIC, NOT A TEMPLATE — REQUIRED ████",
         "This page must look like THIS company's own site — NOT a reused skeleton. Two different companies must produce clearly different pages. Concretely:",
-        "• Make the brand's PRIMARY color the dominant accent everywhere (buttons, links, active states, section highlights, icons) — never a generic default blue. Use secondary/accent for depth/gradients. Wire the EXACT brand colors into the inline tailwind.config (theme.extend.colors).",
+        "• BRAND COLORS ARE IMMUTABLE RULES: the exact brand colors stated in the request are mandatory — wire them into the inline tailwind.config (theme.extend.colors) and use them verbatim. The visual style and the scraped source site control layout/typography/mood ONLY — they must NEVER change the colors or swap the background to a dark theme.",
+        "• Make the brand's PRIMARY color the dominant accent everywhere (buttons, links, active states, section highlights, icons) — never a generic default blue. Use secondary/accent for depth/gradients.",
+        "• Be FAITHFUL to the scraped source site when one is provided: follow its structure, sections, real content and overall vibe (the page should read as the same business), then adapt copy to the objective — but keep the brand colors above.",
         "• Use the brand's heading/body fonts throughout (headings vs body clearly distinct).",
         "• Let the INDUSTRY + brand personality drive the art direction: hero layout, section order, imagery style, copy angle, shapes and decorative motifs. A law firm, a bakery and a SaaS must look visibly different (palette mood, density, imagery, tone).",
         "• VARY the structure: do NOT always output the same hero → features → testimonials → CTA skeleton. Reorder, merge, split or drop sections to fit THIS offer and goal. Aim for at least 3 visually distinct section layouts.",
