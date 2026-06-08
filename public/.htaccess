@@ -4,6 +4,16 @@
   AddType image/avif .avif
 </IfModule>
 
+# Never cache index.html so the browser always loads the latest hashed bundle
+# (the JS/CSS under assets/ are content-hashed, so they can be cached forever).
+<IfModule mod_headers.c>
+  <FilesMatch "(^index\.html|service-worker\.js)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+  </FilesMatch>
+</IfModule>
+
 # Configurações para Hostinger + PHP API
 <IfModule mod_rewrite.c>
   RewriteEngine On
