@@ -162,6 +162,7 @@ export default function ProjectSetup() {
     ['heroImage1', 'heroImage2', 'logoUrl', 'brandImage', 'sectionImage1', 'sectionImage2', 'sectionImage3', 'aboutImage', 'teamImage']
       .forEach((k) => add(extracted[k]));
     if (Array.isArray(extracted.productImages)) extracted.productImages.forEach(add);
+    if (Array.isArray(extracted.allImages)) extracted.allImages.forEach(add); // expanded scrape image set
     const imgs = extracted.images;
     if (imgs && typeof imgs === 'object') {
       Object.values(imgs as Record<string, unknown>).forEach((v) => {

@@ -2597,16 +2597,19 @@ ${hasMandatorySections ? `- ⚠️ SECTION CONTRACT IS BINDING: The MANDATORY SE
     'seasonal': 'Seasonal/holiday themed landing page with festive design elements (particles, themed colors), special offers with decorative frames, themed imagery, and celebration-driven messaging.',
   };
 
+  // NOTE: style controls LAYOUT, TYPOGRAPHY, SPACING, SHAPES and MOOD ONLY.
+  // It must NEVER imply colors or backgrounds — those come exclusively from the
+  // immutable BRAND COLORS. (Do not put color/background words here.)
   const styleGuide: Record<string, string> = {
-    'modern': 'Modern: clean, geometric, gradient accents, glassmorphism cards, conversion-focused layouts.',
+    'modern': 'Modern: clean geometric layout, gradients/depth built FROM the brand palette, glassmorphism/elevated cards, conversion-focused structure.',
 
-    'corporate': 'Corporate (rendered as Modern): structured grid layout, professional hierarchy, data-driven trust sections. Use modern theme style.',
+    'corporate': 'Corporate: structured grid layout, clear professional hierarchy, data-driven trust sections, restrained spacing. Layout only — keep the brand colors.',
 
-    'minimal': 'Minimal: maximum whitespace, monochromatic, large typography as the hero element.',
+    'minimal': 'Minimal: maximum whitespace, large typography as the hero element, very few elements per section, restrained UI.',
 
-    'bold': 'Bold: high contrast dark backgrounds, oversized headlines, dramatic gradients, energetic movement.',
+    'bold': 'Bold: oversized headlines, strong typographic contrast and hierarchy, energetic layout with dynamic motion/reveals. (High contrast via the brand colors — do not introduce a dark background unless the brand BG is dark.)',
 
-    'premium': 'Premium: near-black backgrounds, gold accents, elegant serif headings, refined spacing, cinematic imagery.',
+    'premium': 'Premium: elegant serif/display headings, generous refined spacing, cinematic large imagery, understated luxurious composition. (Luxury comes from layout/typography/spacing — NOT from changing the colors. Keep the exact brand palette and background.)',
   };
 
   const tonePersonalityGuide: Record<string, string> = {

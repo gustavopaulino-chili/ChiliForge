@@ -943,19 +943,19 @@ serve(async (req) => {
     }
     // Also collect additional img[src] that are large/content images (not logos)
     const contentImgUrls: string[] = [];
-    for (const tag of (html.match(/<img[^>]+>/gi) || []).slice(0, 30)) {
+    for (const tag of (html.match(/<img[^>]+>/gi) || []).slice(0, 120)) {
       const src = tag.match(/(?:src|data-src|data-lazy-src)=["']([^"']+)["']/i)?.[1] || '';
       if (!src || /logo|brand|marca|icon|favicon|sprite|pixel|avatar|thumb|1x1/i.test(`${src} ${tag}`)) continue;
       if (/\.(jpg|jpeg|png|webp|avif|svg|gif)(\?[^\s"']*)?$/i.test(src) || /\/images?\//i.test(src)) {
         contentImgUrls.push(toAbsolute(src));
       }
-      if (contentImgUrls.length >= 10) break;
+      if (contentImgUrls.length >= 40) break;
     }
     const bgImages: string[] = (html.match(/background(?:-image)?:\s*url\(["']?([^"')]+)["']?\)/gi) || [])
       .map((m: string) => { const u = m.match(/url\(["']?([^"')]+)["']?\)/i); return u ? toAbsolute(u[1]) : ''; })
       .filter((u: string) => u && /\.(jpg|jpeg|png|webp|svg|avif|gif)(\?[^\s"']*)?$/i.test(u))
-      .slice(0, 5);
-    const allExtraImages = [...new Set([...pictureSources, ...bgImages, ...contentImgUrls])].slice(0, 12);
+      .slice(0, 12);
+    const allExtraImages = [...new Set([...pictureSources, ...bgImages, ...contentImgUrls])].slice(0, 40);
     const extraImageHint = allExtraImages.length > 0
       ? `\n\nADDITIONAL IMAGES (srcset + css backgrounds + content imgs): ${allExtraImages.join(', ')}`
       : '';
@@ -995,6 +995,7 @@ Return a JSON object with EXACTLY these fields (use "" for missing values, never
   "sectionImage2Context": "context",
   "sectionImage3": "absolute URL",
   "sectionImage3Context": "context",
+  "allImages": ["array of ALL distinct meaningful content images found (absolute URLs): galleries, products, sections, team, banners — exclude logos/icons/sprites/tracking pixels; up to 30"],
   "city": "string",
   "country": "string",
   "phone": "string",
@@ -1033,6 +1034,7 @@ preferredStyle MUST be exactly one of: modern | editorial | bold | premium | ene
 - sectionImage1/2/3 = images inside content sections (team, product, illustration)
 - brandImage = secondary brand photo (portrait, office, about page)
 - logoUrl: if a PRE-DETECTED LOGO URL is provided, use it exactly — do not invent URLs
+- allImages = EVERY distinct meaningful content image. Start from the ADDITIONAL IMAGES list below, add any other content <img>, dedupe, make absolute, exclude logos/icons/sprites/pixels. Include as many real images as you find (up to 30) — this feeds the company image library.
 - Only include valid image extensions: .jpg .jpeg .png .webp .svg .avif .gif or CDN paths
 
 ═══ FONT RULES ═══
@@ -1056,7 +1058,7 @@ Return ONLY valid JSON. No markdown fences, no extra text.
       }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 4000,
+        maxOutputTokens: 8000,
       }
     }), GEMINI_API_KEY);
     const content = extractModelText(data);
