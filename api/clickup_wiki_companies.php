@@ -32,41 +32,80 @@ if ($workspaceId === '') {
     if (($teamRes['code'] ?? 0) === 401) { echo json_encode(["error" => "token_invalid", "message" => "ClickUp session expired. Reconnect."]); exit; }
     if (!empty($teamRes['data']['teams'][0]['id'])) $workspaceId = (string)$teamRes['data']['teams'][0]['id'];
 }
-if ($workspaceId === '') { http_response_code(502); echo json_encode(["error" => "no_workspace", "message" => "No ClickUp workspace found."]); exit; }
-
-// Fetch the page tree of the Wiki Doc. Mirror the proven v1 call (no max_page_depth,
-// which ClickUp can reject). Try a couple of shapes and surface the real error.
-$pagesRes = clickup_api_request($token, 'GET', "/workspaces/{$workspaceId}/docs/{$docId}/pages?content_format=text/md", null, 'v3');
-if (($pagesRes['code'] ?? 0) === 401) { echo json_encode(["error" => "token_invalid", "message" => "ClickUp session expired. Reconnect."]); exit; }
-
-// Fallback A: plain /pages (no query).
-if (($pagesRes['code'] ?? 0) !== 200) {
-    $pagesRes = clickup_api_request($token, 'GET', "/workspaces/{$workspaceId}/docs/{$docId}/pages", null, 'v3');
+// Candidate workspaces: the stored/first one, then every team the user can access
+// (the Wiki may live in a different workspace than the default).
+$workspaces = [];
+if ($workspaceId !== '') $workspaces[] = $workspaceId;
+$allTeams = clickup_api_request($token, 'GET', '/team');
+if (($allTeams['code'] ?? 0) === 401) { echo json_encode(["error" => "token_invalid", "message" => "ClickUp session expired. Reconnect."]); exit; }
+foreach (($allTeams['data']['teams'] ?? []) as $t) {
+    $tid = (string)($t['id'] ?? '');
+    if ($tid !== '' && !in_array($tid, $workspaces, true)) $workspaces[] = $tid;
 }
-// Fallback B: fetch the Doc itself and read its embedded pages.
-$d = is_array($pagesRes['data'] ?? null) ? $pagesRes['data'] : [];
-$rawPages = is_array($d['pages'] ?? null) ? $d['pages'] : (isset($d[0]) ? $d : []);
-if (($pagesRes['code'] ?? 0) !== 200 || empty($rawPages)) {
-    $docRes = clickup_api_request($token, 'GET', "/workspaces/{$workspaceId}/docs/{$docId}", null, 'v3');
-    if (($docRes['code'] ?? 0) === 200) {
-        $dd = is_array($docRes['data'] ?? null) ? $docRes['data'] : [];
-        $rawPages = is_array($dd['pages'] ?? null) ? $dd['pages'] : $rawPages;
-        if (!empty($rawPages)) $pagesRes = $docRes;
+if (empty($workspaces)) { http_response_code(502); echo json_encode(["error" => "no_workspace", "message" => "No ClickUp workspace found."]); exit; }
+
+// Fetch a doc's page tree. Returns ['code'=>int, 'pages'=>array, 'error'=>string].
+$fetchPages = function (string $ws, string $id) use ($token): array {
+    $r = clickup_api_request($token, 'GET', "/workspaces/{$ws}/docs/{$id}/pages?content_format=text/md", null, 'v3');
+    if (($r['code'] ?? 0) !== 200) {
+        $r = clickup_api_request($token, 'GET', "/workspaces/{$ws}/docs/{$id}/pages", null, 'v3');
     }
-    if (($pagesRes['code'] ?? 0) !== 200 && ($docRes['code'] ?? 0) !== 200) {
-        $cuCode = (int)($pagesRes['code'] ?? 0);
-        $cuMsg  = $pagesRes['error'] ?: ($docRes['error'] ?? 'Could not load the Wiki pages.');
-        http_response_code(502);
-        echo json_encode([
-            "error"        => "wiki_fetch_failed",
-            "message"      => "ClickUp respondeu {$cuCode} para o doc {$docId} (ws {$workspaceId}): {$cuMsg}",
-            "doc_id"       => $docId,
-            "workspace_id" => $workspaceId,
-            "clickup_code" => $cuCode,
-        ]);
-        exit;
+    $d = is_array($r['data'] ?? null) ? $r['data'] : [];
+    $pages = is_array($d['pages'] ?? null) ? $d['pages'] : (isset($d[0]) ? $d : []);
+    return ['code' => (int)($r['code'] ?? 0), 'pages' => $pages, 'error' => (string)($r['error'] ?? '')];
+};
+
+$rawPages = [];
+$resolvedDocId = '';
+$resolvedWs = '';
+$docsSeen = [];
+$lastCode = 0; $lastErr = ''; $listForbidden = false;
+
+foreach ($workspaces as $ws) {
+    // 1) Direct attempt with the provided id.
+    $pf = $fetchPages($ws, $docId);
+    if ($pf['code'] === 200 && !empty($pf['pages'])) { $rawPages = $pf['pages']; $resolvedDocId = $docId; $resolvedWs = $ws; break; }
+    $lastCode = $pf['code']; $lastErr = $pf['error'];
+
+    // 2) Resolve by listing docs (match by exact id, then by name "Chili Wiki").
+    $docsRes = clickup_api_request($token, 'GET', "/workspaces/{$ws}/docs?limit=100", null, 'v3');
+    $dc = (int)($docsRes['code'] ?? 0);
+    if ($dc === 401) { echo json_encode(["error" => "token_invalid", "message" => "ClickUp session expired. Reconnect."]); exit; }
+    if ($dc === 403) { $listForbidden = true; $lastCode = 403; $lastErr = (string)($docsRes['error'] ?? ''); continue; }
+    if ($dc !== 200) { $lastCode = $dc; $lastErr = (string)($docsRes['error'] ?? ''); continue; }
+
+    $docs = is_array($docsRes['data']['docs'] ?? null) ? $docsRes['data']['docs'] : (is_array($docsRes['data']) ? $docsRes['data'] : []);
+    $match = '';
+    foreach ($docs as $dd) {
+        if (!is_array($dd)) continue;
+        $id = (string)($dd['id'] ?? ''); $nm = (string)($dd['name'] ?? '');
+        if ($nm !== '') $docsSeen[] = $nm;
+        if ($id === $docId || ($nm !== '' && mb_stripos($nm, 'chili wiki') !== false)) { $match = $id; break; }
+    }
+    if ($match !== '') {
+        $pf2 = $fetchPages($ws, $match);
+        if ($pf2['code'] === 200 && !empty($pf2['pages'])) { $rawPages = $pf2['pages']; $resolvedDocId = $match; $resolvedWs = $ws; break; }
+        $lastCode = $pf2['code']; $lastErr = $pf2['error'];
     }
 }
+
+if (empty($rawPages)) {
+    http_response_code(502);
+    $hint = $listForbidden
+        ? "Sem acesso à API de Docs (403). Reconecte o ClickUp e confirme que a conta tem permissão de Docs."
+        : "Doc não encontrado nos seus workspaces. Confira o ID do Wiki ou o workspace.";
+    echo json_encode([
+        "error"        => "wiki_fetch_failed",
+        "message"      => "ClickUp {$lastCode} ao carregar o Wiki '{$docId}': {$lastErr}. {$hint}",
+        "doc_id"       => $docId,
+        "workspaces"   => $workspaces,
+        "docs_seen"    => array_values(array_unique($docsSeen)),
+        "clickup_code" => $lastCode,
+    ]);
+    exit;
+}
+
+$docId = $resolvedDocId ?: $docId;   // use the resolved id for the page links
 $flat = clickup_flatten_doc_pages($rawPages);
 
 $companies = [];

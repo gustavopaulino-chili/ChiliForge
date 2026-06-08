@@ -25,14 +25,23 @@ if (!$row || ($row['access_token'] ?? '') === '') {
 }
 $token = $row['access_token'];
 
-$workspaceId = (string)($row['workspace_id'] ?? '');
-if ($workspaceId === '') {
-    $teamRes = clickup_api_request($token, 'GET', '/team');
-    if (!empty($teamRes['data']['teams'][0]['id'])) $workspaceId = (string)$teamRes['data']['teams'][0]['id'];
+// Try the stored/first workspace, then every team (the Wiki may be elsewhere).
+$workspaces = [];
+$stored = (string)($row['workspace_id'] ?? '');
+if ($stored !== '') $workspaces[] = $stored;
+$teamRes = clickup_api_request($token, 'GET', '/team');
+if (($teamRes['code'] ?? 0) === 401) { echo json_encode(["error" => "token_invalid", "message" => "ClickUp session expired. Reconnect."]); exit; }
+foreach (($teamRes['data']['teams'] ?? []) as $t) {
+    $tid = (string)($t['id'] ?? '');
+    if ($tid !== '' && !in_array($tid, $workspaces, true)) $workspaces[] = $tid;
 }
-if ($workspaceId === '') { http_response_code(502); echo json_encode(["error" => "no_workspace"]); exit; }
+if (empty($workspaces)) { http_response_code(502); echo json_encode(["error" => "no_workspace"]); exit; }
 
-$res = clickup_api_request($token, 'GET', "/workspaces/{$workspaceId}/docs/{$docId}/pages/{$pageId}?content_format=text/md", null, 'v3');
+$res = ['code' => 0, 'data' => [], 'error' => ''];
+foreach ($workspaces as $ws) {
+    $res = clickup_api_request($token, 'GET', "/workspaces/{$ws}/docs/{$docId}/pages/{$pageId}?content_format=text/md", null, 'v3');
+    if (($res['code'] ?? 0) === 200) break;
+}
 if (($res['code'] ?? 0) === 401) { echo json_encode(["error" => "token_invalid", "message" => "ClickUp session expired. Reconnect."]); exit; }
 if (($res['code'] ?? 0) !== 200) {
     http_response_code(502);
