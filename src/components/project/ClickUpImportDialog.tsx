@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, Plug, RefreshCw, CheckCircle2, AlertCircle, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  clickupStatus, clickupStartOAuth, clickupConnectToken, clickupListSpaces, clickupListFolders, clickupListCompanies, clickupListDocs, clickupImportCompanies, scrapeWebsite,
+  clickupStatus, clickupStartOAuth, clickupConnectToken, clickupListSpaces, clickupListFolders, clickupListCompanies, clickupListDocs, clickupImportCompanies, clickupRegisterWebhook, scrapeWebsite,
 } from '@/services/api';
 import type { ClickUpSpace, ClickUpFolder, ClickUpCompany, ClickUpDoc } from '@/types/clickup';
 import { FileText, X } from 'lucide-react';
@@ -216,6 +216,9 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
       }));
       const ok = res.results.filter((x) => x.status === 'created' || x.status === 'updated').length;
       toast.success(`${ok} empresa(s) importada(s) do ClickUp.`);
+      // Start monitoring this folder so new companies (new Lists) are detected
+      // automatically from now on (best-effort — never block the import).
+      if (folderId) clickupRegisterWebhook(userId, folderId).catch(() => {});
       setPhase('select');
       onImported?.();
     } catch (e) {

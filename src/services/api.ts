@@ -1330,7 +1330,7 @@ export const setupWizardChat = (payload: {
 
 // ── ClickUp integration ──────────────────────────────────────────────────────
 import type {
-  ClickUpStatus, ClickUpListResponse, ClickUpCompany, ClickUpDoc, ClickUpImportResultItem,
+  ClickUpStatus, ClickUpListResponse, ClickUpCompany, ClickUpDoc, ClickUpImportResultItem, ClickUpDetection,
 } from "@/types/clickup";
 
 const clickupGet = async <T>(endpoint: string, params: Record<string, string>): Promise<T> => {
@@ -1371,3 +1371,13 @@ export const clickupImportCompanies = (
 
 export const clickupConnectToken = (userId: number, apiToken: string): Promise<{ success: boolean; connected: boolean; workspace_id?: string | null }> =>
   postApi<{ success: boolean; connected: boolean; workspace_id?: string | null }>("clickup_connect_token.php", { user_id: userId, api_token: apiToken });
+
+// v3 — webhook-based detection of new companies (listCreated).
+export const clickupRegisterWebhook = (userId: number, folderId: string): Promise<{ success: boolean; already_active?: boolean; webhook_id?: string; error?: string }> =>
+  postApi<{ success: boolean; already_active?: boolean; webhook_id?: string; error?: string }>("clickup_webhook_register.php", { user_id: userId, folder_id: folderId });
+
+export const clickupListDetected = (userId: number): Promise<{ success: boolean; count: number; detections: ClickUpDetection[] }> =>
+  clickupGet<{ success: boolean; count: number; detections: ClickUpDetection[] }>("clickup_detected_list.php", { user_id: String(userId) });
+
+export const clickupDetectedAction = (userId: number, id: number, action: 'dismiss' | 'imported'): Promise<{ success: boolean; status: string }> =>
+  postApi<{ success: boolean; status: string }>("clickup_detected_action.php", { user_id: userId, id, action });

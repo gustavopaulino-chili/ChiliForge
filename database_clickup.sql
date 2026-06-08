@@ -30,6 +30,40 @@ ALTER TABLE projects ADD COLUMN source           VARCHAR(32) NOT NULL DEFAULT 'm
 ALTER TABLE projects ADD COLUMN clickup_list_ids TEXT NULL;
 ALTER TABLE projects ADD COLUMN channels         TEXT NULL;
 
+-- 3) v3 — webhook-based detection of new companies (listCreated).
+--    The PHP ensure layer (clickup_ensure_schema) also creates these at runtime.
+CREATE TABLE IF NOT EXISTS clickup_webhooks (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    webhook_id VARCHAR(128) NOT NULL,
+    folder_id VARCHAR(64) NOT NULL,       -- monitored location ('space:<id>' for folderless)
+    endpoint VARCHAR(512) NOT NULL,
+    secret TEXT NOT NULL,                 -- AES-256-CBC encrypted at rest
+    status VARCHAR(16) NOT NULL DEFAULT 'active',
+    fail_count INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_webhook_id (webhook_id),
+    KEY idx_user_folder (user_id, folder_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS clickup_detected_companies (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    norm_key VARCHAR(190) NOT NULL,       -- normalized company name
+    company_name VARCHAR(255) NOT NULL,
+    channels TEXT NULL,                   -- JSON array
+    list_ids TEXT NULL,                   -- JSON array
+    source_list_id VARCHAR(64) NULL,      -- the list that triggered it
+    status VARCHAR(16) NOT NULL DEFAULT 'pending', -- pending|dismissed|imported
+    detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_user_company (user_id, norm_key),
+    KEY idx_user_status (user_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Rollback (manual):
 -- DROP TABLE IF EXISTS clickup_connections;
+-- DROP TABLE IF EXISTS clickup_webhooks;
+-- DROP TABLE IF EXISTS clickup_detected_companies;
 -- ALTER TABLE projects DROP COLUMN source, DROP COLUMN clickup_list_ids, DROP COLUMN channels;

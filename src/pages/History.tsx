@@ -22,7 +22,8 @@ import {
 } from "@/components/ui/dialog";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { deleteAdCreative, getAdCreatives, getProjects, moveProjectToCompany } from "@/services/api";
+import { deleteAdCreative, getAdCreatives, getProjects, moveProjectToCompany, clickupListDetected, clickupDetectedAction } from "@/services/api";
+import type { ClickUpDetection } from "@/types/clickup";
 import { useAuth } from "@/contexts/AuthContext";
 import { companyToAdForm, companyToLandingForm, normalizeCompanyProjectFormData } from "@/types/projectContext";
 
@@ -122,6 +123,23 @@ export default function History() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [clickupOpen, setClickupOpen] = useState(false);
+  const [detections, setDetections] = useState<ClickUpDetection[]>([]);
+
+  // New-company detections from ClickUp (webhook). Shown as a badge + panel.
+  const fetchDetections = async () => {
+    if (!(Number(user?.id) > 0)) return;
+    try {
+      const res = await clickupListDetected(Number(user?.id));
+      setDetections(res.detections || []);
+    } catch { /* ClickUp not connected / endpoint absent — ignore silently */ }
+  };
+  useEffect(() => { fetchDetections(); /* eslint-disable-next-line */ }, [user?.id]);
+
+  const dismissDetection = async (id: number) => {
+    setDetections((prev) => prev.filter((d) => d.id !== id));
+    try { await clickupDetectedAction(Number(user?.id), id, 'dismiss'); }
+    catch { fetchDetections(); }
+  };
 
   // Handle the ClickUp OAuth redirect (clickup_callback.php → /projects?clickup=...)
   useEffect(() => {
@@ -516,8 +534,13 @@ export default function History() {
         </Button>
         <div className="flex items-center gap-3">
           <h1 className="font-bold">Projects</h1>
-          <Button size="sm" variant="outline" onClick={() => setClickupOpen(true)} className="gap-2">
+          <Button size="sm" variant="outline" onClick={() => setClickupOpen(true)} className="gap-2 relative">
             <Plug className="h-4 w-4" /> ClickUp
+            {detections.length > 0 && (
+              <span className="absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">
+                {detections.length}
+              </span>
+            )}
           </Button>
           <Button size="sm" onClick={() => navigate("/projects/new")} className="gap-2">
             <FolderOpen className="h-4 w-4" /> New Project
@@ -528,10 +551,44 @@ export default function History() {
       {Number(user?.id) > 0 && (
         <ClickUpImportDialog
           open={clickupOpen}
-          onOpenChange={setClickupOpen}
+          onOpenChange={(o) => { setClickupOpen(o); if (!o) fetchDetections(); }}
           userId={Number(user?.id)}
-          onImported={() => { setClickupOpen(false); fetchProjects(); }}
+          onImported={() => { setClickupOpen(false); fetchProjects(); fetchDetections(); }}
         />
+      )}
+
+      {/* New-company detections from ClickUp — import via the normal flow or dismiss. */}
+      {detections.length > 0 && (
+        <div className="max-w-4xl mx-auto px-6 pt-4">
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Plug className="h-4 w-4 text-primary" />
+              <p className="text-sm font-semibold text-foreground">
+                {detections.length} empresa(s) nova(s) detectada(s) no ClickUp
+              </p>
+            </div>
+            <ul className="space-y-2">
+              {detections.map((d) => (
+                <li key={d.id} className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-card px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{d.company}</p>
+                    {d.channels.length > 0 && (
+                      <p className="text-[11px] text-muted-foreground truncate">{d.channels.join(' · ')}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button size="sm" className="h-7 gap-1" onClick={() => setClickupOpen(true)}>
+                      <FolderInput className="h-3.5 w-3.5" /> Importar
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7" onClick={() => dismissDetection(d.id)}>
+                      Dispensar
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       )}
 
       <main className="max-w-4xl mx-auto p-6">

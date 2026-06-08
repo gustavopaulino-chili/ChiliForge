@@ -112,6 +112,65 @@ function clickup_ensure_schema(mysqli $conn): void {
     clickup_ensure_column($conn, 'projects', 'source',           "ALTER TABLE projects ADD COLUMN source VARCHAR(32) NOT NULL DEFAULT 'manual'");
     clickup_ensure_column($conn, 'projects', 'clickup_list_ids', "ALTER TABLE projects ADD COLUMN clickup_list_ids TEXT NULL");
     clickup_ensure_column($conn, 'projects', 'channels',         "ALTER TABLE projects ADD COLUMN channels TEXT NULL");
+
+    // v3 — webhook (listCreated) detection of new companies.
+    $conn->query(
+        "CREATE TABLE IF NOT EXISTS clickup_webhooks (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            webhook_id VARCHAR(128) NOT NULL,
+            folder_id VARCHAR(64) NOT NULL,       -- monitored location ('space:<id>' for folderless)
+            endpoint VARCHAR(512) NOT NULL,
+            secret TEXT NOT NULL,                 -- AES-256-CBC encrypted at rest
+            status VARCHAR(16) NOT NULL DEFAULT 'active',
+            fail_count INT NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_webhook_id (webhook_id),
+            KEY idx_user_folder (user_id, folder_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    );
+    $conn->query(
+        "CREATE TABLE IF NOT EXISTS clickup_detected_companies (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            norm_key VARCHAR(190) NOT NULL,       -- normalized company name
+            company_name VARCHAR(255) NOT NULL,
+            channels TEXT NULL,                   -- JSON array
+            list_ids TEXT NULL,                   -- JSON array
+            source_list_id VARCHAR(64) NULL,      -- the list that triggered it
+            status VARCHAR(16) NOT NULL DEFAULT 'pending', -- pending|dismissed|imported
+            detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_user_company (user_id, norm_key),
+            KEY idx_user_status (user_id, status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    );
+}
+
+// Parse a ClickUp List name "{CHANNEL} - {Company}" (split on the FIRST " - ", so
+// multi-word channels like "SEO INT" work). Returns ['channel','company'] or null.
+function clickup_parse_list_name(string $listName): ?array {
+    $listName = trim($listName);
+    if ($listName === '') return null;
+    $pos = mb_strpos($listName, ' - ');
+    if ($pos === false) return null;
+    $channel = trim(mb_substr($listName, 0, $pos));
+    $company = trim(mb_substr($listName, $pos + 3));
+    if ($company === '') return null;
+    return ['channel' => $channel, 'company' => $company];
+}
+
+// Normalized dedup key for a company name (lowercase, collapsed whitespace).
+function clickup_norm_company_key(string $company): string {
+    return mb_strtolower(trim(preg_replace('/\s+/', ' ', $company)));
+}
+
+// Verify a ClickUp webhook request: X-Signature = HMAC-SHA256(rawBody, secret) hex.
+function clickup_verify_webhook_signature(string $rawBody, string $signatureHeader, string $secret): bool {
+    if ($secret === '' || $signatureHeader === '') return false;
+    $expected = hash_hmac('sha256', $rawBody, $secret);
+    return hash_equals($expected, trim($signatureHeader));
 }
 
 // ── ClickUp REST helper ─────────────────────────────────────────────────────

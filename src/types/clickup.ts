@@ -45,3 +45,12 @@ export interface ClickUpImportResultItem {
   public_url?: string;
   reason?: string;
 }
+
+// v3 — a new company detected in ClickUp (via webhook), pending import.
+export interface ClickUpDetection {
+  id: number;
+  company: string;
+  channels: string[];
+  list_ids: string[];
+  detected_at: string;
+}
