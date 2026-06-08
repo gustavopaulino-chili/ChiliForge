@@ -13,6 +13,7 @@ import {
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 import { VisualEditor, stripEditorBridge } from '@/components/editor/VisualEditor';
+import { ReforgeChat } from '@/components/editor/ReforgeChat';
 import { getProjectById, updateProjectContent } from '@/services/api';
 import { toast } from 'sonner';
 
@@ -303,6 +304,14 @@ export default function VisualEditorPage() {
             brandColors={editorBrandColors}
             layout="overlay"
           />
+          {Number(project.id) > 0 && Number(project.user_id ?? user?.id) > 0 && (
+            <ReforgeChat
+              projectId={project.id}
+              userId={Number(project.user_id ?? user?.id)}
+              html={html}
+              onApply={(newHtml) => setHtml(newHtml)}
+            />
+          )}
         </main>
 
         <AlertDialogContent>

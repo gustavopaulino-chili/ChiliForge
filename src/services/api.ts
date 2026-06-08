@@ -967,6 +967,18 @@ export const generateLandingViaAgent = (payload: {
 }): Promise<AgentLpResult> =>
   agentsPost<AgentLpResult>("generate-landing.php", payload);
 
+// ReForge — surgical chat editor ("Chilito") for an already-generated LP.
+export type ReforgeResult = {
+  success: boolean;
+  reply: string;
+  html: string;
+  changed: boolean;
+  applied: number;
+  unmatched: string[];
+};
+export const reforgeLp = (payload: { user_id: number; project_id: number; instruction: string; html: string; history?: ChatMessage[] }): Promise<ReforgeResult> =>
+  agentsPost<ReforgeResult>("reforge-lp.php", payload);
+
 type TrackedProgressEvent =
   | { type: "plan" }
   | { type: "batch_start"; batchIndex: number; totalBatches: number; label: string }
