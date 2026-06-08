@@ -38,6 +38,32 @@ function buildAiUrl(model: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
 
+// Estimated paid-tier prices (USD per 1M tokens) — for the [cost-estimate] server
+// log only (Supabase function logs). Not billing; Google is the source of truth.
+// Keep in sync with https://ai.google.dev/gemini-api/docs/pricing
+const GEMINI_PRICING: Record<string, { in: number; out: number }> = {
+  "gemini-2.5-flash":       { in: 0.30, out: 2.50 },
+  "gemini-2.5-flash-lite":  { in: 0.10, out: 0.40 },
+  "gemini-2.5-pro":         { in: 1.25, out: 10.00 },
+  "gemini-3.5-flash":       { in: 1.50, out: 9.00 },
+  "gemini-3-flash-preview": { in: 0.50, out: 3.00 },
+};
+function pricingFor(model: string): { in: number; out: number } {
+  if (GEMINI_PRICING[model]) return GEMINI_PRICING[model];
+  const key = Object.keys(GEMINI_PRICING).find((k) => model.startsWith(k));
+  return key ? GEMINI_PRICING[key] : GEMINI_PRICING["gemini-2.5-flash"];
+}
+// Logs an estimated USD cost line for a text generation. Server-side only
+// (visible in `supabase functions logs agents-lp`), never returned to the client.
+function logCostEstimate(model: string, promptTokens: number, outputTokens: number): void {
+  try {
+    const p = pricingFor(model);
+    const inUsd = (promptTokens / 1_000_000) * p.in;
+    const outUsd = (outputTokens / 1_000_000) * p.out;
+    console.log(`[cost-estimate] model=${model} in=${promptTokens}tok($${inUsd.toFixed(5)}) out=${outputTokens}tok($${outUsd.toFixed(5)}) ~= $${(inUsd + outUsd).toFixed(5)}`);
+  } catch (_) { /* logging must never break generation */ }
+}
+
 function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 }
@@ -112,6 +138,13 @@ async function callGemini(
   }
 
   const data = await res.json();
+  try {
+    const u = data?.usageMetadata ?? data?.usage_metadata ?? {};
+    const promptTok = Number(u.promptTokenCount ?? u.prompt_token_count ?? 0);
+    const outTok = Number(u.candidatesTokenCount ?? u.candidates_token_count ?? 0);
+    console.log(`[token-usage] model=${model} stores=${fileSearchStores?.length ?? 0} prompt=${promptTok || "?"} candidates=${outTok || "?"} toolUse=${u.toolUsePromptTokenCount ?? u.tool_use_prompt_token_count ?? 0} total=${u.totalTokenCount ?? u.total_token_count ?? "?"}`);
+    logCostEstimate(model, promptTok, outTok);
+  } catch (_) { /* logging must never break generation */ }
   const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
   if (!text.trim()) throw new Error(`Gemini ${model} returned empty response`);
   return { text, groundingMetadata: data?.candidates?.[0]?.groundingMetadata ?? data?.candidates?.[0]?.grounding_metadata };

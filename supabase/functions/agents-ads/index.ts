@@ -308,12 +308,20 @@ async function generateAdImage(
             lastError = `Gemini image ${model} returned invalid JSON: ${bodyText.slice(0, 240)}`;
             break;
           }
+          const u = (data as any)?.usageMetadata ?? (data as any)?.usage_metadata ?? {};
           try {
-            const u = (data as any)?.usageMetadata ?? (data as any)?.usage_metadata ?? {};
             console.log(`[token-usage] IMAGE model=${model} inputImgs=${parts.length - 1} prompt=${u.promptTokenCount ?? "?"} candidates=${u.candidatesTokenCount ?? "?"} total=${u.totalTokenCount ?? "?"}`);
           } catch (_) { /* never break generation on logging */ }
           const url = data ? extractImageDataUrl(data) : null;
-          if (url) return { url, rec: parseComposeTextRec(extractTextFromGeminiPayload(data)) };
+          if (url) {
+            try {
+              const inTok = Number(u.promptTokenCount ?? u.prompt_token_count ?? 0);
+              const inUsd = (inTok / 1_000_000) * pricingFor(model).in;
+              const total = inUsd + IMAGE_PRICE_PER_IMAGE;
+              console.log(`[cost-estimate] IMAGE model=${model} in=${inTok}tok($${inUsd.toFixed(5)}) image=1($${IMAGE_PRICE_PER_IMAGE.toFixed(3)}) ~= $${total.toFixed(5)}`);
+            } catch (_) { /* logging must never break generation */ }
+            return { url, rec: parseComposeTextRec(extractTextFromGeminiPayload(data)) };
+          }
           lastError = `Gemini image ${model} returned no image part: ${summarizeGeminiImagePayload(data)}`;
           break;
         } catch (error) {
@@ -1949,6 +1957,36 @@ const CREATIVE_PLAN_JSON_SCHEMA: Record<string, unknown> = {
   required: ["groups"],
 };
 
+// Estimated paid-tier prices (USD per 1M tokens) — for the [cost-estimate] server
+// log only (Supabase function logs). Not billing; Google is the source of truth.
+// Keep in sync with https://ai.google.dev/gemini-api/docs/pricing
+const GEMINI_PRICING: Record<string, { in: number; out: number }> = {
+  "gemini-2.5-flash":        { in: 0.30, out: 2.50 },
+  "gemini-2.5-flash-lite":   { in: 0.10, out: 0.40 },
+  "gemini-2.5-pro":          { in: 1.25, out: 10.00 },
+  "gemini-3.5-flash":        { in: 1.50, out: 9.00 },
+  "gemini-3-flash-preview":  { in: 0.50, out: 3.00 },
+  "gemini-2.5-flash-image":  { in: 0.30, out: 0.00 }, // output billed per image, not per token
+};
+const IMAGE_PRICE_PER_IMAGE = 0.039; // gemini-2.5-flash-image, 1 image (~1290 tok)
+
+function pricingFor(model: string): { in: number; out: number } {
+  if (GEMINI_PRICING[model]) return GEMINI_PRICING[model];
+  const key = Object.keys(GEMINI_PRICING).find((k) => model.startsWith(k));
+  return key ? GEMINI_PRICING[key] : GEMINI_PRICING["gemini-2.5-flash"]; // safe default
+}
+
+// Logs an estimated USD cost line for a text/plan generation. Server-side only.
+function logCostEstimate(model: string, promptTokens: number, outputTokens: number, label = ""): void {
+  try {
+    const p = pricingFor(model);
+    const inUsd = (promptTokens / 1_000_000) * p.in;
+    const outUsd = (outputTokens / 1_000_000) * p.out;
+    const total = inUsd + outUsd;
+    console.log(`[cost-estimate]${label ? ` ${label}` : ""} model=${model} in=${promptTokens}tok($${inUsd.toFixed(5)}) out=${outputTokens}tok($${outUsd.toFixed(5)}) ~= $${total.toFixed(5)}`);
+  } catch (_) { /* logging must never break generation */ }
+}
+
 async function callGemini(
   systemPrompt: string,
   userMessage: string,
@@ -2032,7 +2070,10 @@ async function callGemini(
   // points at heavy store retrieval (the usual culprit for token spikes).
   try {
     const u = data?.usageMetadata ?? data?.usage_metadata ?? {};
+    const promptTok = Number(u.promptTokenCount ?? u.prompt_token_count ?? 0);
+    const outTok = Number(u.candidatesTokenCount ?? u.candidates_token_count ?? 0);
     console.log(`[token-usage] model=${model} stores=${fileSearchStores?.length ?? 0}(${(fileSearchStores ?? []).join(",")}) refImgs=${referenceImages?.length ?? 0} prompt=${u.promptTokenCount ?? u.prompt_token_count ?? "?"} candidates=${u.candidatesTokenCount ?? u.candidates_token_count ?? "?"} toolUse=${u.toolUsePromptTokenCount ?? u.tool_use_prompt_token_count ?? 0} total=${u.totalTokenCount ?? u.total_token_count ?? "?"}`);
+    logCostEstimate(model, promptTok, outTok);
   } catch (_) { /* logging must never break generation */ }
   const text = data?.candidates?.[0]?.content?.parts
     ?.filter((p: any) => typeof p.text === "string")
