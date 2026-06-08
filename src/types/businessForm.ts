@@ -164,6 +164,8 @@ export interface BusinessFormData {
   textColor: string;
   backgroundColor: string;
   preferredStyle: 'modern' | 'corporate' | 'minimal' | 'bold' | 'premium';
+  // How the logo color should be treated on the page (light bg vs dark bg, etc.).
+  logoStrategy: 'auto' | 'light' | 'dark' | 'monochrome' | 'full-color';
 
   // Images
   images: ImageUrls;
@@ -245,6 +247,7 @@ export const defaultFormData: BusinessFormData = {
   textColor: '#1F2937',
   backgroundColor: '#FFFFFF',
   preferredStyle: 'modern',
+  logoStrategy: 'auto',
   images: {
     heroImage1: '',
     heroImage2: '',

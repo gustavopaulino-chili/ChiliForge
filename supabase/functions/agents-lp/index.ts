@@ -218,6 +218,16 @@ serve(async (req: Request) => {
       "",
       "HERO IMAGE RULE: The hero/header section MUST always contain a prominent image (an <img> or a CSS background-image with object-fit:cover). If the campaign data has no hero image URL, use this neutral placeholder so the hero is NEVER empty: https://placehold.co/1280x720?text=Imagem — keep it as a real <img> so the user can swap it later. Never output a hero without a visible image.",
       "",
+      [
+        "████ BRAND-SPECIFIC, NOT A TEMPLATE — REQUIRED ████",
+        "This page must look like THIS company's own site — NOT a reused skeleton. Two different companies must produce clearly different pages. Concretely:",
+        "• Make the brand's PRIMARY color the dominant accent everywhere (buttons, links, active states, section highlights, icons) — never a generic default blue. Use secondary/accent for depth/gradients. Wire the EXACT brand colors into the inline tailwind.config (theme.extend.colors).",
+        "• Use the brand's heading/body fonts throughout (headings vs body clearly distinct).",
+        "• Let the INDUSTRY + brand personality drive the art direction: hero layout, section order, imagery style, copy angle, shapes and decorative motifs. A law firm, a bakery and a SaaS must look visibly different (palette mood, density, imagery, tone).",
+        "• VARY the structure: do NOT always output the same hero → features → testimonials → CTA skeleton. Reorder, merge, split or drop sections to fit THIS offer and goal. Aim for at least 3 visually distinct section layouts.",
+        "• Pull real specifics from the company store + campaign data (actual services, value proposition, differentiators, location, tone) into the headlines and sections — avoid generic filler copy.",
+      ].join("\n"),
+      "",
       `=== GENERATION REQUEST ===\n${generationChoices.trim()}`,
     ].filter(Boolean).join("\n");
 

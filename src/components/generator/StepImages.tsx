@@ -90,8 +90,11 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
     return () => { active = false; };
   }, [companyProjectId, userId]);
 
+  // Show the "Empresa" picker whenever we're in a company context (even before the
+  // assets finish loading / even if empty — the modal explains the empty state).
+  const hasCompany = Boolean(companyProjectId && userId);
   const companyPickerProps = (apply: (url: string) => void) =>
-    companyAssets.length > 0 ? () => openCompanyPicker(apply) : undefined;
+    hasCompany ? () => openCompanyPicker(apply) : undefined;
 
   const updateImage = (key: keyof ImageUrls, value: string) => {
     onChange({ images: { ...data.images, [key]: value } });
@@ -382,6 +385,28 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               imageType="logo"
               required
             />
+            {/* Logo strategy — how the logo color is treated on the page */}
+            <div className="space-y-1.5">
+              <FieldLabel className="text-xs text-muted-foreground" hint="Define a cor/variante da logo na página: auto (a IA decide pelo fundo), clara (branca p/ fundos escuros), escura (p/ fundos claros), monocromática ou colorida.">
+                Estratégia da logo
+              </FieldLabel>
+              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+                {([['auto', 'Auto'], ['light', 'Clara'], ['dark', 'Escura'], ['monochrome', 'Mono'], ['full-color', 'Colorida']] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => onChange({ logoStrategy: value })}
+                    className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-all ${
+                      (data.logoStrategy || 'auto') === value
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border text-muted-foreground hover:border-muted-foreground/40'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <ImageUploadField
               label="Brand Image"
               hint="An image that represents your brand identity — team photo, office, or lifestyle image."
