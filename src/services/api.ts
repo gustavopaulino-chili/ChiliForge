@@ -977,8 +977,11 @@ export type ReforgeResult = {
   unmatched: string[];
   reverted?: boolean;
   anchor?: string;
+  tokensIn?: number;
+  tokensOut?: number;
+  costUsd?: number;
 };
-export const reforgeLp = (payload: { user_id: number; project_id: number; instruction: string; html: string; history?: ChatMessage[] }): Promise<ReforgeResult> =>
+export const reforgeLp = (payload: { user_id: number; project_id: number; instruction: string; html: string; history?: ChatMessage[]; focusHtml?: string }): Promise<ReforgeResult> =>
   agentsPost<ReforgeResult>("reforge-lp.php", payload);
 
 // Split a free-form feedback into distinct edit tasks (applied one by one).

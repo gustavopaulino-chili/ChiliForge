@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { logGeminiCost } from "../_shared/geminiCost.ts";
+import { logGeminiCost, geminiPricing } from "../_shared/geminiCost.ts";
 
 // ReForge / "Chilito" — surgical LP editor. Given the CURRENT page HTML, the user's
 // requested change, the conversation history, and the LP + company File Search
@@ -23,6 +23,7 @@ type ReforgePayload = {
   geminiApiKey?: string;
   model?: string;
   mode?: "edit" | "plan";       // 'plan' = split a feedback text into distinct tasks
+  focusHtml?: string;           // the element the user selected in the editor (edit target)
 };
 
 // Split a free-form feedback text into distinct, self-contained edit tasks so the
@@ -177,7 +178,9 @@ function textAnchor(replace: string): string {
   return text.slice(0, 60);
 }
 
-async function callGemini(payload: ReforgePayload, model: string, apiKey: string): Promise<string> {
+type GeminiCall = { text: string; inTok: number; outTok: number; model: string };
+
+async function callGemini(payload: ReforgePayload, model: string, apiKey: string): Promise<GeminiCall> {
   const stores = [payload.globalStoreName?.trim(), payload.companyStoreName?.trim()].filter(Boolean) as string[];
 
   const historyText = (payload.history || [])
@@ -188,6 +191,7 @@ async function callGemini(payload: ReforgePayload, model: string, apiKey: string
   const userMessage = [
     stores.length ? "Use the attached File Search stores (global LP guidelines + company brand) as the source of truth for brand, tone and design rules." : "",
     payload.generationContext?.trim() ? `=== ORIGINAL GENERATION CONTEXT (brand + brief) ===\n${payload.generationContext.trim()}` : "",
+    payload.focusHtml?.trim() ? `=== SELECTED ELEMENT (the user picked this in the editor) ===\nWhen the request says "this", "isto", "esse", "aqui" or is otherwise about a specific element, it refers to THIS one. Prefer editing it (or its closest relevant ancestor) and keep the change scoped to it:\n${payload.focusHtml.trim().slice(0, 4000)}` : "",
     historyText ? `=== CONVERSATION SO FAR ===\n${historyText}` : "",
     `=== CURRENT PAGE HTML (edit surgically) ===\n${payload.html}`,
     `=== USER CHANGE REQUEST ===\n${payload.instruction.trim()}`,
@@ -214,7 +218,8 @@ async function callGemini(payload: ReforgePayload, model: string, apiKey: string
   logGeminiCost("agents-lp-reforge", model, data?.usageMetadata);
   const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
   if (!text.trim()) throw new Error(`Gemini ${model} returned empty response`);
-  return text;
+  const u = data?.usageMetadata ?? data?.usage_metadata ?? {};
+  return { text, model, inTok: Number(u.promptTokenCount ?? u.prompt_token_count ?? 0), outTok: Number(u.candidatesTokenCount ?? u.candidates_token_count ?? 0) };
 }
 
 serve(async (req: Request) => {
@@ -242,7 +247,7 @@ serve(async (req: Request) => {
     const preferred = payload.model || MODEL_CHAIN[0];
     const chain = [preferred, ...MODEL_CHAIN.filter((m) => m !== preferred)];
     const isTransient = (msg: string) => /returned (429|500|502|503|504)|UNAVAILABLE|high demand|overloaded|RESOURCE_EXHAUSTED/i.test(msg);
-    const runModel = async (p: ReforgePayload): Promise<string> => {
+    const runModel = async (p: ReforgePayload): Promise<GeminiCall> => {
       let lastErr: Error | null = null;
       for (const model of chain) {
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -270,6 +275,7 @@ serve(async (req: Request) => {
     let totalApplied = 0;
     let lastUnmatched: Unmatched[] = [];
     let anchor = "";
+    let tokensIn = 0, tokensOut = 0, costUsd = 0;
 
     for (let round = 0; round < 3; round++) {
       const roundInstruction = round === 0
@@ -281,8 +287,11 @@ serve(async (req: Request) => {
             `Failed targets:\n` + lastUnmatched.map((u, i) => `${i + 1}. [${u.reason}] ${u.search.slice(0, 200)}`).join("\n"),
           ].join("\n");
 
-      const raw = await runModel({ ...payload, html, instruction: roundInstruction });
-      const { reply, blocks } = parseEditBlocks(raw);
+      const call = await runModel({ ...payload, html, instruction: roundInstruction });
+      const p = geminiPricing(call.model);
+      tokensIn += call.inTok; tokensOut += call.outTok;
+      costUsd += (call.inTok / 1e6) * p.in + (call.outTok / 1e6) * p.out;
+      const { reply, blocks } = parseEditBlocks(call.text);
       if (round === 0) firstReply = reply;
 
       if (!blocks.length) { lastUnmatched = []; break; }  // a question or nothing to do
@@ -320,6 +329,9 @@ serve(async (req: Request) => {
       unmatched: unmatchedSnippets,
       reverted,
       anchor,
+      tokensIn,
+      tokensOut,
+      costUsd: Number(costUsd.toFixed(6)),
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("[agents-lp-reforge] error:", error);

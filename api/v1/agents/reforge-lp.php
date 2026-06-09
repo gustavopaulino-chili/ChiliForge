@@ -119,6 +119,8 @@ try {
     // 6. Platform Gemini key + call the edge.
     $passKey = agents_env_value('GEMINI_API_KEY_PRODUCTION') ?: agents_env_value('GEMINI_API_KEY_TESTING') ?: null;
 
+    $focusHtml = mb_substr(trim((string)($body['focusHtml'] ?? '')), 0, 6000);
+
     $result = agents_call_edge_function('agents-lp-reforge', [
         'html'              => $html,
         'instruction'       => $instruction,
@@ -126,6 +128,7 @@ try {
         'globalStoreName'   => $globalStore ?: null,
         'companyStoreName'  => $companyStore ?: null,
         'generationContext' => $generationContext,
+        'focusHtml'         => $focusHtml,
         'geminiApiKey'      => $passKey,
     ], $passKey);
 
@@ -140,6 +143,9 @@ try {
         'unmatched'=> $result['unmatched'] ?? [],
         'reverted' => (bool)($result['reverted'] ?? false),
         'anchor'   => $result['anchor'] ?? '',
+        'tokensIn' => (int)($result['tokensIn'] ?? 0),
+        'tokensOut'=> (int)($result['tokensOut'] ?? 0),
+        'costUsd'  => (float)($result['costUsd'] ?? 0),
     ], JSON_UNESCAPED_UNICODE);
 
 } catch (Throwable $e) {

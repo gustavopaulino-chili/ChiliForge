@@ -1241,6 +1241,7 @@ export function VisualEditor({
   const [globalBrandColors, setGlobalBrandColors] = useState(initialBrandColors);
   const brandColorMatchRef = useRef<Record<string, boolean>>({});
   const [brandColorsOpen, setBrandColorsOpen] = useState(false);
+  const [reforgeFocus, setReforgeFocus] = useState<{ html?: string; label?: string }>({});
   const [geminiChatOpen, setGeminiChatOpen] = useState(true);
   const [isPanMode, setIsPanMode] = useState(false);
   const [floatingAddElOpen, setFloatingAddElOpen] = useState(false);
@@ -1516,6 +1517,28 @@ export function VisualEditor({
       } catch { /* ignore */ }
     }, 140);
   }, [onChange]);
+
+  // Selected element → ReForge focus (so "mude isto" targets it). Snapshot the
+  // element's outerHTML (bridge classes stripped) + a short label for the chip.
+  useEffect(() => {
+    if (!selected?.path) { setReforgeFocus({}); return; }
+    let snippet: string | undefined;
+    try {
+      const el = iframeRef.current?.contentDocument?.querySelector(selected.path) as HTMLElement | null;
+      if (el) {
+        snippet = el.outerHTML
+          .replace(/\sclass="([^"]*)"/g, (_m, c: string) => {
+            const cls = c.split(/\s+/).filter((x) => x && !/^cf-editor-/.test(x)).join(' ');
+            return cls ? ` class="${cls}"` : '';
+          })
+          .replace(/\sdata-cf-editor-id="[^"]*"/g, '')
+          .replace(/\scontenteditable="[^"]*"/g, '')
+          .slice(0, 4000);
+      }
+    } catch { /* iframe not ready */ }
+    const txt = (selected.text || '').trim().replace(/\s+/g, ' ').slice(0, 28);
+    setReforgeFocus({ html: snippet, label: `${selected.tag}${txt ? ` · "${txt}"` : ''}` });
+  }, [selected]);
 
   const undo = useCallback(() => {
     const previous = historyPastRef.current.pop();
@@ -4520,6 +4543,8 @@ export function VisualEditor({
             userId={Number(userId)}
             html={stripEditorBridge(html)}
             onApply={applyReforgeHtml}
+            focusHtml={reforgeFocus.html}
+            focusLabel={reforgeFocus.label}
           />
         ) : (
           <div className="rounded-md border border-border/50 bg-muted/20 p-4 text-xs text-muted-foreground">
