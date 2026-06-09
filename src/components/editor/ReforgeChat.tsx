@@ -149,13 +149,21 @@ export function ReforgeChat({ projectId, userId, html, onApply }: Props) {
         <button
           onClick={() => setIsOpen(true)}
           aria-label="Abrir ReForge"
-          className="fixed bottom-6 right-6 z-50 h-14 px-4 rounded-full shadow-xl flex items-center gap-2 text-white transition-all duration-200 hover:scale-105 active:scale-95"
+          className="group fixed right-0 top-1/2 z-50 flex -translate-y-1/2 flex-col items-center gap-1.5 rounded-l-xl py-4 px-2.5 text-white shadow-xl transition-all duration-200 hover:px-3.5 cf-reforge-pulse"
           style={{ background: 'linear-gradient(135deg, hsl(var(--accent)), hsl(var(--primary)))' }}
         >
-          <Wand2 className="h-5 w-5" />
-          <span className="text-sm font-semibold">ReForge</span>
+          <Wand2 className="relative h-5 w-5" />
+          <span className="relative text-[11px] font-bold tracking-wide [writing-mode:vertical-rl] rotate-180">ReForge</span>
         </button>
       )}
+      <style>{`
+        @keyframes cfReforgePulse {
+          0%, 100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.55), -6px 0 18px -4px hsl(var(--primary) / 0.5); transform: translateY(-50%) translateX(0); }
+          50%      { box-shadow: 0 0 0 10px hsl(var(--primary) / 0), -10px 0 26px -2px hsl(var(--accent) / 0.7); transform: translateY(-50%) translateX(-3px); }
+        }
+        .cf-reforge-pulse { animation: cfReforgePulse 1.8s ease-in-out infinite; }
+        .cf-reforge-pulse:hover { animation: none; }
+      `}</style>
 
       {isOpen && (
         <div className="fixed bottom-6 right-3 sm:right-6 z-50 flex flex-col rounded-2xl border border-border/50 bg-card/95 backdrop-blur-md shadow-2xl overflow-hidden w-[min(380px,calc(100vw-1.5rem))] h-[560px] max-h-[calc(100dvh-2rem)]">
