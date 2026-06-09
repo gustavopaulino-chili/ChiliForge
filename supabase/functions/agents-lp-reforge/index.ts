@@ -137,17 +137,18 @@ function lineTrimMatchStarts(htmlLines: string[], searchLines: string[]): number
 // Apply edit blocks SURGICALLY and SAFELY. A block is applied only when it matches
 // the current HTML UNIQUELY (exact, else line-trim fallback). Ambiguous or missing
 // blocks are never guessed — they're reported so the model can correct them.
-function applyEdits(html: string, blocks: EditBlock[]): { html: string; applied: number; unmatched: Unmatched[] } {
+function applyEdits(html: string, blocks: EditBlock[]): { html: string; applied: number; unmatched: Unmatched[]; replaces: string[] } {
   let out = html;
   let applied = 0;
   const unmatched: Unmatched[] = [];
+  const replaces: string[] = [];
   for (const b of blocks) {
     if (b.search === "") { unmatched.push({ search: "", reason: "empty" }); continue; }
 
     const exact = indexAll(out, b.search);
     if (exact.length === 1) {
       out = out.slice(0, exact[0]) + b.replace + out.slice(exact[0] + b.search.length);
-      applied++;
+      applied++; replaces.push(b.replace);
       continue;
     }
     if (exact.length > 1) { unmatched.push({ search: b.search, reason: "ambiguous" }); continue; }
@@ -159,14 +160,21 @@ function applyEdits(html: string, blocks: EditBlock[]): { html: string; applied:
     if (starts.length === 1) {
       const i = starts[0];
       out = [...hl.slice(0, i), b.replace, ...hl.slice(i + sl.length)].join("\n");
-      applied++;
+      applied++; replaces.push(b.replace);
     } else if (starts.length > 1) {
       unmatched.push({ search: b.search, reason: "ambiguous" });
     } else {
       unmatched.push({ search: b.search, reason: "not_found" });
     }
   }
-  return { html: out, applied, unmatched };
+  return { html: out, applied, unmatched, replaces };
+}
+
+// A short plain-text anchor from a replacement, so the editor can scroll to the
+// changed element after applying. Empty when the change has no visible text.
+function textAnchor(replace: string): string {
+  const text = (replace || "").replace(/<[^>]+>/g, " ").replace(/&[a-z#0-9]+;/gi, " ").replace(/\s+/g, " ").trim();
+  return text.slice(0, 60);
 }
 
 async function callGemini(payload: ReforgePayload, model: string, apiKey: string): Promise<string> {
@@ -261,6 +269,7 @@ serve(async (req: Request) => {
     let firstReply = "";
     let totalApplied = 0;
     let lastUnmatched: Unmatched[] = [];
+    let anchor = "";
 
     for (let round = 0; round < 3; round++) {
       const roundInstruction = round === 0
@@ -282,6 +291,7 @@ serve(async (req: Request) => {
       html = r.html;
       totalApplied += r.applied;
       lastUnmatched = r.unmatched;
+      if (!anchor && r.replaces.length) anchor = textAnchor(r.replaces[0]);
       if (!lastUnmatched.length) break;                    // everything landed
     }
 
@@ -294,6 +304,7 @@ serve(async (req: Request) => {
       html = payload.html;
       totalApplied = 0;
       reverted = true;
+      anchor = "";
     }
 
     const unmatchedSnippets = lastUnmatched.map((u) => u.search.slice(0, 120)).filter(Boolean);
@@ -308,6 +319,7 @@ serve(async (req: Request) => {
       applied: totalApplied,
       unmatched: unmatchedSnippets,
       reverted,
+      anchor,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("[agents-lp-reforge] error:", error);

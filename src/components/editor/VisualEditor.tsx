@@ -1468,8 +1468,9 @@ export function VisualEditor({
   }, [applyExternalNonce, html]);
 
   // Apply an edited document from the ReForge chat panel: update parent state AND
-  // rewrite the preview iframe (the preview shows the live DOM, not the html prop).
-  const applyReforgeHtml = useCallback((newHtml: string) => {
+  // rewrite the preview iframe (the preview shows the live DOM, not the html prop),
+  // then smoothly scroll to the changed element and briefly highlight it.
+  const applyReforgeHtml = useCallback((newHtml: string, anchor?: string) => {
     onChange(newHtml);
     const doc = iframeRef.current?.contentDocument;
     if (!doc) return;
@@ -1482,7 +1483,38 @@ export function VisualEditor({
       doc.write(newHtml);
       doc.close();
       injectBridgeIntoDocument(doc);
-    } catch { /* iframe not ready — ignore */ }
+    } catch { return; }
+
+    const needle = (anchor || '').trim();
+    if (!needle) return;
+    // Let layout settle, then locate the deepest element containing the changed text.
+    window.setTimeout(() => {
+      try {
+        const body = doc.body;
+        if (!body) return;
+        const walker = doc.createTreeWalker(body, NodeFilter.SHOW_ELEMENT);
+        let target: Element | null = null;
+        let node = walker.nextNode() as Element | null;
+        while (node) {
+          if (node.childElementCount === 0 && (node.textContent || '').includes(needle)) target = node;
+          node = walker.nextNode() as Element | null;
+        }
+        // Fallback: any element containing the text (deepest in document order).
+        if (!target) {
+          const w2 = doc.createTreeWalker(body, NodeFilter.SHOW_ELEMENT);
+          let n2 = w2.nextNode() as Element | null;
+          while (n2) { if ((n2.textContent || '').includes(needle)) target = n2; n2 = w2.nextNode() as Element | null; }
+        }
+        if (!target) return;
+        const el = target as HTMLElement;
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const prev = { outline: el.style.outline, offset: el.style.outlineOffset, transition: el.style.transition };
+        el.style.transition = 'outline 0.25s ease';
+        el.style.outline = '3px solid #f97316';
+        el.style.outlineOffset = '3px';
+        window.setTimeout(() => { el.style.outline = prev.outline; el.style.outlineOffset = prev.offset; el.style.transition = prev.transition; }, 1900);
+      } catch { /* ignore */ }
+    }, 140);
   }, [onChange]);
 
   const undo = useCallback(() => {
@@ -4422,6 +4454,7 @@ export function VisualEditor({
         </button>
       </div>
 
+      {editorTab !== 'reforge' && (
       <div className="rounded-md border border-border/60 bg-muted/20">
         <button
           className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
@@ -4478,6 +4511,7 @@ export function VisualEditor({
           </div>
         )}
       </div>
+      )}
 
       {editorTab === 'reforge' ? (
         (projectId && userId) ? (

@@ -8,8 +8,9 @@ interface Props {
   userId: number;
   /** Current editor HTML (already bridge-free; kept in a ref so sends use the latest). */
   html: string;
-  /** Apply the edited HTML back into the editor (updates state + re-renders the iframe). */
-  onApply: (html: string) => void;
+  /** Apply the edited HTML back into the editor (updates state + re-renders the iframe).
+   *  `anchor` is a short text snippet of the change so the editor can scroll to it. */
+  onApply: (html: string, anchor?: string) => void;
 }
 
 const STARTERS = [
@@ -36,19 +37,43 @@ export function ReforgeChatPanel({ projectId, userId, html, onApply }: Props) {
   useEffect(() => { htmlRef.current = html; }, [html]);
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [history, loading]);
 
+  // ── Typing animation for assistant messages ───────────────────────────────
+  const animRef = useRef<number | null>(null);
+  const pendingFullRef = useRef<string | null>(null);
+  useEffect(() => () => { if (animRef.current) window.clearInterval(animRef.current); }, []);
+  const finalizeAnim = () => {
+    if (animRef.current) { window.clearInterval(animRef.current); animRef.current = null; }
+    const full = pendingFullRef.current;
+    pendingFullRef.current = null;
+    if (full != null) setHistory((prev) => { const n = [...prev]; const l = n.length - 1; if (l >= 0 && n[l].role === 'assistant') n[l] = { ...n[l], content: full }; return n; });
+  };
+  const appendAssistant = (content: string) => {
+    finalizeAnim();                              // complete any in-progress message first
+    const full = content || '';
+    pendingFullRef.current = full;
+    setHistory((prev) => [...prev, { role: 'assistant', content: '' }]);
+    let i = 0;
+    animRef.current = window.setInterval(() => {
+      i = Math.min(full.length, i + 3);
+      const vis = full.slice(0, i);
+      setHistory((prev) => { const n = [...prev]; const l = n.length - 1; if (l >= 0 && n[l].role === 'assistant') n[l] = { ...n[l], content: vis }; return n; });
+      if (i >= full.length) { if (animRef.current) window.clearInterval(animRef.current); animRef.current = null; pendingFullRef.current = null; }
+    }, 16);
+  };
+
   const runTask = async (instruction: string, label: string, hist: ChatMessage[] = []) => {
     setLoading(true);
     try {
       const res = await reforgeLp({ user_id: userId, project_id: projectId, instruction, html: htmlRef.current, history: hist });
-      if (res.changed && res.html) { setUndoStack((prev) => [...prev, htmlRef.current]); onApply(res.html); }
+      if (res.changed && res.html) { setUndoStack((prev) => [...prev, htmlRef.current]); onApply(res.html, res.anchor); }
       let reply = (label ? `${label} ` : '') + (res.reply || (res.changed ? 'Pronto, apliquei a alteração.' : 'Não fiz alterações.'));
       if (res.reverted) reply += '\n\n(⚠️ revertido para não quebrar a página — reformule, por favor.)';
       else if (res.unmatched && res.unmatched.length) reply += `\n\n⚠️ ${res.unmatched.length} trecho(s) não localizado(s) — detalhe melhor e eu refaço.`;
-      setHistory((prev) => [...prev, { role: 'assistant', content: reply }]);
+      appendAssistant(reply);
       return res;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Erro no ReForge.');
-      setHistory((prev) => [...prev, { role: 'assistant', content: 'Desculpe, algo deu errado. Tente de novo.' }]);
+      appendAssistant('Desculpe, algo deu errado. Tente de novo.');
       return null;
     } finally {
       setLoading(false);
@@ -71,10 +96,7 @@ export function ReforgeChatPanel({ projectId, userId, html, onApply }: Props) {
       finally { setLoading(false); }
 
       if (tasks.length > 1) {
-        setHistory((prev) => [...prev, {
-          role: 'assistant',
-          content: `Identifiquei ${tasks.length} tarefas:\n${tasks.map((t, i) => `${i + 1}) ${t}`).join('\n')}\n\nVou aplicar a 1ª agora e pedir sua permissão antes de cada próxima.`,
-        }]);
+        appendAssistant(`Identifiquei ${tasks.length} tarefas:\n${tasks.map((t, i) => `${i + 1}) ${t}`).join('\n')}\n\nVou aplicar a 1ª agora e pedir sua permissão antes de cada próxima.`);
         setTaskTotal(tasks.length);
         setTaskDone(0);
         await runTask(tasks[0], `(1/${tasks.length})`);
@@ -95,12 +117,12 @@ export function ReforgeChatPanel({ projectId, userId, html, onApply }: Props) {
     await runTask(next, `(${idx}/${taskTotal})`);
     setTaskDone(idx);
     setPendingTasks(rest);
-    if (!rest.length) setHistory((prev) => [...prev, { role: 'assistant', content: '✅ Todas as tarefas foram aplicadas. Revise e clique em Save Changes.' }]);
+    if (!rest.length) appendAssistant('✅ Todas as tarefas foram aplicadas. Revise e clique em Save Changes.');
   };
 
   const stopTasks = () => {
     setPendingTasks([]);
-    setHistory((prev) => [...prev, { role: 'assistant', content: 'Ok, parei por aqui. As tarefas já aplicadas continuam no editor.' }]);
+    appendAssistant('Ok, parei por aqui. As tarefas já aplicadas continuam no editor.');
   };
 
   const undo = () => {
@@ -109,13 +131,13 @@ export function ReforgeChatPanel({ projectId, userId, html, onApply }: Props) {
       const next = [...prev];
       const last = next.pop()!;
       onApply(last);
-      setHistory((h) => [...h, { role: 'assistant', content: '↩ Desfiz a última alteração.' }]);
+      appendAssistant('↩ Desfiz a última alteração.');
       return next;
     });
   };
 
   return (
-    <div className="flex h-[62vh] min-h-[360px] flex-col rounded-md border border-border/60 bg-card/40 overflow-hidden">
+    <div className="flex h-[calc(100vh-215px)] min-h-[420px] flex-col rounded-md border border-border/60 bg-card/40 overflow-hidden">
       <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2">
         <Wand2 className="h-4 w-4 text-primary" />
         <div className="flex-1 min-w-0">

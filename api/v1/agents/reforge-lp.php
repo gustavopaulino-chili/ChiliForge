@@ -139,6 +139,7 @@ try {
         'applied'  => (int)($result['applied'] ?? 0),
         'unmatched'=> $result['unmatched'] ?? [],
         'reverted' => (bool)($result['reverted'] ?? false),
+        'anchor'   => $result['anchor'] ?? '',
     ], JSON_UNESCAPED_UNICODE);
 
 } catch (Throwable $e) {

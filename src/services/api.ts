@@ -976,6 +976,7 @@ export type ReforgeResult = {
   applied: number;
   unmatched: string[];
   reverted?: boolean;
+  anchor?: string;
 };
 export const reforgeLp = (payload: { user_id: number; project_id: number; instruction: string; html: string; history?: ChatMessage[] }): Promise<ReforgeResult> =>
   agentsPost<ReforgeResult>("reforge-lp.php", payload);
