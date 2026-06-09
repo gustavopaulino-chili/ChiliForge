@@ -13,7 +13,6 @@ import {
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 import { VisualEditor, stripEditorBridge } from '@/components/editor/VisualEditor';
-import { ReforgeChat } from '@/components/editor/ReforgeChat';
 import { getProjectById, updateProjectContent } from '@/services/api';
 import { toast } from 'sonner';
 
@@ -97,7 +96,6 @@ export default function VisualEditorPage() {
   const [saving, setSaving] = useState(false);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [unsaved, setUnsaved] = useState(false);
-  const [reforgeNonce, setReforgeNonce] = useState(0);
   const originalHtmlRef = useRef('');
 
   const hasSameOriginReferrer = () => {
@@ -304,16 +302,7 @@ export default function VisualEditorPage() {
             brandPalette={editorPalette}
             brandColors={editorBrandColors}
             layout="overlay"
-            applyExternalNonce={reforgeNonce}
           />
-          {Number(project.id) > 0 && Number(project.user_id ?? user?.id) > 0 && (
-            <ReforgeChat
-              projectId={project.id}
-              userId={Number(project.user_id ?? user?.id)}
-              html={html}
-              onApply={(newHtml) => { setHtml(newHtml); setReforgeNonce((n) => n + 1); }}
-            />
-          )}
         </main>
 
         <AlertDialogContent>

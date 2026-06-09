@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { AlignCenter, AlignLeft, AlignRight, ChevronDown, ChevronRight, Code2, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Monitor, Palette, Pencil, Redo2, Settings2, Smartphone, Tablet, Undo2, Upload, X } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, ChevronDown, ChevronRight, Code2, GripVertical, Plus, Download, FileText, ArrowDown, ArrowUp, Trash2, Copy, FolderOpen, ImagePlus, Monitor, Palette, Pencil, Redo2, Settings2, Smartphone, Tablet, Undo2, Upload, Wand2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { deleteProjectAssetFile, generateImages, getProjectAssets, ProjectAsset, uploadProjectAssets, uploadProjectAssetsFromUrls, getProjectFiles, uploadProjectFiles, deleteProjectFile } from '@/services/api';
 import { downloadFileFromUrl } from '@/lib/downloadFile';
+import { ReforgeChatPanel } from '@/components/editor/ReforgeChatPanel';
 import { toast } from 'sonner';
 
 
@@ -1225,7 +1226,7 @@ export function VisualEditor({
   const [filesUploading, setFilesUploading] = useState(false);
   const [iframeReady, setIframeReady] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
-  const [editorTab, setEditorTab] = useState<'element' | 'sections'>('element');
+  const [editorTab, setEditorTab] = useState<'element' | 'sections' | 'reforge'>('element');
   const [editorPanelTab, setEditorPanelTab] = useState<'content' | 'style' | 'advanced'>('content');
   const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [, setHistoryVersion] = useState(0);
@@ -1465,6 +1466,24 @@ export function VisualEditor({
       injectBridgeIntoDocument(doc);
     } catch { /* iframe not ready — ignore */ }
   }, [applyExternalNonce, html]);
+
+  // Apply an edited document from the ReForge chat panel: update parent state AND
+  // rewrite the preview iframe (the preview shows the live DOM, not the html prop).
+  const applyReforgeHtml = useCallback((newHtml: string) => {
+    onChange(newHtml);
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc) return;
+    skipHistoryRecordRef.current = true;
+    lastHtmlRef.current = newHtml;
+    lastEmittedHtmlRef.current = stripEditorBridge(newHtml);
+    setSelected(null);
+    try {
+      doc.open();
+      doc.write(newHtml);
+      doc.close();
+      injectBridgeIntoDocument(doc);
+    } catch { /* iframe not ready — ignore */ }
+  }, [onChange]);
 
   const undo = useCallback(() => {
     const previous = historyPastRef.current.pop();
@@ -4368,6 +4387,13 @@ export function VisualEditor({
 
   const panelContent = (
     <div className="text-sm space-y-3">
+      <style>{`
+        @keyframes cfReforgeTabPulse {
+          0%, 100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.55); }
+          50%      { box-shadow: 0 0 0 6px hsl(var(--primary) / 0); }
+        }
+        .cf-reforge-tab { animation: cfReforgeTabPulse 1.8s ease-in-out infinite; }
+      `}</style>
       <div className="mb-3 flex items-center gap-2">
         {([
           ['element', 'Element'],
@@ -4385,6 +4411,15 @@ export function VisualEditor({
             {label}
           </button>
         ))}
+        <button
+          className={`ml-auto inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm font-semibold ${editorTab === 'reforge' ? 'bg-primary text-primary-foreground' : 'text-white cf-reforge-tab'}`}
+          style={editorTab === 'reforge' ? undefined : { background: 'linear-gradient(135deg, hsl(var(--accent)), hsl(var(--primary)))' }}
+          onClick={() => { setToolbarPos(null); setToolbarAddElOpen(false); setEditorTab('reforge'); }}
+          title="ReForge — editar por chat (Chilito)"
+        >
+          <Wand2 className="h-3.5 w-3.5" />
+          ReForge
+        </button>
       </div>
 
       <div className="rounded-md border border-border/60 bg-muted/20">
@@ -4444,7 +4479,20 @@ export function VisualEditor({
         )}
       </div>
 
-      {editorTab === 'sections' ? (
+      {editorTab === 'reforge' ? (
+        (projectId && userId) ? (
+          <ReforgeChatPanel
+            projectId={Number(projectId)}
+            userId={Number(userId)}
+            html={stripEditorBridge(html)}
+            onApply={applyReforgeHtml}
+          />
+        ) : (
+          <div className="rounded-md border border-border/50 bg-muted/20 p-4 text-xs text-muted-foreground">
+            Salve o projeto para liberar o ReForge.
+          </div>
+        )
+      ) : editorTab === 'sections' ? (
         sectionsPanel
       ) : (
         !selected ? (
