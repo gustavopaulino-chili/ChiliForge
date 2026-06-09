@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { logGeminiCost } from "../_shared/geminiCost.ts";
 
 
 const corsHeaders = {
@@ -348,6 +349,7 @@ async function generateImageWithGemini(prompt: string, geminiApiKeys: string[], 
         continue;
       }
 
+      logGeminiCost("generate-images", model, payload?.usageMetadata, { images: 1 });
       const imageUrl = (await uploadImageToStorage(rawImageUrl)) ?? rawImageUrl;
       return { ok: true as const, imageUrl, model };
     }

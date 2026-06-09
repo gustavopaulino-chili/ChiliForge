@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { logGeminiCost } from "../_shared/geminiCost.ts";
 
 // ReForge / "Chilito" — surgical LP editor. Given the CURRENT page HTML, the user's
 // requested change, the conversation history, and the LP + company File Search
@@ -48,6 +49,7 @@ async function planTasks(feedback: string, apiKey: string): Promise<string[]> {
   });
   if (!res.ok) throw new Error(`plan ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
   const data = await res.json();
+  logGeminiCost("agents-lp-reforge(plan)", "gemini-2.5-flash", data?.usageMetadata);
   const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
   let tasks: string[] = [];
   try { const j = JSON.parse(text); if (Array.isArray(j?.tasks)) tasks = j.tasks.map((t: unknown) => String(t || "").trim()).filter(Boolean); } catch { /* ignore */ }
@@ -201,6 +203,7 @@ async function callGemini(payload: ReforgePayload, model: string, apiKey: string
     throw new Error(`Gemini ${model} returned ${res.status}: ${err.slice(0, 300)}`);
   }
   const data = await res.json();
+  logGeminiCost("agents-lp-reforge", model, data?.usageMetadata);
   const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
   if (!text.trim()) throw new Error(`Gemini ${model} returned empty response`);
   return text;
@@ -230,11 +233,23 @@ serve(async (req: Request) => {
 
     const preferred = payload.model || MODEL_CHAIN[0];
     const chain = [preferred, ...MODEL_CHAIN.filter((m) => m !== preferred)];
+    const isTransient = (msg: string) => /returned (429|500|502|503|504)|UNAVAILABLE|high demand|overloaded|RESOURCE_EXHAUSTED/i.test(msg);
     const runModel = async (p: ReforgePayload): Promise<string> => {
       let lastErr: Error | null = null;
       for (const model of chain) {
-        try { return await callGemini(p, model, apiKey); }
-        catch (e) { lastErr = e instanceof Error ? e : new Error(String(e)); }
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try { return await callGemini(p, model, apiKey); }
+          catch (e) {
+            lastErr = e instanceof Error ? e : new Error(String(e));
+            // Overloaded/transient → wait briefly and retry the SAME model before
+            // moving on (503 spikes are usually momentary).
+            if (isTransient(lastErr.message) && attempt < 2) {
+              await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+              continue;
+            }
+            break; // non-transient or out of attempts → try next model
+          }
+        }
       }
       throw lastErr ?? new Error("All models failed");
     };
@@ -296,6 +311,15 @@ serve(async (req: Request) => {
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("[agents-lp-reforge] error:", error);
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    // Overloaded/transient model errors → friendly 200 so the chat shows a clean
+    // note (and keeps the page unchanged) instead of a raw 500.
+    if (/(429|500|502|503|504)|UNAVAILABLE|high demand|overloaded|RESOURCE_EXHAUSTED/i.test(msg)) {
+      return new Response(JSON.stringify({
+        reply: "⚠️ O modelo de IA está sobrecarregado agora. Não alterei nada — tente novamente em alguns segundos.",
+        changed: false, applied: 0, unmatched: [], reverted: false,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    return new Response(JSON.stringify({ error: msg }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });

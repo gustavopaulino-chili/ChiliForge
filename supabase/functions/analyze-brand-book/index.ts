@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { logGeminiCost } from "../_shared/geminiCost.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,7 +53,7 @@ async function requestAiPayload(body: string, apiKey: string) {
       body,
     });
 
-    if (response.ok) return await response.json();
+    if (response.ok) { const data = await response.json(); logGeminiCost("analyze-brand-book", model, data?.usageMetadata); return data; }
 
     if (response.status === 429) {
       sawRateLimit = true;

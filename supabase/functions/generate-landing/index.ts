@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { logGeminiCost } from "../_shared/geminiCost.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -3888,6 +3889,7 @@ CONTENT RULES:
               const responseText = await response.text();
               try {
                 const parsed = parseAiPayload(responseText);
+                logGeminiCost("generate-landing", model, parsed?.usageMetadata ?? parsed?.usage_metadata);
                 const finishReason = parsed?.candidates?.[0]?.finishReason;
                 if (finishReason && finishReason !== "STOP") {
                   console.warn(`Model ${model} finishReason=${finishReason} (attempt ${attempt + 1}/${maxRetries})`);
@@ -4091,6 +4093,7 @@ Return a fully reconstructed and complete HTML page now.`;
             }
 
             const recoveredRaw = await response.text();
+            try { logGeminiCost("generate-landing(recovery)", model, JSON.parse(recoveredRaw)?.usageMetadata); } catch { /* ignore */ }
             const recoveredSite = parseDirectSite(recoveredRaw);
             const recoveredError = getDirectSiteValidationError(recoveredSite);
             if (!recoveredError && recoveredSite) {

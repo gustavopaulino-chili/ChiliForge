@@ -56,6 +56,21 @@ function normalize_account_type($value) {
     return $value === 'admin' ? 'admin' : 'user';
 }
 
+// Estimated Gemini cost log (server error_log only). USD per 1M tokens.
+if (!function_exists('gemini_log_cost')) {
+    function gemini_log_cost(string $fn, string $model, $usage): void {
+        try {
+            $P = ['gemini-2.5-flash'=>[0.30,2.50],'gemini-2.5-flash-lite'=>[0.10,0.40],'gemini-2.5-pro'=>[1.25,10.00],'gemini-3.5-flash'=>[1.50,9.00],'gemini-3-flash-preview'=>[0.50,3.00]];
+            $rate = [0.30, 2.50];
+            foreach ($P as $k => $v) { if (strpos($model, $k) === 0) { $rate = $v; break; } }
+            $u = is_array($usage) ? $usage : [];
+            $in  = (int)($u['promptTokenCount'] ?? $u['prompt_token_count'] ?? 0);
+            $out = (int)($u['candidatesTokenCount'] ?? $u['candidates_token_count'] ?? 0);
+            error_log(sprintf('[cost-estimate] fn=%s model=%s in=%d out=%d ~=$%.5f', $fn, $model, $in, $out, ($in/1000000)*$rate[0]+($out/1000000)*$rate[1]));
+        } catch (\Throwable $e) { /* never break */ }
+    }
+}
+
 // ── API key & model ──────────────────────────────────────────────────────────
 function get_gemini_api_key_candidates($accountType) {
     $prod    = env_value('GEMINI_API_KEY_PRODUCTION', env_value('GEMINI_API_KEY'));
@@ -510,6 +525,7 @@ function call_gemini($requestBody, $apiKeys, $model) {
         if ($response['ok']) {
             $decoded = json_decode($response['body'], true);
             if (!is_array($decoded)) throw new RuntimeException('Invalid AI JSON response');
+            gemini_log_cost('scrapeWebsite', $model, $decoded['usageMetadata'] ?? null);
             return $decoded;
         }
 
@@ -522,7 +538,7 @@ function call_gemini($requestBody, $apiKeys, $model) {
             $retry = fetch_url($url, $headers, AI_TIMEOUT_SECONDS, 'POST', $requestBody);
             if ($retry['ok']) {
                 $decoded = json_decode($retry['body'], true);
-                if (is_array($decoded)) return $decoded;
+                if (is_array($decoded)) { gemini_log_cost('scrapeWebsite', $model, $decoded['usageMetadata'] ?? null); return $decoded; }
             }
             $lastErr = 'AI model ' . $model . ' unavailable (' . $status . ')';
             continue;

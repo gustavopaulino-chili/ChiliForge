@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { logGeminiCost } from "../_shared/geminiCost.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,7 +53,9 @@ async function requestAiPayload(body: string, apiKey: string) {
     });
 
     if (response.ok) {
-      return await response.json();
+      const data = await response.json();
+      logGeminiCost("parse-products-spreadsheet", model, data?.usageMetadata);
+      return data;
     }
 
     if (response.status === 429) {

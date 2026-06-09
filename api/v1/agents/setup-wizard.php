@@ -205,6 +205,7 @@ try {
     }
 
     $geminiResponse = json_decode($raw, true);
+    gemini_log_cost('setup-wizard', 'gemini-2.5-flash', $geminiResponse['usageMetadata'] ?? null);
     $replyText = trim($geminiResponse['candidates'][0]['content']['parts'][0]['text'] ?? '');
     if ($replyText === '') {
         throw new RuntimeException('Gemini returned empty response');

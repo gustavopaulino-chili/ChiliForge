@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { logGeminiCost } from "../_shared/geminiCost.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -187,6 +188,7 @@ async function describeAdImage(fileBase64: string, mimeType: string, label: stri
   );
   if (!res.ok) throw new Error(`Vision API failed: ${res.status}`);
   const data = await res.json();
+  logGeminiCost("agents-store", "gemini-2.5-flash", data?.usageMetadata);
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
   if (!text) throw new Error('Vision API returned empty description');
 

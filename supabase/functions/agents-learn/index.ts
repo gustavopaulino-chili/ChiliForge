@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { logGeminiCost } from "../_shared/geminiCost.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -105,6 +106,7 @@ serve(async (req: Request) => {
     }
 
     const data = await res.json();
+    logGeminiCost("agents-learn", model, data?.usageMetadata);
     const learnings = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
 
     if (!learnings.trim()) throw new Error("Agent returned empty learnings");

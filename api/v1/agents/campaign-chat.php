@@ -255,6 +255,7 @@ try {
     }
 
     $geminiResponse = json_decode($raw, true);
+    gemini_log_cost('campaign-chat', 'gemini-2.5-flash', $geminiResponse['usageMetadata'] ?? null);
     $replyText = $geminiResponse['candidates'][0]['content']['parts'][0]['text'] ?? 'Unable to generate a response.';
 
     echo json_encode([

@@ -1,6 +1,27 @@
 <?php
 // Shared helpers for all agents endpoints
 
+// Estimated Gemini cost log (server error_log only; never returned to clients).
+// Prices USD per 1M tokens — keep in sync with https://ai.google.dev/gemini-api/docs/pricing
+if (!function_exists('gemini_log_cost')) {
+    function gemini_log_cost(string $fn, string $model, $usage): void {
+        try {
+            $P = [
+                'gemini-2.5-flash' => [0.30, 2.50], 'gemini-2.5-flash-lite' => [0.10, 0.40],
+                'gemini-2.5-pro' => [1.25, 10.00], 'gemini-3.5-flash' => [1.50, 9.00],
+                'gemini-3-flash-preview' => [0.50, 3.00], 'gemini-2.5-flash-image' => [0.30, 0.0],
+            ];
+            $rate = [0.30, 2.50];
+            foreach ($P as $k => $v) { if (strpos($model, $k) === 0) { $rate = $v; break; } }
+            $u = is_array($usage) ? $usage : [];
+            $in  = (int)($u['promptTokenCount'] ?? $u['prompt_token_count'] ?? 0);
+            $out = (int)($u['candidatesTokenCount'] ?? $u['candidates_token_count'] ?? 0);
+            $usd = ($in / 1000000) * $rate[0] + ($out / 1000000) * $rate[1];
+            error_log(sprintf('[cost-estimate] fn=%s model=%s in=%d out=%d ~=$%.5f', $fn, $model, $in, $out, $usd));
+        } catch (\Throwable $e) { /* logging must never break */ }
+    }
+}
+
 if (!function_exists('agents_starts_with')) {
     function agents_starts_with(string $haystack, string $needle): bool {
         return $needle === '' || strpos($haystack, $needle) === 0;

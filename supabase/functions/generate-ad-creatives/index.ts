@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { logGeminiCost } from "../_shared/geminiCost.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -304,8 +305,9 @@ async function generateGeminiFallbackImage(prompt: string, accountType: unknown)
         });
         clearTimeout(timeoutId);
         if (!response.ok) continue;
-        const rawImageUrl = extractGeminiImageDataUrl(await response.json());
-        if (rawImageUrl) return (await uploadImageToStorage(rawImageUrl)) ?? rawImageUrl;
+        const imgData = await response.json();
+        const rawImageUrl = extractGeminiImageDataUrl(imgData);
+        if (rawImageUrl) { logGeminiCost("generate-ad-creatives(image)", model, imgData?.usageMetadata, { images: 1 }); return (await uploadImageToStorage(rawImageUrl)) ?? rawImageUrl; }
       } catch {
         clearTimeout(timeoutId);
       }
@@ -1527,6 +1529,7 @@ async function callGeminiJson(systemPrompt: string, userPrompt: string, imagePar
           lastError = `Gemini planning ${model} failed with ${response.status}: ${text.slice(0, 240)}`;
           continue;
         }
+        try { logGeminiCost("generate-ad-creatives(plan)", model, JSON.parse(text)?.usageMetadata); } catch { /* ignore */ }
         return parseJsonResponse(text);
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
@@ -1566,6 +1569,7 @@ async function callGemini(systemPrompt: string, userPrompt: string, accountType:
           lastError = `Gemini ${model} failed with ${response.status}: ${text.slice(0, 240)}`;
           continue;
         }
+        try { logGeminiCost("generate-ad-creatives", model, JSON.parse(text)?.usageMetadata); } catch { /* ignore */ }
         return parseHtmlResponse(text);
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
