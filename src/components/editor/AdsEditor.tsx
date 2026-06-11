@@ -256,6 +256,11 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
       window.parent.postMessage({ source: SOURCE, type: 'ads-dom-mutated', payload: { html: serializeEditorDocument() } }, '*');
     } catch(e) {}
   }
+  var mutTimer=null;
+  function postMutationDebounced(){
+    if(mutTimer){ clearTimeout(mutTimer); }
+    mutTimer=setTimeout(function(){ mutTimer=null; postMutation(); },250);
+  }
   function isCanvasRoot(el){
     if(!el || !el.classList) return false;
     return el === document.body ||
@@ -312,6 +317,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
   var lastSelected = null;
   document.addEventListener('mouseover', function(ev){
     if(isEditing) return;
+    if(document.documentElement.dataset.cfDragging==='1') return;
     var t=ev.target;
     if(!(t instanceof Element)) return;
     if(t instanceof HTMLElement && (isLockedLayer(t) || isCanvasRoot(t))) return;
@@ -320,6 +326,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
   }, true);
   document.addEventListener('mouseout', function(){
     if(isEditing) return;
+    if(document.documentElement.dataset.cfDragging==='1') return;
     if(lastHover && lastHover!==lastSelected){ lastHover.classList.remove('cf-editor-hover'); }
   }, true);
   document.addEventListener('click', function(ev){
@@ -381,6 +388,26 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
       return;
     }
     if(!lastSelected || lastSelected===document.body || lastSelected===document.documentElement) return;
+    if((ev.ctrlKey||ev.metaKey) && (ev.key==='d'||ev.key==='D')){
+      ev.preventDefault();
+      ev.stopPropagation();
+      var srcEl=lastSelected;
+      var dup=srcEl.cloneNode(true);
+      dup.classList.remove('cf-editor-selected','cf-editor-hover','cf-editor-dragging');
+      dup.removeAttribute('data-cf-editor-id');
+      var dcs=window.getComputedStyle(srcEl);
+      if(dcs.position==='absolute'){
+        dup.style.left=((parseFloat(dcs.left)||0)+12)+'px';
+        dup.style.top=((parseFloat(dcs.top)||0)+12)+'px';
+      }
+      if(srcEl.parentElement){ srcEl.parentElement.insertBefore(dup, srcEl.nextSibling); }
+      srcEl.classList.remove('cf-editor-selected');
+      lastSelected=dup;
+      dup.classList.add('cf-editor-selected');
+      postMutation();
+      postSelect(dup);
+      return;
+    }
     if(ev.key==='Delete' || ev.key==='Backspace'){
       ev.preventDefault();
       var el=lastSelected;
@@ -406,7 +433,7 @@ const BRIDGE_SCRIPT_CONTENT = `(function(){
       var ntp=parseFloat(nt.style.top || ncs.top) || 0;
       nt.style.left=(nl+nudgeX)+'px';
       nt.style.top=(ntp+nudgeY)+'px';
-      postMutation();
+      postMutationDebounced();
     }
     if(ev.key==='Escape'){
       if(lastSelected){ lastSelected.classList.remove('cf-editor-selected'); lastSelected=null; }
@@ -749,13 +776,28 @@ const updateNodeFromPath = (html: string, path: string, updater: (el: Element, d
   return serializeDocument(doc);
 };
 
+// Editor-state flags written onto <html> as data attributes. They are runtime-only
+// channels between the React side and the snap engine and must never reach saved HTML.
+const EDITOR_ROOT_DATA_ATTRS = [
+  'data-cf-parent-drag',
+  'data-cf-suppress-click',
+  'data-cf-snap',
+  'data-cf-guide-x',
+  'data-cf-guide-y',
+  'data-cf-dragging',
+];
+
 const cleanBridgeFromDocument = (doc: Document, preserveSelectionMarker = false) => {
   doc.querySelector('#cf-editor-base')?.remove();
   doc.querySelector('#cf-editor-bridge-style')?.remove();
   doc.querySelector('#cf-editor-bridge-script')?.remove();
   doc.querySelector('#cf-editor-resize-overlay')?.remove();
-  doc.querySelectorAll('.cf-editor-hover, .cf-editor-selected').forEach((node) => {
-    node.classList.remove('cf-editor-hover', 'cf-editor-selected');
+  doc.getElementById('cf-snap-guides')?.remove();
+  if (!preserveSelectionMarker) {
+    EDITOR_ROOT_DATA_ATTRS.forEach((attr) => doc.documentElement.removeAttribute(attr));
+  }
+  doc.querySelectorAll('.cf-editor-hover, .cf-editor-selected, .cf-editor-dragging').forEach((node) => {
+    node.classList.remove('cf-editor-hover', 'cf-editor-selected', 'cf-editor-dragging');
   });
   if (!preserveSelectionMarker) {
     doc.querySelectorAll('[data-cf-editor-id]').forEach((node) => {
@@ -782,8 +824,11 @@ const serializeWithoutBridge = (doc: Document): string => {
   html = html.replace(/<style\b[^>]*\bid="cf-editor-bridge-style"[^>]*>[\s\S]*?<\/style>/i, '');
   html = html.replace(/<base\b[^>]*\bid="cf-editor-base"[^>]*\/?>/gi, '');
   html = html.replace(/<div\b[^>]*\bid="cf-editor-resize-overlay"[^>]*>[\s\S]*?<\/div>/i, '');
+  html = html.replace(/<div\b[^>]*\bid="cf-snap-guides"[^>]*>[\s\S]*?<\/div>/i, '');
+  // Strip editor-state data attributes that live on <html> (runtime-only channels)
+  html = html.replace(/\s+data-cf-(?:parent-drag|suppress-click|snap|guide-x|guide-y|dragging)="[^"]*"/g, '');
   // Strip bridge CSS class names, then normalize class attribute whitespace
-  html = html.replace(/\bcf-editor-(?:hover|selected|editing)\b/g, '');
+  html = html.replace(/\bcf-editor-(?:hover|selected|editing|dragging)\b/g, '');
   html = html.replace(/class="([^"]*)"/g, (_, cls) => {
     const cleaned = cls.replace(/\s+/g, ' ').trim();
     return cleaned ? `class="${cleaned}"` : '';
@@ -1435,6 +1480,8 @@ export function AdsEditor({
   const pendingChangeRef = useRef<string | null>(null);
   const lastEmittedHtmlRef = useRef('');
   const canvasZoomRef = useRef(1);
+  // Removes the drag/resize listeners mirrored on the parent document (set in handleIframeLoad)
+  const parentDocDragCleanupRef = useRef<(() => void) | null>(null);
 
   const canUndo = historyPastRef.current.length > 0;
   const canRedo = historyFutureRef.current.length > 0;
@@ -1510,6 +1557,7 @@ export function AdsEditor({
     if (emitChangeFrameRef.current !== null) {
       window.cancelAnimationFrame(emitChangeFrameRef.current);
     }
+    parentDocDragCleanupRef.current?.();
   }, []);
 
   const handleIframeLoad = useCallback(() => {
@@ -1536,7 +1584,12 @@ export function AdsEditor({
       }
 
       injectBridgeIntoDocument(doc);
-      doc.documentElement.dataset.cfParentDrag = '1';
+      // Older builds set data-cf-parent-drag="1" here and never cleared it, which silently
+      // disabled the element drag engine. Remove the flag (and any copy persisted into saved
+      // ad HTML) so dragging always works.
+      doc.documentElement.removeAttribute('data-cf-parent-drag');
+      doc.documentElement.removeAttribute('data-cf-suppress-click');
+      doc.documentElement.removeAttribute('data-cf-dragging');
 
       // Read natural canvas size and auto-fit zoom on first open
       requestAnimationFrame(() => {
@@ -1565,6 +1618,7 @@ export function AdsEditor({
         __cfAdsDragMouseDownHandler?: EventListener;
         __cfAdsDragMouseMoveHandler?: EventListener;
         __cfAdsDragMouseUpHandler?: EventListener;
+        __cfAdsDragKeyDownHandler?: EventListener;
         __cfAdsResizeMouseDownHandler?: EventListener;
         __cfAdsResizeMouseMoveHandler?: EventListener;
         __cfAdsResizeMouseUpHandler?: EventListener;
@@ -1580,6 +1634,9 @@ export function AdsEditor({
       }
       if (docWithHandler.__cfAdsDragMouseUpHandler) {
         doc.removeEventListener('mouseup', docWithHandler.__cfAdsDragMouseUpHandler, true);
+      }
+      if (docWithHandler.__cfAdsDragKeyDownHandler) {
+        doc.removeEventListener('keydown', docWithHandler.__cfAdsDragKeyDownHandler, true);
       }
       if (docWithHandler.__cfAdsResizeMouseDownHandler) {
         doc.removeEventListener('mousedown', docWithHandler.__cfAdsResizeMouseDownHandler, true);
@@ -1657,15 +1714,32 @@ export function AdsEditor({
         };
       };
 
+      // Cumulative CSS-transform scale applied to an element's box (e.g. a .creative-scale
+      // wrapper). getBoundingClientRect() returns screen px (scaled); style.left/top/width
+      // are local px (unscaled). Every conversion between the two must divide by this factor,
+      // otherwise clicking/dragging inside a scaled creative jumps and resizes elements.
+      const getEffectiveScale = (el: HTMLElement): number => {
+        const w = el.offsetWidth;
+        if (w > 0) {
+          const rw = el.getBoundingClientRect().width;
+          if (rw > 0) {
+            const s = rw / w;
+            if (Number.isFinite(s) && s > 0.01) return s;
+          }
+        }
+        return 1;
+      };
+
       const ensureAbsoluteEditableLayer = (target: HTMLElement, parent: HTMLElement) => {
         const frameWindow = doc.defaultView;
         const computed = frameWindow?.getComputedStyle(target);
         const targetRect = target.getBoundingClientRect();
         const parentRect = parent.getBoundingClientRect();
-        const left = Math.round(targetRect.left - parentRect.left + parent.scrollLeft);
-        const top = Math.round(targetRect.top - parentRect.top + parent.scrollTop);
-        const widthPx = Math.max(1, Math.round(targetRect.width));
-        const heightPx = Math.max(1, Math.round(targetRect.height));
+        const scale = getEffectiveScale(parent);
+        const left = Math.round((targetRect.left - parentRect.left) / scale + parent.scrollLeft);
+        const top = Math.round((targetRect.top - parentRect.top) / scale + parent.scrollTop);
+        const widthPx = Math.max(1, Math.round(targetRect.width / scale));
+        const heightPx = Math.max(1, Math.round(targetRect.height / scale));
         const needsAbsolutePosition = computed?.position === 'static' || computed?.position === 'relative' || !target.style.position;
         const shouldFreezeSize = needsAbsolutePosition && !target.dataset.cfEditorSizeFrozen;
 
@@ -1854,16 +1928,98 @@ export function AdsEditor({
 
       let dragState: {
         target: HTMLElement;
-        parent: HTMLElement;
         startX: number;
         startY: number;
+        dragging: boolean;
+        scale: number;
         initialLeft: number;
         initialTop: number;
-        initialWidth: number;
-        initialHeight: number;
-        dragging: boolean;
+        // Screen-space rect captured at drag activation; snap math runs in screen space.
+        startRect: { left: number; top: number; width: number; height: number };
         snapPoints: SnapPoint[];
       } | null = null;
+
+      // Normalize mouse coordinates into iframe space. Events coming from the parent
+      // document (dragging past the iframe edge) are offset by the iframe position and
+      // scaled by the workspace zoom.
+      const toFrameCoords = (mouse: MouseEvent): { x: number; y: number } => {
+        if (mouse.view && mouse.view !== doc.defaultView) {
+          const frameRect = iframeRef.current?.getBoundingClientRect();
+          const zoom = canvasZoomRef.current || 1;
+          if (frameRect) {
+            return { x: (mouse.clientX - frameRect.left) / zoom, y: (mouse.clientY - frameRect.top) / zoom };
+          }
+        }
+        return { x: mouse.clientX, y: mouse.clientY };
+      };
+
+      let lastGuidesKey = '';
+      const updateSnapGuidesIfChanged = (guides: SnapPoint[]) => {
+        const key = guides.map((g) => `${g.axis}:${Math.round(g.value)}`).join('|');
+        if (key === lastGuidesKey) return;
+        lastGuidesKey = key;
+        updateSnapGuides(guides);
+      };
+
+      const teardownDrag = (suppressClick: boolean) => {
+        if (!dragState) return;
+        const target = dragState.target;
+        dragState = null;
+        lastGuidesKey = '';
+        target.classList.remove('cf-editor-dragging');
+        delete doc.documentElement.dataset.cfDragging;
+        doc.getElementById('cf-snap-guides')?.remove();
+        if (overlayRaf) { cancelAnimationFrame(overlayRaf); overlayRaf = null; }
+        if (suppressClick) {
+          doc.documentElement.dataset.cfSuppressClick = String(Date.now() + 300);
+        }
+      };
+
+      // Heavy work (absolute conversion, snap point collection) is deferred until the drag
+      // threshold is crossed, so a simple click never mutates the element's layout.
+      const activateDrag = (): boolean => {
+        if (!dragState) return false;
+        const target = dragState.target;
+        const frameWindow = doc.defaultView;
+        if (!frameWindow) { dragState = null; return false; }
+
+        const parent = (target.offsetParent || target.parentElement || doc.body) as HTMLElement;
+        const parentStyle = frameWindow.getComputedStyle(parent);
+        if (parent !== doc.body && parentStyle.position === 'static') {
+          parent.style.position = 'relative';
+        }
+        ensureAbsoluteEditableLayer(target, parent);
+
+        const scale = getEffectiveScale(parent);
+        const targetRect = target.getBoundingClientRect();
+        const parentRect = parent.getBoundingClientRect();
+        const computed = frameWindow.getComputedStyle(target);
+        const existingLeft = Number.parseFloat(computed.left);
+        const existingTop = Number.parseFloat(computed.top);
+
+        dragState.scale = scale;
+        dragState.initialLeft = Number.isFinite(existingLeft) && computed.position !== 'static'
+          ? existingLeft
+          : (targetRect.left - parentRect.left) / scale + parent.scrollLeft;
+        dragState.initialTop = Number.isFinite(existingTop) && computed.position !== 'static'
+          ? existingTop
+          : (targetRect.top - parentRect.top) / scale + parent.scrollTop;
+        dragState.startRect = {
+          left: targetRect.left,
+          top: targetRect.top,
+          width: targetRect.width,
+          height: targetRect.height,
+        };
+        dragState.snapPoints = collectSnapPoints(target);
+        dragState.dragging = true;
+
+        if (!target.style.zIndex || target.style.zIndex === 'auto') {
+          target.style.zIndex = '10';
+        }
+        target.classList.add('cf-editor-dragging');
+        doc.documentElement.dataset.cfDragging = '1';
+        return true;
+      };
 
       const getEditableDragTarget = (target: EventTarget | null) => {
         if (!(target instanceof HTMLElement)) return null;
@@ -1877,104 +2033,81 @@ export function AdsEditor({
 
       const dragMouseDownHandler: EventListener = (event) => {
         const mouse = event as MouseEvent;
-        if (doc.documentElement.dataset.cfParentDrag === '1') return;
         if (mouse.button !== 0 || mouse.altKey || mouse.ctrlKey || mouse.metaKey || mouse.shiftKey) return;
         const target = getEditableDragTarget(mouse.target);
         if (!target) return;
 
-        const frameWindow = doc.defaultView;
-        if (!frameWindow) return;
-
-        const parent = (target.offsetParent || target.parentElement || doc.body) as HTMLElement;
-        const parentStyle = frameWindow.getComputedStyle(parent);
-        if (parent !== doc.body && parentStyle.position === 'static') {
-          parent.style.position = 'relative';
-        }
-        ensureAbsoluteEditableLayer(target, parent);
-
-        const targetRect = target.getBoundingClientRect();
-        const parentRect = parent.getBoundingClientRect();
-        const computed = frameWindow.getComputedStyle(target);
-        const existingLeft = Number.parseFloat(computed.left);
-        const existingTop = Number.parseFloat(computed.top);
-        const initialLeft = Number.isFinite(existingLeft) && computed.position !== 'static'
-          ? existingLeft
-          : targetRect.left - parentRect.left + parent.scrollLeft;
-        const initialTop = Number.isFinite(existingTop) && computed.position !== 'static'
-          ? existingTop
-          : targetRect.top - parentRect.top + parent.scrollTop;
-
+        // Only record the candidate; all layout mutations wait for the 4px threshold.
         dragState = {
           target,
-          parent,
           startX: mouse.clientX,
           startY: mouse.clientY,
-          initialLeft,
-          initialTop,
-          initialWidth: targetRect.width,
-          initialHeight: targetRect.height,
           dragging: false,
-          snapPoints: collectSnapPoints(target),
+          scale: 1,
+          initialLeft: 0,
+          initialTop: 0,
+          startRect: { left: 0, top: 0, width: 0, height: 0 },
+          snapPoints: [],
         };
       };
 
       const dragMouseMoveHandler: EventListener = (event) => {
         if (!dragState) return;
-        if (doc.documentElement.dataset.cfParentDrag === '1') { dragState = null; return; }
         const mouse = event as MouseEvent;
-        if (!(mouse.buttons & 1)) { dragState = null; return; }
-        const dx = mouse.clientX - dragState.startX;
-        const dy = mouse.clientY - dragState.startY;
+        if (!(mouse.buttons & 1)) { teardownDrag(false); return; }
+        const pt = toFrameCoords(mouse);
+        const dx = pt.x - dragState.startX;
+        const dy = pt.y - dragState.startY;
 
-        if (!dragState.dragging && Math.hypot(dx, dy) < 4) return;
+        if (!dragState.dragging) {
+          if (Math.hypot(dx, dy) < 4) return;
+          if (!activateDrag()) return;
+        }
 
-        dragState.dragging = true;
         mouse.preventDefault();
         mouse.stopPropagation();
 
         const target = dragState.target;
-        const computed = doc.defaultView?.getComputedStyle(target);
-        if (computed?.position === 'static' || !target.style.position) {
-          target.style.position = 'absolute';
-          target.style.margin = '0';
-        }
-        if (!target.style.zIndex || target.style.zIndex === 'auto') {
-          target.style.zIndex = '10';
-        }
+        const scale = dragState.scale || 1;
 
-        // Snap to grid if enabled (communicated via data attribute)
+        // Snap to grid if enabled (grid units are local ad pixels)
         const snapSize = parseInt(doc.documentElement.dataset.cfSnap || '0', 10);
         const snapFn = (v: number) => snapSize > 0 ? Math.round(v / snapSize) * snapSize : Math.round(v);
 
-        // Smart alignment snap: check guide points, apply correction
+        // Smart alignment snap in screen space — nearest point wins per axis
         let corrX = 0, corrY = 0;
-        const activeGuides: Array<{ axis: 'x' | 'y'; value: number }> = [];
-        if (dragState.snapPoints && dragState.snapPoints.length > 0) {
+        const activeGuides: SnapPoint[] = [];
+        if (dragState.snapPoints.length > 0) {
           const SNAP_THR = 6;
-          const rawLeft = dragState.initialLeft + dx;
-          const rawTop  = dragState.initialTop  + dy;
-          const tw = dragState.initialWidth;
-          const th = dragState.initialHeight;
+          const rawLeft = dragState.startRect.left + dx;
+          const rawTop  = dragState.startRect.top  + dy;
+          const tw = dragState.startRect.width;
+          const th = dragState.startRect.height;
           const candidatesX = [rawLeft, rawLeft + tw / 2, rawLeft + tw];
           const candidatesY = [rawTop,  rawTop  + th / 2, rawTop  + th];
+          let bestX: { dist: number; corr: number; sp: SnapPoint } | null = null;
+          let bestY: { dist: number; corr: number; sp: SnapPoint } | null = null;
           for (const sp of dragState.snapPoints) {
-            if (sp.axis === 'x' && corrX === 0) {
-              for (const c of candidatesX) {
-                if (Math.abs(c - sp.value) <= SNAP_THR) { corrX = sp.value - c; activeGuides.push(sp); break; }
-              }
-            } else if (sp.axis === 'y' && corrY === 0) {
-              for (const c of candidatesY) {
-                if (Math.abs(c - sp.value) <= SNAP_THR) { corrY = sp.value - c; activeGuides.push(sp); break; }
+            const candidates = sp.axis === 'x' ? candidatesX : candidatesY;
+            for (const c of candidates) {
+              const dist = Math.abs(c - sp.value);
+              if (dist > SNAP_THR) continue;
+              if (sp.axis === 'x') {
+                if (!bestX || dist < bestX.dist) bestX = { dist, corr: sp.value - c, sp };
+              } else if (!bestY || dist < bestY.dist) {
+                bestY = { dist, corr: sp.value - c, sp };
               }
             }
           }
+          if (bestX) { corrX = bestX.corr; activeGuides.push(bestX.sp); }
+          if (bestY) { corrY = bestY.corr; activeGuides.push(bestY.sp); }
         }
 
-        target.style.left = `${snapFn(dragState.initialLeft + dx + corrX)}px`;
-        target.style.top  = `${snapFn(dragState.initialTop  + dy + corrY)}px`;
+        // dx/dy and snap corrections are screen px; left/top are local px — divide by scale.
+        target.style.left = `${snapFn(dragState.initialLeft + (dx + corrX) / scale)}px`;
+        target.style.top  = `${snapFn(dragState.initialTop  + (dy + corrY) / scale)}px`;
 
-        // Update guide lines
-        updateSnapGuides(activeGuides);
+        updateSnapGuidesIfChanged(activeGuides);
 
         // RAF-throttle overlay reposition to avoid per-frame layout thrashing
         if (overlayRaf) cancelAnimationFrame(overlayRaf);
@@ -1985,20 +2118,28 @@ export function AdsEditor({
         if (!dragState) return;
         const wasDragging = dragState.dragging;
         const target = dragState.target;
-        dragState = null;
-        doc.getElementById('cf-snap-guides')?.remove();
-        if (overlayRaf) { cancelAnimationFrame(overlayRaf); overlayRaf = null; }
+        teardownDrag(wasDragging);
         if (wasDragging) {
           const mouse = event as MouseEvent;
           mouse.preventDefault();
           mouse.stopPropagation();
           updateResizeOverlay(target); // full rebuild with handles
-          // Swallow the synthetic click the browser fires after a drag, so the bridge click
-          // handler doesn't re-select (or escalate to the parent via its repeat-click logic).
-          doc.documentElement.dataset.cfSuppressClick = String(Date.now() + 300);
           window.postMessage({ source: EDITOR_MESSAGE_SOURCE, type: 'select', payload: buildSelectionPayload(target) }, '*');
           emitChange(serializeWithoutBridge(doc));
         }
+      };
+
+      // Escape cancels an in-flight drag and restores the original position.
+      const dragKeyDownHandler: EventListener = (event) => {
+        const key = (event as KeyboardEvent).key;
+        if (key !== 'Escape' || !dragState || !dragState.dragging) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const target = dragState.target;
+        target.style.left = `${Math.round(dragState.initialLeft)}px`;
+        target.style.top = `${Math.round(dragState.initialTop)}px`;
+        teardownDrag(true);
+        updateResizeOverlay(target);
       };
 
       let resizeState: {
@@ -2012,6 +2153,7 @@ export function AdsEditor({
         initialWidth: number;
         initialHeight: number;
         aspectRatio: number;
+        scale: number;
         resizing: boolean;
       } | null = null;
 
@@ -2035,10 +2177,11 @@ export function AdsEditor({
 
         const rect = target.getBoundingClientRect();
         const parentRect = parent.getBoundingClientRect();
+        const scale = getEffectiveScale(parent);
         target.style.boxSizing = 'border-box';
-        target.style.width = `${Math.max(1, Math.round(rect.width))}px`;
+        target.style.width = `${Math.max(1, Math.round(rect.width / scale))}px`;
         if (!['SPAN', 'STRONG', 'EM', 'SMALL'].includes(target.tagName)) {
-          target.style.height = `${Math.max(1, Math.round(rect.height))}px`;
+          target.style.height = `${Math.max(1, Math.round(rect.height / scale))}px`;
         }
         target.dataset.cfEditorSizeFrozen = '1';
         resizeState = {
@@ -2047,11 +2190,12 @@ export function AdsEditor({
           dir: handle.dataset.resizeHandle || 'se',
           startX: mouse.clientX,
           startY: mouse.clientY,
-          initialLeft: rect.left - parentRect.left + parent.scrollLeft,
-          initialTop: rect.top - parentRect.top + parent.scrollTop,
-          initialWidth: Math.max(1, rect.width),
-          initialHeight: Math.max(1, rect.height),
+          initialLeft: (rect.left - parentRect.left) / scale + parent.scrollLeft,
+          initialTop: (rect.top - parentRect.top) / scale + parent.scrollTop,
+          initialWidth: Math.max(1, rect.width / scale),
+          initialHeight: Math.max(1, rect.height / scale),
           aspectRatio: rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1,
+          scale,
           resizing: false,
         };
 
@@ -2063,8 +2207,11 @@ export function AdsEditor({
         if (!resizeState) return;
         const mouse = event as MouseEvent;
         if (!(mouse.buttons & 1)) { resizeState = null; return; }
-        const dx = mouse.clientX - resizeState.startX;
-        const dy = mouse.clientY - resizeState.startY;
+        const pt = toFrameCoords(mouse);
+        // Deltas converted from screen px to local px so resizing inside a scaled creative
+        // tracks the cursor 1:1.
+        const dx = (pt.x - resizeState.startX) / (resizeState.scale || 1);
+        const dy = (pt.y - resizeState.startY) / (resizeState.scale || 1);
         if (!resizeState.resizing && Math.hypot(dx, dy) < 3) return;
 
         resizeState.resizing = true;
@@ -2137,12 +2284,28 @@ export function AdsEditor({
       doc.addEventListener('mouseup', dragMouseUpHandler, true);
       doc.addEventListener('mousemove', resizeMouseMoveHandler, true);
       doc.addEventListener('mouseup', resizeMouseUpHandler, true);
+      doc.addEventListener('keydown', dragKeyDownHandler, true);
       docWithHandler.__cfAdsResizeMouseDownHandler = resizeMouseDownHandler;
       docWithHandler.__cfAdsResizeMouseMoveHandler = resizeMouseMoveHandler;
       docWithHandler.__cfAdsResizeMouseUpHandler = resizeMouseUpHandler;
       docWithHandler.__cfAdsDragMouseDownHandler = dragMouseDownHandler;
       docWithHandler.__cfAdsDragMouseMoveHandler = dragMouseMoveHandler;
       docWithHandler.__cfAdsDragMouseUpHandler = dragMouseUpHandler;
+      docWithHandler.__cfAdsDragKeyDownHandler = dragKeyDownHandler;
+
+      // Mirror move/up listeners on the parent document so a drag/resize keeps tracking the
+      // cursor when it leaves the iframe (coordinates are converted by toFrameCoords).
+      parentDocDragCleanupRef.current?.();
+      document.addEventListener('mousemove', dragMouseMoveHandler, true);
+      document.addEventListener('mouseup', dragMouseUpHandler, true);
+      document.addEventListener('mousemove', resizeMouseMoveHandler, true);
+      document.addEventListener('mouseup', resizeMouseUpHandler, true);
+      parentDocDragCleanupRef.current = () => {
+        document.removeEventListener('mousemove', dragMouseMoveHandler, true);
+        document.removeEventListener('mouseup', dragMouseUpHandler, true);
+        document.removeEventListener('mousemove', resizeMouseMoveHandler, true);
+        document.removeEventListener('mouseup', resizeMouseUpHandler, true);
+      };
 
       const serialized = serializeWithoutBridge(doc);
       if (serialized && stripEditorBridge(serialized).trim() !== stripEditorBridge(html).trim()) {
