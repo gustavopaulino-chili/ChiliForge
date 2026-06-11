@@ -39,7 +39,7 @@ export function StepServices({ data, onChange }: Props) {
           <FieldLabel required hint="List each service or product your business offers. Each one will get its own section on the website.">
             Services / Products
           </FieldLabel>
-          <div className="space-y-2 mt-1.5">
+          <div className="space-y-2 mt-2">
             {data.services.map((s, i) => (
               <div key={i} className="flex gap-2">
                 <Input
@@ -70,7 +70,7 @@ export function StepServices({ data, onChange }: Props) {
             onChange={e => onChange({ valueProposition: e.target.value })}
             placeholder="What's the main benefit customers get from working with you?"
             rows={2}
-            className="mt-1.5"
+            className="mt-2"
           />
         </div>
 
@@ -78,7 +78,7 @@ export function StepServices({ data, onChange }: Props) {
           <FieldLabel hint="What makes you different from competitors? e.g. '10+ years experience', 'Award-winning team', '24/7 support'. Each one will be highlighted on the website.">
             Key Differentiators
           </FieldLabel>
-          <div className="space-y-2 mt-1.5">
+          <div className="space-y-2 mt-2">
             {data.differentiators.map((d, i) => (
               <div key={i} className="flex gap-2">
                 <Input

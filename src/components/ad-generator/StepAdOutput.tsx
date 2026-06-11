@@ -65,7 +65,7 @@ export function StepAdOutput({ data, onChange, hasCompany = true }: Props) {
               key={opt.value}
               type="button"
               onClick={() => onChange({ outputMode: opt.value })}
-              className={`relative rounded-xl border p-5 text-left transition-all ${
+              className={`relative rounded-lg border p-4 text-left transition-all ${
                 isSelected
                   ? 'border-primary bg-primary/5 ring-1 ring-primary'
                   : 'border-border hover:border-muted-foreground/30 bg-card'

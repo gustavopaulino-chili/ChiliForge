@@ -130,7 +130,7 @@ export function StepAdFormats({ data, onChange }: Props) {
                     onClick={() => onChange({ abTestFocus: opt.value })}
                     className={`rounded-lg border p-2.5 text-left transition-all ${
                       data.abTestFocus === opt.value
-                        ? 'border-primary bg-primary/5 text-foreground'
+                        ? 'border-primary bg-primary/5 ring-1 ring-primary'
                         : 'border-border text-muted-foreground hover:border-muted-foreground/30'
                     }`}
                   >

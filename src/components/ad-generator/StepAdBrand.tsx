@@ -70,7 +70,7 @@ function FontRow({
       </FieldLabel>
 
       {customFont ? (
-        <div className="mt-1.5 flex items-center gap-2 rounded-md border border-primary/50 bg-primary/8 px-3 py-2.5">
+        <div className="mt-2 flex items-center gap-2 rounded-lg border border-primary/50 bg-card/50 p-3">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-primary truncate">{customFont.name}</p>
             <p className="text-[10px] text-muted-foreground truncate">{customFont.fileName}</p>
@@ -85,7 +85,7 @@ function FontRow({
           </button>
         </div>
       ) : (
-        <div className="flex gap-2 mt-1">
+        <div className="flex gap-2 mt-2">
           <Input
             id={inputId}
             value={googleFontValue}
@@ -214,7 +214,7 @@ export function StepAdBrand({ data, onChange }: Props) {
           ].map(c => (
             <div key={c.key}>
               <FieldLabel htmlFor={c.key} hint={c.hint}>{c.label}</FieldLabel>
-              <div className="flex gap-2 mt-1.5">
+              <div className="flex gap-2 mt-2">
                 <input
                   type="color"
                   id={c.key}

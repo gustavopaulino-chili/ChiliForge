@@ -49,7 +49,7 @@ export function StepBrand({ data, onChange }: Props) {
           ].map(c => (
             <div key={c.key}>
               <FieldLabel htmlFor={c.key} hint={c.hint}>{c.label}</FieldLabel>
-              <div className="flex gap-2 mt-1.5">
+              <div className="flex gap-2 mt-2">
                 <input
                   type="color"
                   id={c.key}

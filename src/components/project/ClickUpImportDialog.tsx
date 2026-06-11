@@ -273,7 +273,7 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
                 <div className="flex items-center gap-2">
                   <span className="w-12 text-xs font-medium text-muted-foreground">Space:</span>
                   <select
-                    className="flex h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                    className="flex h-10 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={spaceId}
                     onChange={(e) => loadFolders(e.target.value)}
                   >
@@ -286,7 +286,7 @@ export function ClickUpImportDialog({ open, onOpenChange, userId, onImported }: 
               <div className="flex items-center gap-2">
                 <span className="w-12 text-xs font-medium text-muted-foreground">Folder:</span>
                 <select
-                  className="flex h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                  className="flex h-10 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={folderId}
                   disabled={spaces.length > 0 && !spaceId}
                   onChange={(e) => loadCompanies(e.target.value)}

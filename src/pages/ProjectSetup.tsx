@@ -354,7 +354,7 @@ export default function ProjectSetup() {
                 <div className="grid gap-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-foreground">Website URL</label>
-                    <div className="mt-1.5 flex flex-col sm:flex-row gap-2">
+                    <div className="mt-2 flex flex-col sm:flex-row gap-2">
                       <Input
                         value={importUrl}
                         onChange={(event) => setImportUrl(event.target.value)}
@@ -373,7 +373,7 @@ export default function ProjectSetup() {
                       onChange={(event) => setImportContext(event.target.value)}
                       rows={4}
                       placeholder="Tell the importer what to prioritize, such as offers, services, audience, or brand tone."
-                      className="mt-1.5"
+                      className="mt-2"
                     />
                   </div>
                 </div>

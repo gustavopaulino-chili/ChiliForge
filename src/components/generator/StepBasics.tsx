@@ -28,7 +28,7 @@ export function StepBasics({ data, onChange }: Props) {
             value={data.businessName}
             onChange={e => onChange({ businessName: e.target.value })}
             placeholder="e.g. Acme Digital Agency"
-            className="mt-1.5"
+            className="mt-2"
           />
         </div>
 
@@ -44,7 +44,7 @@ export function StepBasics({ data, onChange }: Props) {
               onChange({ customSlug: value });
             }}
             placeholder="e.g. my-business-name"
-            className="mt-1.5"
+            className="mt-2"
           />
           {data.customSlug ? (
             <p className="text-sm text-muted-foreground mt-1">
@@ -67,7 +67,7 @@ export function StepBasics({ data, onChange }: Props) {
             onChange={e => onChange({ businessDescription: e.target.value })}
             placeholder="Describe what your business does, who you serve, and what makes you unique..."
             rows={3}
-            className="mt-1.5"
+            className="mt-2"
           />
         </div>
 
@@ -85,7 +85,7 @@ export function StepBasics({ data, onChange }: Props) {
                 value={isPredefined ? data.businessCategory : 'Other'}
                 onValueChange={v => onChange({ businessCategory: v === 'Other' ? '' : v })}
               >
-                <SelectTrigger className="mt-1.5">
+                <SelectTrigger className="mt-2">
                   <SelectValue placeholder="Select your industry" />
                 </SelectTrigger>
                 <SelectContent>
@@ -115,7 +115,7 @@ export function StepBasics({ data, onChange }: Props) {
             value={data.targetAudience}
             onChange={e => onChange({ targetAudience: e.target.value })}
             placeholder="e.g. Small business owners aged 25-45"
-            className="mt-1.5"
+            className="mt-2"
           />
         </div>
       </div>

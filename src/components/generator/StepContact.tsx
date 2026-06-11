@@ -1,4 +1,5 @@
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { BusinessFormData } from '@/types/businessForm';
 import { FieldLabel } from './FieldLabel';
 
@@ -33,7 +34,7 @@ export function StepContact({ data, onChange }: Props) {
               value={data.city}
               onChange={e => onChange({ city: e.target.value })}
               placeholder="e.g. Dubai"
-              className="mt-1.5"
+              className="mt-2"
             />
           </div>
           <div>
@@ -45,7 +46,7 @@ export function StepContact({ data, onChange }: Props) {
               value={data.country}
               onChange={e => onChange({ country: e.target.value })}
               placeholder="e.g. UAE"
-              className="mt-1.5"
+              className="mt-2"
             />
           </div>
         </div>
@@ -60,7 +61,7 @@ export function StepContact({ data, onChange }: Props) {
             value={data.email}
             onChange={e => onChange({ email: e.target.value })}
             placeholder="hello@yourbusiness.com"
-            className="mt-1.5"
+            className="mt-2"
           />
         </div>
 
@@ -74,7 +75,7 @@ export function StepContact({ data, onChange }: Props) {
               value={data.phone}
               onChange={e => onChange({ phone: e.target.value })}
               placeholder="+1 234 567 890"
-              className="mt-1.5"
+              className="mt-2"
             />
           </div>
           <div>
@@ -86,7 +87,7 @@ export function StepContact({ data, onChange }: Props) {
               value={data.whatsapp}
               onChange={e => onChange({ whatsapp: e.target.value })}
               placeholder="+1 234 567 890"
-              className="mt-1.5"
+              className="mt-2"
             />
           </div>
         </div>
@@ -122,14 +123,11 @@ export function StepContact({ data, onChange }: Props) {
                 A LP gerada recebe os formulários e envia o lead por e-mail (sem depender de CRM externo).
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => updateLead({ enabled: !lc.enabled })}
-              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${lc.enabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+            <Switch
+              checked={lc.enabled}
+              onCheckedChange={checked => updateLead({ enabled: checked })}
               aria-label="Ativar captura de lead"
-            >
-              <span className={`inline-block h-5 w-5 translate-y-0.5 rounded-full bg-white shadow transition-transform ${lc.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-            </button>
+            />
           </div>
 
           {lc.enabled && (
@@ -137,7 +135,7 @@ export function StepContact({ data, onChange }: Props) {
               {/* Mode test/live */}
               <div>
                 <FieldLabel hint="test: envia para o e-mail de teste (seguro enquanto edita). live: envia para o destino real do cliente.">Modo de envio</FieldLabel>
-                <div className="mt-1.5 grid grid-cols-2 gap-2">
+                <div className="mt-2 grid grid-cols-2 gap-3">
                   {(['test', 'live'] as const).map(m => (
                     <button key={m} type="button" onClick={() => updateLead({ mode: m })}
                       className={`rounded-lg border px-3 py-2 text-xs font-medium transition-all ${lc.mode === m ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-muted-foreground/40'}`}>
@@ -151,11 +149,11 @@ export function StepContact({ data, onChange }: Props) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <FieldLabel htmlFor="toLive" hint="E-mail real do cliente OU endereço 'email-to-lead' do CRM dele.">Destino (produção)</FieldLabel>
-                  <Input id="toLive" type="email" value={lc.toLive} onChange={e => updateLead({ toLive: e.target.value })} placeholder="leads@cliente.com" className="mt-1.5" />
+                  <Input id="toLive" type="email" value={lc.toLive} onChange={e => updateLead({ toLive: e.target.value })} placeholder="leads@cliente.com" className="mt-2" />
                 </div>
                 <div>
                   <FieldLabel htmlFor="toTest" hint="Inbox de teste para validar antes de publicar.">Destino (teste)</FieldLabel>
-                  <Input id="toTest" type="email" value={lc.toTest} onChange={e => updateLead({ toTest: e.target.value })} placeholder="voce@suaagencia.com" className="mt-1.5" />
+                  <Input id="toTest" type="email" value={lc.toTest} onChange={e => updateLead({ toTest: e.target.value })} placeholder="voce@suaagencia.com" className="mt-2" />
                 </div>
               </div>
 
@@ -163,17 +161,17 @@ export function StepContact({ data, onChange }: Props) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <FieldLabel htmlFor="smtpHost" hint="Ex.: smtp.hostinger.com (interno funciona liso). Externo exige porta 465/587 liberada.">SMTP host</FieldLabel>
-                  <Input id="smtpHost" value={lc.smtpHost} onChange={e => updateLead({ smtpHost: e.target.value })} placeholder="smtp.hostinger.com" className="mt-1.5" />
+                  <Input id="smtpHost" value={lc.smtpHost} onChange={e => updateLead({ smtpHost: e.target.value })} placeholder="smtp.hostinger.com" className="mt-2" />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <FieldLabel htmlFor="smtpPort">Porta</FieldLabel>
-                    <Input id="smtpPort" type="number" value={lc.smtpPort} onChange={e => updateLead({ smtpPort: Number(e.target.value) || 587 })} placeholder="587" className="mt-1.5" />
+                    <Input id="smtpPort" type="number" value={lc.smtpPort} onChange={e => updateLead({ smtpPort: Number(e.target.value) || 587 })} placeholder="587" className="mt-2" />
                   </div>
                   <div>
                     <FieldLabel>Segurança</FieldLabel>
                     <select value={lc.smtpSecure} onChange={e => updateLead({ smtpSecure: e.target.value as 'ssl' | 'tls', smtpPort: e.target.value === 'ssl' ? 465 : 587 })}
-                      className="mt-1.5 flex h-10 w-full rounded-md border border-input bg-background px-2 text-sm">
+                      className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                       <option value="tls">TLS (587)</option>
                       <option value="ssl">SSL (465)</option>
                     </select>
@@ -183,11 +181,11 @@ export function StepContact({ data, onChange }: Props) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <FieldLabel htmlFor="smtpUser">SMTP usuário</FieldLabel>
-                  <Input id="smtpUser" value={lc.smtpUser} onChange={e => updateLead({ smtpUser: e.target.value })} placeholder="envio@cliente.com" className="mt-1.5" />
+                  <Input id="smtpUser" value={lc.smtpUser} onChange={e => updateLead({ smtpUser: e.target.value })} placeholder="envio@cliente.com" className="mt-2" />
                 </div>
                 <div>
                   <FieldLabel htmlFor="smtpPass">SMTP senha</FieldLabel>
-                  <Input id="smtpPass" type="password" value={lc.smtpPass} onChange={e => updateLead({ smtpPass: e.target.value })} placeholder="••••••••" className="mt-1.5" />
+                  <Input id="smtpPass" type="password" value={lc.smtpPass} onChange={e => updateLead({ smtpPass: e.target.value })} placeholder="••••••••" className="mt-2" />
                 </div>
               </div>
 
@@ -195,21 +193,21 @@ export function StepContact({ data, onChange }: Props) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <FieldLabel htmlFor="fromEmail" hint="Remetente. Geralmente igual ao usuário SMTP.">From (e-mail)</FieldLabel>
-                  <Input id="fromEmail" type="email" value={lc.fromEmail} onChange={e => updateLead({ fromEmail: e.target.value })} placeholder="envio@cliente.com" className="mt-1.5" />
+                  <Input id="fromEmail" type="email" value={lc.fromEmail} onChange={e => updateLead({ fromEmail: e.target.value })} placeholder="envio@cliente.com" className="mt-2" />
                 </div>
                 <div>
                   <FieldLabel htmlFor="fromName">From (nome)</FieldLabel>
-                  <Input id="fromName" value={lc.fromName} onChange={e => updateLead({ fromName: e.target.value })} placeholder="Site do Cliente" className="mt-1.5" />
+                  <Input id="fromName" value={lc.fromName} onChange={e => updateLead({ fromName: e.target.value })} placeholder="Site do Cliente" className="mt-2" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <FieldLabel htmlFor="replyTo" hint="Opcional. Vazio = responde para o e-mail do próprio lead.">Reply-to</FieldLabel>
-                  <Input id="replyTo" type="email" value={lc.replyTo} onChange={e => updateLead({ replyTo: e.target.value })} placeholder="(opcional)" className="mt-1.5" />
+                  <Input id="replyTo" type="email" value={lc.replyTo} onChange={e => updateLead({ replyTo: e.target.value })} placeholder="(opcional)" className="mt-2" />
                 </div>
                 <div>
                   <FieldLabel htmlFor="subjectTemplate" hint="Use {name} e {email} como variáveis dos campos do formulário.">Assunto</FieldLabel>
-                  <Input id="subjectTemplate" value={lc.subjectTemplate} onChange={e => updateLead({ subjectTemplate: e.target.value })} placeholder="Novo lead: {name}" className="mt-1.5" />
+                  <Input id="subjectTemplate" value={lc.subjectTemplate} onChange={e => updateLead({ subjectTemplate: e.target.value })} placeholder="Novo lead: {name}" className="mt-2" />
                 </div>
               </div>
 

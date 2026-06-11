@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Key, X, Eye, EyeOff, Loader2, Check, ExternalLink, Trash2, Image } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { getGeminiKey, saveGeminiKey } from '@/services/api';
@@ -166,20 +167,12 @@ export function GeminiKeyModal({ open, onClose }: Props) {
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleToggleImageMode(!generateAsImage)}
+                  <Switch
+                    checked={generateAsImage}
+                    onCheckedChange={checked => handleToggleImageMode(checked)}
                     disabled={savingMode}
-                    className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-                      generateAsImage ? 'bg-primary' : 'bg-muted-foreground/30'
-                    } ${savingMode ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                     aria-label="Toggle image mode"
-                  >
-                    <span
-                      className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transform transition-transform ${
-                        generateAsImage ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
+                  />
                 </div>
                 {generateAsImage && (
                   <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">

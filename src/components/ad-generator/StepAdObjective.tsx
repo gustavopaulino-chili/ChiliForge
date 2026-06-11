@@ -79,7 +79,7 @@ export function StepAdObjective({ data, onChange }: Props) {
               key={stage.value}
               type="button"
               onClick={() => onChange({ funnelStage: stage.value })}
-              className={`rounded-xl border p-4 text-left transition-all ${
+              className={`rounded-lg border p-4 text-left transition-all ${
                 data.funnelStage === stage.value
                   ? 'border-primary bg-primary/5 ring-1 ring-primary'
                   : 'border-border hover:border-muted-foreground/30 bg-card'

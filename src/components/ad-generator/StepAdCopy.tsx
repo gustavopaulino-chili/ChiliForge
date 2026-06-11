@@ -264,7 +264,7 @@ export function StepAdCopy({ data, onChange }: Props) {
                   key={opt.value}
                   type="button"
                   onClick={() => onChange({ urgencyLevel: opt.value })}
-                  className={`flex-1 rounded-lg border py-2.5 text-sm font-medium transition-all ${
+                  className={`flex-1 rounded-lg border py-2 text-sm font-medium transition-all ${
                     selected
                       ? 'border-primary bg-primary/5 text-primary ring-1 ring-primary'
                       : recommended

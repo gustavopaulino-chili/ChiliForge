@@ -497,13 +497,13 @@ export function StepImages({ data, onChange, onGenerateAiImages, isGeneratingAiI
               <FieldLabel className="text-xs text-muted-foreground" hint="Define a cor/variante da logo na página: auto (a IA decide pelo fundo), clara (branca p/ fundos escuros), escura (p/ fundos claros), monocromática ou colorida.">
                 Estratégia da logo
               </FieldLabel>
-              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
                 {([['auto', 'Auto'], ['light', 'Clara'], ['dark', 'Escura'], ['monochrome', 'Mono'], ['full-color', 'Colorida']] as const).map(([value, label]) => (
                   <button
                     key={value}
                     type="button"
                     onClick={() => onChange({ logoStrategy: value })}
-                    className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-all ${
+                    className={`rounded-lg border px-3 py-2 text-xs font-medium transition-all ${
                       (data.logoStrategy || 'auto') === value
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border text-muted-foreground hover:border-muted-foreground/40'
