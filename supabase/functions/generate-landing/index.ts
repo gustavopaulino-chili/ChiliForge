@@ -497,17 +497,23 @@ async function searchPexelsPhotos(
   if (!apiKey || !query) return [];
   try {
     const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${Math.max(1, Math.min(perPage, 20))}&orientation=${orientation}`;
-    const resp = await fetch(url, { headers: { Authorization: apiKey } });
-    if (!resp.ok) return [];
-    const data = await resp.json();
-    const photos = Array.isArray(data?.photos) ? data.photos : [];
-    return photos
-      .map((photo: any) => ({
-        id: String(photo?.id || "").trim(),
-        url: String(photo?.src?.large2x || photo?.src?.large || photo?.src?.medium || "").trim(),
-      }))
-      .filter((item: PexelsPhoto) => item.id && item.url);
-  } catch {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const resp = await fetch(url, { headers: { Authorization: apiKey } });
+      if (resp.ok) {
+        const data = await resp.json();
+        const photos = Array.isArray(data?.photos) ? data.photos : [];
+        return photos
+          .map((photo: any) => ({
+            id: String(photo?.id || "").trim(),
+            url: String(photo?.src?.large2x || photo?.src?.large || photo?.src?.medium || "").trim(),
+          }))
+          .filter((item: PexelsPhoto) => item.id && item.url);
+      }
+      console.error(`[generate-landing] Pexels search failed (attempt ${attempt}/2): ${resp.status} query="${query.slice(0, 60)}"`);
+    }
+    return [];
+  } catch (err) {
+    console.error(`[generate-landing] Pexels search error: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
 }
@@ -829,6 +835,7 @@ type ContractSection = {
 // -----------------------------------------------------------------
 type FormDataSnapshot = {
   landingPreset?: string;
+  businessCategory?: string;
   generationObjective?: string;
   sessionsObjectiveContext?: string;
   theme: {
@@ -2568,6 +2575,22 @@ function setOrReplaceAttribute(tag: string, attribute: string, value: string) {
   return tag.replace(/<img\b/i, `<img ${attribute}="${escapeHtml(value)}"`);
 }
 
+/** Collect Pexels photo ids already referenced in the HTML so post-processing
+ * passes never pick a photo the page is already using (global dedup). */
+function extractPexelsPhotoIds(html: string): Set<string> {
+  const ids = new Set<string>();
+  for (const m of html.matchAll(/images\.pexels\.com\/photos\/(\d+)\//g)) ids.add(m[1]);
+  return ids;
+}
+
+const IMG_QUERY_ATTR_RE = /\s*data-cf-img-query\s*=\s*(["'])(.*?)\1/gi;
+
+function readImgQueryAttr(tag: string): string {
+  IMG_QUERY_ATTR_RE.lastIndex = 0;
+  const m = IMG_QUERY_ATTR_RE.exec(tag);
+  return (m?.[2] || "").trim();
+}
+
 async function enforcePexelsTestimonialAvatarsInHtml(
   html: string,
   pexelsKey: string,
@@ -2576,7 +2599,7 @@ async function enforcePexelsTestimonialAvatarsInHtml(
   if (!pexelsKey) return html;
 
   let out = html;
-  const usedPhotoIds = new Set<string>();
+  const usedPhotoIds = extractPexelsPhotoIds(out);
   const imgRegex = /<img\b[^>]*>/gi;
   const matches = Array.from(out.matchAll(imgRegex));
 
@@ -2596,9 +2619,11 @@ async function enforcePexelsTestimonialAvatarsInHtml(
     const isAvatar = /avatar|testimonial|review|client|depoimento/.test(classText) || /testimonial|depoimento|cliente|client|review/.test(altText);
     if (!testimonialContext && !isAvatar) continue;
 
+    const aiQuery = readImgQueryAttr(tag);
     const role = extractRoleFromContext(contextSlice);
     const queryBase = role || businessHint || "business";
     const avatarUrl = await pickUniquePexelsPhoto([
+      ...(aiQuery ? [aiQuery] : []),
       `professional ${queryBase} headshot`,
       `${queryBase} portrait`,
       "professional portrait",
@@ -2606,7 +2631,7 @@ async function enforcePexelsTestimonialAvatarsInHtml(
 
     if (!avatarUrl) continue;
 
-    let patchedTag = setOrReplaceAttribute(tag, "src", avatarUrl);
+    let patchedTag = setOrReplaceAttribute(tag.replace(IMG_QUERY_ATTR_RE, ""), "src", avatarUrl);
     patchedTag = setOrReplaceAttribute(patchedTag, "loading", "lazy");
     if (!/class\s*=\s*["'][^"']*testimonial-avatar[^"']*["']/i.test(patchedTag)) {
       patchedTag = /class\s*=\s*(["'])(.*?)\1/i.test(patchedTag)
@@ -2618,6 +2643,49 @@ async function enforcePexelsTestimonialAvatarsInHtml(
   }
 
   return out;
+}
+
+/** Re-targets stock/fallback section images using the AI-provided
+ * data-cf-img-query attribute (business-specific English Pexels query).
+ * User-provided images (and the pre-fetched hero fallback) are never touched.
+ * Always strips the attribute, found or not. Avatars are handled by
+ * enforcePexelsTestimonialAvatarsInHtml and skipped here. */
+async function applyAiImageQueriesInHtml(
+  html: string,
+  pexelsKey: string,
+  protectedUrls: string[],
+): Promise<string> {
+  let out = html;
+  const protectedSet = new Set(protectedUrls.filter(Boolean));
+  const usedPhotoIds = extractPexelsPhotoIds(out);
+  const matches = Array.from(out.matchAll(/<img\b[^>]*>/gi));
+
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const tag = matches[i][0];
+    const start = matches[i].index ?? -1;
+    if (start < 0) continue;
+
+    const query = readImgQueryAttr(tag);
+    if (!query && !IMG_QUERY_ATTR_RE.test(tag)) { IMG_QUERY_ATTR_RE.lastIndex = 0; continue; }
+    IMG_QUERY_ATTR_RE.lastIndex = 0;
+
+    let patchedTag = tag.replace(IMG_QUERY_ATTR_RE, "");
+
+    const srcMatch = tag.match(/\bsrc\s*=\s*(["'])(.*?)\1/i);
+    const src = (srcMatch?.[2] || "").trim();
+    const contextSlice = out.slice(Math.max(0, start - 600), Math.min(out.length, start + tag.length + 600));
+    const isAvatarish = /avatar|testimonial|depoimento|review/i.test(tag) || /testimonial|depoimento|social-proof/i.test(contextSlice);
+
+    if (pexelsKey && query && !isAvatarish && !protectedSet.has(src)) {
+      const replacement = await pickUniquePexelsPhoto([query], pexelsKey, usedPhotoIds, "landscape");
+      if (replacement) patchedTag = setOrReplaceAttribute(patchedTag, "src", replacement);
+    }
+
+    out = out.slice(0, start) + patchedTag + out.slice(start + tag.length);
+  }
+
+  // Safety net: never let the editor attribute leak into the final page.
+  return out.replace(IMG_QUERY_ATTR_RE, "");
 }
 
 function enforceSeoAndCroFoundation(
@@ -3375,6 +3443,7 @@ serve(async (req: Request) => {
       try {
         return {
           landingPreset: String(formData.landingPreset || "general"),
+          businessCategory: String(formData.businessCategory || ""),
           generationObjective: String(formData.generationObjective || ""),
           sessionsObjectiveContext: String(formData.sessionsObjectiveContext || ""),
           theme: {
@@ -3554,11 +3623,16 @@ serve(async (req: Request) => {
         `${industry} team workspace`,
         `${service || industry} business landscape`,
       ];
-      return Promise.all(
-        Array.from({ length: needed }, (_, i) =>
-          pickUniquePexelsPhoto([queries[i % queries.length]], pexelsApiKey, usedIds, "landscape")
-        )
-      ).then((urls) => urls.filter(Boolean) as string[]);
+      // Sequential on purpose: parallel calls raced on usedIds and could pick
+      // the same photo twice before either added its id to the set.
+      return (async () => {
+        const urls: string[] = [];
+        for (let i = 0; i < needed; i++) {
+          const url = await pickUniquePexelsPhoto([queries[i % queries.length]], pexelsApiKey, usedIds, "landscape");
+          if (url) urls.push(url);
+        }
+        return urls;
+      })();
     })();
 
     const buildContextBlock = (heroFallbackUrl: string, sectionFallbackUrls: string[]): string => {
@@ -3788,6 +3862,7 @@ IMAGES (CRITICAL — follow exactly):
 - Logo: img.brand-logo in nav — use EXACTLY the provided URL, no substitutions.
 - Every <img> MUST have a descriptive alt= attribute.
 - Every <img> for a content section MUST be visible (no hidden, no opacity-0, no display:none).
+- STOCK IMAGE QUERIES: every <img> whose URL is marked "(Pexels fallback)" in ASSETS, and every testimonial avatar, MUST also carry data-cf-img-query="3-6 English keywords describing the ideal photo for THIS business, audience and section" (e.g. data-cf-img-query="female dentist smiling modern clinic"). Be specific to the business category and the section's message. NEVER add this attribute to user-provided images (logo, hero, section, about, team, product, must-use).
 
 DOWNLOAD FILES (MANDATORY — cannot be omitted):
 - If the context includes DOWNLOAD FILES, each file MUST appear in the page as a clickable <a href="URL" download> button.
@@ -3811,7 +3886,7 @@ CONTENT RULES:
 - SEO: include unique <title>, meta description, canonical, OG tags, and JSON-LD (LocalBusiness or Organization) using business data.
 - SEO: preserve semantic heading hierarchy with one H1 and section H2s; include descriptive alt text.
 - CRO: ensure at least 3 strategically placed CTAs (hero, mid-page, final), each specific and action-oriented.
-- TESTIMONIAL AVATARS: when testimonials exist, avatar images must be Pexels portraits of people matching each role/cargo; never reuse the same image.
+- TESTIMONIAL AVATARS: when testimonials exist, avatar images must be Pexels portraits of people matching each role/cargo; never reuse the same image. Each avatar <img> must carry data-cf-img-query describing the person (role + business context, in English).
 - Hero h1: outcome-first, max 12 words
 - CTA labels: specific ("Solicitar Orçamento Grátis"), never "Learn More" alone
 - No filler: no world-class, seamlessly, robust, leveraging
@@ -4238,9 +4313,25 @@ Return a fully reconstructed and complete HTML page now.`;
      const fallbackHero = await heroFallbackFromPexels;
      const primaryHeroUrl = String((formDataSnapshot?.images as any)?.hero || "").trim();
 
+     // Avatar queries match the business better with category/preset than with the company name.
+     const categoryHint = String(formDataSnapshot?.businessCategory || formDataSnapshot?.landingPreset || "")
+       .replace(/[-_]/g, " ").trim();
      if (pexelsApiKey) {
-       finalHtml = await enforcePexelsTestimonialAvatarsInHtml(finalHtml, pexelsApiKey, String(businessName || "business"));
+       finalHtml = await enforcePexelsTestimonialAvatarsInHtml(finalHtml, pexelsApiKey, categoryHint || String(businessName || "business"));
      }
+
+     // User-provided images and the pre-fetched hero are never re-targeted by AI queries.
+     const protectedImageUrls = [
+       String((formDataSnapshot?.images as any)?.logo || ""),
+       primaryHeroUrl,
+       fallbackHero,
+       ...(((formDataSnapshot?.images as any)?.sections as string[]) || []),
+       String((formDataSnapshot?.images as any)?.about || ""),
+       String((formDataSnapshot?.images as any)?.team || ""),
+       ...(((formDataSnapshot?.images as any)?.products as string[]) || []),
+       ...(formDataSnapshot?.imagePolicy?.mustUse || []),
+     ].filter(Boolean);
+     finalHtml = await applyAiImageQueriesInHtml(finalHtml, pexelsApiKey, protectedImageUrls);
 
      finalHtml = enforceHeroFallbackImage(finalHtml, fallbackHero, primaryHeroUrl);
 
