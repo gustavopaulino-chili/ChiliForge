@@ -265,16 +265,24 @@ async function uploadImageToStorage(dataUrl: string | null): Promise<string | nu
     // Prefer the legacy service-role JWT (custom secret) — the auto-injected
     // SUPABASE_SERVICE_ROLE_KEY is the new non-JWT format Storage rejects.
     const key = e?.get("STORAGE_SERVICE_ROLE_KEY") || e?.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!base || !key) return dataUrl;
+    if (!base || !key) {
+      console.error("[generate-images] storage upload skipped: missing SUPABASE_URL or STORAGE_SERVICE_ROLE_KEY");
+      return dataUrl;
+    }
     const path = `generated/${bytes.length}-${b64.slice(0, 32).replace(/[^a-zA-Z0-9]/g, "")}.${ext}`;
-    const res = await fetch(`${base}/storage/v1/object/ad-images/${path}`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": mime, "x-upsert": "true" },
-      body: bytes,
-    });
-    if (!res.ok) return dataUrl;
-    return `${base}/storage/v1/object/public/ad-images/${path}`;
-  } catch {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const res = await fetch(`${base}/storage/v1/object/ad-images/${path}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": mime, "x-upsert": "true" },
+        body: bytes,
+      });
+      if (res.ok) return `${base}/storage/v1/object/public/ad-images/${path}`;
+      const errText = await res.text().catch(() => "");
+      console.error(`[generate-images] storage upload failed (attempt ${attempt}/2): ${res.status} ${errText.slice(0, 200)}`);
+    }
+    return dataUrl;
+  } catch (err) {
+    console.error(`[generate-images] storage upload error: ${err instanceof Error ? err.message : String(err)}`);
     return dataUrl;
   }
 }

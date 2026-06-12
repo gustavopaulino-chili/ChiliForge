@@ -1292,6 +1292,19 @@ export function VisualEditor({
     return `${normalized}${sep}cf_editor_ts=${Date.now()}`;
   }, [projectPublicUrl]);
 
+  // doc.open() from the parent resets the iframe document's URL to the editor app's
+  // URL, so relative srcs (e.g. "assets/img-1.jpg") resolve against the wrong origin
+  // after any doc.write and break. Prepend a <base> pointing at the project's public
+  // URL to the written HTML; serialization already strips #cf-editor-base on save.
+  const withEditorBase = useCallback((docHtml: string): string => {
+    const raw = (projectPublicUrl || '').trim();
+    if (!raw || /<base\b[^>]*\bid="cf-editor-base"/i.test(docHtml)) return docHtml;
+    const headOpen = docHtml.match(/<head[^>]*>/i);
+    if (!headOpen) return docHtml;
+    const href = raw.replace(/\/index\.html$/i, '/').replace(/\/?$/, '/').replace(/"/g, '&quot;');
+    return docHtml.replace(headOpen[0], `${headOpen[0]}<base id="cf-editor-base" href="${href}">`);
+  }, [projectPublicUrl]);
+
   // Batch high-frequency mutations into animation frames to keep long editing sessions smooth.
   const emitChange = useCallback((next: string) => {
     pendingChangeRef.current = stripEditorBridge(next);
@@ -1462,11 +1475,11 @@ export function VisualEditor({
     setSelected(null);
     try {
       doc.open();
-      doc.write(html);
+      doc.write(withEditorBase(html));
       doc.close();
       injectBridgeIntoDocument(doc);
     } catch { /* iframe not ready — ignore */ }
-  }, [applyExternalNonce, html]);
+  }, [applyExternalNonce, html, withEditorBase]);
 
   // Apply an edited document from the ReForge chat panel: update parent state AND
   // rewrite the preview iframe (the preview shows the live DOM, not the html prop),
@@ -1481,7 +1494,7 @@ export function VisualEditor({
     setSelected(null);
     try {
       doc.open();
-      doc.write(newHtml);
+      doc.write(withEditorBase(newHtml));
       doc.close();
       injectBridgeIntoDocument(doc);
     } catch { return; }
@@ -1516,7 +1529,7 @@ export function VisualEditor({
         window.setTimeout(() => { el.style.outline = prev.outline; el.style.outlineOffset = prev.offset; el.style.transition = prev.transition; }, 1900);
       } catch { /* ignore */ }
     }, 140);
-  }, [onChange]);
+  }, [onChange, withEditorBase]);
 
   // Selected element → ReForge focus (so "mude isto" targets it). Snapshot the
   // element's outerHTML (bridge classes stripped) + a short label for the chip.
@@ -1556,12 +1569,12 @@ export function VisualEditor({
       const doc = iframeRef.current?.contentDocument;
       if (doc) {
         doc.open();
-        doc.write(previous);
+        doc.write(withEditorBase(previous));
         doc.close();
         injectBridgeIntoDocument(doc);
       }
     }, 0);
-  }, [html, emitChange]);
+  }, [html, emitChange, withEditorBase]);
 
   const redo = useCallback(() => {
     const next = historyFutureRef.current.pop();
@@ -1582,12 +1595,12 @@ export function VisualEditor({
       const doc = iframeRef.current?.contentDocument;
       if (doc) {
         doc.open();
-        doc.write(next);
+        doc.write(withEditorBase(next));
         doc.close();
         injectBridgeIntoDocument(doc);
       }
     }, 0);
-  }, [html, emitChange]);
+  }, [html, emitChange, withEditorBase]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -3361,7 +3374,7 @@ export function VisualEditor({
       const doc = iframeRef.current?.contentDocument;
       if (!doc) return;
       doc.open();
-      doc.write(nextHtml);
+      doc.write(withEditorBase(nextHtml));
       doc.close();
       injectBridgeIntoDocument(doc);
     }, 0);
