@@ -158,10 +158,17 @@ try {
             while ($cStmt->fetch()) {
                 $htmlUrl  = $cPublicUrl ?: null;
                 $imageUrl = null;
+                $imageType = null;
                 if ($htmlUrl) {
-                    // Derive PNG path from HTML path
+                    // Derive the image path from the HTML path. Prefer the JPEG
+                    // (Meta-ready) and fall back to the PNG when JPEG is absent.
+                    $jpgUrl = preg_replace('/\/index\.html$/', '/banner.jpg', $htmlUrl);
                     $pngUrl = preg_replace('/\/index\.html$/', '/banner.png', $htmlUrl);
-                    if ($pngUrl !== $htmlUrl && extjs_public_file_exists($pngUrl)) $imageUrl = $pngUrl;
+                    if ($jpgUrl !== $htmlUrl && extjs_public_file_exists($jpgUrl)) {
+                        $imageUrl = $jpgUrl; $imageType = 'image/jpeg';
+                    } elseif ($pngUrl !== $htmlUrl && extjs_public_file_exists($pngUrl)) {
+                        $imageUrl = $pngUrl; $imageType = 'image/png';
+                    }
                 }
                 $creatives[] = [
                     'id'        => (int)$cId,
@@ -172,6 +179,7 @@ try {
                     'height'    => (int)$cH,
                     'image_url' => extjs_absolute_public_url($imageUrl),
                     'html_url'  => extjs_absolute_public_url($htmlUrl),
+                    'type'      => $imageType,
                 ];
             }
             $cStmt->close();
