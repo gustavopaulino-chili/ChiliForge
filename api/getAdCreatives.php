@@ -75,7 +75,7 @@ function cf_derive_folder_image_url($publicUrl) {
     if ($prefix === $raw) {
         $prefix = rtrim($raw, '/') . '/';
     }
-    foreach (['image.png', 'image.jpg', 'image.jpeg', 'image.webp', 'image.gif', 'image.avif', 'banner.png'] as $fileName) {
+    foreach (['image.png', 'image.jpg', 'image.jpeg', 'image.webp', 'image.gif', 'image.avif', 'banner.jpg', 'banner.png'] as $fileName) {
         $candidate = $prefix . $fileName;
         $localPath = cf_public_url_to_local_path($candidate);
         if ($localPath !== '' && is_file($localPath)) return $candidate;

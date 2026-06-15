@@ -1417,3 +1417,56 @@ function find_project_for_user(mysqli $conn, int $projectId, int $userId, string
     }
     return $row2;
 }
+
+// ── Ad image format helpers (PNG → JPEG for Meta) ──────────────────────────
+// Chrome --screenshot and the Gemini image model both emit PNG only. Meta's
+// feed prefers JPEG. We flatten the (possibly transparent) PNG onto a solid
+// background and write a sibling JPEG, keeping the PNG as-is.
+
+if (!function_exists('cf_hex_to_rgb')) {
+    function cf_hex_to_rgb(string $hex): array {
+        $hex = ltrim(trim($hex), '#');
+        if (strlen($hex) === 3) {
+            $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+        }
+        if (strlen($hex) !== 6 || !ctype_xdigit($hex)) return [255, 255, 255];
+        return [hexdec(substr($hex, 0, 2)), hexdec(substr($hex, 2, 2)), hexdec(substr($hex, 4, 2))];
+    }
+}
+
+if (!function_exists('cf_image_bytes_to_jpg')) {
+    // Decode arbitrary image bytes (PNG/WebP/etc), flatten onto $bgHex and write
+    // a JPEG to $jpgPath. Returns true on success. Safe no-op if GD is missing.
+    function cf_image_bytes_to_jpg(string $srcBytes, string $jpgPath, string $bgHex = '#ffffff'): bool {
+        if ($srcBytes === '' || !function_exists('imagecreatefromstring') || !function_exists('imagejpeg')) {
+            return false;
+        }
+        $src = @imagecreatefromstring($srcBytes);
+        if ($src === false) return false;
+        $w = imagesx($src);
+        $h = imagesy($src);
+        if ($w < 1 || $h < 1) { imagedestroy($src); return false; }
+        $canvas = imagecreatetruecolor($w, $h);
+        [$r, $g, $b] = cf_hex_to_rgb($bgHex);
+        $bg = imagecolorallocate($canvas, $r, $g, $b);
+        imagefilledrectangle($canvas, 0, 0, $w, $h, $bg);
+        imagecopy($canvas, $src, 0, 0, 0, 0, $w, $h);
+        $ok = @imagejpeg($canvas, $jpgPath, 90);
+        imagedestroy($src);
+        imagedestroy($canvas);
+        return $ok && is_file($jpgPath) && filesize($jpgPath) > 0;
+    }
+}
+
+if (!function_exists('cf_make_jpg_sibling')) {
+    // Given a written banner.png path, produce banner.jpg next to it.
+    // Returns the JPEG basename (e.g. "banner.jpg") on success, '' on failure.
+    function cf_make_jpg_sibling(string $pngPath, string $bgHex = '#ffffff'): string {
+        if (!is_file($pngPath)) return '';
+        $bytes = @file_get_contents($pngPath);
+        if ($bytes === false || $bytes === '') return '';
+        $jpgPath = preg_replace('/\.png$/i', '.jpg', $pngPath);
+        if (!is_string($jpgPath) || $jpgPath === $pngPath) $jpgPath = $pngPath . '.jpg';
+        return cf_image_bytes_to_jpg($bytes, $jpgPath, $bgHex) ? basename($jpgPath) : '';
+    }
+}

@@ -502,6 +502,69 @@ function ext_mirror_api_assets_to_company(array $assetUrls, string $companyRelPa
     return ['map' => $urlMap, 'report' => $report];
 }
 
+/**
+ * Decode inline base64 data URIs (data:image/...;base64,...) found anywhere in the
+ * company/campaign payload, save them as real files under the company's assets folder,
+ * and return a map [originalBase64String => localPublicUrl]. This lets callers send
+ * images straight from n8n without an external host, while ensuring generation only
+ * ever receives a URL (never the base64 blob, which would waste prompt tokens).
+ */
+function ext_mirror_inline_base64_to_company(string $companyRelPath, array ...$sources): array {
+    if ($companyRelPath === '') return [];
+
+    // Collect unique base64 image data URIs from the raw payload.
+    $dataUris = [];
+    $walk = function ($value) use (&$walk, &$dataUris): void {
+        if (is_array($value)) { foreach ($value as $child) $walk($child); return; }
+        if (!is_string($value)) return;
+        $trimmed = trim($value);
+        if ($trimmed !== '' && preg_match('~^data:image/[a-z0-9.+-]+;base64,~i', $trimmed)) {
+            $dataUris[$trimmed] = true;
+        }
+    };
+    foreach ($sources as $source) $walk($source);
+    if (empty($dataUris)) return [];
+
+    $companyDir = project_directory_from_relative($companyRelPath);
+    $assetsDir = $companyDir . DIRECTORY_SEPARATOR . 'assets';
+    ensure_directory($assetsDir);
+
+    $publicBase = project_public_url_from_relative($companyRelPath);
+    $publicBase = preg_replace('/\/index\.html$/i', '/', $publicBase);
+    if (!str_ends_with($publicBase, '/')) $publicBase .= '/';
+
+    $mimeExt = [
+        'image/jpeg' => 'jpg', 'image/jpg' => 'jpg', 'image/png' => 'png',
+        'image/webp' => 'webp', 'image/gif' => 'gif', 'image/avif' => 'avif',
+        'image/svg+xml' => 'svg', 'image/bmp' => 'bmp',
+    ];
+
+    $map = [];
+    $assetIndex = 1;
+    foreach (array_keys($dataUris) as $dataUri) {
+        if (!preg_match('~^data:(image/[a-z0-9.+-]+);base64,(.+)$~i', $dataUri, $m)) continue;
+        $bytes = base64_decode($m[2], true);
+        if ($bytes === false || $bytes === '') continue;
+
+        $detectedType = detect_asset_content_type($bytes, strtolower($m[1]));
+        if (!is_safe_asset_content_type($detectedType)) continue;
+        $ext = $mimeExt[strtolower($detectedType)] ?? ($mimeExt[strtolower($m[1])] ?? 'jpg');
+
+        $fileName = 'external-api-inline-' . $assetIndex . '.' . $ext;
+        while (file_exists($assetsDir . DIRECTORY_SEPARATOR . $fileName)) {
+            $assetIndex++;
+            $fileName = 'external-api-inline-' . $assetIndex . '.' . $ext;
+        }
+        $targetPath = $assetsDir . DIRECTORY_SEPARATOR . $fileName;
+        if (@file_put_contents($targetPath, $bytes) === false) continue;
+
+        $map[$dataUri] = $publicBase . 'assets/' . rawurlencode($fileName);
+        $assetIndex++;
+    }
+
+    return $map;
+}
+
 function ext_extract_banners_from_html(string $html, array $formats): array {
     if (trim($html) === '') return [];
     $dom = new DOMDocument('1.0', 'UTF-8');
@@ -701,6 +764,20 @@ try {
     $campaignFormData = ext_map_campaign($campaign, $resolvedFormats);
     $campaignFormData = agents_enrich_ad_form_with_company_data($campaignFormData, $companyFormData);
     $campaignFormData = ext_enrich_campaign_for_generation($campaignFormData, $companyFormData);
+
+    // Host any inline base64 images BEFORE the async/sync fork so generation only
+    // ever sees URLs (never the base64 blob, which wastes prompt tokens) and the
+    // blob never lands in the job metadata / DB / worker payload.
+    $inlineAssetMap = ext_mirror_inline_base64_to_company($companyRelPath, $company, $campaign);
+    if (!empty($inlineAssetMap)) {
+        $companyFormData  = ext_rewrite_payload_asset_urls($companyFormData, $inlineAssetMap);
+        $campaignFormData = ext_rewrite_payload_asset_urls($campaignFormData, $inlineAssetMap);
+        $rewrittenCompanyJson = json_encode($companyFormData, JSON_UNESCAPED_UNICODE);
+        if ($rewrittenCompanyJson) {
+            $updInlineComp = $conn->prepare("UPDATE projects SET company_form_data = ? WHERE id = ?");
+            if ($updInlineComp) { $updInlineComp->bind_param('si', $rewrittenCompanyJson, $companyId); $updInlineComp->execute(); $updInlineComp->close(); }
+        }
+    }
 
     // Mirror only assets explicitly sent in this API request. Do not re-mirror
     // stored/enriched company/campaign data, otherwise existing local assets get
@@ -1049,10 +1126,14 @@ try {
                         $pngFilePath     = $creativeDir . DIRECTORY_SEPARATOR . 'banner.png';
                         ensure_directory($creativeDir);
                         file_put_contents($pngFilePath, $generated['bytes']);
-                        $previewHtml = ext_image_preview_html('banner.png', $fmtLabel, $fmtW, $fmtH);
+                        // Emit a flattened JPEG for Meta (keep the PNG); deliver the JPEG when it works.
+                        $jpgName = function_exists('cf_image_bytes_to_jpg')
+                            && cf_image_bytes_to_jpg($generated['bytes'], $creativeDir . DIRECTORY_SEPARATOR . 'banner.jpg')
+                            ? 'banner.jpg' : 'banner.png';
+                        $previewHtml = ext_image_preview_html($jpgName, $fmtLabel, $fmtW, $fmtH);
                         file_put_contents($htmlFilePath, $previewHtml);
                         $htmlUrl = '/projects/' . $creativeRelPath . '/index.html';
-                        $imageUrl = '/projects/' . $creativeRelPath . '/banner.png';
+                        $imageUrl = '/projects/' . $creativeRelPath . '/' . $jpgName;
                         agents_reconnect_mysqli_if_needed($conn);
                         $updUrl = $conn->prepare("UPDATE ads_creatives SET public_url = ?, generated_html = ? WHERE id = ?");
                         if ($updUrl) { $updUrl->bind_param('ssi', $htmlUrl, $previewHtml, $creativeId); $updUrl->execute(); $updUrl->close(); }
@@ -1067,7 +1148,7 @@ try {
                         'height'    => $fmtH,
                         'image_url' => ext_absolute_public_url($imageUrl),
                         'html_url'  => ext_absolute_public_url($htmlUrl),
-                        'type'      => $generated['mime'],
+                        'type'      => (($jpgName ?? '') === 'banner.jpg') ? 'image/jpeg' : $generated['mime'],
                         'variant'   => $variant ?: null,
                     ];
                     $savedCount++;
@@ -1180,7 +1261,9 @@ try {
                         if ($updUrl) { $updUrl->bind_param('si', $htmlUrl, $creativeId); $updUrl->execute(); $updUrl->close(); }
                         try {
                             ext_render_creative_png_like_zip($browserBin ?: '', $htmlUrl, $htmlFilePath, $pngFilePath, $fmtW, $fmtH);
-                            $imageUrl = '/projects/' . $creativeRelPath . '/banner.png';
+                            // Flatten a JPEG sibling for Meta; deliver the JPEG when it works.
+                            $jpgName = function_exists('cf_make_jpg_sibling') ? cf_make_jpg_sibling($pngFilePath) : '';
+                            $imageUrl = '/projects/' . $creativeRelPath . '/' . ($jpgName !== '' ? $jpgName : 'banner.png');
                         } catch (Throwable $renderErr) {
                             $renderError = substr($renderErr->getMessage(), 0, 500);
                             error_log('[external/generate-ads] PNG render skipped for creative ' . $creativeId . ': ' . $renderError);
@@ -1189,6 +1272,7 @@ try {
                 }
                 $absoluteImageUrl = ext_absolute_public_url($imageUrl);
                 $absoluteHtmlUrl = ext_absolute_public_url($htmlUrl);
+                $imageIsJpeg = $absoluteImageUrl !== '' && preg_match('~\.jpe?g$~i', (string)$imageUrl);
 
                 $allCreatives[] = [
                     'id'        => $creativeId,
@@ -1199,7 +1283,7 @@ try {
                     'height'    => $fmtH,
                     'image_url' => $absoluteImageUrl,
                     'html_url'  => $absoluteHtmlUrl,
-                    'type'      => $absoluteImageUrl ? 'image/png' : 'html_available',
+                    'type'      => $absoluteImageUrl ? ($imageIsJpeg ? 'image/jpeg' : 'image/png') : 'html_available',
                     'render_error' => $renderError,
                 ];
                 $savedCount++;

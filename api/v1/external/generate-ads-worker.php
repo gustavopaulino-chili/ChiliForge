@@ -560,10 +560,15 @@ try {
                         $pngFilePath     = $creativeDir . DIRECTORY_SEPARATOR . 'banner.png';
                         ensure_directory($creativeDir);
                         file_put_contents($pngFilePath, $generated['bytes']);
-                        $previewHtml = extw_image_preview_html('banner.png', $fmtLabel, $fmtW, $fmtH);
+                        // Also emit a flattened JPEG for Meta (keep the PNG). Point the
+                        // delivered image_url at the JPEG when conversion succeeds.
+                        $jpgName = function_exists('cf_image_bytes_to_jpg')
+                            && cf_image_bytes_to_jpg($generated['bytes'], $creativeDir . DIRECTORY_SEPARATOR . 'banner.jpg')
+                            ? 'banner.jpg' : 'banner.png';
+                        $previewHtml = extw_image_preview_html($jpgName, $fmtLabel, $fmtW, $fmtH);
                         file_put_contents($htmlFilePath, $previewHtml);
                         $htmlUrl = '/projects/' . $creativeRelPath . '/index.html';
-                        $imageUrl = '/projects/' . $creativeRelPath . '/banner.png';
+                        $imageUrl = '/projects/' . $creativeRelPath . '/' . $jpgName;
                         agents_reconnect_mysqli_if_needed($conn);
                         $updUrl = $conn->prepare("UPDATE ads_creatives SET public_url = ?, generated_html = ? WHERE id = ?");
                         if ($updUrl) { $updUrl->bind_param('ssi', $htmlUrl, $previewHtml, $creativeId); $updUrl->execute(); $updUrl->close(); }
@@ -578,7 +583,7 @@ try {
                         'height'   => $fmtH,
                         'html_url' => $htmlUrl,
                         'image_url' => $imageUrl,
-                        'type' => $generated['mime'],
+                        'type' => ($jpgName === 'banner.jpg') ? 'image/jpeg' : $generated['mime'],
                         'variant' => $variant ?: null,
                     ];
                     $savedCount++;
@@ -680,7 +685,9 @@ try {
                         if ($updUrl) { $updUrl->bind_param('si', $htmlUrl, $creativeId); $updUrl->execute(); $updUrl->close(); }
                         try {
                             ext_render_creative_png_like_zip($browserBin ?: '', $htmlUrl, $htmlFilePath, $pngFilePath, $fmtW, $fmtH);
-                            $imageUrl = '/projects/' . $creativeRelPath . '/banner.png';
+                            // Flatten a JPEG sibling for Meta; deliver the JPEG when it works.
+                            $jpgName = function_exists('cf_make_jpg_sibling') ? cf_make_jpg_sibling($pngFilePath) : '';
+                            $imageUrl = '/projects/' . $creativeRelPath . '/' . ($jpgName !== '' ? $jpgName : 'banner.png');
                         } catch (Throwable $renderErr) {
                             error_log('[generate-ads-worker] PNG skipped for creative ' . $creativeId . ': ' . $renderErr->getMessage());
                         }
