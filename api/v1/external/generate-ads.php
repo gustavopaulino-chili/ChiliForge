@@ -974,14 +974,8 @@ try {
         if ($failJob) { $failJob->bind_param('si', $failMsg, $jobId); $failJob->execute(); $failJob->close(); }
         exit;
     }
-    if ($generateAsImage && trim((string)$globalImageRefStore) === '') {
-        error_log('[external/generate-ads] Global Ads Image Reference Store missing for job ' . $jobId);
-        agents_reconnect_mysqli_if_needed($conn);
-        $failMsg = 'Global Ads Image Reference Store is missing. Upload at least one image ad example first.';
-        $failJob = $conn->prepare("UPDATE ad_generation_jobs SET status = 'failed', error = ? WHERE id = ?");
-        if ($failJob) { $failJob->bind_param('si', $failMsg, $jobId); $failJob->execute(); $failJob->close(); }
-        exit;
-    }
+    // generate_as_image now routes through COMPOSE (Gemini background + HTML overlay),
+    // which does not query the image reference store — so it is no longer required.
     agents_reconnect_mysqli_if_needed($conn);
     $agentStmt = $conn->prepare(
         "SELECT system_prompt, model, temperature, max_tokens, version
@@ -1048,50 +1042,52 @@ try {
 
         try {
             if ($generateAsImage) {
-                $imageResult = agents_call_edge_function('agents-ads', [
-                    'mode'                     => 'image',
-                    'agentConfig'              => $agentConfig,
-                    'globalStoreName'          => $globalAdsStore,
-                    'globalReferenceStoreName' => $globalRefStore ?: null,
-                    'imageReferenceStoreName'  => $globalImageRefStore ?: null,
-                    'companyStoreName'         => $companyStoreName,
-                    'batchFormats'             => $batchFmts,
-                    'batchIndex'               => $batchIdx,
-                    'totalBatches'             => $totalBatches,
-                    'creativePlan'             => $spec,
-                    'campaignData'             => $campaignFormData,
-                    'generateAsImage'          => true,
+                // COMPOSE: Gemini draws ONLY the background scene (no logo, no text).
+                // The EXACT user logo and all copy are overlaid as HTML and rasterized
+                // to PNG/JPEG. Pure image generation bakes logo+text into pixels — the
+                // model reinterprets the logo and misspells the copy (worse in pt-BR),
+                // which is precisely what must not happen. Compose guarantees a
+                // pixel-exact logo and typo-free text while keeping an AI-painted scene.
+                $composeResult = agents_call_edge_function('agents-ads', [
+                    'mode'             => 'compose',
+                    'agentConfig'      => $agentConfig,
+                    'globalStoreName'  => $globalAdsStore,
+                    'companyStoreName' => $companyStoreName,
+                    'batchFormats'     => $batchFmts,
+                    'batchIndex'       => $batchIdx,
+                    'totalBatches'     => $totalBatches,
+                    'creativePlan'     => $spec,
+                    'campaignData'     => $campaignFormData,
                 ], $passKey);
                 agents_reconnect_mysqli_if_needed($conn);
 
-                $images = is_array($imageResult['images'] ?? null) ? $imageResult['images'] : [];
-                if (empty($images)) {
-                    throw new RuntimeException("No Gemini images returned for batch {$batchIdx}");
+                $banners = is_array($composeResult['banners'] ?? null) ? $composeResult['banners'] : [];
+                if (empty($banners)) {
+                    throw new RuntimeException("No compose banners returned for batch {$batchIdx}");
                 }
                 $expectedCount = ext_expected_creatives_for_batch($batchFmts, $campaignFormData);
-                if (count($images) > $expectedCount) {
-                    error_log('[external/generate-ads] Trimming image batch ' . $batchIdx . ' from ' . count($images) . ' to expected ' . $expectedCount);
-                    $images = array_slice($images, 0, $expectedCount);
+                if (count($banners) > $expectedCount) {
+                    error_log('[external/generate-ads] Trimming compose batch ' . $batchIdx . ' from ' . count($banners) . ' to expected ' . $expectedCount);
+                    $banners = array_slice($banners, 0, $expectedCount);
                 }
 
                 $savedCount = 0;
-                foreach ($images as $sIdx => $img) {
+                foreach ($banners as $sIdx => $banner) {
                     $fmt      = $batchFmts[$sIdx] ?? $batchFmts[0];
-                    $platform = $fmt['platform'] ?? ($img['platform'] ?? '');
-                    $fmtName  = $fmt['format']   ?? ($img['format'] ?? '');
-                    $fmtLabel = $fmt['label']    ?? ($img['label'] ?? $batchLabel);
-                    $variant  = trim((string)($img['variant'] ?? ''));
+                    $platform = $banner['platform'] ?? ($fmt['platform'] ?? '');
+                    $fmtName  = $banner['format']   ?? ($fmt['format']   ?? '');
+                    $fmtLabel = $banner['label']    ?? ($fmt['label']    ?? $batchLabel);
+                    $variant  = trim((string)($banner['variant'] ?? ''));
                     if ($variant !== '' && stripos($fmtLabel, 'variant') === false) {
                         $fmtLabel .= ' - Variant ' . $variant;
                     }
-                    $fmtW     = (int)($fmt['width']  ?? ($img['width'] ?? 1080));
-                    $fmtH     = (int)($fmt['height'] ?? ($img['height'] ?? 1080));
+                    $fmtW     = (int)($fmt['width']  ?? ($banner['width']  ?? 1080));
+                    $fmtH     = (int)($fmt['height'] ?? ($banner['height'] ?? 1080));
                     $sortOrd  = count($allCreatives);
-                    $imageDataUrl = (string)($img['imageUrl'] ?? $img['image_url'] ?? '');
-                    $generated = ext_generated_image_bytes($imageDataUrl);
+                    $bannerHtml = (string)($banner['html'] ?? '');
+                    if (trim($bannerHtml) === '') continue;
 
                     agents_reconnect_mysqli_if_needed($conn);
-                    $emptyHtml = '';
                     $insC = $conn->prepare(
                         "INSERT INTO ads_creatives
                            (project_id, campaign_id, name, platform, format, label, width, height, generated_html, sort_order)
@@ -1104,40 +1100,48 @@ try {
                         'iissssiisi',
                         $campaignProjectId, $campaignId, $fmtLabel,
                         $platform, $fmtName, $fmtLabel,
-                        $fmtW, $fmtH, $emptyHtml, $sortOrd
+                        $fmtW, $fmtH, $bannerHtml, $sortOrd
                     );
                     if (!$insC->execute()) {
                         $insertError = $insC->error;
                         $insC->close();
-                        throw new RuntimeException('Error saving image creative: ' . $insertError);
+                        throw new RuntimeException('Error saving compose creative: ' . $insertError);
                     }
                     $creativeId = (int)$conn->insert_id;
                     $insC->close();
                     if ($creativeId <= 0) {
-                        throw new RuntimeException('Image creative insert returned no id.');
+                        throw new RuntimeException('Compose creative insert returned no id.');
                     }
 
                     $htmlUrl = null;
                     $imageUrl = null;
+                    $renderError = null;
                     if ($creativeId && $campaignRelPath !== '') {
                         $creativeRelPath = $campaignRelPath . '/' . $creativeId;
                         $creativeDir     = $sitesBasePath . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $creativeRelPath);
                         $htmlFilePath    = $creativeDir . DIRECTORY_SEPARATOR . 'index.html';
                         $pngFilePath     = $creativeDir . DIRECTORY_SEPARATOR . 'banner.png';
                         ensure_directory($creativeDir);
-                        file_put_contents($pngFilePath, $generated['bytes']);
-                        // Emit a flattened JPEG for Meta (keep the PNG); deliver the JPEG when it works.
-                        $jpgName = function_exists('cf_image_bytes_to_jpg')
-                            && cf_image_bytes_to_jpg($generated['bytes'], $creativeDir . DIRECTORY_SEPARATOR . 'banner.jpg')
-                            ? 'banner.jpg' : 'banner.png';
-                        $previewHtml = ext_image_preview_html($jpgName, $fmtLabel, $fmtW, $fmtH);
-                        file_put_contents($htmlFilePath, $previewHtml);
-                        $htmlUrl = '/projects/' . $creativeRelPath . '/index.html';
-                        $imageUrl = '/projects/' . $creativeRelPath . '/' . $jpgName;
-                        agents_reconnect_mysqli_if_needed($conn);
-                        $updUrl = $conn->prepare("UPDATE ads_creatives SET public_url = ?, generated_html = ? WHERE id = ?");
-                        if ($updUrl) { $updUrl->bind_param('ssi', $htmlUrl, $previewHtml, $creativeId); $updUrl->execute(); $updUrl->close(); }
+                        if (file_put_contents($htmlFilePath, $bannerHtml) !== false) {
+                            $htmlUrl = '/projects/' . $creativeRelPath . '/index.html';
+                            agents_reconnect_mysqli_if_needed($conn);
+                            $updUrl = $conn->prepare("UPDATE ads_creatives SET public_url = ? WHERE id = ?");
+                            if ($updUrl) { $updUrl->bind_param('si', $htmlUrl, $creativeId); $updUrl->execute(); $updUrl->close(); }
+                            try {
+                                // Rasterize the composed HTML (bg + exact logo + real text) to PNG,
+                                // then flatten a JPEG sibling for Meta. Deliver the JPEG when it works.
+                                ext_render_creative_png_like_zip($browserBin ?: '', $htmlUrl, $htmlFilePath, $pngFilePath, $fmtW, $fmtH);
+                                $jpgName = function_exists('cf_make_jpg_sibling') ? cf_make_jpg_sibling($pngFilePath) : '';
+                                $imageUrl = '/projects/' . $creativeRelPath . '/' . ($jpgName !== '' ? $jpgName : 'banner.png');
+                            } catch (Throwable $renderErr) {
+                                $renderError = substr($renderErr->getMessage(), 0, 500);
+                                error_log('[external/generate-ads] PNG render skipped for compose creative ' . $creativeId . ': ' . $renderError);
+                            }
+                        }
                     }
+                    $absoluteImageUrl = ext_absolute_public_url($imageUrl);
+                    $absoluteHtmlUrl  = ext_absolute_public_url($htmlUrl);
+                    $imageIsJpeg = $absoluteImageUrl !== '' && preg_match('~\.jpe?g$~i', (string)$imageUrl);
 
                     $allCreatives[] = [
                         'id'        => $creativeId,
@@ -1146,16 +1150,17 @@ try {
                         'label'     => $fmtLabel,
                         'width'     => $fmtW,
                         'height'    => $fmtH,
-                        'image_url' => ext_absolute_public_url($imageUrl),
-                        'html_url'  => ext_absolute_public_url($htmlUrl),
-                        'type'      => (($jpgName ?? '') === 'banner.jpg') ? 'image/jpeg' : $generated['mime'],
+                        'image_url' => $absoluteImageUrl,
+                        'html_url'  => $absoluteHtmlUrl,
+                        'type'      => $absoluteImageUrl ? ($imageIsJpeg ? 'image/jpeg' : 'image/png') : 'html_available',
                         'variant'   => $variant ?: null,
+                        'render_error' => $renderError,
                     ];
                     $savedCount++;
                 }
 
                 if ($savedCount <= 0) {
-                    throw new RuntimeException("No image creatives saved for batch {$batchIdx}");
+                    throw new RuntimeException("No compose creatives saved for batch {$batchIdx}");
                 }
 
                 agents_reconnect_mysqli_if_needed($conn);
