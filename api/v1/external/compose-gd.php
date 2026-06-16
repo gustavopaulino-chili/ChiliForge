@@ -53,6 +53,17 @@ if (!function_exists('extgd_fetch_bytes')) {
             $b = @file_get_contents($src, false, $ctx);
             return $b === false ? '' : $b;
         }
+        // Root-relative public URL (e.g. /projects/.../logo.png, after the API mirrors a logo
+        // locally) → resolve to the actual file on disk. In the CLI worker $_SERVER's
+        // DOCUMENT_ROOT is empty, so also map /projects/* via resolve_sites_base_path().
+        if ($src[0] === '/') {
+            $root = rtrim((string)($_SERVER['DOCUMENT_ROOT'] ?? ''), '/');
+            if ($root !== '' && is_file($root . $src)) { $b = @file_get_contents($root . $src); return $b === false ? '' : $b; }
+            if (function_exists('resolve_sites_base_path') && preg_match('#^/projects/(.+)$#', $src, $mm)) {
+                $p = resolve_sites_base_path() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, rawurldecode($mm[1]));
+                if (is_file($p)) { $b = @file_get_contents($p); return $b === false ? '' : $b; }
+            }
+        }
         if (is_file($src)) { $b = @file_get_contents($src); return $b === false ? '' : $b; }
         return '';
     }
