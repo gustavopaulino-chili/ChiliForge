@@ -40,15 +40,19 @@
   # would return the React login page (HTTP 200 + text/html). Meta then rejects
   # the URL with "Only photo or video can be accepted as media type".
   #
+  # Match on the rule pattern (path is relative to RewriteBase /, i.e. no leading
+  # slash) — the same proven style as the SPA rule below. A %{REQUEST_URI} cond
+  # does NOT reliably match here under LiteSpeed.
+  #
   # 1) File exists  -> serve it directly and stop (no SPA, no login, 200 + MIME).
-  RewriteCond %{REQUEST_URI} ^/projects/.+\.(jpe?g|png|webp|avif|gif|mp4|webm)$ [NC]
   RewriteCond %{REQUEST_FILENAME} -f
-  RewriteRule ^ - [L]
-  # 2) File missing -> return a REAL 404, never the login HTML. An external
-  #    fetcher must get a clean failure for a creative URL, not a 200 web page.
-  RewriteCond %{REQUEST_URI} ^/projects/.+\.(jpe?g|png|webp|avif|gif|mp4|webm)$ [NC]
+  RewriteRule ^projects/.+\.(jpe?g|png|webp|avif|gif|mp4|webm)$ - [NC,L]
+  # 2) File missing -> hand to a PHP responder that emits a REAL 404, never the
+  #    login HTML. LiteSpeed ignores [R=404] here and would let the request fall
+  #    through to the SPA shell, so we rewrite to a script that owns the status.
+  #    The !-f guard on the rewritten target (the .php exists) prevents a loop.
   RewriteCond %{REQUEST_FILENAME} !-f
-  RewriteRule ^ - [R=404,L]
+  RewriteRule ^projects/.+\.(jpe?g|png|webp|avif|gif|mp4|webm)$ /api/v1/external/missing-creative.php [NC,L]
 
   # Hosted pages (generated LPs / ad creatives) are REAL folders with their own
   # index.html. Serve those directly instead of the SPA shell — otherwise the
