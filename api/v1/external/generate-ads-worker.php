@@ -439,17 +439,29 @@ try {
 
     // ── 9. Interpret ──────────────────────────────────────────────────────
 
-    $interpretResult = agents_call_edge_function('agents-ads', [
-        'mode'                     => 'interpret',
-        'agentConfig'              => $agentConfig,
-        'globalStoreName'          => $globalAdsStore,
-        'globalReferenceStoreName' => $globalRefStore ?: null,
-        'imageReferenceStoreName'  => $globalImageRefStore ?: null,
-        'companyStoreName'         => $companyStoreName,
-        'campaignData'             => $campaignFormData,
-    ], $passKey);
-    agents_reconnect_mysqli_if_needed($conn);
-    $batchSpecs = is_array($interpretResult['batchSpecs'] ?? null) ? $interpretResult['batchSpecs'] : [];
+    // Interpret is a planning aid, not a hard requirement for COMPOSE (image): the
+    // compose pipeline derives a brand spec from campaignData when no plan is given,
+    // and each batch is a separate edge call. A transient Gemini/edge 503 here must
+    // not nuke the whole image job — only the optional per-creative spec is lost.
+    // HTML render genuinely needs the spec, so for that path the failure rethrows.
+    $batchSpecs = [];
+    try {
+        $interpretResult = agents_call_edge_function('agents-ads', [
+            'mode'                     => 'interpret',
+            'agentConfig'              => $agentConfig,
+            'globalStoreName'          => $globalAdsStore,
+            'globalReferenceStoreName' => $globalRefStore ?: null,
+            'imageReferenceStoreName'  => $globalImageRefStore ?: null,
+            'companyStoreName'         => $companyStoreName,
+            'campaignData'             => $campaignFormData,
+        ], $passKey);
+        agents_reconnect_mysqli_if_needed($conn);
+        $batchSpecs = is_array($interpretResult['batchSpecs'] ?? null) ? $interpretResult['batchSpecs'] : [];
+    } catch (Throwable $interpretErr) {
+        if (!$generateAsImage) throw $interpretErr;
+        error_log('[generate-ads-worker] interpret failed (non-fatal for image/compose): ' . $interpretErr->getMessage());
+        agents_reconnect_mysqli_if_needed($conn);
+    }
 
     // ── 10. Render each batch ────────────────────────────────────────────────
 
