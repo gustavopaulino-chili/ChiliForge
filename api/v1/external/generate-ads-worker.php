@@ -20,6 +20,7 @@ include __DIR__ . '/../../db.php';
 include __DIR__ . '/../agents/helpers.php';
 include __DIR__ . '/../../site_helpers.php';
 include __DIR__ . '/../../_render.php';
+include __DIR__ . '/compose-gd.php';
 
 if (!function_exists('ext_escape_attr')) {
     function ext_escape_attr(string $value): string {
@@ -496,11 +497,11 @@ try {
         try {
             if ($generateAsImage) {
                 // COMPOSE: Gemini draws ONLY the background scene (no logo, no text).
-                // The EXACT user logo and all copy are overlaid as HTML and rasterized
-                // to PNG/JPEG. Pure image generation bakes logo+text into pixels — the
-                // model reinterprets the logo and misspells the copy (worse in pt-BR),
-                // which is precisely what must not happen. Compose guarantees a
-                // pixel-exact logo and typo-free text while keeping an AI-painted scene.
+                // The EXACT user logo and all copy are then composited over it with PHP GD
+                // (this host has no headless browser to rasterize HTML). Pure image
+                // generation bakes logo+text into pixels — the model reinterprets the logo
+                // and misspells the copy (worse in pt-BR), which is precisely what must not
+                // happen. This keeps an AI-painted scene with a pixel-exact logo + typo-free text.
                 $composeResult = agents_call_edge_function('agents-ads', [
                     'mode'             => 'compose',
                     'agentConfig'      => $agentConfig,
@@ -570,22 +571,31 @@ try {
                         $creativeRelPath = $campaignRelPath . '/' . $creativeId;
                         $creativeDir     = $sitesBasePath . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $creativeRelPath);
                         $htmlFilePath    = $creativeDir . DIRECTORY_SEPARATOR . 'index.html';
-                        $pngFilePath     = $creativeDir . DIRECTORY_SEPARATOR . 'banner.png';
+                        $jpgFilePath     = $creativeDir . DIRECTORY_SEPARATOR . 'banner.jpg';
                         ensure_directory($creativeDir);
+                        // Keep the compose HTML for reference; public_url stays index.html so
+                        // job-status derives the banner.jpg sibling exactly as for image mode.
                         if (file_put_contents($htmlFilePath, $bannerHtml) !== false) {
                             $htmlUrl = '/projects/' . $creativeRelPath . '/index.html';
                             agents_reconnect_mysqli_if_needed($conn);
                             $updUrl = $conn->prepare("UPDATE ads_creatives SET public_url = ? WHERE id = ?");
                             if ($updUrl) { $updUrl->bind_param('si', $htmlUrl, $creativeId); $updUrl->execute(); $updUrl->close(); }
-                            try {
-                                // Rasterize the composed HTML (bg + exact logo + real text) to PNG,
-                                // then flatten a JPEG sibling for Meta. Deliver the JPEG when it works.
-                                ext_render_creative_png_like_zip($browserBin ?: '', $htmlUrl, $htmlFilePath, $pngFilePath, $fmtW, $fmtH);
-                                $jpgName = function_exists('cf_make_jpg_sibling') ? cf_make_jpg_sibling($pngFilePath) : '';
-                                $imageUrl = '/projects/' . $creativeRelPath . '/' . ($jpgName !== '' ? $jpgName : 'banner.png');
-                            } catch (Throwable $renderErr) {
-                                error_log('[generate-ads-worker] PNG skipped for compose creative ' . $creativeId . ': ' . $renderErr->getMessage());
+                        }
+                        // No headless browser on this host: composite the EXACT logo + copy over
+                        // the Gemini background with GD. Extract the bg the compose step embedded
+                        // as <img class="ad-bg" src="...">.
+                        $bgSrc = '';
+                        if (preg_match('/<img[^>]*class=["\']ad-bg["\'][^>]*\bsrc=["\']([^"\']+)["\']/i', $bannerHtml, $bgm)) {
+                            $bgSrc = html_entity_decode($bgm[1], ENT_QUOTES, 'UTF-8');
+                        }
+                        try {
+                            if (extgd_compose_to_jpeg($bgSrc, $campaignFormData, $fmt, null, $jpgFilePath)) {
+                                $imageUrl = '/projects/' . $creativeRelPath . '/banner.jpg';
+                            } else {
+                                error_log('[generate-ads-worker] GD compose returned false for creative ' . $creativeId);
                             }
+                        } catch (Throwable $gdErr) {
+                            error_log('[generate-ads-worker] GD compose failed for creative ' . $creativeId . ': ' . $gdErr->getMessage());
                         }
                     }
 
