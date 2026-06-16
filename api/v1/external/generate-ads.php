@@ -1186,7 +1186,6 @@ try {
                         'height'    => $fmtH,
                         'image_url' => null,
                         'html_url'  => $absoluteHtmlUrl,
-                        'html'      => $bannerHtml,
                         'type'      => 'text/html',
                         'variant'   => $variant ?: null,
                     ];
