@@ -915,17 +915,23 @@ try {
         // PHP-FPM: detach and continue inline below.
         fastcgi_finish_request();
     } else {
-        // LiteSpeed (this host): litespeed_finish_request() does NOT reliably keep the
-        // script running after responding — jobs hung at 'running' with the slow path
-        // never executing. So close the 202 and run a DETACHED background worker, which
-        // survives independently (this is how jobs completed before). No GD/browser is
-        // needed anymore (the API delivers HTML for the caller to rasterize), so the
-        // worker's lsphp context is fine.
-        if (function_exists('litespeed_finish_request')) { litespeed_finish_request(); }
-        else { while (ob_get_level() > 0) { @ob_end_flush(); } @flush(); }
+        // LiteSpeed (this host): do NOT call litespeed_finish_request() here — it ends
+        // the script (LSAPI recycles the process) BEFORE the exec line runs, so the
+        // worker is never spawned and the job hangs at 'running' forever. Just flush the
+        // 202 and spawn a DETACHED background worker (this is how jobs completed before).
+        while (ob_get_level() > 0) { @ob_end_flush(); }
+        @flush();
         $workerPath = __DIR__ . '/generate-ads-worker.php';
         if (is_file($workerPath)) {
-            @exec(PHP_BINARY . ' ' . escapeshellarg($workerPath) . ' ' . $jobId . ' > /dev/null 2>&1 &');
+            // Use a REAL CLI php — PHP_BINARY here is lsphp (LiteSpeed LSAPI), which is not
+            // a CLI: exec'ing it fatals (no STDOUT/STDIN constants) so the worker never runs.
+            // /usr/bin/php is a proper CLI with gd/mysqli/curl.
+            $cliPhp = '';
+            foreach (['/usr/bin/php', '/usr/local/bin/php', '/opt/cpanel/ea-php81/root/usr/bin/php'] as $cand) {
+                if (@is_executable($cand)) { $cliPhp = $cand; break; }
+            }
+            if ($cliPhp === '') $cliPhp = 'php';
+            @exec(escapeshellarg($cliPhp) . ' ' . escapeshellarg($workerPath) . ' ' . $jobId . ' > /dev/null 2>&1 &');
         }
         exit;
     }
