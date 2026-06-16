@@ -58,6 +58,33 @@ if (!function_exists('extgd_fetch_bytes')) {
     }
 }
 
+if (!function_exists('extgd_image_from_bytes')) {
+    /** Decode image bytes to a GD resource. GD handles PNG/JPG/GIF/WebP; SVG (and other
+     *  vector/exotic formats) fall back to Imagick → PNG when available. */
+    function extgd_image_from_bytes(string $bytes) {
+        if ($bytes === '') return false;
+        $head = substr($bytes, 0, 300);
+        $isSvg = (stripos($head, '<svg') !== false) || (stripos($head, 'w3.org/2000/svg') !== false);
+        if (!$isSvg) {
+            $im = @imagecreatefromstring($bytes);
+            if ($im !== false) return $im;
+        }
+        if (class_exists('Imagick')) {
+            try {
+                $imk = new Imagick();
+                if ($isSvg) { $imk->setBackgroundColor(new ImagickPixel('transparent')); $imk->setResolution(384, 384); }
+                $imk->readImageBlob($bytes);
+                $imk->setImageFormat('png32');
+                $png = $imk->getImageBlob();
+                $imk->clear(); $imk->destroy();
+                $g = @imagecreatefromstring($png);
+                if ($g !== false) return $g;
+            } catch (Throwable $e) { /* fall through */ }
+        }
+        return false;
+    }
+}
+
 if (!function_exists('extgd_color')) {
     /** Parse #hex, #rgb, rgb()/rgba() → [r,g,b,alpha127] (alpha 0=opaque..127=transparent). */
     function extgd_color(?string $v, array $fb = [255, 255, 255, 0]): array {
@@ -241,7 +268,7 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
             if ($tag === 'img' && strpos($class, 'ad-bg') !== false) {
                 $bytes = extgd_fetch_bytes($node->getAttribute('src'));
                 if ($bytes !== '') {
-                    $bg = @imagecreatefromstring($bytes);
+                    $bg = extgd_image_from_bytes($bytes);
                     if ($bg !== false) {
                         $bw = imagesx($bg); $bh = imagesy($bg);
                         $s = max($W / $bw, $H / $bh);
@@ -267,7 +294,7 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
             if ($tag === 'img') {
                 $bytes = extgd_fetch_bytes($node->getAttribute('src'));
                 if ($bytes === '') continue;
-                $logo = @imagecreatefromstring($bytes);
+                $logo = extgd_image_from_bytes($bytes);
                 if ($logo === false) continue;
                 imagealphablending($logo, true);
                 $lw = imagesx($logo); $lh = imagesy($logo);
