@@ -146,7 +146,7 @@ try {
     $creatives = [];
     if ($jProjectId) {
         $cStmt = $conn->prepare(
-            "SELECT id, platform, format, label, width, height, public_url
+            "SELECT id, platform, format, label, width, height, public_url, generated_html
              FROM ads_creatives
              WHERE campaign_id = ?
              ORDER BY sort_order ASC"
@@ -154,14 +154,14 @@ try {
         if ($cStmt) {
             $cStmt->bind_param('i', $jCampaignId);
             $cStmt->execute();
-            $cStmt->bind_result($cId, $cPlat, $cFmt, $cLabel, $cW, $cH, $cPublicUrl);
+            $cStmt->bind_result($cId, $cPlat, $cFmt, $cLabel, $cW, $cH, $cPublicUrl, $cHtml);
             while ($cStmt->fetch()) {
                 $htmlUrl  = $cPublicUrl ?: null;
                 $imageUrl = null;
                 $imageType = null;
                 if ($htmlUrl) {
-                    // Derive the image path from the HTML path. Prefer the JPEG
-                    // (Meta-ready) and fall back to the PNG when JPEG is absent.
+                    // If an image was already produced (e.g. the caller hosted one back, or a
+                    // banner.jpg/png exists), prefer the JPEG (Meta-ready), then the PNG.
                     $jpgUrl = preg_replace('/\/index\.html$/', '/banner.jpg', $htmlUrl);
                     $pngUrl = preg_replace('/\/index\.html$/', '/banner.png', $htmlUrl);
                     if ($jpgUrl !== $htmlUrl && extjs_public_file_exists($jpgUrl)) {
@@ -170,6 +170,10 @@ try {
                         $imageUrl = $pngUrl; $imageType = 'image/png';
                     }
                 }
+                // The creative is a self-contained HTML banner (AI background + EXACT logo +
+                // typo-free copy). This host doesn't rasterize it — the caller (n8n) renders
+                // the `html` (or fetches `html_url`) to an image and hosts it for Meta.
+                $htmlBody = is_string($cHtml) ? $cHtml : '';
                 $creatives[] = [
                     'id'        => (int)$cId,
                     'platform'  => $cPlat,
@@ -179,7 +183,8 @@ try {
                     'height'    => (int)$cH,
                     'image_url' => extjs_absolute_public_url($imageUrl),
                     'html_url'  => extjs_absolute_public_url($htmlUrl),
-                    'type'      => $imageType,
+                    'html'      => $htmlBody,
+                    'type'      => $imageType ?: ($htmlBody !== '' ? 'text/html' : null),
                 ];
             }
             $cStmt->close();

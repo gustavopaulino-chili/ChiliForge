@@ -565,39 +565,24 @@ try {
                         throw new RuntimeException('Compose creative insert returned no id.');
                     }
 
-                    $htmlUrl  = null;
-                    $imageUrl = null;
+                    // Deliver the self-contained compose HTML (AI background + EXACT logo +
+                    // typo-free copy). This host can't rasterize it, so the caller (n8n)
+                    // converts the HTML to an image and hosts it. We expose html_url + raw
+                    // html; image_url stays null until the caller produces the image.
+                    $htmlUrl = null;
                     if ($creativeId && $campaignRelPath !== '') {
                         $creativeRelPath = $campaignRelPath . '/' . $creativeId;
                         $creativeDir     = $sitesBasePath . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $creativeRelPath);
                         $htmlFilePath    = $creativeDir . DIRECTORY_SEPARATOR . 'index.html';
-                        $jpgFilePath     = $creativeDir . DIRECTORY_SEPARATOR . 'banner.jpg';
                         ensure_directory($creativeDir);
-                        // Keep the compose HTML for reference; public_url stays index.html so
-                        // job-status derives the banner.jpg sibling exactly as for image mode.
                         if (file_put_contents($htmlFilePath, $bannerHtml) !== false) {
                             $htmlUrl = '/projects/' . $creativeRelPath . '/index.html';
                             agents_reconnect_mysqli_if_needed($conn);
                             $updUrl = $conn->prepare("UPDATE ads_creatives SET public_url = ? WHERE id = ?");
                             if ($updUrl) { $updUrl->bind_param('si', $htmlUrl, $creativeId); $updUrl->execute(); $updUrl->close(); }
                         }
-                        // No headless browser on this host: composite the EXACT logo + copy over
-                        // the Gemini background with GD. Extract the bg the compose step embedded
-                        // as <img class="ad-bg" src="...">.
-                        $bgSrc = '';
-                        if (preg_match('/<img[^>]*class=["\']ad-bg["\'][^>]*\bsrc=["\']([^"\']+)["\']/i', $bannerHtml, $bgm)) {
-                            $bgSrc = html_entity_decode($bgm[1], ENT_QUOTES, 'UTF-8');
-                        }
-                        try {
-                            if (extgd_compose_to_jpeg($bgSrc, $campaignFormData, $fmt, null, $jpgFilePath)) {
-                                $imageUrl = '/projects/' . $creativeRelPath . '/banner.jpg';
-                            } else {
-                                error_log('[generate-ads-worker] GD compose returned false for creative ' . $creativeId);
-                            }
-                        } catch (Throwable $gdErr) {
-                            error_log('[generate-ads-worker] GD compose failed for creative ' . $creativeId . ': ' . $gdErr->getMessage());
-                        }
                     }
+                    $imageUrl = null;
 
                     $allCreatives[] = [
                         'id'       => $creativeId,
