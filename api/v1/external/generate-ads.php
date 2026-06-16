@@ -1178,14 +1178,15 @@ try {
                         throw new RuntimeException('Compose creative insert returned no id.');
                     }
 
-                    // Deliver the self-contained compose HTML (AI background + EXACT logo +
-                    // typo-free copy). This host can't rasterize it, so the caller (n8n)
-                    // converts the HTML to an image and hosts it.
-                    $htmlUrl = null;
+                    // Save the compose HTML and rasterize a Meta-ready banner.jpg with GD,
+                    // faithfully reproducing the layout the background reserved (no browser).
+                    $htmlUrl  = null;
+                    $imageUrl = null;
                     if ($creativeId && $campaignRelPath !== '') {
                         $creativeRelPath = $campaignRelPath . '/' . $creativeId;
                         $creativeDir     = $sitesBasePath . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $creativeRelPath);
                         $htmlFilePath    = $creativeDir . DIRECTORY_SEPARATOR . 'index.html';
+                        $jpgFilePath     = $creativeDir . DIRECTORY_SEPARATOR . 'banner.jpg';
                         ensure_directory($creativeDir);
                         if (file_put_contents($htmlFilePath, $bannerHtml) !== false) {
                             $htmlUrl = '/projects/' . $creativeRelPath . '/index.html';
@@ -1193,8 +1194,16 @@ try {
                             $updUrl = $conn->prepare("UPDATE ads_creatives SET public_url = ? WHERE id = ?");
                             if ($updUrl) { $updUrl->bind_param('si', $htmlUrl, $creativeId); $updUrl->execute(); $updUrl->close(); }
                         }
+                        try {
+                            if (extgd_compose_html_to_jpeg($bannerHtml, $fmt, $jpgFilePath)) {
+                                $imageUrl = '/projects/' . $creativeRelPath . '/banner.jpg';
+                            }
+                        } catch (Throwable $gdErr) {
+                            error_log('[external/generate-ads] GD compose failed for creative ' . $creativeId . ': ' . $gdErr->getMessage());
+                        }
                     }
-                    $absoluteHtmlUrl = ext_absolute_public_url($htmlUrl);
+                    $absoluteImageUrl = ext_absolute_public_url($imageUrl);
+                    $absoluteHtmlUrl  = ext_absolute_public_url($htmlUrl);
 
                     $allCreatives[] = [
                         'id'        => $creativeId,
@@ -1203,9 +1212,9 @@ try {
                         'label'     => $fmtLabel,
                         'width'     => $fmtW,
                         'height'    => $fmtH,
-                        'image_url' => null,
+                        'image_url' => $absoluteImageUrl,
                         'html_url'  => $absoluteHtmlUrl,
-                        'type'      => 'text/html',
+                        'type'      => $absoluteImageUrl ? 'image/jpeg' : 'text/html',
                         'variant'   => $variant ?: null,
                     ];
                     $savedCount++;

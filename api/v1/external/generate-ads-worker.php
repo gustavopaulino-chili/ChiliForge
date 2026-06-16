@@ -584,15 +584,17 @@ try {
                         throw new RuntimeException('Compose creative insert returned no id.');
                     }
 
-                    // Deliver the self-contained compose HTML (AI background + EXACT logo +
-                    // typo-free copy). This host can't rasterize it, so the caller (n8n)
-                    // converts the HTML to an image and hosts it. We expose html_url + raw
-                    // html; image_url stays null until the caller produces the image.
+                    // Save the compose HTML (for reference / html_url) and rasterize it to a
+                    // Meta-ready banner.jpg with GD — faithfully reproducing the layout the
+                    // background reserved space for (no headless browser needed). public_url
+                    // stays index.html so job-status derives the banner.jpg sibling.
                     $htmlUrl = null;
+                    $imageUrl = null;
                     if ($creativeId && $campaignRelPath !== '') {
                         $creativeRelPath = $campaignRelPath . '/' . $creativeId;
                         $creativeDir     = $sitesBasePath . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $creativeRelPath);
                         $htmlFilePath    = $creativeDir . DIRECTORY_SEPARATOR . 'index.html';
+                        $jpgFilePath     = $creativeDir . DIRECTORY_SEPARATOR . 'banner.jpg';
                         ensure_directory($creativeDir);
                         if (file_put_contents($htmlFilePath, $bannerHtml) !== false) {
                             $htmlUrl = '/projects/' . $creativeRelPath . '/index.html';
@@ -600,8 +602,16 @@ try {
                             $updUrl = $conn->prepare("UPDATE ads_creatives SET public_url = ? WHERE id = ?");
                             if ($updUrl) { $updUrl->bind_param('si', $htmlUrl, $creativeId); $updUrl->execute(); $updUrl->close(); }
                         }
+                        try {
+                            if (extgd_compose_html_to_jpeg($bannerHtml, $fmt, $jpgFilePath)) {
+                                $imageUrl = '/projects/' . $creativeRelPath . '/banner.jpg';
+                            } else {
+                                error_log('[generate-ads-worker] GD compose returned false for creative ' . $creativeId);
+                            }
+                        } catch (Throwable $gdErr) {
+                            error_log('[generate-ads-worker] GD compose failed for creative ' . $creativeId . ': ' . $gdErr->getMessage());
+                        }
                     }
-                    $imageUrl = null;
 
                     $allCreatives[] = [
                         'id'       => $creativeId,
