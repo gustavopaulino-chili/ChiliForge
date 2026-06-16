@@ -355,6 +355,97 @@ if (!function_exists('agents_call_edge_function')) {
     }
 }
 
+if (!function_exists('agents_call_edge_function_multi')) {
+    /**
+     * Fire several edge-function calls CONCURRENTLY (curl_multi) and return all results.
+     * Used to parallelize per-batch ad generation so total time ≈ the slowest batch
+     * instead of the sum. Never throws for a single failed call — each entry reports ok/error.
+     *
+     * @param array<int|string,array> $payloads  keyed payloads (key is echoed back in the result)
+     * @return array<int|string,array{ok:bool,data:?array,http:int,error:?string}>
+     */
+    function agents_call_edge_function_multi(string $name, array $payloads, ?string $geminiApiKey = null): array {
+        if (empty($payloads)) return [];
+
+        $baseUrl = rtrim(agents_env_value('SUPABASE_URL', 'https://vehowvyqxhelyfdesmog.supabase.co'), '/');
+        $key     = agents_env_value('SUPABASE_SERVICE_ROLE_KEY');
+        if (!agents_is_jwt($key)) {
+            $fromFile = agents_env_value_from_file('SUPABASE_SERVICE_ROLE_KEY');
+            if (agents_is_jwt($fromFile)) $key = $fromFile;
+        }
+        if ($key === '' || !agents_is_jwt($key)) {
+            throw new RuntimeException('SUPABASE_SERVICE_ROLE_KEY is missing or is not a JWT.');
+        }
+        $url = $baseUrl . '/functions/v1/' . $name;
+        $gk  = ($geminiApiKey !== null && trim($geminiApiKey) !== '') ? trim($geminiApiKey) : null;
+
+        // Same fail-closed base64 guard as the single-call path.
+        $guard = function ($val, string $k) use (&$guard, $name) {
+            if (is_array($val)) {
+                $out = [];
+                foreach ($val as $kk => $vv) { $out[$kk] = $guard($vv, (string)$kk); }
+                return $out;
+            }
+            if (is_string($val) && $val !== '') {
+                if ($k === 'documentText' || $k === 'learningsText') return agents_strip_base64_images($val);
+                if ($k !== 'fileBase64' && $k !== 'geminiApiKey' && agents_has_base64_image($val)) {
+                    throw new RuntimeException('Blocked: base64 image in field "' . $k . '" to edge "' . $name . '".');
+                }
+            }
+            return $val;
+        };
+
+        $mh = curl_multi_init();
+        $handles = [];
+        foreach ($payloads as $pkey => $payload) {
+            if ($gk !== null) $payload['geminiApiKey'] = $gk;
+            $payload = $guard($payload, '');
+            if (!isset($payload['storageKey'])) $payload['storageKey'] = $key;
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 580,
+                CURLOPT_HTTPHEADER     => [
+                    'Content-Type: application/json',
+                    'apikey: '               . $key,
+                    'Authorization: Bearer ' . $key,
+                ],
+            ]);
+            curl_multi_add_handle($mh, $ch);
+            $handles[$pkey] = $ch;
+        }
+
+        $running = null;
+        do {
+            curl_multi_exec($mh, $running);
+            if ($running > 0) curl_multi_select($mh, 1.0);
+        } while ($running > 0);
+
+        $results = [];
+        foreach ($handles as $pkey => $ch) {
+            $body = curl_multi_getcontent($ch);
+            $http = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $err  = curl_error($ch);
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+            if ($body === false || $body === null || $body === '') {
+                $results[$pkey] = ['ok' => false, 'data' => null, 'http' => $http, 'error' => ($err ?: 'empty response')];
+            } elseif ($http >= 400) {
+                $results[$pkey] = ['ok' => false, 'data' => null, 'http' => $http, 'error' => "HTTP {$http}: " . substr((string)$body, 0, 400)];
+            } else {
+                $decoded = json_decode((string)$body, true);
+                $results[$pkey] = ($decoded === null)
+                    ? ['ok' => false, 'data' => null, 'http' => $http, 'error' => 'Invalid JSON: ' . substr((string)$body, 0, 200)]
+                    : ['ok' => true, 'data' => $decoded, 'http' => $http, 'error' => null];
+            }
+        }
+        curl_multi_close($mh);
+        return $results;
+    }
+}
+
 if (!function_exists('agents_delete_gemini_file_search_document')) {
     function agents_delete_gemini_file_search_document(string $documentName): bool {
         $documentName = trim($documentName);

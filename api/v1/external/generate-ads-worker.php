@@ -471,49 +471,68 @@ try {
     $failedBatches    = 0;
     $batchErrors      = [];
 
+    $resolveBatchSpec = function (array $batch, $batchIdx) use ($batchSpecs): string {
+        foreach ($batchSpecs as $bs) {
+            if (strcasecmp(trim((string)($bs['label'] ?? '')), (string)$batch['label']) === 0) {
+                return (string)($bs['spec'] ?? '');
+            }
+        }
+        return isset($batchSpecs[$batchIdx]['spec']) ? (string)$batchSpecs[$batchIdx]['spec'] : '';
+    };
+
+    // Image (compose) path: fire EVERY batch's background generation CONCURRENTLY so the
+    // total wait ≈ the slowest batch instead of the sum of all batches. The HTML render
+    // path stays sequential in the loop below.
+    $composeResults = [];
+    if ($generateAsImage) {
+        $composePayloads = [];
+        foreach ($batches as $bIdx => $b) {
+            $composePayloads[$bIdx] = [
+                'mode'             => 'compose',
+                'agentConfig'      => $agentConfig,
+                'globalStoreName'  => $globalAdsStore,
+                'companyStoreName' => $companyStoreName,
+                'batchFormats'     => $b['formats'],
+                'batchIndex'       => $bIdx,
+                'totalBatches'     => $totalBatches,
+                'creativePlan'     => $resolveBatchSpec($b, $bIdx),
+                'campaignData'     => $campaignFormData,
+            ];
+            agents_reconnect_mysqli_if_needed($conn);
+            $updR = $conn->prepare("UPDATE ad_generation_job_batches SET status = 'running', attempts = attempts + 1 WHERE job_id = ? AND batch_index = ?");
+            if ($updR) { $updR->bind_param('ii', $jobId, $bIdx); $updR->execute(); $updR->close(); }
+        }
+        $composeResults = agents_call_edge_function_multi('agents-ads', $composePayloads, $passKey);
+        agents_reconnect_mysqli_if_needed($conn);
+    }
+
     foreach ($batches as $batchIdx => $batch) {
         $batchLabel = $batch['label'];
         $batchFmts  = $batch['formats'];
+        $spec       = $resolveBatchSpec($batch, $batchIdx);
 
-        $spec = '';
-        foreach ($batchSpecs as $bs) {
-            if (strcasecmp(trim((string)($bs['label'] ?? '')), $batchLabel) === 0) {
-                $spec = (string)($bs['spec'] ?? '');
-                break;
-            }
+        // Compose marked 'running' in the parallel pre-pass above; only the sequential
+        // HTML render path needs to mark it here.
+        if (!$generateAsImage) {
+            agents_reconnect_mysqli_if_needed($conn);
+            $updR = $conn->prepare(
+                "UPDATE ad_generation_job_batches
+                 SET status = 'running', attempts = attempts + 1
+                 WHERE job_id = ? AND batch_index = ?"
+            );
+            if ($updR) { $updR->bind_param('ii', $jobId, $batchIdx); $updR->execute(); $updR->close(); }
         }
-        if ($spec === '' && isset($batchSpecs[$batchIdx]['spec'])) {
-            $spec = (string)$batchSpecs[$batchIdx]['spec'];
-        }
-
-        agents_reconnect_mysqli_if_needed($conn);
-        $updR = $conn->prepare(
-            "UPDATE ad_generation_job_batches
-             SET status = 'running', attempts = attempts + 1
-             WHERE job_id = ? AND batch_index = ?"
-        );
-        if ($updR) { $updR->bind_param('ii', $jobId, $batchIdx); $updR->execute(); $updR->close(); }
 
         try {
             if ($generateAsImage) {
-                // COMPOSE: Gemini draws ONLY the background scene (no logo, no text).
-                // The EXACT user logo and all copy are then composited over it with PHP GD
-                // (this host has no headless browser to rasterize HTML). Pure image
-                // generation bakes logo+text into pixels — the model reinterprets the logo
-                // and misspells the copy (worse in pt-BR), which is precisely what must not
-                // happen. This keeps an AI-painted scene with a pixel-exact logo + typo-free text.
-                $composeResult = agents_call_edge_function('agents-ads', [
-                    'mode'             => 'compose',
-                    'agentConfig'      => $agentConfig,
-                    'globalStoreName'  => $globalAdsStore,
-                    'companyStoreName' => $companyStoreName,
-                    'batchFormats'     => $batchFmts,
-                    'batchIndex'       => $batchIdx,
-                    'totalBatches'     => $totalBatches,
-                    'creativePlan'     => $spec,
-                    'campaignData'     => $campaignFormData,
-                ], $passKey);
-                agents_reconnect_mysqli_if_needed($conn);
+                // COMPOSE: Gemini draws ONLY the background scene (no logo, no text); the
+                // EXACT logo + typo-free copy live in the returned HTML overlay. The bg call
+                // was already fired in parallel above — read its result here.
+                $cr = $composeResults[$batchIdx] ?? null;
+                if (!$cr || empty($cr['ok'])) {
+                    throw new RuntimeException('Compose call failed for batch ' . $batchIdx . ': ' . (string)($cr['error'] ?? 'no result'));
+                }
+                $composeResult = is_array($cr['data'] ?? null) ? $cr['data'] : [];
 
                 $banners = is_array($composeResult['banners'] ?? null) ? $composeResult['banners'] : [];
                 if (empty($banners)) throw new RuntimeException("No compose banners returned for batch {$batchIdx}");
