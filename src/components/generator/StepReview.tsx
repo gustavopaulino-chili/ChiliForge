@@ -20,6 +20,7 @@ export function StepReview({ data }: Props) {
         <ReviewSection title="Landing Page">
           <ReviewItem label="Preset" value={presetLabel} />
           <ReviewItem label="Generation Objective" value={data.generationObjective} />
+          {data.landingBriefing?.trim() && <ReviewItem label="LP Briefing" value={data.landingBriefing} />}
         </ReviewSection>
 
         <ReviewSection title="Business">

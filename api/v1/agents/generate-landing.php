@@ -136,6 +136,9 @@ try {
 
         $choices[] = "=== CURRENT FORM BRIEF (HIGHEST PRIORITY USER INPUT) ===";
         if ($str($formData['landingPreset'] ?? '') !== '') $choices[] = 'Landing preset: ' . $str($formData['landingPreset']);
+        if ($str($formData['landingBriefing'] ?? '') !== '') {
+            $choices[] = 'LP BRIEFING (AUTHORITATIVE — dictates ALL page content; study it and let it drive every section copy, headline, narrative and emphasis; it wins over generic defaults): ' . $str($formData['landingBriefing']);
+        }
         if ($str($formData['generationObjective'] ?? '') !== '') $choices[] = 'Generation objective: ' . $str($formData['generationObjective']);
         if ($str($formData['businessCategory'] ?? '') !== '') $choices[] = 'Business category: ' . $str($formData['businessCategory']);
         if ($str($formData['conversionGoal'] ?? '') !== '') $choices[] = 'Conversion goal: ' . $str($formData['conversionGoal']);

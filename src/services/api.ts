@@ -537,6 +537,7 @@ export const generateLanding = async (payload: {
   formData?: {
     landingPreset?: string;
     generationObjective?: string;
+    landingBriefing?: string;
     sessionsObjectiveContext?: string;
     theme: { style: string; primary: string; secondary: string; accent: string; background: string; text: string; headingFont: string; bodyFont: string };
     images: { logo: string; hero: string; sections: string[]; about: string; team: string; products: string[] };

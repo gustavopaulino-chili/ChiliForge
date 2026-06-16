@@ -837,6 +837,7 @@ type FormDataSnapshot = {
   landingPreset?: string;
   businessCategory?: string;
   generationObjective?: string;
+  landingBriefing?: string;
   sessionsObjectiveContext?: string;
   theme: {
     style: string;
@@ -3445,6 +3446,7 @@ serve(async (req: Request) => {
           landingPreset: String(formData.landingPreset || "general"),
           businessCategory: String(formData.businessCategory || ""),
           generationObjective: String(formData.generationObjective || ""),
+          landingBriefing: String(formData.landingBriefing || ""),
           sessionsObjectiveContext: String(formData.sessionsObjectiveContext || ""),
           theme: {
             style: String(formData.theme?.style || "modern"),
@@ -3734,6 +3736,11 @@ serve(async (req: Request) => {
       const socials = Object.entries(f.socialLinks || {}).filter(([, v]) => v);
       if (socials.length > 0) lines.push(`Social: ${socials.map(([k, v]) => `${k}=${v}`).join(", ")}`);
       lines.push("\n=== BUSINESS DETAILS ===");
+      if (f.landingBriefing && f.landingBriefing.trim()) {
+        lines.push("\n=== LP BRIEFING (AUTHORITATIVE — DICTATES ALL PAGE CONTENT) ===");
+        lines.push(f.landingBriefing.trim());
+        lines.push("RULE: This briefing is the SOURCE OF TRUTH for the page. Study it and let it drive ALL written content — the headline, every section's copy, the narrative, offers, ordering and emphasis. When the briefing conflicts with generic defaults, the briefing wins. Still honor structured fields (contact data, provided images, the section contract, language) and never invent fake contact info or fake testimonials not implied by the briefing.");
+      }
       if (f.generationObjective || f.sessionsObjectiveContext) {
         lines.push("\n=== USER OBJECTIVE CONTEXT (HIGH PRIORITY) ===");
         if (f.generationObjective) lines.push(`Step 2 mission / objective: ${f.generationObjective}`);

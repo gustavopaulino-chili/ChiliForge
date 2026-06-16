@@ -148,6 +148,9 @@ export interface BusinessFormData {
   // Landing Page Preset
   landingPreset: LandingPreset;
   generationObjective: string;
+  // Full LP briefing — studied by the AI and used as the authoritative source for ALL
+  // page content (narrative, sections, copy). Richer than generationObjective.
+  landingBriefing: string;
 
   // Business Basics
   businessName: string;
@@ -237,6 +240,7 @@ export interface BusinessFormData {
 export const defaultFormData: BusinessFormData = {
   landingPreset: 'general',
   generationObjective: '',
+  landingBriefing: '',
   businessName: '',
   customSlug: '',
   businessDescription: '',

@@ -70,6 +70,29 @@ export function StepWebsiteType({ data, onChange }: Props) {
         <p className="form-section-desc">Choose a preset or let AI build one from your description</p>
       </div>
 
+      {/* LP Briefing — authoritative content source */}
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-amber-500" />
+          <p className="text-sm font-medium text-foreground">LP Briefing</p>
+          <span className="text-[10px] uppercase tracking-wide font-semibold text-amber-600 bg-amber-500/15 rounded px-1.5 py-0.5">
+            dita o conteúdo
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground -mt-1">
+          Escreva o briefing completo da landing page. A IA vai <strong>estudar este texto</strong> e usá-lo como
+          fonte de verdade para <strong>todo o conteúdo da página</strong> — headline, copy de cada seção, narrativa,
+          ofertas, ordem e ênfase. Quanto mais detalhado (público, dores, proposta de valor, provas, oferta, CTA), melhor.
+        </p>
+        <Textarea
+          value={data.landingBriefing || ''}
+          onChange={e => onChange({ landingBriefing: e.target.value })}
+          placeholder={"Ex.: Landing para o lançamento do Sérum Glow da Velora Skin.\nPúblico: mulheres 25-45 que querem pele iluminada.\nDor: rotina de skincare complicada e sem resultado.\nProposta: sérum com Vitamina C que renova a pele em 14 dias.\nProvas: +2.000 clientes, dermatologicamente testado, antes/depois.\nOferta: 20% off no lançamento + frete grátis.\nCTA: 'Garanta já o seu'. Tom: premium, confiável, acolhedor."}
+          rows={7}
+          className="text-sm"
+        />
+      </div>
+
       {/* AI Preset Generator */}
       <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-4">
         <div className="flex items-center gap-2">

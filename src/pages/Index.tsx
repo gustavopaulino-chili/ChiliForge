@@ -121,6 +121,7 @@ const normalizeFormData = (candidate?: Partial<BusinessFormData> | null): Busine
     services: Array.isArray(incoming.services) ? incoming.services : defaultFormData.services,
     differentiators: Array.isArray(incoming.differentiators) ? incoming.differentiators : defaultFormData.differentiators,
     generationObjective: typeof incoming.generationObjective === 'string' ? incoming.generationObjective : defaultFormData.generationObjective,
+    landingBriefing: typeof incoming.landingBriefing === 'string' ? incoming.landingBriefing : defaultFormData.landingBriefing,
     designNotes: typeof incoming.designNotes === 'string' ? incoming.designNotes : defaultFormData.designNotes,
     sourceWebsite: typeof incoming.sourceWebsite === 'string' ? incoming.sourceWebsite : defaultFormData.sourceWebsite,
     headingFont: typeof incoming.headingFont === 'string' ? incoming.headingFont : defaultFormData.headingFont,
@@ -2420,6 +2421,7 @@ function buildFormDataSnapshot(data: BusinessFormData, aiImages: string[]) {
   return {
     landingPreset: data.landingPreset || 'general',
     generationObjective: data.generationObjective || '',
+    landingBriefing: data.landingBriefing || '',
     businessCategory: data.businessCategory || '',
     sessionsObjectiveContext,
     theme: {
