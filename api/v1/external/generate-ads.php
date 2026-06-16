@@ -753,10 +753,25 @@ try {
             $updComp->close();
         }
     } else {
-        // Reuse stored company data
+        // Reuse stored company data as the BASE, but let any fields the caller provided in
+        // THIS request override the stored ones (deep-merging the images map). Otherwise a
+        // stale stored value — e.g. an old placeholder logo from a previous run — would win
+        // over the real logo_url/colors the caller just sent. Persist so later runs keep it.
         $existing = json_decode($existingFormDataJson ?: '{}', true);
         if (is_array($existing) && !empty($existing)) {
-            $companyFormData = $existing;
+            $payloadCompany = $companyFormData; // already mapped + non-empty-filtered above
+            $mergedImages = array_merge(
+                is_array($existing['images'] ?? null) ? $existing['images'] : [],
+                is_array($payloadCompany['images'] ?? null) ? $payloadCompany['images'] : []
+            );
+            $companyFormData = array_merge($existing, $payloadCompany);
+            if (!empty($mergedImages)) $companyFormData['images'] = $mergedImages;
+
+            $mergedJson = json_encode($companyFormData, JSON_UNESCAPED_UNICODE);
+            if ($mergedJson && $mergedJson !== ($existingFormDataJson ?: '')) {
+                $updMerge = $conn->prepare("UPDATE projects SET company_form_data = ? WHERE id = ?");
+                if ($updMerge) { $updMerge->bind_param('si', $mergedJson, $companyId); $updMerge->execute(); $updMerge->close(); }
+            }
         }
     }
 
