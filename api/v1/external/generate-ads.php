@@ -912,23 +912,20 @@ try {
     @ignore_user_abort(true);
     @set_time_limit(0);
     if (function_exists('fastcgi_finish_request')) {
-        // PHP-FPM: detach and continue inline (this web context has GD+FreeType).
+        // PHP-FPM: detach and continue inline below.
         fastcgi_finish_request();
-    } elseif (function_exists('litespeed_finish_request')) {
-        // LiteSpeed (this host): detach and continue inline. Critical for the GD
-        // compositor — exec'ing the worker uses lsphp (PHP_BINARY), whose CLI context
-        // lacks the FreeType-backed GD needed to render banner.jpg.
-        litespeed_finish_request();
     } else {
-        while (ob_get_level() > 0) { @ob_end_flush(); }
-        @flush();
+        // LiteSpeed (this host): litespeed_finish_request() does NOT reliably keep the
+        // script running after responding — jobs hung at 'running' with the slow path
+        // never executing. So close the 202 and run a DETACHED background worker, which
+        // survives independently (this is how jobs completed before). No GD/browser is
+        // needed anymore (the API delivers HTML for the caller to rasterize), so the
+        // worker's lsphp context is fine.
+        if (function_exists('litespeed_finish_request')) { litespeed_finish_request(); }
+        else { while (ob_get_level() > 0) { @ob_end_flush(); } @flush(); }
         $workerPath = __DIR__ . '/generate-ads-worker.php';
         if (is_file($workerPath)) {
-            // Prefer a real CLI php (GD+FreeType) — PHP_BINARY is lsphp, whose exec'd
-            // context cannot render text with GD, so the JPEG never gets produced.
-            $cliPhp = PHP_BINARY;
-            if (@is_executable('/usr/bin/php')) $cliPhp = '/usr/bin/php';
-            @exec(escapeshellarg($cliPhp) . ' ' . escapeshellarg($workerPath) . ' ' . $jobId . ' > /dev/null 2>&1 &');
+            @exec(PHP_BINARY . ' ' . escapeshellarg($workerPath) . ' ' . $jobId . ' > /dev/null 2>&1 &');
         }
         exit;
     }
