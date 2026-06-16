@@ -908,14 +908,27 @@ try {
     header('Content-Type: application/json');
     header('Content-Length: ' . strlen($body202));
     echo $body202;
+    // Keep processing after the client gets its 202.
+    @ignore_user_abort(true);
+    @set_time_limit(0);
     if (function_exists('fastcgi_finish_request')) {
+        // PHP-FPM: detach and continue inline (this web context has GD+FreeType).
         fastcgi_finish_request();
+    } elseif (function_exists('litespeed_finish_request')) {
+        // LiteSpeed (this host): detach and continue inline. Critical for the GD
+        // compositor — exec'ing the worker uses lsphp (PHP_BINARY), whose CLI context
+        // lacks the FreeType-backed GD needed to render banner.jpg.
+        litespeed_finish_request();
     } else {
         while (ob_get_level() > 0) { @ob_end_flush(); }
         @flush();
         $workerPath = __DIR__ . '/generate-ads-worker.php';
         if (is_file($workerPath)) {
-            @exec(PHP_BINARY . ' ' . escapeshellarg($workerPath) . ' ' . $jobId . ' > /dev/null 2>&1 &');
+            // Prefer a real CLI php (GD+FreeType) — PHP_BINARY is lsphp, whose exec'd
+            // context cannot render text with GD, so the JPEG never gets produced.
+            $cliPhp = PHP_BINARY;
+            if (@is_executable('/usr/bin/php')) $cliPhp = '/usr/bin/php';
+            @exec(escapeshellarg($cliPhp) . ' ' . escapeshellarg($workerPath) . ' ' . $jobId . ' > /dev/null 2>&1 &');
         }
         exit;
     }
