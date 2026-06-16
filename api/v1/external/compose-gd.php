@@ -15,10 +15,20 @@
  */
 
 if (!function_exists('extgd_font')) {
-    function extgd_font(bool $bold): string {
-        $bundled = __DIR__ . '/fonts/' . ($bold ? 'OpenSans-Bold.ttf' : 'OpenSans-Regular.ttf');
-        if (is_file($bundled)) return $bundled;
-        $sys = $bold
+    // Pick the bundled font closest to the requested CSS font-weight, then fall back to
+    // system sans. 900/800 → ExtraBold, 600-700 → Bold, else Regular.
+    function extgd_font(int $weight = 400): string {
+        $tier = $weight >= 800 ? 'x' : ($weight >= 600 ? 'b' : 'r');
+        $bundles = [
+            'x' => ['OpenSans-ExtraBold.ttf', 'OpenSans-Bold.ttf'],
+            'b' => ['OpenSans-Bold.ttf'],
+            'r' => ['OpenSans-Regular.ttf'],
+        ][$tier];
+        foreach ($bundles as $f) {
+            $p = __DIR__ . '/fonts/' . $f;
+            if (is_file($p)) return $p;
+        }
+        $sys = $weight >= 600
             ? ['/usr/share/fonts/urw-base35/NimbusSans-Bold.otf', '/usr/share/fonts/google-droid/DroidSans-Bold.ttf', '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf']
             : ['/usr/share/fonts/urw-base35/NimbusSans-Regular.otf', '/usr/share/fonts/google-droid/DroidSans.ttf', '/usr/share/fonts/dejavu/DejaVuSans.ttf'];
         foreach ($sys as $p) if (is_file($p)) return $p;
@@ -182,9 +192,11 @@ if (!function_exists('extgd_draw_scrim')) {
             }
             return;
         }
-        // Linear: darkest at the side the gradient points AWAY from the transparent end.
+        // Linear: in CSS the first (dark) stop sits OPPOSITE the arrow direction. So
+        // "to top" → dark at bottom; "to bottom" → dark at top; "to right" → dark at left;
+        // "to left" → dark at right. darkAtStart = dark at the low coord (top / left).
         $vertical = (strpos($dir, 'top') !== false || strpos($dir, 'bottom') !== false || preg_match('/(0|180)deg/', $dir));
-        $darkAtStart = (strpos($dir, 'to top') !== false || strpos($dir, 'to left') !== false); // dark at low coord
+        $darkAtStart = (strpos($dir, 'bottom') !== false || strpos($dir, 'right') !== false);
         for ($i = ($vertical ? $y1 : $x1); $i < ($vertical ? $y2 : $x2); $i++) {
             $frac = $vertical ? ($i - $y1) / max(1, $y2 - $y1) : ($i - $x1) / max(1, $x2 - $x1);
             $dark = $darkAtStart ? (1 - $frac) : $frac;
@@ -200,10 +212,8 @@ if (!function_exists('extgd_draw_scrim')) {
 if (!function_exists('extgd_compose_html_to_jpeg')) {
     function extgd_compose_html_to_jpeg(string $bannerHtml, array $fmt, string $outJpgPath): bool {
         if (!extension_loaded('gd')) throw new RuntimeException('GD extension not available.');
-        $fontBold = extgd_font(true);
-        $fontReg  = extgd_font(false);
-        if ($fontBold === '') throw new RuntimeException('No TTF/OTF font available for GD.');
-        if ($fontReg === '') $fontReg = $fontBold;
+        $fontReg = extgd_font(400);
+        if ($fontReg === '') throw new RuntimeException('No TTF/OTF font available for GD.');
 
         $dom = new DOMDocument('1.0', 'UTF-8');
         @$dom->loadHTML('<?xml encoding="utf-8"?>' . $bannerHtml, LIBXML_NOWARNING | LIBXML_NOERROR);
@@ -290,7 +300,8 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                 if ($text === '') continue;
                 $fontPx = extgd_font_px($st['font-size'] ?? null, $W, $H);
                 $weight = (int)($st['font-weight'] ?? 400);
-                $font = $weight >= 600 ? $fontBold : $fontReg;
+                $font = extgd_font($weight);
+                if ($font === '') $font = $fontReg;
                 $col = extgd_color($st['color'] ?? '#ffffff', [255, 255, 255, 0]);
                 $align = strtolower($st['text-align'] ?? 'left');
                 $left = extgd_pct($st['left'] ?? null, $W); $right = extgd_pct($st['right'] ?? null, $W);
