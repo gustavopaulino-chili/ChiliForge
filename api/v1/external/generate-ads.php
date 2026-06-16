@@ -229,6 +229,9 @@ function ext_map_campaign(array $cam, array $formats): array {
         'backgroundImageUrl'    => $first(['background_image_url', 'background_image', 'hero_image_url']),
         'preferredStyle'        => $str('preferred_style'),
         'preferredLogoStrategy' => $str('logo_strategy'),
+        // Optional override for the compose background style (reference|company|creative|shapes).
+        // When omitted, ext_enrich_campaign_for_generation picks a rich default.
+        'composeBackgroundSource' => $first(['compose_background_source', 'background_source']),
         'selectedFormats'       => $formats,
     ], fn($v) => !($v === '' || $v === null || (is_array($v) && empty($v))));
 }
@@ -285,6 +288,21 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
         $background = $pick(['backgroundImageUrl', 'background_image_url', 'background_image', 'heroImage1', 'heroImage2', 'hero'], $campaignData, $companyData, $images);
         if ($background !== '') $campaignData['backgroundImageUrl'] = $background;
     }
+
+    // COMPOSE background richness (generation_type=image routes through compose).
+    // Compose's own default is 'shapes' — an abstract, generic backdrop that ignores
+    // the product and the campaign objective (the "hipergenerico" look). Pure image
+    // mode instead drew a full, on-brand, art-directed scene. For the external API we
+    // pick a rich source so the background is relevant: base it on the provided
+    // product/background image when present, otherwise give the model full creative
+    // freedom (a real photographic/illustrated scene from the campaign) — never the
+    // abstract 'shapes' fallback. An explicit caller choice still wins.
+    $bgSourceRaw = strtolower(trim((string)($campaignData['composeBackgroundSource'] ?? '')));
+    if (!in_array($bgSourceRaw, ['reference', 'company', 'creative', 'shapes'], true)) {
+        $hasBgOrProduct = !empty($campaignData['backgroundImageUrl']) || !empty($campaignData['productImageUrl']);
+        $bgSourceRaw = $hasBgOrProduct ? 'reference' : 'creative';
+    }
+    $campaignData['composeBackgroundSource'] = $bgSourceRaw;
 
     $campaignData['externalApiContract'] = 'Return ad image URLs in image_url. Use provided copy and provided image assets visibly in each creative.';
     return $campaignData;
