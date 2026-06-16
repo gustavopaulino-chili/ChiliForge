@@ -2460,7 +2460,10 @@ serve(async (req: Request) => {
 
           const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0);
           const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
-            maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
+            // Retry transient 503/502/529 (image model "high demand" spikes) with
+            // backoff, like the legacy pure-image path did — a single attempt made the
+            // external API fail whole batches on a momentary Gemini overload.
+            maxAttempts: 3, timeoutMs: 100000, singleConfig: true,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null });
@@ -2502,7 +2505,10 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
           const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0);
           const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
-            maxAttempts: 1, timeoutMs: 75000, singleConfig: true,
+            // Retry transient 503/502/529 (image model "high demand" spikes) with
+            // backoff, like the legacy pure-image path did — a single attempt made the
+            // external API fail whole batches on a momentary Gemini overload.
+            maxAttempts: 3, timeoutMs: 100000, singleConfig: true,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null });
