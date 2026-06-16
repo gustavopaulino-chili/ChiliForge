@@ -2468,10 +2468,12 @@ serve(async (req: Request) => {
 
           const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0);
           const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
-            // Retry transient 503/502/529 + timeouts (image model "high demand"
-            // spikes/hangs). Two attempts at 70s bound a single edge call to ~140s so
-            // it stays under the function wall-clock while still riding out a blip.
-            maxAttempts: 2, timeoutMs: 70000, singleConfig: true,
+            // ONE attempt with a generous timeout. The image model is slow (~40-90s) and
+            // its first request often lags; a SECOND attempt pushed the edge call past the
+            // Supabase wall-clock (~150s) → HTTP 546 WORKER_RESOURCE_LIMIT, which is why the
+            // larger 9:16 (story) batch always died. A single ~105s wait fits the budget and
+            // gives the model time to respond in one shot.
+            maxAttempts: 1, timeoutMs: 105000, singleConfig: true,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null });
@@ -2513,10 +2515,12 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
           const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0);
           const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
-            // Retry transient 503/502/529 + timeouts (image model "high demand"
-            // spikes/hangs). Two attempts at 70s bound a single edge call to ~140s so
-            // it stays under the function wall-clock while still riding out a blip.
-            maxAttempts: 2, timeoutMs: 70000, singleConfig: true,
+            // ONE attempt with a generous timeout. The image model is slow (~40-90s) and
+            // its first request often lags; a SECOND attempt pushed the edge call past the
+            // Supabase wall-clock (~150s) → HTTP 546 WORKER_RESOURCE_LIMIT, which is why the
+            // larger 9:16 (story) batch always died. A single ~105s wait fits the budget and
+            // gives the model time to respond in one shot.
+            maxAttempts: 1, timeoutMs: 105000, singleConfig: true,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null });
