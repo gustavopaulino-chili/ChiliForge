@@ -1,5 +1,7 @@
 # MIME types for modern image formats (some Apache versions omit these)
 <IfModule mod_mime.c>
+  AddType image/jpeg .jpg .jpeg
+  AddType image/png  .png
   AddType image/webp .webp
   AddType image/avif .avif
 </IfModule>
@@ -29,6 +31,24 @@
 
   # Keep API routes intact — explicit pass-through BEFORE SPA fallback
   RewriteRule ^api/ - [L]
+
+  # ── Public creative/asset delivery (Meta / partner crawlers) ────────────────
+  # Image & video files under /projects/** are creative assets that external
+  # partners (e.g. the Meta Graph API's facebookexternalhit crawler) fetch
+  # anonymously — no cookie, no session. They MUST be served as the raw bytes
+  # with the right Content-Type and NEVER fall through to the SPA shell, which
+  # would return the React login page (HTTP 200 + text/html). Meta then rejects
+  # the URL with "Only photo or video can be accepted as media type".
+  #
+  # 1) File exists  -> serve it directly and stop (no SPA, no login, 200 + MIME).
+  RewriteCond %{REQUEST_URI} ^/projects/.+\.(jpe?g|png|webp|avif|gif|mp4|webm)$ [NC]
+  RewriteCond %{REQUEST_FILENAME} -f
+  RewriteRule ^ - [L]
+  # 2) File missing -> return a REAL 404, never the login HTML. An external
+  #    fetcher must get a clean failure for a creative URL, not a 200 web page.
+  RewriteCond %{REQUEST_URI} ^/projects/.+\.(jpe?g|png|webp|avif|gif|mp4|webm)$ [NC]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule ^ - [R=404,L]
 
   # Hosted pages (generated LPs / ad creatives) are REAL folders with their own
   # index.html. Serve those directly instead of the SPA shell — otherwise the
