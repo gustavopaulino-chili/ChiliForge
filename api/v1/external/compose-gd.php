@@ -139,15 +139,23 @@ if (!function_exists('extgd_pct')) {
     }
 }
 
+if (!defined('EXTGD_TEXT_SCALE')) {
+    // The compose HTML declares 'Open Sans', but in the app's html-to-image capture the
+    // Google-Fonts @import often does not load, so the browser falls back to the system
+    // sans-serif (narrower than Open Sans). We render real Open Sans, which looks a bit
+    // larger/heavier and crowds the layout — scale text down slightly to match the app.
+    define('EXTGD_TEXT_SCALE', 0.9);
+}
+
 if (!function_exists('extgd_font_px')) {
     /** calc(min(Acqh, Bcqw) * N) → px relative to the banner box; or Npx. */
     function extgd_font_px(?string $fs, int $W, int $H): float {
         $fs = (string)$fs;
         if (preg_match('/min\(\s*([\d.]+)cqh\s*,\s*([\d.]+)cqw\s*\)\s*\*\s*([\d.]+)/i', $fs, $m)) {
-            return min((float)$m[1] / 100 * $H, (float)$m[2] / 100 * $W) * (float)$m[3];
+            return min((float)$m[1] / 100 * $H, (float)$m[2] / 100 * $W) * (float)$m[3] * EXTGD_TEXT_SCALE;
         }
-        if (preg_match('/([\d.]+)px/', $fs, $m)) return (float)$m[1];
-        return max(14, $H * 0.05);
+        if (preg_match('/([\d.]+)px/', $fs, $m)) return (float)$m[1] * EXTGD_TEXT_SCALE;
+        return max(14, $H * 0.05) * EXTGD_TEXT_SCALE;
     }
 }
 
@@ -366,9 +374,9 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                 $bx = $left ?? ($W * 0.05);
                 $bw2 = ($right !== null) ? max(40, $W - $right - $bx) : ($W - $bx - $W * 0.05);
                 $lines = extgd_wrap_lines($text, $font, $fontPx, $bw2);
-                $lineH = (float)($st['line-height'] ?? 1.18);
+                $lineH = (float)($st['line-height'] ?? 1.2);
                 if ($lineH > 3) $lineH = $lineH / $fontPx; // px line-height → ratio
-                $step = (int)round($fontPx * max(1.05, $lineH));
+                $step = (int)round($fontPx * max(1.12, $lineH));
                 $blockH = $step * count($lines);
                 $y0 = $bottom !== null ? (int)round($H - $bottom - $blockH) : (int)round($top ?? $H * 0.5);
                 $shadow = imagecolorallocatealpha($canvas, 0, 0, 0, 45);
