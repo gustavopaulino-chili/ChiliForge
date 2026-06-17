@@ -130,7 +130,7 @@ export function LpEmailPanel({ projectId, userId }: Props) {
             </div>
 
             {/* Destinations */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div>
                 <Label htmlFor="lpm-toLive" className="text-xs text-muted-foreground">Destino (produção)</Label>
                 <Input id="lpm-toLive" type="email" value={lc.toLive || ''} onChange={e => set({ toLive: e.target.value })} placeholder="leads@cliente.com" className="mt-1.5 h-9" />
@@ -142,7 +142,7 @@ export function LpEmailPanel({ projectId, userId }: Props) {
             </div>
 
             {/* SMTP host/port/secure */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div>
                 <Label htmlFor="lpm-host" className="text-xs text-muted-foreground">SMTP host</Label>
                 <Input id="lpm-host" value={lc.smtpHost || ''} onChange={e => set({ smtpHost: e.target.value })} placeholder="smtp.hostinger.com" className="mt-1.5 h-9" />
@@ -164,7 +164,7 @@ export function LpEmailPanel({ projectId, userId }: Props) {
             </div>
 
             {/* SMTP user/pass */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div>
                 <Label htmlFor="lpm-user" className="text-xs text-muted-foreground">SMTP usuário</Label>
                 <Input id="lpm-user" value={lc.smtpUser || ''} onChange={e => set({ smtpUser: e.target.value })} placeholder="envio@cliente.com" className="mt-1.5 h-9" />
@@ -176,7 +176,7 @@ export function LpEmailPanel({ projectId, userId }: Props) {
             </div>
 
             {/* Envelope */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div>
                 <Label htmlFor="lpm-fromEmail" className="text-xs text-muted-foreground">From (e-mail)</Label>
                 <Input id="lpm-fromEmail" type="email" value={lc.fromEmail || ''} onChange={e => set({ fromEmail: e.target.value })} placeholder="envio@cliente.com" className="mt-1.5 h-9" />
@@ -186,7 +186,7 @@ export function LpEmailPanel({ projectId, userId }: Props) {
                 <Input id="lpm-fromName" value={lc.fromName || ''} onChange={e => set({ fromName: e.target.value })} placeholder="Site do Cliente" className="mt-1.5 h-9" />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div>
                 <Label htmlFor="lpm-replyTo" className="text-xs text-muted-foreground">Reply-to</Label>
                 <Input id="lpm-replyTo" type="email" value={lc.replyTo || ''} onChange={e => set({ replyTo: e.target.value })} placeholder="(opcional)" className="mt-1.5 h-9" />

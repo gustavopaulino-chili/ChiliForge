@@ -4463,7 +4463,7 @@ export function VisualEditor({
         }
         .cf-reforge-tab { animation: cfReforgeTabPulse 1.8s ease-in-out infinite; }
       `}</style>
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex items-center gap-1.5">
         {([
           ['element', 'Element'],
           ['sections', 'Sections'],
@@ -4471,7 +4471,7 @@ export function VisualEditor({
         ] as const).map(([id, label]) => (
           <button
             key={id}
-            className={`px-3 py-1 rounded-md text-sm font-medium ${editorTab === id ? 'bg-muted text-primary' : 'text-muted-foreground'}`}
+            className={`px-2.5 py-1 rounded-md text-sm font-medium whitespace-nowrap ${editorTab === id ? 'bg-muted text-primary' : 'text-muted-foreground'}`}
             onClick={() => {
               setToolbarPos(null);
               setToolbarAddElOpen(false);
@@ -4482,7 +4482,7 @@ export function VisualEditor({
           </button>
         ))}
         <button
-          className={`ml-auto inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm font-semibold ${editorTab === 'reforge' ? 'bg-primary text-primary-foreground' : 'text-white cf-reforge-tab'}`}
+          className={`ml-auto inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-semibold whitespace-nowrap ${editorTab === 'reforge' ? 'bg-primary text-primary-foreground' : 'text-white cf-reforge-tab'}`}
           style={editorTab === 'reforge' ? undefined : { background: 'linear-gradient(135deg, hsl(var(--accent)), hsl(var(--primary)))' }}
           onClick={() => { setToolbarPos(null); setToolbarAddElOpen(false); setEditorTab('reforge'); }}
           title="ReForge — editar por chat (Chilito)"
