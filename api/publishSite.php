@@ -432,6 +432,21 @@ try {
         }
 
         $extension = extract_extension_from_url($assetUrl, $downloaded['content_type']);
+        if ($extension === 'bin' || $extension === '') {
+            // Source gave no usable extension/Content-Type. Sniff the real type from
+            // the bytes so we don't save an "asset-N.bin" that the browser downloads
+            // (octet-stream) instead of rendering.
+            $sniffedType = detect_asset_content_type($downloaded['body'], $downloaded['content_type']);
+            $sniffedExt = extract_extension_from_url('asset', $sniffedType);
+            if ($sniffedExt !== 'bin' && $sniffedExt !== '') {
+                $extension = $sniffedExt;
+            } else {
+                // Still unknown — keep the original remote URL rather than writing a
+                // .bin file the browser would download.
+                $failedAssetMirrors[] = $assetUrl;
+                continue;
+            }
+        }
         $fileName = 'asset-' . $assetIndex . '.' . $extension;
         $relativePath = 'assets/' . $fileName;
         $targetFile = $assetsPath . DIRECTORY_SEPARATOR . $fileName;

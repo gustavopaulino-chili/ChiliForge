@@ -34,8 +34,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') { http_response_code(204);
 
 function lead_fail(int $code, string $publicMsg, string $logMsg = ''): void {
     if ($logMsg !== '') error_log('[send_lead] ' . $logMsg);
-    http_response_code($code);
-    echo json_encode(['ok' => false, 'error' => $publicMsg], JSON_UNESCAPED_UNICODE);
+    // Always answer 200 so the LP's fetch can read the JSON body. Some hosts
+    // replace 4xx/5xx responses with their own error page, which would swallow
+    // {ok:false,error} and surface only a scary "502" in the browser console.
+    http_response_code(200);
+    echo json_encode(['ok' => false, 'error' => $publicMsg, 'status' => $code], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -162,6 +165,10 @@ require __DIR__ . '/lib/SMTP.php';
 try {
     $mail = new PHPMailer(true);
     $mail->isSMTP();
+    // Fail fast instead of hanging until the web server's gateway timeout (which
+    // shows up as a 502). A blocked/wrong SMTP host then returns a clean error.
+    $mail->Timeout = 15;
+    $mail->getSMTPInstance()->Timelimit = 15;
     $mail->Host       = (string)($config['smtp_host'] ?? '');
     $mail->Port       = (int)($config['smtp_port'] ?? 587);
     $mail->SMTPAuth   = true;
@@ -189,8 +196,11 @@ try {
     $mail->send();
     echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
 } catch (MailerException $e) {
-    // PHPMailer's user-facing message; full detail in ErrorInfo (logged, not exposed).
-    lead_fail(502, 'Não foi possível enviar agora. Tente novamente.', 'SMTP error: ' . ($mail->ErrorInfo ?? $e->getMessage()));
+    // Surface a concise SMTP reason (no credentials) so the LP owner can fix the
+    // config; full detail goes to the server log.
+    $detail = trim((string)($mail->ErrorInfo ?: $e->getMessage()));
+    $reason = mb_substr(preg_replace('/\s+/', ' ', $detail), 0, 180);
+    lead_fail(502, 'Falha no envio por SMTP' . ($reason !== '' ? ': ' . $reason : '. Verifique host, porta e credenciais.'), 'SMTP error: ' . $detail);
 } catch (Throwable $e) {
-    lead_fail(500, 'Erro ao enviar.', 'unexpected: ' . $e->getMessage());
+    lead_fail(500, 'Erro ao enviar: ' . mb_substr($e->getMessage(), 0, 180), 'unexpected: ' . $e->getMessage());
 }
