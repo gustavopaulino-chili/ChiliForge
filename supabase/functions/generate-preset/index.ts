@@ -40,49 +40,62 @@ function extractModelText(payload: any) {
     .trim() || null;
 }
 
+const MAX_SWEEPS = 3;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function requestAiPayload(body: string, apiKey: string) {
   let sawRateLimit = false;
+  let lastFailure = "";
 
-  for (const model of AUX_TEXT_MODELS) {
-    const response = await fetch(`${buildAiUrl(model)}?key=${apiKey}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body,
-    });
+  // Gemini 5xx/overload is frequently transient: a momentary overload of every
+  // configured model would otherwise surface to the user as a hard failure.
+  // Sweep the model list a few times with backoff before giving up.
+  for (let sweep = 0; sweep < MAX_SWEEPS; sweep++) {
+    if (sweep > 0) await sleep(400 * sweep);
 
-    if (response.ok) {
-      const data = await response.json();
-      logGeminiCost("generate-preset", model, data?.usageMetadata);
-      return data;
+    for (const model of AUX_TEXT_MODELS) {
+      const response = await fetch(`${buildAiUrl(model)}?key=${apiKey}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        logGeminiCost("generate-preset", model, data?.usageMetadata);
+        return data;
+      }
+
+      if (response.status === 429) {
+        sawRateLimit = true;
+        lastFailure = `${model}: 429 ${await response.text()}`;
+        console.warn(`AI model ${model} rate limited:`, lastFailure);
+        continue;
+      }
+
+      if (response.status === 402) {
+        throw new Error("AI usage limit reached. Please add credits.");
+      }
+
+      if ([404, 502, 503, 504].includes(response.status)) {
+        lastFailure = `${model}: ${response.status} ${await response.text()}`;
+        console.warn(`AI model ${model} unavailable:`, lastFailure);
+        continue;
+      }
+
+      const text = await response.text();
+      console.error(`AI error from ${model}:`, response.status, text);
+      throw new Error(`AI error from ${model}: ${response.status} ${text}`.slice(0, 500));
     }
-
-    if (response.status === 429) {
-      sawRateLimit = true;
-      console.warn(`AI model ${model} rate limited:`, await response.text());
-      continue;
-    }
-
-    if (response.status === 402) {
-      throw new Error("AI usage limit reached. Please add credits.");
-    }
-
-    if ([404, 502, 503, 504].includes(response.status)) {
-      console.warn(`AI model ${model} unavailable:`, response.status, await response.text());
-      continue;
-    }
-
-    const text = await response.text();
-    console.error(`AI error from ${model}:`, response.status, text);
-    throw new Error(`AI error from ${model}: ${response.status}`);
   }
 
   if (sawRateLimit) {
     throw new Error("Rate limit exceeded. Please try again in a moment.");
   }
 
-  throw new Error("AI gateway failed for all configured models.");
+  throw new Error(`AI gateway failed for all configured models. Last: ${lastFailure}`.slice(0, 500));
 }
 
 serve(async (req) => {
@@ -107,7 +120,10 @@ Return a JSON object with:
   - "description": detailed description of what this section should contain, specific to the user's business (2-3 sentences)
   - "required": boolean, true for Hero and CTA sections
 
-Generate 5-8 sections. Be specific to the business described. Do NOT be generic.
+Choose the NUMBER of sections based on how much the description warrants — do not pad with generic filler:
+- A short or simple description → fewer sections (around 4-6).
+- A rich, detailed brief (multiple offers, proofs/testimonials, audiences, objections, steps, FAQs) → more sections (up to 12), one per distinct idea worth its own block.
+Use between 4 and 12 sections total. Be specific to the business described. Do NOT be generic.
 Return ONLY valid JSON, no markdown.`;
 
     const data = await requestAiPayload(JSON.stringify({
@@ -118,14 +134,22 @@ Return ONLY valid JSON, no markdown.`;
       }],
       generationConfig: {
         temperature: 0.3,
-        maxOutputTokens: 2000,
+        maxOutputTokens: 8192,
+        // Force a clean JSON document so the response can't be wrapped in prose
+        // or markdown fences.
+        responseMimeType: "application/json",
+        // 2.5-flash enables "thinking" by default, which consumes the output
+        // token budget and can truncate the JSON mid-stream ("No JSON found").
+        thinkingConfig: { thinkingBudget: 0 },
       }
     }), GEMINI_API_KEY);
     const content = extractModelText(data);
     if (!content) throw new Error("No response from AI");
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON found in AI response");
-    const parsed = JSON.parse(jsonMatch[0]);
+    // With responseMimeType=json the whole content is the JSON document; fall
+    // back to brace-matching for any model that ignores the hint.
+    const jsonText = content.trim().startsWith("{") ? content.trim() : content.match(/\{[\s\S]*\}/)?.[0];
+    if (!jsonText) throw new Error(`No JSON found in AI response: ${content}`.slice(0, 500));
+    const parsed = JSON.parse(jsonText);
 
     return new Response(JSON.stringify(parsed), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
