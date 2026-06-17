@@ -170,11 +170,18 @@ try {
     $mail->Timeout = 15;
     $mail->getSMTPInstance()->Timelimit = 15;
     $mail->Host       = (string)($config['smtp_host'] ?? '');
-    $mail->Port       = (int)($config['smtp_port'] ?? 587);
+    $port             = (int)($config['smtp_port'] ?? 587);
+    $mail->Port       = $port;
     $mail->SMTPAuth   = true;
     $mail->Username   = (string)($config['smtp_user'] ?? '');
     $mail->Password   = (string)($config['smtp_pass'] ?? '');
-    $mail->SMTPSecure = ((string)($config['smtp_secure'] ?? 'tls')) === 'ssl'
+    // Derive the encryption from the PORT so a mismatched setting can't break the
+    // connection: 465 = implicit SSL (SMTPS), 587 = STARTTLS. 465 with STARTTLS
+    // (or 587 with SMTPS) fails as "Could not connect to SMTP host".
+    $secure = (string)($config['smtp_secure'] ?? '');
+    if ($port === 465) $secure = 'ssl';
+    elseif ($port === 587) $secure = 'tls';
+    $mail->SMTPSecure = $secure === 'ssl'
         ? PHPMailer::ENCRYPTION_SMTPS    // 465
         : PHPMailer::ENCRYPTION_STARTTLS; // 587
     $mail->CharSet = 'UTF-8';

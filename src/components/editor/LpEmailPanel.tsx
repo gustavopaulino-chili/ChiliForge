@@ -150,7 +150,11 @@ export function LpEmailPanel({ projectId, userId }: Props) {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <Label htmlFor="lpm-port" className="text-xs text-muted-foreground">Porta</Label>
-                  <Input id="lpm-port" type="number" value={lc.smtpPort ?? 587} onChange={e => set({ smtpPort: Number(e.target.value) || 587 })} placeholder="587" className="mt-1.5 h-9" />
+                  <Input id="lpm-port" type="number" value={lc.smtpPort ?? 587} onChange={e => {
+                    const p = Number(e.target.value) || 587;
+                    // Keep security in sync with standard ports (465=SSL, 587=TLS).
+                    set(p === 465 ? { smtpPort: p, smtpSecure: 'ssl' } : p === 587 ? { smtpPort: p, smtpSecure: 'tls' } : { smtpPort: p });
+                  }} placeholder="587" className="mt-1.5 h-9" />
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">Segurança</Label>
