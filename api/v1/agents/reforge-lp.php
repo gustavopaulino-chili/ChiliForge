@@ -13,6 +13,7 @@ set_time_limit(180);
 ini_set('memory_limit', '256M');
 
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/../../site_helpers.php';
 include   __DIR__ . '/../../db.php';
 
 $body = json_decode(file_get_contents('php://input'), true);
@@ -52,14 +53,16 @@ if ($userId <= 0 || $projectId <= 0 || $instruction === '' || trim($html) === ''
 try {
     // 1. Load the LP project + verify ownership. form_data lives in lps.form_data.
     $stmt = $conn->prepare(
-        "SELECT p.id, p.user_id, p.company_project_id, COALESCE(NULLIF(l.form_data,''),'{}') AS form_data
+        "SELECT p.id, p.user_id, p.company_project_id, COALESCE(NULLIF(l.form_data,''),'{}') AS form_data,
+                COALESCE(NULLIF(l.folder_path,''), NULLIF(p.folder_path,'')) AS folder_path,
+                COALESCE(NULLIF(l.public_url,''),  NULLIF(p.public_url,''))  AS public_url
          FROM projects p LEFT JOIN lps l ON l.project_id = p.id
          WHERE p.id = ? AND p.user_id = ? LIMIT 1"
     );
     if (!$stmt) throw new RuntimeException('DB prepare error: ' . $conn->error);
     $stmt->bind_param('ii', $projectId, $userId);
     $stmt->execute();
-    $stmt->bind_result($pid, $puid, $companyProjectId, $formDataJson);
+    $stmt->bind_result($pid, $puid, $companyProjectId, $formDataJson, $folderPath, $publicUrl);
     if (!$stmt->fetch()) {
         $stmt->close();
         http_response_code(404);
@@ -124,6 +127,31 @@ try {
     $lcParts[] = 'All of this is configured by the user in the editor\'s "E-mail" tab (between "Sections" and "ReForge")';
     $leadCaptureStatus = implode('. ', $lcParts) . '.';
 
+    // 4c. List the LP's existing asset images so Chilito can swap/insert REAL images
+    // that physically exist in assets/ (referenced as relative "assets/<file>"),
+    // instead of inventing URLs or leaving placeholders.
+    $availableAssets = '';
+    try {
+        if (function_exists('resolve_project_directory_from_folder_path') && trim((string)$folderPath) !== '') {
+            $projectDir = resolve_project_directory_from_folder_path((string)$folderPath, (string)$publicUrl);
+            $assetsDir = $projectDir . DIRECTORY_SEPARATOR . 'assets';
+            $imgs = [];
+            $entries = @scandir($assetsDir);
+            if (is_array($entries)) {
+                foreach ($entries as $entry) {
+                    if ($entry === '.' || $entry === '..') continue;
+                    if (!is_file($assetsDir . DIRECTORY_SEPARATOR . $entry)) continue;
+                    if (!preg_match('/\.(png|jpe?g|gif|webp|svg|avif)$/i', $entry)) continue;
+                    $imgs[] = 'assets/' . $entry;
+                    if (count($imgs) >= 60) break;
+                }
+            }
+            if (!empty($imgs)) $availableAssets = implode("\n", $imgs);
+        }
+    } catch (Throwable $e) {
+        $availableAssets = '';
+    }
+
     // 5. Sanitize history (role/content only, cap length).
     $cleanHistory = [];
     foreach ($history as $h) {
@@ -148,6 +176,7 @@ try {
         'generationContext' => $generationContext,
         'focusHtml'         => $focusHtml,
         'leadCaptureStatus' => $leadCaptureStatus,
+        'availableAssets'   => $availableAssets,
         'geminiApiKey'      => $passKey,
     ], $passKey);
 
