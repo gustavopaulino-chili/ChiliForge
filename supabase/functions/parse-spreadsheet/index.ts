@@ -40,49 +40,62 @@ function extractModelText(payload: any) {
     .trim() || null;
 }
 
+const MAX_SWEEPS = 3;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function requestAiPayload(body: string, apiKey: string) {
   let sawRateLimit = false;
+  let lastFailure = "";
 
-  for (const model of AUX_TEXT_MODELS) {
-    const response = await fetch(`${buildAiUrl(model)}?key=${apiKey}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body,
-    });
+  // Gemini 5xx/overload is frequently transient: a momentary overload of every
+  // configured model would otherwise surface to the user as a hard failure.
+  // Sweep the model list a few times with backoff before giving up.
+  for (let sweep = 0; sweep < MAX_SWEEPS; sweep++) {
+    if (sweep > 0) await sleep(400 * sweep);
 
-    if (response.ok) {
-      const data = await response.json();
-      logGeminiCost("parse-spreadsheet", model, data?.usageMetadata);
-      return data;
+    for (const model of AUX_TEXT_MODELS) {
+      const response = await fetch(`${buildAiUrl(model)}?key=${apiKey}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        logGeminiCost("parse-spreadsheet", model, data?.usageMetadata);
+        return data;
+      }
+
+      if (response.status === 429) {
+        sawRateLimit = true;
+        lastFailure = `${model}: 429 ${await response.text()}`;
+        console.warn(`AI model ${model} rate limited:`, lastFailure);
+        continue;
+      }
+
+      if (response.status === 402) {
+        throw new Error("AI usage limit reached. Please add credits.");
+      }
+
+      if ([404, 502, 503, 504].includes(response.status)) {
+        lastFailure = `${model}: ${response.status} ${await response.text()}`;
+        console.warn(`AI model ${model} unavailable:`, lastFailure);
+        continue;
+      }
+
+      const text = await response.text();
+      console.error(`AI gateway error from ${model}:`, response.status, text);
+      throw new Error(`AI gateway error from ${model}: ${response.status} ${text}`.slice(0, 500));
     }
-
-    if (response.status === 429) {
-      sawRateLimit = true;
-      console.warn(`AI model ${model} rate limited:`, await response.text());
-      continue;
-    }
-
-    if (response.status === 402) {
-      throw new Error("AI usage limit reached. Please add credits.");
-    }
-
-    if ([404, 502, 503, 504].includes(response.status)) {
-      console.warn(`AI model ${model} unavailable:`, response.status, await response.text());
-      continue;
-    }
-
-    const text = await response.text();
-    console.error(`AI gateway error from ${model}:`, response.status, text);
-    throw new Error(`AI gateway error from ${model}: ${response.status}`);
   }
 
   if (sawRateLimit) {
     throw new Error("Rate limit exceeded. Please try again in a moment.");
   }
 
-  throw new Error("AI gateway failed for all configured models.");
+  throw new Error(`AI gateway failed for all configured models. Last: ${lastFailure}`.slice(0, 500));
 }
 
 serve(async (req) => {
