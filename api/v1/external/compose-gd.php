@@ -276,6 +276,10 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
         imagefilledrectangle($canvas, 0, 0, $W, $H, imagecolorallocate($canvas, 20, 20, 24));
 
         // Walk children in document order (= z-order): bg, scrim, logo, headline, sub, cta.
+        // Text/CTA elements are COLLECTED here and rendered in a second pass with auto-fit,
+        // so a long block shrinks instead of clipping into its neighbour.
+        $textEls = [];
+        $logoBottomY = 0;
         foreach (iterator_to_array($banner->childNodes) as $node) {
             if (!($node instanceof DOMElement)) continue;
             $tag = strtolower($node->tagName);
@@ -338,61 +342,125 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                 imagecopyresampled($tmp, $logo, 0, 0, 0, 0, $dlw, $dlh, $lw, $lh);
                 imagecopy($canvas, $tmp, $x, $y, 0, 0, $dlw, $dlh);
                 imagedestroy($logo); imagedestroy($tmp);
+                $logoBottomY = max($logoBottomY, $y + $dlh);
                 continue;
             }
-            // ── Text / CTA div ──
+            // ── Text / CTA div → COLLECT for the second (auto-fit) pass ──
             if ($tag === 'div') {
                 $text = trim(preg_replace('/\s+/', ' ', $node->textContent));
                 if ($text === '') continue;
-                $fontPx = extgd_font_px($st['font-size'] ?? null, $W, $H);
                 $weight = (int)($st['font-weight'] ?? 400);
-                $font = extgd_font($weight);
-                if ($font === '') $font = $fontReg;
-                $col = extgd_color($st['color'] ?? '#ffffff', [255, 255, 255, 0]);
-                $align = strtolower($st['text-align'] ?? 'left');
-                $left = extgd_pct($st['left'] ?? null, $W); $right = extgd_pct($st['right'] ?? null, $W);
-                $top = extgd_pct($st['top'] ?? null, $H); $bottom = extgd_pct($st['bottom'] ?? null, $H);
-                $center = isset($st['transform']) && stripos($st['transform'], 'translatex(-50%)') !== false;
-                $hasBtn = isset($st['background']) && stripos($st['background'], 'transparent') === false;
+                $lineHraw = (float)($st['line-height'] ?? 1.2);
+                $baseFontPx = extgd_font_px($st['font-size'] ?? null, $W, $H);
+                if ($lineHraw > 3) $lineHraw = $lineHraw / max(1.0, $baseFontPx); // px → ratio
+                $textEls[] = [
+                    'text'       => $text,
+                    'font'       => (extgd_font($weight) ?: $fontReg),
+                    'col'        => extgd_color($st['color'] ?? '#ffffff', [255, 255, 255, 0]),
+                    'align'      => strtolower($st['text-align'] ?? 'left'),
+                    'left'       => extgd_pct($st['left'] ?? null, $W),
+                    'right'      => extgd_pct($st['right'] ?? null, $W),
+                    'top'        => extgd_pct($st['top'] ?? null, $H),
+                    'bottom'     => extgd_pct($st['bottom'] ?? null, $H),
+                    'center'     => isset($st['transform']) && stripos($st['transform'], 'translatex(-50%)') !== false,
+                    'baseFontPx' => $baseFontPx,
+                    'lineH'      => max(1.12, $lineHraw),
+                    'hasBtn'     => isset($st['background']) && stripos($st['background'], 'transparent') === false,
+                    'btnBg'      => isset($st['background']) ? extgd_color($st['background'], [255, 255, 255, 0]) : null,
+                ];
+                continue;
+            }
+        }
 
-                if ($hasBtn) {
-                    // CTA button: white/brand pill with padded label.
-                    $bb = imagettfbbox($fontPx, 0, $font, $text);
+        // ── Second pass: fit + render text so blocks never clip into each other ──
+        // Each block's font shrinks (re-wrapping) until it fits the vertical gap to its
+        // neighbours — derived from the layout's % anchors and the creative size, so size
+        // scales with BOTH dimensions and line count. Bottom-anchored blocks (e.g. the CTA)
+        // are fitted FIRST; the top-anchored ones are then bounded by the CTA's real top.
+        if (!empty($textEls)) {
+            $gap = $H * 0.02;
+            $floor = max(14.0, $H * 0.020);
+
+            foreach ($textEls as $k => $el) {
+                $textEls[$k]['repY']     = ($el['bottom'] !== null) ? ($H - $el['bottom']) : ($el['top'] ?? $H * 0.5);
+                $textEls[$k]['isBottom'] = ($el['bottom'] !== null);
+                $bx = $el['left'] ?? ($W * 0.05);
+                $textEls[$k]['bx']  = $bx;
+                $textEls[$k]['bw2'] = ($el['right'] !== null) ? max(40.0, $W - $el['right'] - $bx) : ($W - $bx - $W * 0.05);
+            }
+
+            // Fit + draw one element within $maxH; returns the Y where it actually starts (top).
+            $renderEl = function (array $el, float $maxH) use ($canvas, $W, $floor): int {
+                $font = $el['font']; $bx = $el['bx']; $bw2 = $el['bw2'];
+                if ($el['hasBtn']) {
+                    $fpx = $el['baseFontPx'];
+                    $maxBtnW = min($W * 0.86, $bw2 + ($el['right'] !== null ? 0 : $W * 0.40));
+                    for ($g = 0; $g < 10; $g++) {
+                        $bb = imagettfbbox($fpx, 0, $font, $el['text']);
+                        if (abs($bb[2] - $bb[0]) + $fpx * 1.8 <= $maxBtnW || $fpx <= $floor) break;
+                        $fpx *= 0.92;
+                    }
+                    $bb = imagettfbbox($fpx, 0, $font, $el['text']);
                     $tw = abs($bb[2] - $bb[0]); $th = abs($bb[7] - $bb[1]);
-                    $padX = (int)round($fontPx * 0.90); $padY = (int)round($fontPx * 0.42);
-                    $bw2 = $tw + 2 * $padX; $bh2 = $th + 2 * $padY;
-                    $bx = $center ? (int)round(($left ?? $W / 2) - $bw2 / 2) : ($right !== null ? (int)round($W - $right - $bw2) : (int)round($left ?? $W * 0.05));
-                    $by = $bottom !== null ? (int)round($H - $bottom - $bh2) : (int)round($top ?? $H * 0.8);
-                    $bgc = extgd_color($st['background'], [255, 255, 255, 0]);
-                    extgd_filled_round_rect($canvas, $bx, $by, $bx + $bw2, $by + $bh2, (int)round($fontPx * 0.38), imagecolorallocate($canvas, $bgc[0], $bgc[1], $bgc[2]));
-                    $tc = imagecolorallocate($canvas, $col[0], $col[1], $col[2]);
-                    imagettftext($canvas, $fontPx, 0, $bx + $padX, $by + $padY + abs($bb[7]), $tc, $font, $text);
-                    continue;
+                    $padX = (int)round($fpx * 0.90); $padY = (int)round($fpx * 0.42);
+                    $bw3 = $tw + 2 * $padX; $bh3 = $th + 2 * $padY;
+                    $bxBtn = $el['center'] ? (int)round(($el['left'] ?? $W / 2) - $bw3 / 2)
+                        : ($el['right'] !== null ? (int)round($W - $el['right'] - $bw3) : (int)round($bx));
+                    $byBtn = $el['isBottom'] ? (int)round($el['repY'] - $bh3) : (int)round($el['repY']);
+                    $bgc = $el['btnBg'] ?: [255, 255, 255, 0];
+                    extgd_filled_round_rect($canvas, $bxBtn, $byBtn, $bxBtn + $bw3, $byBtn + $bh3, (int)round($fpx * 0.38), imagecolorallocate($canvas, $bgc[0], $bgc[1], $bgc[2]));
+                    $tc = imagecolorallocate($canvas, $el['col'][0], $el['col'][1], $el['col'][2]);
+                    imagettftext($canvas, $fpx, 0, $bxBtn + $padX, $byBtn + $padY + abs($bb[7]), $tc, $font, $el['text']);
+                    return $byBtn;
                 }
-
-                // Wrapped text block (headline/sub/organic CTA).
-                $bx = $left ?? ($W * 0.05);
-                $bw2 = ($right !== null) ? max(40, $W - $right - $bx) : ($W - $bx - $W * 0.05);
-                $lines = extgd_wrap_lines($text, $font, $fontPx, $bw2);
-                $lineH = (float)($st['line-height'] ?? 1.2);
-                if ($lineH > 3) $lineH = $lineH / $fontPx; // px line-height → ratio
-                $step = (int)round($fontPx * max(1.12, $lineH));
-                $blockH = $step * count($lines);
-                $y0 = $bottom !== null ? (int)round($H - $bottom - $blockH) : (int)round($top ?? $H * 0.5);
+                $fpx = $el['baseFontPx'];
+                $lines = extgd_wrap_lines($el['text'], $font, $fpx, $bw2);
+                for ($g = 0; $g < 16; $g++) {
+                    if ($fpx * $el['lineH'] * count($lines) <= $maxH || $fpx <= $floor) break;
+                    $fpx *= 0.92;
+                    $lines = extgd_wrap_lines($el['text'], $font, $fpx, $bw2);
+                }
+                $step = (int)round($fpx * $el['lineH']);
+                $blockH = $step * max(1, count($lines));
+                $y0 = $el['isBottom'] ? (int)round($el['repY'] - $blockH) : (int)round($el['repY']);
                 $shadow = imagecolorallocatealpha($canvas, 0, 0, 0, 45);
-                $fill = imagecolorallocatealpha($canvas, $col[0], $col[1], $col[2], $col[3]);
+                $fill = imagecolorallocatealpha($canvas, $el['col'][0], $el['col'][1], $el['col'][2], $el['col'][3]);
                 $cy = $y0;
                 foreach ($lines as $line) {
-                    $bb = imagettfbbox($fontPx, 0, $font, $line);
+                    $bb = imagettfbbox($fpx, 0, $font, $line);
                     $lw2 = abs($bb[2] - $bb[0]); $asc = abs($bb[7]);
-                    if ($align === 'center')    $lx = $bx + ($bw2 - $lw2) / 2;
-                    elseif ($align === 'right') $lx = $bx + ($bw2 - $lw2);
-                    else                        $lx = $bx;
-                    imagettftext($canvas, $fontPx, 0, (int)$lx + 2, $cy + (int)$asc + 2, $shadow, $font, $line);
-                    imagettftext($canvas, $fontPx, 0, (int)$lx, $cy + (int)$asc, $fill, $font, $line);
+                    if ($el['align'] === 'center')    $lx = $bx + ($bw2 - $lw2) / 2;
+                    elseif ($el['align'] === 'right') $lx = $bx + ($bw2 - $lw2);
+                    else                              $lx = $bx;
+                    imagettftext($canvas, $fpx, 0, (int)$lx + 2, $cy + (int)$asc + 2, $shadow, $font, $line);
+                    imagettftext($canvas, $fpx, 0, (int)$lx, $cy + (int)$asc, $fill, $font, $line);
                     $cy += $step;
                 }
-                continue;
+                return $y0;
+            };
+
+            // Phase A — bottom-anchored blocks (CTA): short/stable, fit first; record real tops.
+            $occupiedTops = [];
+            foreach ($textEls as $el) {
+                if (empty($el['isBottom'])) continue;
+                $upper = max($H * 0.03, $logoBottomY + $gap);
+                $maxH = $el['repY'] - $upper - $gap;
+                if ($maxH < $floor) $maxH = $floor;
+                $occupiedTops[] = $renderEl($el, $maxH);
+            }
+
+            // Phase B — top-anchored blocks, top→bottom; bounded by the next top block's anchor
+            // and by any bottom-anchored block's real top below them.
+            $topEls = array_values(array_filter($textEls, static fn($e) => empty($e['isBottom'])));
+            usort($topEls, static fn($a, $b) => $a['repY'] <=> $b['repY']);
+            $m = count($topEls);
+            foreach ($topEls as $i => $el) {
+                $lower = $H * 0.97;
+                if ($i < $m - 1) $lower = min($lower, $topEls[$i + 1]['repY']);
+                foreach ($occupiedTops as $ot) { if ($ot > $el['repY']) $lower = min($lower, $ot); }
+                $maxH = $lower - $el['repY'] - $gap;
+                if ($maxH < $floor) $maxH = $floor;
+                $renderEl($el, $maxH);
             }
         }
 
