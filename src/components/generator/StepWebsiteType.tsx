@@ -131,32 +131,37 @@ export function StepWebsiteType({ data, onChange }: Props) {
           disabled={isApplyingBriefing}
           className="text-sm"
         />
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleApplyBriefing}
-            disabled={isApplyingBriefing || !(data.landingBriefing || '').trim()}
-            className="gap-2"
-          >
-            {isApplyingBriefing ? (
-              <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Aplicando...</>
-            ) : appliedFields.length > 0 ? (
-              <><Check className="h-3.5 w-3.5" /> Aplicado</>
-            ) : (
-              <><ListChecks className="h-3.5 w-3.5" /> Aplicar briefing (preencher form)</>
-            )}
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            A IA lê o briefing e preenche os campos do formulário (nome, público, cores, serviços, contato…).
-          </span>
-        </div>
+        <Button
+          type="button"
+          onClick={handleApplyBriefing}
+          disabled={isApplyingBriefing || !(data.landingBriefing || '').trim()}
+          className="gap-2 w-full"
+        >
+          {isApplyingBriefing ? (
+            <><Loader2 className="h-4 w-4 animate-spin" /> Analisando briefing e preenchendo o formulário...</>
+          ) : appliedFields.length > 0 ? (
+            <><Check className="h-4 w-4" /> Formulário preenchido — aplicar novamente</>
+          ) : (
+            <><ListChecks className="h-4 w-4" /> Aplicar briefing e preencher formulário</>
+          )}
+        </Button>
+        <p className="text-xs text-muted-foreground -mt-1">
+          A IA estuda o briefing e preenche os campos do formulário (nome, categoria, público, proposta,
+          serviços, diferenciais, cores, tom, contato, redes). Os campos podem ser revisados nos próximos passos.
+        </p>
         {appliedFields.length > 0 && !isApplyingBriefing && (
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {appliedFields.map(f => (
-              <span key={f} className="text-xs bg-amber-500/10 text-amber-700 rounded px-2 py-0.5">{f}</span>
-            ))}
+          <div className="rounded-lg bg-success/10 border border-success/20 p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="h-4 w-4 text-success" />
+              <span className="text-sm font-medium text-success">
+                {appliedFields.length} campo(s) preenchido(s) a partir do briefing:
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {appliedFields.map(f => (
+                <span key={f} className="text-xs bg-success/10 text-success rounded px-2 py-0.5">{f}</span>
+              ))}
+            </div>
           </div>
         )}
       </div>
