@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { deleteProjectAssetFile, generateImages, getProjectAssets, ProjectAsset, uploadProjectAssets, uploadProjectAssetsFromUrls, getProjectFiles, uploadProjectFiles, deleteProjectFile } from '@/services/api';
 import { downloadFileFromUrl } from '@/lib/downloadFile';
 import { ReforgeChatPanel } from '@/components/editor/ReforgeChatPanel';
+import { LpEmailPanel } from '@/components/editor/LpEmailPanel';
 import { toast } from 'sonner';
 
 
@@ -1226,7 +1227,7 @@ export function VisualEditor({
   const [filesUploading, setFilesUploading] = useState(false);
   const [iframeReady, setIframeReady] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
-  const [editorTab, setEditorTab] = useState<'element' | 'sections' | 'reforge'>('element');
+  const [editorTab, setEditorTab] = useState<'element' | 'sections' | 'email' | 'reforge'>('element');
   const [editorPanelTab, setEditorPanelTab] = useState<'content' | 'style' | 'advanced'>('content');
   const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [, setHistoryVersion] = useState(0);
@@ -4466,6 +4467,7 @@ export function VisualEditor({
         {([
           ['element', 'Element'],
           ['sections', 'Sections'],
+          ['email', 'E-mail'],
         ] as const).map(([id, label]) => (
           <button
             key={id}
@@ -4490,7 +4492,7 @@ export function VisualEditor({
         </button>
       </div>
 
-      {editorTab !== 'reforge' && (
+      {editorTab !== 'reforge' && editorTab !== 'email' && (
       <div className="rounded-md border border-border/60 bg-muted/20">
         <button
           className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
@@ -4562,6 +4564,14 @@ export function VisualEditor({
         ) : (
           <div className="rounded-md border border-border/50 bg-muted/20 p-4 text-xs text-muted-foreground">
             Salve o projeto para liberar o ReForge.
+          </div>
+        )
+      ) : editorTab === 'email' ? (
+        (projectId && userId) ? (
+          <LpEmailPanel projectId={Number(projectId)} userId={Number(userId)} />
+        ) : (
+          <div className="rounded-md border border-border/50 bg-muted/20 p-4 text-xs text-muted-foreground">
+            Salve o projeto para configurar o e-mail dos formulários.
           </div>
         )
       ) : editorTab === 'sections' ? (

@@ -223,6 +223,46 @@ export const updateProjectContent = (payload: { id: number; user_id: number; gen
     return data;
   });
 
+// LP lead-capture mailer (Visual Editor "E-mail" tab). The SMTP password is never
+// returned by the GET; leave it blank on save to keep the stored one.
+export type LpMailerLeadCapture = {
+  enabled?: boolean;
+  mode?: 'test' | 'live';
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: 'ssl' | 'tls';
+  smtpUser?: string;
+  smtpPass?: string;
+  fromEmail?: string;
+  fromName?: string;
+  replyTo?: string;
+  toLive?: string;
+  toTest?: string;
+  subjectTemplate?: string;
+  whatsappEnabled?: boolean;
+  whatsappNumber?: string;
+};
+
+export const getLpMailer = (projectId: number, userId: number) => {
+  const params = new URLSearchParams({ project_id: String(projectId), user_id: String(userId) });
+  return fetch(`${API}/lpMailer.php?${params.toString()}`, { cache: 'no-store' }).then(async (res) => {
+    const data = await readJson(res);
+    if (!res.ok || data?.error) throw new Error(data?.error || `Request failed with status ${res.status}`);
+    return data as { success: boolean; installed: boolean; hasPassword: boolean; leadCapture: LpMailerLeadCapture };
+  });
+};
+
+export const saveLpMailer = (payload: { project_id: number; user_id: number; leadCapture: LpMailerLeadCapture }) =>
+  fetch(`${API}/lpMailer.php`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).then(async (res) => {
+    const data = await readJson(res);
+    if (!res.ok || data?.error) throw new Error(data?.error || `Request failed with status ${res.status}`);
+    return data as { success: boolean; installed: boolean; warning?: string | null };
+  });
+
 export const getAdCreative = async (creativeId: number, userId: number) => {
   const params = new URLSearchParams({
     id: String(creativeId),

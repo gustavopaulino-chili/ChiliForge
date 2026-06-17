@@ -109,6 +109,11 @@ function rewrite_lp_forms(string $html, string $action = 'mailer/send_lead.php',
     if (stripos($html, '<form') === false) return $html;
     if (!$emailEnabled && $waNumber === '') return $html;
 
+    // Idempotency: strip any honeypot + handler from a previous run so re-applying
+    // this (on each editor save / re-config) never accumulates duplicates.
+    $html = preg_replace('/<input\b[^>]*name\s*=\s*("|\')_company_hp\1[^>]*>/i', '', $html);
+    $html = preg_replace('/<script\b[^>]*id\s*=\s*("|\')cf-lead-handler\1[^>]*>[\s\S]*?<\/script>/i', '', $html);
+
     $honeypot = '<input type="text" name="_company_hp" tabindex="-1" autocomplete="off" aria-hidden="true" '
         . 'style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">';
     $formAction = $emailEnabled ? $action : '#';
@@ -119,6 +124,8 @@ function rewrite_lp_forms(string $html, string $action = 'mailer/send_lead.php',
         $attrs = (string)$m[1];
         $attrs = preg_replace('/\s+action\s*=\s*("[^"]*"|\'[^\']*\'|\S+)/i', '', $attrs);
         $attrs = preg_replace('/\s+method\s*=\s*("[^"]*"|\'[^\']*\'|\S+)/i', '', $attrs);
+        // Drop our own markers from a prior run before re-adding them (no duplicate attrs).
+        $attrs = preg_replace('/\s+data-cf-(lead|email|wa)\s*=\s*("[^"]*"|\'[^\']*\'|\S+)/i', '', $attrs);
         return '<form' . $attrs . ' action="' . $formAction . '" method="post" data-cf-lead="1"' . $emailAttr . $waAttr . '>' . $honeypot;
     }, $html);
 

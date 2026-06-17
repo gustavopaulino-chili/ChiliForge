@@ -65,8 +65,22 @@ if (is_string($folderPath) && trim($folderPath) !== '') {
             $projectDirForAssets . DIRECTORY_SEPARATOR . 'assets',
             'assets/'
         );
+
+        // Keep the lead-capture wiring durable: re-apply the mailer provisioning
+        // (config.php + <form> rewrite) from the stored lead-capture settings so a
+        // plain HTML save from the editor never drops the form action/handler.
+        // No-op when lead capture is disabled; idempotent when already wired.
+        $storedFormData = json_decode((string)($projectRow['form_data'] ?? ''), true);
+        if (is_array($storedFormData)) {
+            $generatedHtml = maybe_provision_lp_mailer(
+                $projectDirForAssets,
+                $generatedHtml,
+                $storedFormData,
+                (string)$publicUrl
+            );
+        }
     } catch (Throwable $convError) {
-        // leave HTML as-is if the assets dir cannot be resolved (legacy/edge case)
+        // leave HTML as-is if the dir cannot be resolved (legacy/edge case)
     }
 }
 
