@@ -28,14 +28,25 @@ export function StepWebsiteType({ data, onChange }: Props) {
     setIsApplyingBriefing(true);
     setAppliedFields([]);
     try {
-      const result = await parseSpreadsheet(
-        brief,
-        'Este texto é o BRIEFING de uma landing page. Extraia dele os campos de negócio/marca/oferta (nome, categoria, público, proposta de valor, serviços, diferenciais, cores, tom, contato, redes) para preencher o formulário.'
-      );
-      const extracted = result.extracted;
-      if (!extracted) throw new Error('Nada foi extraído do briefing.');
+      // O briefing dita TODO o conteúdo: além de extrair os campos do formulário,
+      // também geramos o preset + as seções da página (igual ao "Generate with AI").
+      // allSettled para que, se a geração de seções falhar, o preenchimento de
+      // campos ainda aconteça — e vice-versa.
+      const [parseOutcome, presetOutcome] = await Promise.allSettled([
+        parseSpreadsheet(
+          brief,
+          'Este texto é o BRIEFING de uma landing page. Extraia dele os campos de negócio/marca/oferta (nome, categoria, público, proposta de valor, serviços, diferenciais, cores, tom, contato, redes) para preencher o formulário.'
+        ),
+        generatePreset(brief),
+      ]);
 
-      const updates = aiDataToFormUpdates(extracted);
+      if (parseOutcome.status === 'rejected' && presetOutcome.status === 'rejected') {
+        throw parseOutcome.reason instanceof Error ? parseOutcome.reason : new Error('Falha ao analisar o briefing.');
+      }
+
+      // 1) Campos de negócio/marca extraídos do briefing.
+      const extracted = parseOutcome.status === 'fulfilled' ? parseOutcome.value.extracted : null;
+      const updates = extracted ? aiDataToFormUpdates(extracted) : {};
       const matched = Object.keys(updates).filter(k => {
         const v = (updates as any)[k];
         if (Array.isArray(v)) return v.length > 0;
@@ -43,10 +54,35 @@ export function StepWebsiteType({ data, onChange }: Props) {
         return !!v;
       });
 
-      // Apply the extracted fields, but keep the briefing itself intact.
-      onChange({ ...updates, landingBriefing: brief });
+      // 2) Preset + seções da página gerados a partir do briefing.
+      const preset = presetOutcome.status === 'fulfilled' ? (presetOutcome.value.preset as LandingPreset) : undefined;
+      const sections = presetOutcome.status === 'fulfilled' ? (presetOutcome.value.sections || []) : [];
+      const pages = sections.map((s: any) => ({
+        name: s.name || 'Section',
+        description: s.description || '',
+        required: !!s.required,
+        enabled: true,
+        sections: [],
+      }));
+
+      // Aplica tudo de uma vez, mantendo o briefing intacto e usando-o como objetivo.
+      const merged: Partial<BusinessFormData> = {
+        ...updates,
+        landingBriefing: brief,
+        generationObjective: brief,
+      };
+      if (preset) merged.landingPreset = preset;
+      if (pages.length) merged.pagesConfig = { mode: 'manual', aiSummary: '', pages };
+
+      onChange(merged);
       setAppliedFields(matched);
-      toast.success(`Briefing aplicado — ${matched.length} campo(s) preenchido(s)`);
+
+      if (pages.length) {
+        setGenerated(true);
+        toast.success(`Briefing aplicado — ${matched.length} campo(s) preenchido(s) e ${pages.length} seção(ões) criadas`);
+      } else {
+        toast.success(`Briefing aplicado — ${matched.length} campo(s) preenchido(s)`);
+      }
     } catch (err) {
       console.error('Apply briefing error:', err);
       toast.error(err instanceof Error ? err.message : 'Falha ao aplicar o briefing');
@@ -146,8 +182,9 @@ export function StepWebsiteType({ data, onChange }: Props) {
           )}
         </Button>
         <p className="text-xs text-muted-foreground -mt-1">
-          A IA estuda o briefing e preenche os campos do formulário (nome, categoria, público, proposta,
-          serviços, diferenciais, cores, tom, contato, redes). Os campos podem ser revisados nos próximos passos.
+          A IA estuda o briefing, preenche os campos do formulário (nome, categoria, público, proposta,
+          serviços, diferenciais, cores, tom, contato, redes) <strong>e cria as seções da página</strong> (preset +
+          estrutura), igual ao "Generate with AI". Tudo pode ser revisado nos próximos passos.
         </p>
         {appliedFields.length > 0 && !isApplyingBriefing && (
           <div className="rounded-lg bg-success/10 border border-success/20 p-3">
