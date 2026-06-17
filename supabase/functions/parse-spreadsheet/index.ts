@@ -143,14 +143,22 @@ Return ONLY valid JSON, no markdown or explanations.`;
       }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
+        // Force a clean JSON document so the response can't be wrapped in prose
+        // or markdown fences.
+        responseMimeType: "application/json",
+        // 2.5-flash enables "thinking" by default, which consumes the output
+        // token budget and was truncating the JSON mid-stream ("No JSON found").
+        thinkingConfig: { thinkingBudget: 0 },
       }
     }), GEMINI_API_KEY);
     const content = extractModelText(data);
     if (!content) throw new Error("No content in AI response");
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON found in AI response");
-    const extracted = JSON.parse(jsonMatch[0]);
+    // With responseMimeType=json the whole content is the JSON document; fall
+    // back to brace-matching for any model that ignores the hint.
+    const jsonText = content.trim().startsWith("{") ? content.trim() : content.match(/\{[\s\S]*\}/)?.[0];
+    if (!jsonText) throw new Error(`No JSON found in AI response: ${content}`.slice(0, 500));
+    const extracted = JSON.parse(jsonText);
 
     return new Response(JSON.stringify({ extracted }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
