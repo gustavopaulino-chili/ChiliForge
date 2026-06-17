@@ -1517,9 +1517,9 @@ function renderSection(section: LandingPlanSection, index: number, layout: strin
         </div>
         <form class="lead-form" action="${escapeHtml(formAction)}" method="post" novalidate data-reveal="slide-up">
           <div class="form-grid">
-            ${fieldsHtml || `<div class="form-group"><label class="form-label" for="name-${index}">Name <span class="form-required">*</span></label><input type="text" id="name-${index}" class="form-control" placeholder="Your name" required></div>
-            <div class="form-group"><label class="form-label" for="email-${index}">Email <span class="form-required">*</span></label><input type="email" id="email-${index}" class="form-control" placeholder="your@email.com" required></div>
-            <div class="form-group"><label class="form-label" for="message-${index}">Message</label><textarea id="message-${index}" class="form-control" rows="4" placeholder="How can we help?"></textarea></div>`}
+            ${fieldsHtml || `<div class="form-group"><label class="form-label" for="name-${index}">Name <span class="form-required">*</span></label><input type="text" id="name-${index}" name="name" class="form-control" placeholder="Your name" required></div>
+            <div class="form-group"><label class="form-label" for="email-${index}">Email <span class="form-required">*</span></label><input type="email" id="email-${index}" name="email" class="form-control" placeholder="your@email.com" required></div>
+            <div class="form-group"><label class="form-label" for="message-${index}">Message</label><textarea id="message-${index}" name="message" class="form-control" rows="4" placeholder="How can we help?"></textarea></div>`}
           </div>
           <div class="form-submit-row">
             <button type="submit" class="btn btn-primary">${submitLabel}</button>
