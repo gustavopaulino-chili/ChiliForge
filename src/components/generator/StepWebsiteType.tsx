@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { BusinessFormData, LANDING_PRESETS, LandingPreset } from '@/types/businessForm';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Wand2, Loader2, Sparkles, Check } from 'lucide-react';
-import { generatePreset } from '@/services/api';
+import { Wand2, Loader2, Sparkles, Check, ListChecks } from 'lucide-react';
+import { generatePreset, parseSpreadsheet } from '@/services/api';
+import { aiDataToFormUpdates } from '@/lib/aiFormMapping';
 import { toast } from 'sonner';
 
 interface Props {
@@ -15,6 +16,44 @@ export function StepWebsiteType({ data, onChange }: Props) {
   const [aiDescription, setAiDescription] = useState(data.generationObjective || '');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
+  const [isApplyingBriefing, setIsApplyingBriefing] = useState(false);
+  const [appliedFields, setAppliedFields] = useState<string[]>([]);
+
+  const handleApplyBriefing = async () => {
+    const brief = (data.landingBriefing || '').trim();
+    if (brief.length < 20) {
+      toast.error('Escreva um briefing mais completo (mín. 20 caracteres) antes de aplicar.');
+      return;
+    }
+    setIsApplyingBriefing(true);
+    setAppliedFields([]);
+    try {
+      const result = await parseSpreadsheet(
+        brief,
+        'Este texto é o BRIEFING de uma landing page. Extraia dele os campos de negócio/marca/oferta (nome, categoria, público, proposta de valor, serviços, diferenciais, cores, tom, contato, redes) para preencher o formulário.'
+      );
+      const extracted = result.extracted;
+      if (!extracted) throw new Error('Nada foi extraído do briefing.');
+
+      const updates = aiDataToFormUpdates(extracted);
+      const matched = Object.keys(updates).filter(k => {
+        const v = (updates as any)[k];
+        if (Array.isArray(v)) return v.length > 0;
+        if (v && typeof v === 'object') return Object.keys(v).length > 0;
+        return !!v;
+      });
+
+      // Apply the extracted fields, but keep the briefing itself intact.
+      onChange({ ...updates, landingBriefing: brief });
+      setAppliedFields(matched);
+      toast.success(`Briefing aplicado — ${matched.length} campo(s) preenchido(s)`);
+    } catch (err) {
+      console.error('Apply briefing error:', err);
+      toast.error(err instanceof Error ? err.message : 'Falha ao aplicar o briefing');
+    } finally {
+      setIsApplyingBriefing(false);
+    }
+  };
 
   const handleGeneratePreset = async () => {
     if (!aiDescription.trim() || aiDescription.trim().length < 10) {
@@ -89,8 +128,37 @@ export function StepWebsiteType({ data, onChange }: Props) {
           onChange={e => onChange({ landingBriefing: e.target.value })}
           placeholder={"Ex.: Landing para o lançamento do Sérum Glow da Velora Skin.\nPúblico: mulheres 25-45 que querem pele iluminada.\nDor: rotina de skincare complicada e sem resultado.\nProposta: sérum com Vitamina C que renova a pele em 14 dias.\nProvas: +2.000 clientes, dermatologicamente testado, antes/depois.\nOferta: 20% off no lançamento + frete grátis.\nCTA: 'Garanta já o seu'. Tom: premium, confiável, acolhedor."}
           rows={7}
+          disabled={isApplyingBriefing}
           className="text-sm"
         />
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleApplyBriefing}
+            disabled={isApplyingBriefing || !(data.landingBriefing || '').trim()}
+            className="gap-2"
+          >
+            {isApplyingBriefing ? (
+              <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Aplicando...</>
+            ) : appliedFields.length > 0 ? (
+              <><Check className="h-3.5 w-3.5" /> Aplicado</>
+            ) : (
+              <><ListChecks className="h-3.5 w-3.5" /> Aplicar briefing (preencher form)</>
+            )}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            A IA lê o briefing e preenche os campos do formulário (nome, público, cores, serviços, contato…).
+          </span>
+        </div>
+        {appliedFields.length > 0 && !isApplyingBriefing && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {appliedFields.map(f => (
+              <span key={f} className="text-xs bg-amber-500/10 text-amber-700 rounded px-2 py-0.5">{f}</span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* AI Preset Generator */}
