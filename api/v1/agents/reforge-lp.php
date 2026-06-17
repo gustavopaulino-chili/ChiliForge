@@ -106,6 +106,24 @@ try {
     if ($str($formData['designNotes'] ?? '') !== '') $ctx[] = 'Design notes: ' . $str($formData['designNotes']);
     $generationContext = implode("\n", $ctx);
 
+    // 4b. Non-secret lead-capture summary so Chilito can GUIDE the user about the
+    // LP's e-mail/SMTP setup (configured in the editor's "E-mail" tab). The SMTP
+    // password is never included.
+    $lc = is_array($formData['leadCapture'] ?? null) ? $formData['leadCapture'] : [];
+    $lcParts = [];
+    if (!empty($lc['enabled'])) {
+        $lcMode = (($lc['mode'] ?? '') === 'live') ? 'live (real recipient)' : 'test (sandbox)';
+        $lcDest = (($lc['mode'] ?? '') === 'live') ? $str($lc['toLive'] ?? '') : $str($lc['toTest'] ?? '');
+        $lcParts[] = 'E-mail capture is ON (mode=' . $lcMode . ($lcDest !== '' ? ', recipient=' . $lcDest : ', recipient NOT set yet') . ')';
+    } else {
+        $lcParts[] = 'E-mail capture is OFF — the forms do not deliver leads by e-mail yet';
+    }
+    if (!empty($lc['whatsappEnabled']) && $str($lc['whatsappNumber'] ?? '') !== '') {
+        $lcParts[] = 'WhatsApp delivery is ON';
+    }
+    $lcParts[] = 'All of this is configured by the user in the editor\'s "E-mail" tab (between "Sections" and "ReForge")';
+    $leadCaptureStatus = implode('. ', $lcParts) . '.';
+
     // 5. Sanitize history (role/content only, cap length).
     $cleanHistory = [];
     foreach ($history as $h) {
@@ -129,6 +147,7 @@ try {
         'companyStoreName'  => $companyStore ?: null,
         'generationContext' => $generationContext,
         'focusHtml'         => $focusHtml,
+        'leadCaptureStatus' => $leadCaptureStatus,
         'geminiApiKey'      => $passKey,
     ], $passKey);
 

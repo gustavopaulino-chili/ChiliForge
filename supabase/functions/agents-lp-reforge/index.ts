@@ -24,6 +24,7 @@ type ReforgePayload = {
   model?: string;
   mode?: "edit" | "plan";       // 'plan' = split a feedback text into distinct tasks
   focusHtml?: string;           // the element the user selected in the editor (edit target)
+  leadCaptureStatus?: string;   // non-secret summary of the LP's e-mail/SMTP setup (for guidance only)
 };
 
 // Split a free-form feedback text into distinct, self-contained edit tasks so the
@@ -80,6 +81,12 @@ const SYSTEM_PROMPT = [
   "• Respect the brand: keep the exact brand colors and fonts unless the user explicitly asks to change them. The attached File Search stores (global LP guidelines + company brand) and the generation context are the source of truth for tone/brand.",
   "• Keep the change consistent with the page's existing design language (spacing, component style, tailwind utility patterns already used).",
   "• If the request is ambiguous or you need info, ask a short clarifying question and return NO edits.",
+  "",
+  "E-MAIL / LEAD CAPTURE (you GUIDE, you do NOT configure):",
+  "• The editor has a separate 'E-mail' tab (between 'Sections' and 'ReForge') where the user configures how the LP's forms deliver leads: SMTP (host, port, user, password, sender, recipient, test/live mode) and/or WhatsApp.",
+  "• You do NOT set up SMTP and you NEVER touch credentials, the form 'action', the hidden anti-spam field, or the mailer script in the HTML — that wiring is generated automatically when the user saves the E-mail tab.",
+  "• When the user asks to receive leads, send the form by e-mail, connect SMTP, change the destination address, enable WhatsApp, or 'why isn't my form sending', do NOT edit the HTML for it. Instead, briefly guide them to open the 'E-mail' tab and what to fill in. Use the LEAD CAPTURE STATUS below (when provided) to tailor the guidance (already set up vs. not yet, current destination/mode).",
+  "• You CAN still edit the form's visible appearance and fields in the HTML (labels, placeholders, adding/removing input fields, layout) — just not the delivery wiring.",
   "",
   "OUTPUT FORMAT (strict):",
   "1) First, a SHORT friendly reply (1-3 sentences) describing what you changed, in the user's language.",
@@ -192,6 +199,7 @@ async function callGemini(payload: ReforgePayload, model: string, apiKey: string
     stores.length ? "Use the attached File Search stores (global LP guidelines + company brand) as the source of truth for brand, tone and design rules." : "",
     payload.generationContext?.trim() ? `=== ORIGINAL GENERATION CONTEXT (brand + brief) ===\n${payload.generationContext.trim()}` : "",
     payload.focusHtml?.trim() ? `=== SELECTED ELEMENT (the user picked this in the editor) ===\nWhen the request says "this", "isto", "esse", "aqui" or is otherwise about a specific element, it refers to THIS one. Prefer editing it (or its closest relevant ancestor) and keep the change scoped to it:\n${payload.focusHtml.trim().slice(0, 4000)}` : "",
+    payload.leadCaptureStatus?.trim() ? `=== LEAD CAPTURE STATUS (for guidance only — never edit this wiring in the HTML) ===\n${payload.leadCaptureStatus.trim().slice(0, 600)}` : "",
     historyText ? `=== CONVERSATION SO FAR ===\n${historyText}` : "",
     `=== CURRENT PAGE HTML (edit surgically) ===\n${payload.html}`,
     `=== USER CHANGE REQUEST ===\n${payload.instruction.trim()}`,
