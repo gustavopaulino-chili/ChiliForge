@@ -584,6 +584,15 @@ try {
                         throw new RuntimeException('Compose creative insert returned no id.');
                     }
 
+                    // debug:true → persist the final image prompt + aspectRatio + refs
+                    // returned by the engine into ads_creatives.metadata (surfaced by job-status).
+                    if (!empty($banner['debug'])) {
+                        $metaJson = json_encode(['debug' => $banner['debug']], JSON_UNESCAPED_UNICODE);
+                        agents_reconnect_mysqli_if_needed($conn);
+                        $updMeta = $conn->prepare("UPDATE ads_creatives SET metadata = ? WHERE id = ?");
+                        if ($updMeta) { $updMeta->bind_param('si', $metaJson, $creativeId); $updMeta->execute(); $updMeta->close(); }
+                    }
+
                     // Save the compose HTML (for reference / html_url) and rasterize it to a
                     // Meta-ready banner.jpg with GD — faithfully reproducing the layout the
                     // background reserved space for (no headless browser needed). public_url

@@ -2157,6 +2157,10 @@ serve(async (req: Request) => {
   try {
     const payload = await req.json() as AgentsAdsPayload;
     const mode = payload.mode || "full";
+    // debug:true → return the final image prompt + aspectRatio + reference images
+    // used, per creative, for prompt calibration. Accepted top-level or inside
+    // campaignData (the external API carries it in form_data).
+    const debug = Boolean((payload as any).debug || (payload as any).campaignData?.debug);
 
     if (!payload.agentConfig?.systemPrompt) {
       return new Response(JSON.stringify({ error: "agentConfig.systemPrompt is required" }), {
@@ -2292,6 +2296,12 @@ serve(async (req: Request) => {
       : [];
     const referenceImages: ReferenceImage[] = fetchedImages.filter((img): img is ReferenceImage => img !== null);
 
+    // For debug: which reference URLs were provided and whether each was fetched
+    // within the ~300KB inline limit (fetched=false ⇒ dropped, won't reach the model).
+    const refDebug = debug
+      ? imageSpecs.map((s, i) => ({ slot: s.label.split(" — ")[0], url: s.url, fetched: !!fetchedImages[i] }))
+      : [];
+
     // ── COMPOSE MODE: background image + HTML overlay ─────────────────────────
     // ── IMAGE MODE: the model draws the WHOLE ad (text included) as a single image ──────────
     // Restored from the legacy pipeline for the external API (pure-image generation). Returns
@@ -2367,6 +2377,7 @@ serve(async (req: Request) => {
           width: format.width || 1080,
           height: format.height || 1080,
           variant: variantLabel || null,
+          ...(debug ? { debug: { mode: "image", model: GEMINI_IMAGE_MODELS[0] || null, aspectRatio, prompt, refs: refDebug } } : {}),
         };
       });
 
@@ -2452,7 +2463,7 @@ serve(async (req: Request) => {
       let banners: Awaited<ReturnType<typeof runWithConcurrency>>;
 
       if (isAbVisual) {
-        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null }>();
+        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number }>();
         const uniqueVariantRatios = [...new Map(
           imageTasks.map((task) => {
             const aspectRatio = imageAspectRatioForFormat(task.format);
@@ -2476,7 +2487,7 @@ serve(async (req: Request) => {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null });
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length });
         }
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -2484,7 +2495,7 @@ serve(async (req: Request) => {
           const aspectRatio = imageAspectRatioForFormat(format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
           const taskBrandSpec = specForFormat(brandSpec, format);
-          const bg = bgByVariantRatio.get(`${task.variantIndex}:${aspectRatio}`) ?? { url: "", rec: null };
+          const bg = bgByVariantRatio.get(`${task.variantIndex}:${aspectRatio}`) ?? { url: "", rec: null, prompt: "", refCount: 0 };
 
           const bannerHtml = buildCompositionHtml(
             bg.url, campaignData, format, taskBrandSpec, cssVars, fontUrl,
@@ -2499,12 +2510,13 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, refs: refDebug, note: "Logo & copy are composited as an HTML overlay on top of this AI background — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(abComposeFns, 1);
       } else {
         // Standard path: deduplicate backgrounds by aspect ratio (cost saving)
-        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null }>();
+        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number }>();
         const uniqueRatios = [...new Set(imageTasks.map((task) => imageAspectRatioForFormat(task.format)))];
         for (const aspectRatio of uniqueRatios) {
           const task = imageTasks.find((candidate) => imageAspectRatioForFormat(candidate.format) === aspectRatio)!;
@@ -2523,14 +2535,14 @@ serve(async (req: Request) => {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null });
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length });
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
           const aspectRatio = imageAspectRatioForFormat(format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
-          const bg = bgByRatio.get(aspectRatio) ?? { url: "", rec: null };
+          const bg = bgByRatio.get(aspectRatio) ?? { url: "", rec: null, prompt: "", refCount: 0 };
           const taskBrandSpec = specForFormat(brandSpec, format);
 
           const bannerHtml = buildCompositionHtml(
@@ -2545,6 +2557,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, refs: refDebug, note: "Logo & copy are composited as an HTML overlay on top of this AI background — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(composeFns, 4);

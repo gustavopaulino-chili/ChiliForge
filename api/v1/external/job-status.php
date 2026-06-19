@@ -146,7 +146,7 @@ try {
     $creatives = [];
     if ($jProjectId) {
         $cStmt = $conn->prepare(
-            "SELECT id, platform, format, label, width, height, public_url
+            "SELECT id, platform, format, label, width, height, public_url, metadata
              FROM ads_creatives
              WHERE campaign_id = ?
              ORDER BY sort_order ASC"
@@ -154,7 +154,7 @@ try {
         if ($cStmt) {
             $cStmt->bind_param('i', $jCampaignId);
             $cStmt->execute();
-            $cStmt->bind_result($cId, $cPlat, $cFmt, $cLabel, $cW, $cH, $cPublicUrl);
+            $cStmt->bind_result($cId, $cPlat, $cFmt, $cLabel, $cW, $cH, $cPublicUrl, $cMetadata);
             while ($cStmt->fetch()) {
                 $htmlUrl  = $cPublicUrl ?: null;
                 $imageUrl = null;
@@ -173,7 +173,7 @@ try {
                 // The creative is a self-contained HTML banner (AI background + EXACT logo +
                 // typo-free copy). This host doesn't rasterize it — the caller (n8n) renders
                 // html_url to an image and hosts it for Meta.
-                $creatives[] = [
+                $creativeRow = [
                     'id'        => (int)$cId,
                     'platform'  => $cPlat,
                     'format'    => $cFmt,
@@ -184,6 +184,14 @@ try {
                     'html_url'  => extjs_absolute_public_url($htmlUrl),
                     'type'      => $imageType ?: ($htmlUrl ? 'text/html' : null),
                 ];
+                // debug:true → expose the engine's final prompt + aspectRatio + refs.
+                if (!empty($cMetadata)) {
+                    $meta = json_decode((string)$cMetadata, true);
+                    if (is_array($meta) && isset($meta['debug'])) {
+                        $creativeRow['debug'] = $meta['debug'];
+                    }
+                }
+                $creatives[] = $creativeRow;
             }
             $cStmt->close();
         }

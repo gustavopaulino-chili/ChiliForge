@@ -820,6 +820,10 @@ try {
     // copied again on every request and the assets folder grows with duplicates.
     $assetUrlsToMirror = ext_collect_asset_urls_from_payload($company, $campaign);
 
+    // debug:true → the engine returns the final image prompt + aspectRatio + refs
+    // used, surfaced per creative in job-status (for prompt calibration). Persisted
+    // in form_data so the async worker forwards it to the edge function.
+    $campaignFormData['debug'] = !empty($body['debug']);
     $campaignFormDataJson = json_encode($campaignFormData, JSON_UNESCAPED_UNICODE);
     $campaignMetadataJson = json_encode([
         'external_asset_urls_to_mirror' => $assetUrlsToMirror,
