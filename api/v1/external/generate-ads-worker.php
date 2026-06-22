@@ -452,6 +452,7 @@ try {
                 'mode'         => 'copy',
                 'agentConfig'  => $agentConfig,
                 'campaignData' => $campaignFormData,
+                'jobId'        => $jobId,
             ], $passKey);
             $copy = is_array($copyRes['copy'] ?? null) ? $copyRes['copy'] : null;
             if (is_array($copy)) {
@@ -506,6 +507,7 @@ try {
     try {
         $interpretResult = agents_call_edge_function('agents-ads', [
             'mode'                     => 'interpret',
+            'jobId'                    => $jobId,
             'agentConfig'              => $agentConfig,
             'globalStoreName'          => $globalAdsStore,
             'globalReferenceStoreName' => $globalRefStore ?: null,
@@ -546,6 +548,7 @@ try {
         foreach ($batches as $bIdx => $b) {
             $composePayloads[$bIdx] = [
                 'mode'             => 'compose',
+                'jobId'            => $jobId,
                 'agentConfig'      => $agentConfig,
                 'globalStoreName'  => $globalAdsStore,
                 'companyStoreName' => $companyStoreName,
@@ -710,6 +713,7 @@ try {
 
             $renderResult = agents_call_edge_function('agents-ads', [
                 'mode'                     => 'render',
+                'jobId'                    => $jobId,
                 'agentConfig'              => $agentConfig,
                 'globalStoreName'          => $globalAdsStore,
                 'globalReferenceStoreName' => $globalRefStore ?: null,

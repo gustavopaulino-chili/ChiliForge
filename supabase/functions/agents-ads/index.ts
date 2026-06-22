@@ -169,7 +169,7 @@ type GenerateAdImageOptions = {
   timeoutMs?: number;
   singleConfig?: boolean;
   // Optional per-generation cost accumulator (summed across all image calls in one request).
-  costAcc?: { usd: number; images: number };
+  costAcc?: { usd: number; images: number; jobId?: string };
 };
 
 // Save a base64 data URL to Supabase Storage (public bucket "ad-images") and return its public
@@ -321,7 +321,8 @@ async function generateAdImage(
               const inTok = Number(u.promptTokenCount ?? u.prompt_token_count ?? 0);
               const inUsd = (inTok / 1_000_000) * pricingFor(model).in;
               const total = inUsd + IMAGE_PRICE_PER_IMAGE;
-              console.log(`[cost-estimate] IMAGE model=${model} in=${inTok}tok($${inUsd.toFixed(5)}) image=1($${IMAGE_PRICE_PER_IMAGE.toFixed(3)}) ~= $${total.toFixed(5)}`);
+              const job = opts.costAcc?.jobId ? ` job=${opts.costAcc.jobId}` : "";
+              console.log(`[cost-estimate]${job} IMAGE model=${model} in=${inTok}tok($${inUsd.toFixed(5)}) image=1($${IMAGE_PRICE_PER_IMAGE.toFixed(3)}) ~= $${total.toFixed(5)}`);
               if (opts.costAcc) { opts.costAcc.usd += total; opts.costAcc.images += 1; }
             } catch (_) { /* logging must never break generation */ }
             return { url, rec: parseComposeTextRec(extractTextFromGeminiPayload(data)) };
@@ -1961,6 +1962,7 @@ type GeminiCallOptions = {
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
   responseMimeType?: string;
   responseSchema?: Record<string, unknown>;
+  jobId?: string; // tags cost/token logs so one generation can be summed in Supabase logs
 };
 
 type GenerateOptions = GeminiCallOptions & {
@@ -2049,13 +2051,14 @@ function pricingFor(model: string): { in: number; out: number } {
 }
 
 // Logs an estimated USD cost line for a text/plan generation. Server-side only.
-function logCostEstimate(model: string, promptTokens: number, outputTokens: number, label = ""): void {
+function logCostEstimate(model: string, promptTokens: number, outputTokens: number, label = "", jobId = ""): void {
   try {
     const p = pricingFor(model);
     const inUsd = (promptTokens / 1_000_000) * p.in;
     const outUsd = (outputTokens / 1_000_000) * p.out;
     const total = inUsd + outUsd;
-    console.log(`[cost-estimate]${label ? ` ${label}` : ""} model=${model} in=${promptTokens}tok($${inUsd.toFixed(5)}) out=${outputTokens}tok($${outUsd.toFixed(5)}) ~= $${total.toFixed(5)}`);
+    const job = jobId ? ` job=${jobId}` : "";
+    console.log(`[cost-estimate]${job}${label ? ` ${label}` : ""} model=${model} in=${promptTokens}tok($${inUsd.toFixed(5)}) out=${outputTokens}tok($${outUsd.toFixed(5)}) ~= $${total.toFixed(5)}`);
   } catch (_) { /* logging must never break generation */ }
 }
 
@@ -2144,8 +2147,9 @@ async function callGemini(
     const u = data?.usageMetadata ?? data?.usage_metadata ?? {};
     const promptTok = Number(u.promptTokenCount ?? u.prompt_token_count ?? 0);
     const outTok = Number(u.candidatesTokenCount ?? u.candidates_token_count ?? 0);
-    console.log(`[token-usage] model=${model} stores=${fileSearchStores?.length ?? 0}(${(fileSearchStores ?? []).join(",")}) refImgs=${referenceImages?.length ?? 0} prompt=${u.promptTokenCount ?? u.prompt_token_count ?? "?"} candidates=${u.candidatesTokenCount ?? u.candidates_token_count ?? "?"} toolUse=${u.toolUsePromptTokenCount ?? u.tool_use_prompt_token_count ?? 0} total=${u.totalTokenCount ?? u.total_token_count ?? "?"}`);
-    logCostEstimate(model, promptTok, outTok);
+    const jobId = options?.jobId ?? "";
+    console.log(`[token-usage]${jobId ? ` job=${jobId}` : ""} model=${model} stores=${fileSearchStores?.length ?? 0}(${(fileSearchStores ?? []).join(",")}) refImgs=${referenceImages?.length ?? 0} prompt=${u.promptTokenCount ?? u.prompt_token_count ?? "?"} candidates=${u.candidatesTokenCount ?? u.candidates_token_count ?? "?"} toolUse=${u.toolUsePromptTokenCount ?? u.tool_use_prompt_token_count ?? 0} total=${u.totalTokenCount ?? u.total_token_count ?? "?"}`);
+    logCostEstimate(model, promptTok, outTok, "", jobId);
   } catch (_) { /* logging must never break generation */ }
   const text = data?.candidates?.[0]?.content?.parts
     ?.filter((p: any) => typeof p.text === "string")
@@ -2170,7 +2174,7 @@ async function generateWithRetry(
   const chain = [preferredModel, ...chainBase.filter((m) => m !== preferredModel)];
   let lastError: Error | null = null;
 
-  const geminiOpts = { thinkingLevel: options?.thinkingLevel, responseMimeType: options?.responseMimeType, responseSchema: options?.responseSchema };
+  const geminiOpts = { thinkingLevel: options?.thinkingLevel, responseMimeType: options?.responseMimeType, responseSchema: options?.responseSchema, jobId: options?.jobId };
 
   for (const model of chain) {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -2225,6 +2229,8 @@ serve(async (req: Request) => {
     // used, per creative, for prompt calibration. Accepted top-level or inside
     // campaignData (the external API carries it in form_data).
     const debug = Boolean((payload as any).debug || (payload as any).campaignData?.debug);
+    // Tags every cost/token log line so one generation can be filtered & summed in Supabase logs.
+    const jobId = String((payload as any).jobId ?? (payload as any).campaignData?.jobId ?? "");
 
     if (!payload.agentConfig?.systemPrompt) {
       return new Response(JSON.stringify({ error: "agentConfig.systemPrompt is required" }), {
@@ -2293,7 +2299,7 @@ serve(async (req: Request) => {
         "gemini-2.5-flash", 0.9, 2000, apiKey,
         undefined, // file_search conflicts with JSON structured output mode
         undefined,
-        { responseMimeType: "application/json", responseSchema: COPY_JSON_SCHEMA },
+        { responseMimeType: "application/json", responseSchema: COPY_JSON_SCHEMA, jobId },
       );
 
       let copyJson: unknown;
@@ -2384,7 +2390,7 @@ serve(async (req: Request) => {
       // Creative spec from interpret step — scrubbed of hex/codes/URLs so the model never
       // renders them as text (the brand palette still reaches it via the reference images).
       const spec = scrubBgPromptText(String(payload.creativePlan || "").trim());
-      const costAcc = { usd: 0, images: 0 }; // per-generation cost tracker (this request)
+      const costAcc = { usd: 0, images: 0, jobId }; // per-generation cost tracker (this request)
 
       const imageFns = imageTasks.map((task) => async () => {
         const { format, variantLabel, focusInstruction } = task;
@@ -2448,7 +2454,7 @@ serve(async (req: Request) => {
       });
 
       const images = await runWithConcurrency(imageFns, 1);
-      console.log(`[cost-total] mode=image images=${costAcc.images} ~= $${costAcc.usd.toFixed(5)}`);
+      console.log(`[cost-total]${jobId ? ` job=${jobId}` : ""} mode=image images=${costAcc.images} ~= $${costAcc.usd.toFixed(5)}`);
       return new Response(JSON.stringify({ mode: "image", images }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -2456,7 +2462,7 @@ serve(async (req: Request) => {
 
     if (mode === "compose") {
       const campaignFactsImg = buildCampaignFactsForCompose(campaignData);
-      const costAcc = { usd: 0, images: 0 }; // per-generation cost tracker (this request)
+      const costAcc = { usd: 0, images: 0, jobId }; // per-generation cost tracker (this request)
 
       // CRITICAL: never pass the logo to the background image generator.
       // The logo is composited later in HTML (buildCompositionHtml). Passing it as a
@@ -2630,7 +2636,7 @@ serve(async (req: Request) => {
         });
         banners = await runWithConcurrency(composeFns, 4);
       }
-      console.log(`[cost-total] mode=compose batch=${(payload as any).batchIndex ?? "?"} images=${costAcc.images} banners=${Array.isArray(banners) ? banners.length : 0} ~= $${costAcc.usd.toFixed(5)}`);
+      console.log(`[cost-total]${jobId ? ` job=${jobId}` : ""} mode=compose batch=${(payload as any).batchIndex ?? "?"} images=${costAcc.images} banners=${Array.isArray(banners) ? banners.length : 0} ~= $${costAcc.usd.toFixed(5)}`);
       return new Response(JSON.stringify({ mode: "compose", banners }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -2653,6 +2659,7 @@ serve(async (req: Request) => {
         apiKey,
         fileSearchStores.length ? fileSearchStores : undefined,
         undefined,
+        { jobId },
       );
       const parsed = extractInterpretJson(interpretResult.text);
       return new Response(
@@ -2681,6 +2688,7 @@ serve(async (req: Request) => {
           apiKey,
           imageFileSearchStores.length ? imageFileSearchStores : undefined,
           undefined,
+          { jobId },
         );
         const parsed = extractInterpretJson(interpretImageResult.text);
         return new Response(
@@ -2724,7 +2732,7 @@ serve(async (req: Request) => {
         apiKey,
         fileSearchStores.length ? fileSearchStores : undefined,
         undefined,
-        { modelChain: PLAN_MODEL_CHAIN, responseMimeType: "application/json", responseSchema: CREATIVE_PLAN_JSON_SCHEMA },
+        { modelChain: PLAN_MODEL_CHAIN, responseMimeType: "application/json", responseSchema: CREATIVE_PLAN_JSON_SCHEMA, jobId },
       );
       creativePlan = planResult.text.trim().slice(0, 12000);
       if (planResult.groundingMetadata) groundingMetadata.push(planResult.groundingMetadata);
@@ -2827,7 +2835,7 @@ serve(async (req: Request) => {
         apiKey,
         undefined,
         referenceImages.length ? referenceImages : undefined,
-        { modelChain: RENDER_MODEL_CHAIN },
+        { modelChain: RENDER_MODEL_CHAIN, jobId },
       );
 
       const rawSnippets = enforceAllBannerDimensions(extractBannerSnippets(result.text), group);
