@@ -167,6 +167,8 @@ type GenerateAdImageOptions = {
   maxAttempts?: number;
   timeoutMs?: number;
   singleConfig?: boolean;
+  // Optional per-generation cost accumulator (summed across all image calls in one request).
+  costAcc?: { usd: number; images: number };
 };
 
 // Save a base64 data URL to Supabase Storage (public bucket "ad-images") and return its public
@@ -319,6 +321,7 @@ async function generateAdImage(
               const inUsd = (inTok / 1_000_000) * pricingFor(model).in;
               const total = inUsd + IMAGE_PRICE_PER_IMAGE;
               console.log(`[cost-estimate] IMAGE model=${model} in=${inTok}tok($${inUsd.toFixed(5)}) image=1($${IMAGE_PRICE_PER_IMAGE.toFixed(3)}) ~= $${total.toFixed(5)}`);
+              if (opts.costAcc) { opts.costAcc.usd += total; opts.costAcc.images += 1; }
             } catch (_) { /* logging must never break generation */ }
             return { url, rec: parseComposeTextRec(extractTextFromGeminiPayload(data)) };
           }
@@ -484,6 +487,7 @@ function buildCampaignFacts(data: AgentsAdsPayload["campaignData"]): string {
   if (data.campaignName) lines.push(`Campaign: ${data.campaignName}`);
   if (data.brandName) lines.push(`Brand: ${data.brandName}`);
   if (data.industry) lines.push(`Industry: ${data.industry}`);
+  if ((data as any).businessDescription) lines.push(`Business: ${String((data as any).businessDescription).slice(0, 300)}`);
   if (data.campaignObjective) lines.push(`Objective: ${data.campaignObjective}`);
   if (data.funnelStage) lines.push(`Funnel: ${data.funnelStage}`);
   if (data.productName) lines.push(`Product/Service: ${data.productName}`);
@@ -1687,6 +1691,12 @@ function buildBackgroundPrompt(
     "",
     "████ SPACE RULE — REQUIRED ████",
     `Reserve low-detail zones for the HTML overlay: ${spaceGuide}`,
+    (() => {
+      const pos = LAYOUT_POSITIONS[layout];
+      return pos
+        ? `PRECISE OVERLAY ZONES (CSS coords on the final canvas — keep these exact rectangles the calmest, most contrast-friendly areas; the overlay drops text/logo here): logo[${pos.logo}] headline[${pos.headline}] cta[${pos.cta}]. Concentrate visual detail and focal subject AWAY from these rectangles.`
+        : "";
+    })(),
     "These zones need enough visual calm and contrast so that white or dark text is legible on top.",
     "Avoid filling every pixel — the brand logo and headline need clear breathing room.",
     "",
@@ -2319,6 +2329,7 @@ serve(async (req: Request) => {
 
       // Creative spec from interpret step — same pipeline as HTML mode, just different output model
       const spec = String(payload.creativePlan || "").trim();
+      const costAcc = { usd: 0, images: 0 }; // per-generation cost tracker (this request)
 
       const imageFns = imageTasks.map((task) => async () => {
         const { format, variantLabel, focusInstruction } = task;
@@ -2367,7 +2378,7 @@ serve(async (req: Request) => {
           "Produce a polished, finished ad image with clear visual hierarchy: dominant headline, supporting copy, CTA (per CTA rule above), and brand identity.",
         ].filter(Boolean).join("\n");
 
-        const gen = await generateAdImage(prompt, refImagesForGen, apiKey, aspectRatio);
+        const gen = await generateAdImage(prompt, refImagesForGen, apiKey, aspectRatio, { costAcc });
         const hosted = gen ? (await uploadImageToStorage(gen.url, false, (payload as any).storageKey)) ?? gen.url : "";
         return {
           imageUrl: hosted,
@@ -2382,6 +2393,7 @@ serve(async (req: Request) => {
       });
 
       const images = await runWithConcurrency(imageFns, 1);
+      console.log(`[cost-total] mode=image images=${costAcc.images} ~= $${costAcc.usd.toFixed(5)}`);
       return new Response(JSON.stringify({ mode: "image", images }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -2389,6 +2401,7 @@ serve(async (req: Request) => {
 
     if (mode === "compose") {
       const campaignFactsImg = buildCampaignFactsForCompose(campaignData);
+      const costAcc = { usd: 0, images: 0 }; // per-generation cost tracker (this request)
 
       // CRITICAL: never pass the logo to the background image generator.
       // The logo is composited later in HTML (buildCompositionHtml). Passing it as a
@@ -2484,7 +2497,7 @@ serve(async (req: Request) => {
             // Supabase wall-clock (~150s) → HTTP 546 WORKER_RESOURCE_LIMIT, which is why the
             // larger 9:16 (story) batch always died. A single ~105s wait fits the budget and
             // gives the model time to respond in one shot.
-            maxAttempts: 1, timeoutMs: 105000, singleConfig: true,
+            maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length });
@@ -2532,7 +2545,7 @@ serve(async (req: Request) => {
             // Supabase wall-clock (~150s) → HTTP 546 WORKER_RESOURCE_LIMIT, which is why the
             // larger 9:16 (story) batch always died. A single ~105s wait fits the budget and
             // gives the model time to respond in one shot.
-            maxAttempts: 1, timeoutMs: 105000, singleConfig: true,
+            maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length });
@@ -2562,6 +2575,7 @@ serve(async (req: Request) => {
         });
         banners = await runWithConcurrency(composeFns, 4);
       }
+      console.log(`[cost-total] mode=compose batch=${(payload as any).batchIndex ?? "?"} images=${costAcc.images} banners=${Array.isArray(banners) ? banners.length : 0} ~= $${costAcc.usd.toFixed(5)}`);
       return new Response(JSON.stringify({ mode: "compose", banners }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

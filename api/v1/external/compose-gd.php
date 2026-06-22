@@ -432,8 +432,14 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                     if ($el['align'] === 'center')    $lx = $bx + ($bw2 - $lw2) / 2;
                     elseif ($el['align'] === 'right') $lx = $bx + ($bw2 - $lw2);
                     else                              $lx = $bx;
-                    imagettftext($canvas, $fpx, 0, (int)$lx + 2, $cy + (int)$asc + 2, $shadow, $font, $line);
-                    imagettftext($canvas, $fpx, 0, (int)$lx, $cy + (int)$asc, $fill, $font, $line);
+                    $bx0 = (int)$lx; $by0 = $cy + (int)$asc;
+                    // Multidirectional halo (outline) so text stays legible over busy/light
+                    // background areas — far stronger than a single drop shadow.
+                    $off = max(2, (int)round($fpx * 0.035));
+                    foreach ([[-$off,0],[$off,0],[0,-$off],[0,$off],[-$off,-$off],[$off,-$off],[-$off,$off],[$off,$off]] as $o) {
+                        imagettftext($canvas, $fpx, 0, $bx0 + $o[0], $by0 + $o[1], $shadow, $font, $line);
+                    }
+                    imagettftext($canvas, $fpx, 0, $bx0, $by0, $fill, $font, $line);
                     $cy += $step;
                 }
                 return $y0;
@@ -467,7 +473,7 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
         $dir = dirname($outJpgPath);
         if (!is_dir($dir)) @mkdir($dir, 0775, true);
         imageinterlace($canvas, true);
-        $ok = imagejpeg($canvas, $outJpgPath, 90);
+        $ok = imagejpeg($canvas, $outJpgPath, 92);
         imagedestroy($canvas);
         return (bool)$ok && is_file($outJpgPath) && filesize($outJpgPath) > 0;
     }

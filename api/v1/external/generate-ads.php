@@ -233,6 +233,9 @@ function ext_map_campaign(array $cam, array $formats): array {
         // Optional override for the compose background style (reference|company|creative|shapes).
         // When omitted, ext_enrich_campaign_for_generation picks a rich default.
         'composeBackgroundSource' => $first(['compose_background_source', 'background_source']),
+        // Forces the text/logo layout (and thus where the AI background reserves negative
+        // space). Must be a known LAYOUT_KEY in the edge; unknown values fall back to auto.
+        'textLayout'            => $first(['text_layout', 'layout', 'logo_position']),
         'selectedFormats'       => $formats,
     ], fn($v) => !($v === '' || $v === null || (is_array($v) && empty($v))));
 }
@@ -306,6 +309,34 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
         $bgSourceRaw = 'creative';
     }
     $campaignData['composeBackgroundSource'] = $bgSourceRaw;
+
+    // Bridge the company's brand identity into campaignData. The COMPOSE engine reads
+    // brand fields (colors, fonts, voice, personality, keywords, category, description,
+    // audience) from campaignData — NOT from the company store — so without this the rich
+    // brand kit never reaches the image prompt (BRAND_CSS_VARS / BRAND_VISUAL come out
+    // empty). Only fills when the campaign itself didn't already provide the field.
+    $brandBridge = [
+        'brandName'           => 'businessName',
+        'industry'            => 'businessCategory',
+        'businessDescription' => 'businessDescription',
+        'toneOfVoice'         => 'toneOfVoice',
+        'brandPersonality'    => 'brandPersonality',
+        'brandKeywords'       => 'brandKeywords',
+        'forbiddenWords'      => 'forbiddenWords',
+        'targetAudience'      => 'targetAudience',
+        'primaryColor'        => 'primaryColor',
+        'secondaryColor'      => 'secondaryColor',
+        'accentColor'         => 'accentColor',
+        'backgroundColor'     => 'backgroundColor',
+        'textColor'           => 'textColor',
+        'headingFont'         => 'headingFont',
+        'bodyFont'            => 'bodyFont',
+    ];
+    foreach ($brandBridge as $campKey => $compKey) {
+        if (trim((string)($campaignData[$campKey] ?? '')) === '' && trim((string)($companyData[$compKey] ?? '')) !== '') {
+            $campaignData[$campKey] = $companyData[$compKey];
+        }
+    }
 
     $campaignData['externalApiContract'] = 'Return ad image URLs in image_url. Use provided copy and provided image assets visibly in each creative.';
     return $campaignData;
