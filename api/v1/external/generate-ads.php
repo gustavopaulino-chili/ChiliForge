@@ -303,12 +303,23 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
     // product/background image when present, otherwise give the model full creative
     // freedom (a real photographic/illustrated scene from the campaign) — never the
     // abstract 'shapes' fallback. An explicit caller choice still wins.
+    // Reference images uploaded via the company-assets API are ALWAYS consulted: bridge them
+    // into composeCompanyRefs (the edge fetches them as background references) and, when the
+    // caller didn't pick a source, derive the background from them ('company').
+    $companyRefs = [];
+    if (is_array($companyData['referenceImages'] ?? null)) {
+        foreach ($companyData['referenceImages'] as $u) { $u = trim((string)$u); if ($u !== '') $companyRefs[] = $u; }
+    }
+    if (!empty($companyRefs)) {
+        $campaignData['composeCompanyRefs'] = array_slice(array_values(array_unique($companyRefs)), 0, 4);
+    }
+
     $bgSourceRaw = strtolower(trim((string)($campaignData['composeBackgroundSource'] ?? '')));
     if (!in_array($bgSourceRaw, ['reference', 'company', 'creative', 'shapes'], true)) {
-        // Default is CREATIVE — a real art-directed scene from the campaign — never the
-        // abstract 'shapes' fallback (which ignored product + objective). An explicit
-        // caller choice (e.g. 'reference' to reuse a provided product/bg image) still wins.
-        $bgSourceRaw = 'creative';
+        // When the company has uploaded reference images, default to deriving the background
+        // from them ('company'). Otherwise CREATIVE — a real art-directed scene — never the
+        // abstract 'shapes' fallback. An explicit caller choice still wins.
+        $bgSourceRaw = !empty($companyRefs) ? 'company' : 'creative';
     }
     $campaignData['composeBackgroundSource'] = $bgSourceRaw;
 
