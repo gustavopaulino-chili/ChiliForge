@@ -495,10 +495,19 @@ try {
     // FORCES this layout and the AI background reserves the matching negative space. The RNG
     // lives here (PHP) because the edge runtime forbids Math.random. Skipped for A/B-visual,
     // where the edge already assigns a distinct layout per variant.
+    // Curated CLEAN layouts for the random pick (text left/center/right/top/bottom). Excludes the
+    // experimental/chaotic ones (frame-product, vertical-story-stack, floating-islands) — random
+    // means "one of our solid models", not scattering elements.
     $LAYOUT_KEYS = [
-        'hero-full-bleed', 'diagonal-split', 'top-image-bottom-text', 'left-panel-right-image',
-        'centered-minimal', 'bold-headline-first', 'frame-product', 'top-left-editorial',
-        'top-right-editorial', 'bottom-right-editorial', 'vertical-story-stack', 'floating-islands',
+        'hero-full-bleed',          // text bottom
+        'top-image-bottom-text',    // text bottom
+        'bold-headline-first',      // text top
+        'centered-minimal',         // text center
+        'left-panel-right-image',   // text left
+        'diagonal-split',           // text left
+        'top-left-editorial',       // text top-left
+        'top-right-editorial',      // text top-right
+        'bottom-right-editorial',   // text bottom-right
     ];
     $isAbVisual = !empty($campaignFormData['abTestingEnabled'])
         && strtolower(trim((string)($campaignFormData['abTestFocus'] ?? ''))) === 'visual';

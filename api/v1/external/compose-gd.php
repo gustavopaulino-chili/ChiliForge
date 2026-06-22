@@ -434,7 +434,7 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
             }
 
             // Fit + draw one element within $maxH; returns the Y where it actually starts (top).
-            $renderEl = function (array $el, float $maxH) use ($canvas, $W, $floor): int {
+            $renderEl = function (array $el, float $maxH) use ($canvas, $W, $H, $floor): int {
                 $font = $el['font']; $bx = $el['bx']; $bw2 = $el['bw2'];
                 if ($el['hasBtn']) {
                     $fpx = $el['baseFontPx'];
@@ -476,12 +476,8 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                     if ($el['align'] === 'center')    $lx = $bx + ($bw2 - $lw2) / 2;
                     elseif ($el['align'] === 'right') $lx = $bx + ($bw2 - $lw2);
                     else                              $lx = $bx;
-                    $bx0 = (int)$lx; $by0 = $cy + (int)$asc;
-                    // Single soft drop shadow (no outline/border) — the scrim already guarantees
-                    // contrast, so a subtle offset shadow is enough for legibility.
-                    $so = max(1, (int)round($fpx * 0.03));
-                    imagettftext($canvas, $fpx, 0, $bx0 + $so, $by0 + $so, $shadow, $font, $line);
-                    imagettftext($canvas, $fpx, 0, $bx0, $by0, $fill, $font, $line);
+                    imagettftext($canvas, $fpx, 0, (int)$lx + 2, $cy + (int)$asc + 2, $shadow, $font, $line);
+                    imagettftext($canvas, $fpx, 0, (int)$lx, $cy + (int)$asc, $fill, $font, $line);
                     $cy += $step;
                 }
                 return $y0;
