@@ -1720,6 +1720,7 @@ function buildBackgroundPrompt(
     "❌ NO logo, wordmark, the word 'LOGO', placeholder logo, icon, seal, emblem, monogram, or any brand symbol or lettering whatsoever.",
     "❌ NO button shapes, pill shapes, or any UI element that looks like it holds text.",
     "❌ NO placeholder boxes, lorem ipsum, or text-shaped blanks.",
+    "❌ If you render ANY product, bottle, jar, package, box, label, tag or object, its surface and labels must be COMPLETELY BLANK — no text, no letters, no numbers, no logo, no fake brand name, no scribbles that imitate text. A clean unlabeled product, not a mocked-up labelled one.",
     "The HTML overlay will handle the logo and all copy. ANY text, letter, number, code or logo in your image is a FAILED render.",
     "",
     "CREATIVE DIRECTION:",
