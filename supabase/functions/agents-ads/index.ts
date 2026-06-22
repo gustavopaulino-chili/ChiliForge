@@ -1632,8 +1632,15 @@ function scrubBgPromptText(text: string): string {
     .replace(/https?:\/\/\S+/gi, "")
     .replace(/\bBRAND_FONT_URL\b\s*:?[^\n]*/gi, "")
     .replace(/\bBRAND_CSS_VARS\b\s*:?/gi, "Brand palette:")
+    // CSS layout fragments from the creative plan (HTML-oriented) that the image model would
+    // otherwise draw as literal text in the background.
+    .replace(/clip-path\s*:[^;\n}]*/gi, "")
+    .replace(/\b(?:polygon|inset|circle|ellipse|calc|translate[xyz]?|rotate|scale|matrix|linear-gradient|radial-gradient)\s*\([^)]*\)/gi, "")
+    .replace(/\brgba?\([^)]*\)/gi, "")
     .replace(/var\(\s*--[a-z0-9-]+\s*\)/gi, "")
     .replace(/--[a-z0-9-]+\s*:/gi, "")
+    // Generic CSS declarations carrying units (font-size:48px, top:60px, width:30%, etc.).
+    .replace(/\b[a-z-]{3,}\s*:\s*[^;\n}]*?\d(?:px|%|em|rem|deg|vh|vw|fr|cqw|cqh)[^;\n}]*/gi, "")
     .replace(/#[0-9a-f]{3,8}\b/gi, "")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
@@ -2596,7 +2603,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, refs: refDebug, note: "Logo & copy are composited as an HTML overlay on top of this AI background — not drawn by the image model." } } : {}),
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(abComposeFns, 1);
@@ -2643,7 +2650,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, refs: refDebug, note: "Logo & copy are composited as an HTML overlay on top of this AI background — not drawn by the image model." } } : {}),
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(composeFns, 4);

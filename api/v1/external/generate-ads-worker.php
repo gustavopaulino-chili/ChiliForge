@@ -376,6 +376,18 @@ try {
         if (!empty($assetUrlMap)) {
             $companyFormData  = ext_rewrite_payload_asset_urls($companyFormData, $assetUrlMap);
             $campaignFormData = ext_rewrite_payload_asset_urls($campaignFormData, $assetUrlMap);
+            // composeCompanyRefs must be ABSOLUTE for the image edge (Deno) to fetch — the
+            // rewrite turns them into root-relative /projects/... which the edge's http-only
+            // filter drops. Re-absolutize with the public_base the endpoint stored (CLI worker
+            // has no $_SERVER).
+            $pubBase = rtrim((string)($campaignMetadata['public_base'] ?? ''), '/');
+            if ($pubBase !== '' && !empty($campaignFormData['composeCompanyRefs']) && is_array($campaignFormData['composeCompanyRefs'])) {
+                $campaignFormData['composeCompanyRefs'] = array_values(array_filter(array_map(function ($u) use ($pubBase) {
+                    $u = trim((string)$u);
+                    if ($u === '' || preg_match('~^https?://~i', $u)) return $u;
+                    return ($u[0] === '/') ? $pubBase . $u : $u;
+                }, $campaignFormData['composeCompanyRefs']), 'strlen'));
+            }
             agents_reconnect_mysqli_if_needed($conn);
             $updatedCFJson = json_encode($companyFormData, JSON_UNESCAPED_UNICODE);
             if ($updatedCFJson) {

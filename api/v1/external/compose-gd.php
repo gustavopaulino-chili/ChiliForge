@@ -477,12 +477,10 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                     elseif ($el['align'] === 'right') $lx = $bx + ($bw2 - $lw2);
                     else                              $lx = $bx;
                     $bx0 = (int)$lx; $by0 = $cy + (int)$asc;
-                    // Multidirectional halo (outline) so text stays legible over busy/light
-                    // background areas — far stronger than a single drop shadow.
-                    $off = max(2, (int)round($fpx * 0.035));
-                    foreach ([[-$off,0],[$off,0],[0,-$off],[0,$off],[-$off,-$off],[$off,-$off],[-$off,$off],[$off,$off]] as $o) {
-                        imagettftext($canvas, $fpx, 0, $bx0 + $o[0], $by0 + $o[1], $shadow, $font, $line);
-                    }
+                    // Single soft drop shadow (no outline/border) — the scrim already guarantees
+                    // contrast, so a subtle offset shadow is enough for legibility.
+                    $so = max(1, (int)round($fpx * 0.03));
+                    imagettftext($canvas, $fpx, 0, $bx0 + $so, $by0 + $so, $shadow, $font, $line);
                     imagettftext($canvas, $fpx, 0, $bx0, $by0, $fill, $font, $line);
                     $cy += $step;
                 }

@@ -888,6 +888,9 @@ try {
     $campaignFormDataJson = json_encode($campaignFormData, JSON_UNESCAPED_UNICODE);
     $campaignMetadataJson = json_encode([
         'external_asset_urls_to_mirror' => $assetUrlsToMirror,
+        // Absolute base so the (CLI, no $_SERVER) worker can turn mirrored /projects/... refs
+        // into absolute URLs the image edge can fetch.
+        'public_base' => ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? ''),
     ], JSON_UNESCAPED_UNICODE);
     $campaignName       = trim((string)($campaign['name'] ?? 'Campaign')) ?: 'Campaign';
     $apiSource          = substr(trim((string)($body['source']     ?? 'external')), 0, 100);
@@ -1040,6 +1043,18 @@ try {
         if (!empty($assetUrlMap)) {
             $companyFormData  = ext_rewrite_payload_asset_urls($companyFormData, $assetUrlMap);
             $campaignFormData = ext_rewrite_payload_asset_urls($campaignFormData, $assetUrlMap);
+            // composeCompanyRefs must stay ABSOLUTE: the rewrite above turns mirrored refs into
+            // root-relative /projects/... which the image edge (Deno) cannot fetch (it only keeps
+            // http(s) URLs). Re-absolutize using the request host so the edge fetches the local copy.
+            if (!empty($campaignFormData['composeCompanyRefs']) && is_array($campaignFormData['composeCompanyRefs'])) {
+                $absBase = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '');
+                $campaignFormData['composeCompanyRefs'] = array_values(array_filter(array_map(function ($u) use ($absBase) {
+                    $u = trim((string)$u);
+                    if ($u === '' || preg_match('~^https?://~i', $u)) return $u;
+                    if ($u[0] === '/' && $absBase !== '') return $absBase . $u;
+                    return $u;
+                }, $campaignFormData['composeCompanyRefs']), 'strlen'));
+            }
             agents_reconnect_mysqli_if_needed($conn);
             $updatedCompanyFormDataJson = json_encode($companyFormData, JSON_UNESCAPED_UNICODE);
             if ($updatedCompanyFormDataJson) {
