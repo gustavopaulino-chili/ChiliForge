@@ -187,8 +187,46 @@ if (!function_exists('extgd_filled_round_rect')) {
     }
 }
 
+if (!function_exists('extgd_gradient_stops')) {
+    /** Parse a CSS gradient's color stops → [[pos 0..1, alpha 0..1], ...] sorted by pos.
+     *  Falls back to a sensible dark→clear ramp when no rgba stops are present. */
+    function extgd_gradient_stops(string $bg): array {
+        $stops = [];
+        if (preg_match_all('/rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*(?:,\s*([\d.]+)\s*)?\)\s*(-?[\d.]+%)?/i', $bg, $mm, PREG_SET_ORDER)) {
+            $n = count($mm);
+            foreach ($mm as $i => $m) {
+                $a = (isset($m[1]) && $m[1] !== '') ? (float)$m[1] : 1.0;
+                $pos = (isset($m[2]) && $m[2] !== '') ? (float)rtrim($m[2], '%') / 100 : ($n > 1 ? $i / ($n - 1) : 0.0);
+                $stops[] = [max(0.0, min(1.0, $pos)), max(0.0, min(1.0, $a))];
+            }
+        }
+        if (!$stops) return [[0.0, 0.6], [1.0, 0.0]];
+        usort($stops, static fn($x, $y) => $x[0] <=> $y[0]);
+        return $stops;
+    }
+}
+
+if (!function_exists('extgd_sample_alpha')) {
+    /** Linearly interpolate the gradient alpha (0..1) at position gp (0..1). */
+    function extgd_sample_alpha(array $stops, float $gp): float {
+        $gp = max(0.0, min(1.0, $gp));
+        $prev = $stops[0];
+        if ($gp <= $prev[0]) return $prev[1];
+        foreach ($stops as $s) {
+            if ($gp <= $s[0]) {
+                $span = $s[0] - $prev[0];
+                $f = $span > 0 ? ($gp - $prev[0]) / $span : 0.0;
+                return $prev[1] + ($s[1] - $prev[1]) * $f;
+            }
+            $prev = $s;
+        }
+        return $prev[1];
+    }
+}
+
 if (!function_exists('extgd_draw_scrim')) {
-    /** Approximate the compose scrim: a directional dark gradient over a region. */
+    /** Faithfully reproduce the compose scrim: a CSS linear/radial dark gradient (with its
+     *  real color stops) over a region — matches the overlay's reserved-legibility layer. */
     function extgd_draw_scrim($img, array $st, int $W, int $H): void {
         // Region from `inset: T R B L` (% each). Defaults to full frame.
         $t = 0; $r = 0; $b = 0; $l = 0;
@@ -218,35 +256,32 @@ if (!function_exists('extgd_draw_scrim')) {
         if ($x2 <= $x1 || $y2 <= $y1) return;
 
         $bg = $st['background'] ?? $st['background-image'] ?? '';
-        // Peak darkness from the strongest rgba alpha in the gradient (fallback .6).
-        $peak = 0.6;
-        if (preg_match_all('/rgba?\([^)]*?,\s*([\d.]+)\s*\)/', $bg, $am)) {
-            foreach ($am[1] as $a) $peak = max($peak, (float)$a);
-        }
+        $stops = extgd_gradient_stops($bg);
         $dir = 'to top';
         if (preg_match('/linear-gradient\(\s*(to [a-z ]+|[\d.]+deg)/i', $bg, $dm)) $dir = strtolower(trim($dm[1]));
         $radial = stripos($bg, 'radial-gradient') !== false;
 
         if ($radial) {
+            // CSS radial: first stop at center (gp=0), last at the edge (gp=1).
             $cx = ($x1 + $x2) / 2; $cy = ($y1 + $y2) / 2;
             $maxd = sqrt((($x2 - $x1) / 2) ** 2 + (($y2 - $y1) / 2) ** 2);
             for ($y = $y1; $y < $y2; $y++) for ($x = $x1; $x < $x2; $x += 1) {
                 $d = sqrt(($x - $cx) ** 2 + ($y - $cy) ** 2) / max(1, $maxd);
-                $al = (int)round((1 - min(1, $d)) * $peak * 127);
+                $al = (int)round(extgd_sample_alpha($stops, $d) * 127);
                 if ($al <= 0) continue;
                 imagesetpixel($img, $x, $y, imagecolorallocatealpha($img, 0, 0, 0, 127 - $al));
             }
             return;
         }
-        // Linear: in CSS the first (dark) stop sits OPPOSITE the arrow direction. So
-        // "to top" → dark at bottom; "to bottom" → dark at top; "to right" → dark at left;
-        // "to left" → dark at right. darkAtStart = dark at the low coord (top / left).
+        // Linear: gp = position along the gradient axis from the 0% stop (start) to 100%.
+        // CSS "to top": 0% at the BOTTOM; "to bottom": 0% at the top; "to right": 0% at the
+        // left; "to left": 0% at the right. We sample the real stop alphas at gp.
         $vertical = (strpos($dir, 'top') !== false || strpos($dir, 'bottom') !== false || preg_match('/(0|180)deg/', $dir));
-        $darkAtStart = (strpos($dir, 'bottom') !== false || strpos($dir, 'right') !== false);
+        $startAtFarEnd = (strpos($dir, 'top') !== false || strpos($dir, 'left') !== false);
         for ($i = ($vertical ? $y1 : $x1); $i < ($vertical ? $y2 : $x2); $i++) {
             $frac = $vertical ? ($i - $y1) / max(1, $y2 - $y1) : ($i - $x1) / max(1, $x2 - $x1);
-            $dark = $darkAtStart ? (1 - $frac) : $frac;
-            $al = (int)round($dark * $peak * 127);
+            $gp = $startAtFarEnd ? (1 - $frac) : $frac;
+            $al = (int)round(extgd_sample_alpha($stops, $gp) * 127);
             if ($al <= 0) continue;
             $col = imagecolorallocatealpha($img, 0, 0, 0, 127 - $al);
             if ($vertical) imagefilledrectangle($img, $x1, $i, $x2, $i, $col);
@@ -270,6 +305,15 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
         $W = (int)round(extgd_pct($bSt['width'] ?? null, 1) ?? (int)($fmt['width'] ?? 1080));
         $H = (int)round(extgd_pct($bSt['height'] ?? null, 1) ?? (int)($fmt['height'] ?? 1080));
         $W = max(1, min(4096, $W)); $H = max(1, min(4096, $H));
+
+        // Supersampling (SSAA): render the whole composite at up to 2x, then downscale to the
+        // target size for the JPEG. All geometry is derived from $W/$H so it scales for free,
+        // and the final downscale anti-aliases text edges, the logo, button corners and
+        // gradients far beyond GD's native drawing. Bounded so the 2x canvas never exceeds
+        // 4096px (memory) and never upscales an already-huge banner.
+        $Wt = $W; $Ht = $H;
+        $S  = max(1, (int)min(2, intdiv(4096, max($Wt, $Ht))));
+        $W  = $Wt * $S; $H = $Ht * $S;
 
         $canvas = imagecreatetruecolor($W, $H);
         imagealphablending($canvas, true); imagesavealpha($canvas, false);
@@ -468,6 +512,15 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                 if ($maxH < $floor) $maxH = $floor;
                 $renderEl($el, $maxH);
             }
+        }
+
+        // Downscale the supersampled canvas to the real output size (anti-aliasing pass).
+        if ($S > 1) {
+            $final = imagecreatetruecolor($Wt, $Ht);
+            imagealphablending($final, true); imagesavealpha($final, false);
+            imagecopyresampled($final, $canvas, 0, 0, 0, 0, $Wt, $Ht, $W, $H);
+            imagedestroy($canvas);
+            $canvas = $final;
         }
 
         $dir = dirname($outJpgPath);
