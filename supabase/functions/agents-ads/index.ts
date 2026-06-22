@@ -1774,10 +1774,19 @@ function buildCompositionHtml(
   // clean space it left); clamped, 1.0 = computed size when no/invalid recommendation.
   const sizeScale = Math.min(1.4, Math.max(0.7, Number(rec?.headlineScale) || 1));
   const ctaScale  = Math.min(1.2, sizeScale);
-  const headlineFs = `calc(min(8.8cqh, 8cqw) * ${sizeScale.toFixed(3)})`;
-  const subFs      = `calc(min(8.8cqh, 8cqw) * ${(sizeScale * 0.5).toFixed(3)})`;
-  const ctaFs      = `calc(min(5cqh, 4.6cqw) * ${ctaScale.toFixed(3)})`;
-  const logoFs     = `calc(min(8.8cqh, 8cqw) * ${(sizeScale * 0.475).toFixed(3)})`;
+  // Length-aware shrink: a long headline/subheadline must not dominate the creative.
+  // Combined with the model's clean-space hint (sizeScale) and the cq units (which already
+  // scale with the banner's binding dimension), this keeps type proportional on every size.
+  const hlLen = headline.length;
+  const hlLenScale  = hlLen <= 22 ? 1 : hlLen <= 38 ? 0.86 : hlLen <= 55 ? 0.75 : 0.66;
+  const subLen = sub.length;
+  const subLenScale = subLen <= 45 ? 1 : subLen <= 75 ? 0.88 : 0.78;
+  // Base coefficients lowered (was 8.8cqh/8cqw) — the old size ran ~8% of width (~86px on a
+  // 1080 square), which crowded the layout. ~6.2cqw ≈ 67px is a punchy, balanced headline.
+  const headlineFs = `calc(min(7cqh, 6.2cqw) * ${(sizeScale * hlLenScale).toFixed(3)})`;
+  const subFs      = `calc(min(7cqh, 6.2cqw) * ${(sizeScale * 0.46 * subLenScale).toFixed(3)})`;
+  const ctaFs      = `calc(min(4.4cqh, 4.1cqw) * ${ctaScale.toFixed(3)})`;
+  const logoFs     = `calc(min(7cqh, 6.2cqw) * ${(sizeScale * 0.46).toFixed(3)})`;
 
   // Always use white text in compose mode — the scrim layer guarantees contrast
   // regardless of what the AI generated. Using brand color for text caused
