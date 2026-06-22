@@ -133,6 +133,10 @@ function ext_auth(mysqli $conn, string $apiKey): ?array {
 function ext_map_company(array $c): array {
     $str = fn($k) => trim((string)($c[$k] ?? ''));
     $arr = fn($k) => array_values(array_filter((array)($c[$k] ?? [])));
+    // Like $str but joins arrays (callers send brand_keywords/forbidden_words as arrays).
+    $csv = fn($k) => is_array($c[$k] ?? null)
+        ? implode(', ', array_values(array_filter(array_map(fn($v) => trim((string)$v), $c[$k]), 'strlen')))
+        : trim((string)($c[$k] ?? ''));
     $images = is_array($c['images'] ?? null) ? $c['images'] : [];
     $first = function (array $keys) use ($c, $images): string {
         foreach ($keys as $key) {
@@ -163,6 +167,7 @@ function ext_map_company(array $c): array {
     $logo = $first(['logo_url', 'logoUrl', 'logo']);
     $hero = $first(['hero_image_url', 'heroImageUrl', 'heroImage1', 'hero', 'background_image_url', 'backgroundImageUrl', 'background_image', 'image_url']);
     $productImages = $collect(['product_images', 'productImages', 'product_image_urls', 'productImageUrls', 'product_image_url', 'productImageUrl', 'product_image', 'brand_image_url', 'brandImage', 'sectionImage1', 'image_url']);
+    $referenceImages = $collect(['reference_images', 'referenceImages', 'reference_image_urls', 'ref_images']);
 
     return array_filter([
         'businessName'        => $str('name'),
@@ -171,8 +176,8 @@ function ext_map_company(array $c): array {
         'language'            => $first(['language', 'lang', 'locale']),
         'toneOfVoice'         => $str('tone_of_voice'),
         'brandPersonality'    => $str('brand_personality'),
-        'brandKeywords'       => $str('brand_keywords'),
-        'forbiddenWords'      => $str('forbidden_words'),
+        'brandKeywords'       => $csv('brand_keywords'),
+        'forbiddenWords'      => $csv('forbidden_words'),
         'targetAudience'      => $str('target_audience'),
         'valueProposition'    => $str('value_proposition'),
         'logoUrl'             => $logo,
@@ -186,6 +191,7 @@ function ext_map_company(array $c): array {
         'sourceWebsite'       => $str('website'),
         'services'            => $arr('services'),
         'differentiators'     => $arr('differentiators'),
+        'referenceImages'     => $referenceImages,
         'images'              => array_filter([
             'logo'          => $logo,
             'hero'          => $hero,
@@ -232,6 +238,16 @@ function ext_map_campaign(array $cam, array $formats): array {
         'backgroundImageUrl'    => $first(['background_image_url', 'background_image', 'hero_image_url']),
         'preferredStyle'        => $str('preferred_style'),
         'preferredLogoStrategy' => $str('logo_strategy'),
+        // Logo corner: explicit logo_position, or parsed from the logo_strategy text.
+        'logoPosition'          => (function () use ($cam) {
+            $s = strtolower(trim((string)($cam['logo_position'] ?? $cam['logoPosition'] ?? $cam['logo_strategy'] ?? '')));
+            if (preg_match('/top.?left|upper.?left|superior.?esquerd|canto.?superior.?esquerd/', $s)) return 'top-left';
+            if (preg_match('/top.?right|upper.?right|superior.?direit/', $s)) return 'top-right';
+            if (preg_match('/top.?cent|top.?middle|superior.?cent/', $s)) return 'top-center';
+            if (preg_match('/bottom.?left|inferior.?esquerd/', $s)) return 'bottom-left';
+            if (preg_match('/bottom.?right|inferior.?direit/', $s)) return 'bottom-right';
+            return '';
+        })(),
         // Optional override for the compose background style (reference|company|creative|shapes).
         // When omitted, ext_enrich_campaign_for_generation picks a rich default.
         'composeBackgroundSource' => $first(['compose_background_source', 'background_source']),

@@ -1699,8 +1699,8 @@ function buildBackgroundPrompt(
   const safeFacts = scrubBgPromptText(campaignFactsImg);
 
   return [
-    "You are generating the BACKGROUND LAYER of a composite ad.",
-    "An HTML overlay placed on top will add: the brand logo, headline, body copy, and CTA. Your image must contain NONE of those.",
+    "You are generating ONLY the visual BACKGROUND of an ad.",
+    "Afterwards the system places the brand logo, headline, body copy and CTA on top automatically — so your image must contain NONE of those, and you must NEVER draw words like 'overlay', 'HTML', 'text', 'layer', or any system/UI label.",
     bgSource === "shapes"
       ? "Your job is purely the visual backdrop: brand colors, gradients, geometric shapes, textures, atmospheric elements (NO photography)."
       : "Your job is purely the visual backdrop: colors, textures, gradients, shapes, product/scene photography, atmospheric elements.",
@@ -1722,7 +1722,7 @@ function buildBackgroundPrompt(
     "❌ NO button shapes, pill shapes, or any UI element that looks like it holds text.",
     "❌ NO placeholder boxes, lorem ipsum, or text-shaped blanks.",
     "❌ If you render ANY product, bottle, jar, package, box, label, tag or object, its surface and labels must be COMPLETELY BLANK — no text, no letters, no numbers, no logo, no fake brand name, no scribbles that imitate text. A clean unlabeled product, not a mocked-up labelled one.",
-    "The HTML overlay will handle the logo and all copy. ANY text, letter, number, code or logo in your image is a FAILED render.",
+    "The system adds the logo and all copy afterwards. ANY text, letter, number, code or logo in your image is a FAILED render.",
     "",
     "CREATIVE DIRECTION:",
     direction,
@@ -1735,7 +1735,7 @@ function buildBackgroundPrompt(
     "When a low-detail zone is requested, do not make it a blank panel. Use soft gradients, depth blur, atmospheric color, subtle materials, or low-contrast pattern.",
     "",
     "████ SPACE RULE — REQUIRED ████",
-    `Reserve low-detail zones for the HTML overlay: ${spaceGuide}`,
+    `Reserve calm, low-detail zones where the text and logo will later be placed: ${spaceGuide}`,
     (() => {
       const pos = LAYOUT_POSITIONS[layout];
       return pos
@@ -1852,9 +1852,19 @@ function buildCompositionHtml(
   const scrimCss = LAYOUT_SCRIMS[detectedLayout] ?? LAYOUT_SCRIMS["hero-full-bleed"];
   const scrimLayer = `<div style="position:absolute;${scrimCss};z-index:1;pointer-events:none"></div>`;
 
+  // Caller can pin the logo corner (logo_position / logo_strategy) — overrides the layout's
+  // default logo placement so e.g. a brand that always wants top-left gets it on any layout.
+  const LOGO_POSITIONS: Record<string, string> = {
+    "top-left":      "top:5%;left:5%;width:26%;max-height:12%;",
+    "top-right":     "top:5%;right:5%;width:26%;max-height:12%;",
+    "top-center":    "top:5%;left:50%;transform:translateX(-50%);width:26%;max-height:12%;",
+    "bottom-left":   "bottom:6%;left:5%;width:24%;max-height:11%;",
+    "bottom-right":  "bottom:6%;right:5%;width:24%;max-height:11%;",
+  };
+  const logoCss = LOGO_POSITIONS[String((data as any).logoPosition || "").toLowerCase()] || layout.logo;
   const logoLayer = logoUrl
-    ? `<img src="${logoUrl}" style="position:absolute;${layout.logo}object-fit:contain;z-index:20" alt="logo" />`
-    : (data.brandName ? `<div style="position:absolute;${layout.logo}font-family:${fontFamily};font-size:${logoFs};font-weight:700;color:${textColor};z-index:20;white-space:nowrap;text-shadow:${textShadow}">${String(data.brandName).trim()}</div>` : "");
+    ? `<img src="${logoUrl}" style="position:absolute;${logoCss}object-fit:contain;z-index:20" alt="logo" />`
+    : (data.brandName ? `<div style="position:absolute;${logoCss}font-family:${fontFamily};font-size:${logoFs};font-weight:700;color:${textColor};z-index:20;white-space:nowrap;text-shadow:${textShadow}">${String(data.brandName).trim()}</div>` : "");
 
   const headlineLayer = headline
     ? `<div style="position:absolute;${layout.headline}font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:${textColor};line-height:1.15;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word">${headline}</div>`
@@ -2486,9 +2496,11 @@ serve(async (req: Request) => {
       const explicitBgSource = String((campaignData as any).composeBackgroundSource || "").toLowerCase();
       const bgSource = ["reference", "shapes", "company", "creative"].includes(explicitBgSource)
         ? explicitBgSource
-        // No explicit choice (older campaigns): infer — a provided background image
-        // is treated as a real reference; otherwise an abstract shapes background.
-        : (String(campaignData.backgroundImageUrl || "").startsWith("http") ? "reference" : "shapes");
+        // No explicit choice: a provided background image is treated as a real reference;
+        // otherwise CREATIVE — the model decides the best backdrop for the campaign (full
+        // scene/photo, illustration, abstract, whatever fits). Never the bare 'shapes'
+        // fallback, which produced generic backgrounds disconnected from the brand.
+        : (String(campaignData.backgroundImageUrl || "").startsWith("http") ? "reference" : "creative");
 
       let bgRefImages = refImagesForGen;
       if (bgSource === "shapes" || bgSource === "creative") {
