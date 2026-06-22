@@ -438,6 +438,44 @@ try {
         'version'      => (int)$agentVer,
     ];
 
+    // ── 8b. AI copy (headline / subheadline / CTA) ───────────────────────────
+    // The external flow used to never generate copy — the CTA fell back to a generic
+    // hardcoded "Get Started" and the headline to a naive offer-derived string (a top
+    // complaint about the ads). When the caller did NOT lock the copy (use_ai_copy !==
+    // false), generate conversion copy via the edge 'copy' mode (action-first 2–5 word CTA
+    // in the campaign's language) and feed it to BOTH interpret and compose. Generated once
+    // per job so all formats share one coherent copy system. Locked copy is left untouched.
+    $useAiCopy = !array_key_exists('useAiCopy', $campaignFormData) || $campaignFormData['useAiCopy'] !== false;
+    if ($useAiCopy) {
+        try {
+            $copyRes = agents_call_edge_function('agents-ads', [
+                'mode'         => 'copy',
+                'agentConfig'  => $agentConfig,
+                'campaignData' => $campaignFormData,
+            ], $passKey);
+            $copy = is_array($copyRes['copy'] ?? null) ? $copyRes['copy'] : null;
+            if (is_array($copy)) {
+                foreach (['mainHeadline', 'subheadline', 'ctaText'] as $f) {
+                    if (!empty($copy[$f]) && is_string($copy[$f])) $campaignFormData[$f] = trim($copy[$f]);
+                }
+                // A/B copy variants → arrays the compose/image variant tasks read.
+                if (!empty($copy['abVariants']) && is_array($copy['abVariants'])) {
+                    $hv = []; $cv = [];
+                    foreach ($copy['abVariants'] as $v) {
+                        if (!empty($v['mainHeadline'])) $hv[] = (string)$v['mainHeadline'];
+                        if (!empty($v['ctaText']))      $cv[] = (string)$v['ctaText'];
+                    }
+                    if ($hv) $campaignFormData['headlineVariants'] = $hv;
+                    if ($cv) $campaignFormData['ctaVariants'] = $cv;
+                }
+                error_log('[generate-ads-worker] AI copy applied: cta="' . ($campaignFormData['ctaText'] ?? '') . '"');
+            }
+        } catch (Throwable $copyErr) {
+            error_log('[generate-ads-worker] copy generation failed (non-fatal): ' . $copyErr->getMessage());
+        }
+        agents_reconnect_mysqli_if_needed($conn);
+    }
+
     // ── 9. Interpret ──────────────────────────────────────────────────────
 
     // Interpret is a planning aid, not a hard requirement for COMPOSE (image): the
