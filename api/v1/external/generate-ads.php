@@ -168,6 +168,7 @@ function ext_map_company(array $c): array {
         'businessName'        => $str('name'),
         'businessCategory'    => $str('industry'),
         'businessDescription' => $str('description'),
+        'language'            => $first(['language', 'lang', 'locale']),
         'toneOfVoice'         => $str('tone_of_voice'),
         'brandPersonality'    => $str('brand_personality'),
         'brandKeywords'       => $str('brand_keywords'),
@@ -208,6 +209,7 @@ function ext_map_campaign(array $cam, array $formats): array {
         'campaignName'          => $str('name'),
         'campaignObjective'     => $str('objective'),
         'funnelStage'           => $str('funnel_stage'),
+        'language'              => $first(['language', 'lang', 'locale']),
         'productName'           => $first(['product_name', 'product', 'service_name', 'service']),
         'valueProposition'      => $first(['value_proposition', 'value_prop', 'benefit', 'main_benefit']),
         'offer'                 => $str('offer'),
@@ -316,6 +318,7 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
     // brand kit never reaches the image prompt (BRAND_CSS_VARS / BRAND_VISUAL come out
     // empty). Only fills when the campaign itself didn't already provide the field.
     $brandBridge = [
+        'language'            => 'language',
         'brandName'           => 'businessName',
         'industry'            => 'businessCategory',
         'businessDescription' => 'businessDescription',

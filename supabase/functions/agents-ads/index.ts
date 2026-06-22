@@ -85,6 +85,7 @@ const RENDER_MODEL_CHAIN = ["gemini-2.5-flash"];
 const MODEL_CHAIN        = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
 
 const COPY_SYSTEM_PROMPT = `You are an expert direct-response ad copywriter. Generate concise, conversion-focused copy based on campaign data. Output ONLY valid JSON matching the schema.
+LANGUAGE: Write ALL copy (headline, subheadline, CTA, body) in the language explicitly stated in the campaign data, or — if none is stated — in the SAME language as the campaign data itself (business name, value prop, offer). Never switch or mix languages. A CTA in the wrong language is a failed creative.
 Rules: mainHeadline max 40 chars — punchy hook/promise. subheadline max 55 chars — reinforces value or specificity. ctaText 2–5 words — action-first verb. bodyText optional supporting line. If abTestingEnabled and abVariantCount > 1, generate abVariants testing the declared abTestFocus.`;
 
 const COPY_JSON_SCHEMA = {

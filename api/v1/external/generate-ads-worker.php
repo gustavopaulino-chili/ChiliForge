@@ -476,6 +476,25 @@ try {
         agents_reconnect_mysqli_if_needed($conn);
     }
 
+    // ── 8c. Random text/logo layout ─────────────────────────────────────────
+    // When the caller didn't pin a layout (textLayout / logo_position), pick a RANDOM one
+    // per generation so creatives aren't all left-aligned and identical. The edge then
+    // FORCES this layout and the AI background reserves the matching negative space. The RNG
+    // lives here (PHP) because the edge runtime forbids Math.random. Skipped for A/B-visual,
+    // where the edge already assigns a distinct layout per variant.
+    $LAYOUT_KEYS = [
+        'hero-full-bleed', 'diagonal-split', 'top-image-bottom-text', 'left-panel-right-image',
+        'centered-minimal', 'bold-headline-first', 'frame-product', 'top-left-editorial',
+        'top-right-editorial', 'bottom-right-editorial', 'vertical-story-stack', 'floating-islands',
+    ];
+    $isAbVisual = !empty($campaignFormData['abTestingEnabled'])
+        && strtolower(trim((string)($campaignFormData['abTestFocus'] ?? ''))) === 'visual';
+    $curLayout = strtolower(trim((string)($campaignFormData['textLayout'] ?? '')));
+    if (!$isAbVisual && !in_array($curLayout, $LAYOUT_KEYS, true)) {
+        $campaignFormData['textLayout'] = $LAYOUT_KEYS[array_rand($LAYOUT_KEYS)];
+        error_log('[generate-ads-worker] random textLayout=' . $campaignFormData['textLayout']);
+    }
+
     // ── 9. Interpret ──────────────────────────────────────────────────────
 
     // Interpret is a planning aid, not a hard requirement for COMPOSE (image): the
