@@ -9,7 +9,7 @@
  *   - Persists them in company_form_data (logoUrl/images.logo, referenceImages[],
  *     images.productImages[]) so EVERY future generation consults them.
  *   - Re-syncs the company Gemini File Search store once per call (cost-aware).
- *   - Rate limited per API key.
+ *   - No custom request limit — only Gemini's own quota applies (handled gracefully).
  *
  * The reference images become the brand's compose references: generate-ads.php bridges
  * referenceImages -> campaignData.composeCompanyRefs and defaults the compose background to
@@ -31,8 +31,8 @@ include __DIR__ . '/../../site_helpers.php';
 const CAA_MAX_IMAGES   = 12;          // per request
 const CAA_MAX_BYTES    = 8000000;     // 8 MB per image (decoded)
 const CAA_MAX_STORED   = 24;          // cap referenceImages kept on the company
-const CAA_RATE_LIMIT   = 20;          // requests
-const CAA_RATE_WINDOW  = 60;          // per seconds
+// No custom request rate limit: the only upstream cost here is the Gemini store sync, which
+// already handles Gemini's own 429/rate-limit gracefully (kept as a warning, never fatal).
 
 function caa_fail(int $code, string $msg, string $errCode = ''): void {
     http_response_code($code);
@@ -61,30 +61,6 @@ $userId = (int)$userId;
 $accountType = ($accountType === 'admin') ? 'admin' : 'testing';
 if ($uu = $conn->prepare("UPDATE api_keys SET requests_count = requests_count + 1, last_used_at = NOW() WHERE api_key = ?")) {
     $uu->bind_param('s', $apiKey); $uu->execute(); $uu->close();
-}
-
-// ── Rate limit (sliding window per key) ──────────────────────────────────────
-// Wrapped: mysqli runs in EXCEPTION mode here, so if the api_rate_limit table hasn't been
-// created yet, the queries throw — we then skip enforcement (the endpoint still works) until
-// the table exists. The 429 path uses caa_fail() which exits cleanly.
-try {
-    $now = time(); $ws = 0; $cnt = 0; $exists = false;
-    $rs = $conn->prepare("SELECT window_start, count FROM api_rate_limit WHERE api_key = ? LIMIT 1");
-    $rs->bind_param('s', $apiKey); $rs->execute(); $rs->bind_result($ws, $cnt);
-    if ($rs->fetch()) $exists = true;
-    $rs->close();
-    if (!$exists || ($now - (int)$ws) >= CAA_RATE_WINDOW) {
-        $w = $conn->prepare("INSERT INTO api_rate_limit (api_key, window_start, count) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE window_start = VALUES(window_start), count = 1");
-        $w->bind_param('si', $apiKey, $now); $w->execute(); $w->close();
-    } elseif ((int)$cnt >= CAA_RATE_LIMIT) {
-        header('Retry-After: ' . (CAA_RATE_WINDOW - ($now - (int)$ws)));
-        caa_fail(429, 'Rate limit exceeded. Try again shortly.', 'rate_limited');
-    } else {
-        $w = $conn->prepare("UPDATE api_rate_limit SET count = count + 1 WHERE api_key = ?");
-        $w->bind_param('s', $apiKey); $w->execute(); $w->close();
-    }
-} catch (Throwable $rlErr) {
-    error_log('[company-assets] rate limit inactive (run the api_rate_limit migration): ' . $rlErr->getMessage());
 }
 
 // ── Validate input ───────────────────────────────────────────────────────────
