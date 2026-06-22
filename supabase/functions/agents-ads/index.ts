@@ -1607,6 +1607,38 @@ function specForFormat(allSpecs: string, format: AdFormat): string {
   return first || source;
 }
 
+// Approximate a hex color with a plain English name so the background prompt can convey
+// the brand palette WITHOUT ever feeding a raw "#hex" string the model might render as text.
+function describeHexColor(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec((hex || "").trim());
+  if (!m) return "";
+  const r = parseInt(m[1].slice(0, 2), 16) / 255, g = parseInt(m[1].slice(2, 4), 16) / 255, b = parseInt(m[1].slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+  let h = 0;
+  if (d) { if (max === r) h = ((g - b) / d) % 6; else if (max === g) h = (b - r) / d + 2; else h = (r - g) / d + 4; h *= 60; if (h < 0) h += 360; }
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  if (s < 0.12) return l < 0.22 ? "near-black" : l < 0.45 ? "charcoal gray" : l > 0.82 ? "off-white" : "light gray";
+  const light = l < 0.22 ? "very dark " : l < 0.4 ? "dark " : l > 0.82 ? "very light " : l > 0.62 ? "light " : "";
+  const hue = (h < 15 || h >= 345) ? "red" : h < 45 ? "orange" : h < 70 ? "amber" : h < 160 ? "green" : h < 200 ? "teal" : h < 255 ? "blue" : h < 290 ? "violet" : h < 330 ? "magenta" : "pink";
+  return (light + hue).trim();
+}
+
+// Strip anything the image model could copy verbatim as text into a "zero-text" background:
+// hex codes, CSS variable tokens/declarations, var(), URLs, font-URL lines. Used ONLY for the
+// background image prompt — the HTML overlay still gets the real hex via cssVars.
+function scrubBgPromptText(text: string): string {
+  return String(text || "")
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\bBRAND_FONT_URL\b\s*:?[^\n]*/gi, "")
+    .replace(/\bBRAND_CSS_VARS\b\s*:?/gi, "Brand palette:")
+    .replace(/var\(\s*--[a-z0-9-]+\s*\)/gi, "")
+    .replace(/--[a-z0-9-]+\s*:/gi, "")
+    .replace(/#[0-9a-f]{3,8}\b/gi, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function buildBackgroundPrompt(
   spec: string,
   campaignFactsImg: string,
@@ -1656,6 +1688,15 @@ function buildBackgroundPrompt(
     ].join("\n");
   }
 
+  // Convey the brand palette as color NAMES (never raw hex) and scrub every code/URL/CSS
+  // token from the spec + facts so nothing can be copied verbatim into the image as text.
+  const paletteNames = [...new Set((spec.match(/#[0-9a-f]{6}\b/gi) || []).slice(0, 4).map(describeHexColor).filter(Boolean))];
+  const colorLine = paletteNames.length
+    ? `BRAND PALETTE (use these as the color mood ONLY — never write any color name, code, hex or # as text): ${paletteNames.join(", ")}.`
+    : "";
+  const safeSpec = scrubBgPromptText(spec);
+  const safeFacts = scrubBgPromptText(campaignFactsImg);
+
   return [
     "You are generating the BACKGROUND LAYER of a composite ad.",
     "An HTML overlay placed on top will add: the brand logo, headline, body copy, and CTA. Your image must contain NONE of those.",
@@ -1673,12 +1714,13 @@ function buildBackgroundPrompt(
       ? "Even though this is an ABSTRACT background, the palette, energy and mood must still reflect the campaign's product, audience and tone — not a decorative pattern unrelated to the offer."
       : "Keep it cohesive with the brand colors and the chosen visual style/tone; do not drift into stock visuals that ignore what is being advertised.",
     "",
-    "████ ZERO-TEXT RULE — NO EXCEPTIONS ████",
+    "████ ZERO-TEXT & ZERO-CODE RULE — NO EXCEPTIONS ████",
     "❌ NO text of any kind — not headline, not body copy, not CTA, not tagline, not slogan, not offer, not brand name, not any word or letter.",
-    "❌ NO logo, wordmark, icon, seal, emblem, monogram, or any brand symbol whatsoever.",
+    "❌ NO hex codes, color codes, the '#' character, CSS tokens (e.g. --primary), variable names, URLs, file paths, or numbers anywhere — not tiny, not in a corner, not on a product label. These are internal parameters, NEVER content to draw.",
+    "❌ NO logo, wordmark, the word 'LOGO', placeholder logo, icon, seal, emblem, monogram, or any brand symbol or lettering whatsoever.",
     "❌ NO button shapes, pill shapes, or any UI element that looks like it holds text.",
     "❌ NO placeholder boxes, lorem ipsum, or text-shaped blanks.",
-    "The HTML overlay will handle all of these. Any text or logo in your image will break the composite.",
+    "The HTML overlay will handle the logo and all copy. ANY text, letter, number, code or logo in your image is a FAILED render.",
     "",
     "CREATIVE DIRECTION:",
     direction,
@@ -1701,12 +1743,13 @@ function buildBackgroundPrompt(
     "These zones need enough visual calm and contrast so that white or dark text is legible on top.",
     "Avoid filling every pixel — the brand logo and headline need clear breathing room.",
     "",
-    spec
-      ? `CREATIVE SPEC (follow for color palette, visual style, brand aesthetic, and composition):\n${spec}`
+    colorLine,
+    safeSpec
+      ? `CREATIVE SPEC (follow for visual style, brand aesthetic, and composition):\n${safeSpec}`
       : "Create a visually compelling backdrop using the brand's colors and visual language.",
     "",
-    "CAMPAIGN CONTEXT (for color/style reference only — do NOT render any of this text):",
-    campaignFactsImg,
+    "CAMPAIGN CONTEXT (for color/style reference only — do NOT render any of this text, and never any code/number/URL it may mention):",
+    safeFacts,
     "",
     `FORMAT: ${format.width}×${format.height}px | Aspect ratio: ${aspectRatio}`,
     "",
@@ -2337,8 +2380,9 @@ serve(async (req: Request) => {
       const imageLangLabel = imageLangCode && imageLangCode !== "auto" ? (IMAGE_LANGUAGE_NAMES[imageLangCode] || imageLangCode) : "";
       const imageTasks = buildImageVariantTasks(formats, campaignData);
 
-      // Creative spec from interpret step — same pipeline as HTML mode, just different output model
-      const spec = String(payload.creativePlan || "").trim();
+      // Creative spec from interpret step — scrubbed of hex/codes/URLs so the model never
+      // renders them as text (the brand palette still reaches it via the reference images).
+      const spec = scrubBgPromptText(String(payload.creativePlan || "").trim());
       const costAcc = { usd: 0, images: 0 }; // per-generation cost tracker (this request)
 
       const imageFns = imageTasks.map((task) => async () => {
