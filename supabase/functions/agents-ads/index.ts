@@ -222,26 +222,9 @@ async function uploadImageToStorage(dataUrl: string | null, strict = false, stor
   return dataUrl;
 }
 
-type ComposeTextBox = {
-  x: number;
-  y: number;
-  w: number;
-  h?: number;
-};
-
-// Text-overlay recommendation the image model returns ALONGSIDE the background image,
-// and/or the follow-up vision pass returns from the hosted background URL.
-// Used to tune the HTML/GD overlay; always optional (fallback safe).
-type ComposeTextRec = {
-  headlineScale?: number;
-  align?: "left" | "center" | "right";
-  boxes?: {
-    headline?: ComposeTextBox;
-    sub?: ComposeTextBox;
-    cta?: ComposeTextBox;
-  };
-  source?: "image_model" | "vision_url";
-};
+// Text-overlay recommendation the image model returns ALONGSIDE the background image
+// (response text part). Used to fine-tune the HTML overlay; always optional (fallback safe).
+type ComposeTextRec = { headlineScale?: number; align?: "left" | "center" | "right" };
 
 function extractTextFromGeminiPayload(data: any): string {
   const parts = data?.candidates?.[0]?.content?.parts;
@@ -1425,129 +1408,99 @@ const CREATIVE_SPACE_GUIDANCE: Record<string, string> = {
   "top-image-bottom-text": "Text will sit near the bottom. Put the visual hook in the upper area, while the lower area can contain soft texture, depth, or color wash.",
   "left-panel-right-image": "Text will use the left side. Keep the left side readable with low-detail brand atmosphere, not a blank block. Put subject/product energy on the right.",
   "centered-minimal":    "Text may sit at top and bottom. Use a strong central visual idea with clean surrounding air, avoiding tiny busy details behind text zones.",
-  "bold-headline-first": "Text occupies the top-left area. Keep that zone contrast-friendly — calmer values, soft blur or gentle darkening. Put the brightest highlights and main subject focus toward the lower-right or center.",
+  "bold-headline-first": "Text will use top and bottom areas. Make the middle visually expressive, with reduced micro-detail behind the headline and CTA areas.",
   "frame-product":       "Text may sit near edges. Use an inventive framed or layered scene, with readable edges and a stronger center focal area.",
   "top-left-editorial":  "Text will sit in the top-left quadrant. Keep that area lower-detail with atmospheric texture, while the strongest visual subject can sit bottom-right or center-right.",
   "top-right-editorial": "Text will sit in the top-right quadrant. Keep that area readable with soft contrast, while visual energy can sit left or lower-left.",
   "bottom-right-editorial": "Text will sit in the bottom-right quadrant. Keep that area calm and contrast-friendly, with visual subject energy left or upper-left.",
-  "vertical-story-stack": "Text runs down the left column. Keep the left side contrast-friendly — softer tones, low-detail atmosphere. Put the main subject and visual energy on the right side.",
+  "vertical-story-stack": "Text will use a vertical story-style stack with logo near top, headline around upper/mid canvas, and CTA near bottom. Keep these lanes readable without making them empty.",
   "floating-islands":    "HTML elements will be spread across separate visual islands. Keep multiple calm zones available, with expressive detail between them.",
 };
 
-// TEXT POSITIONS — headline / sub / cta are SEPARATE absolutely-positioned elements.
-// This shape is required by the server-side GD compositor (api/v1/external/compose-gd.php),
-// which walks the DIRECT children of .ad-banner and renders each text div on its own (with a
-// 2-pass auto-fit + button rendering for the CTA). They must stay separate top-level elements
-// — NOT nested in a flex container (the GD parser then sees one blob: wrong size, glued
-// headline+sub, no CTA button). The anchors below are tuned to sit CLOSE TOGETHER as a tight
-// cluster per layout, which fixes the old "scattered text" look while staying GD-compatible.
+// COHESIVE TEXT BLOCK MODEL.
+// Earlier each text part (headline / sub / cta) was an independent absolutely-positioned
+// element with its own fixed top/bottom anchor — which flung them apart ("title up top,
+// CTA at the bottom, sub floating in the middle"). Now a layout only decides WHERE a single
+// text block sits (`block` = the anchor rectangle for a flex column) and how it aligns
+// (`align`). Headline, sub and CTA always render together inside that block with controlled
+// gaps, so they read as one cohesive ad — varied by zone across layouts, never scattered.
 type LayoutPosition = {
-  logo: string;     // absolute anchor for the logo / brand name
-  headline: string; // absolute anchor for the headline
-  sub: string;      // absolute anchor for the subheadline (just below the headline)
-  cta: string;      // absolute anchor for the CTA (closes the cluster)
+  logo: string;   // absolute anchor for the logo / brand name
+  block: string;  // absolute anchor rectangle for the headline+sub+cta flex column
   align: "left" | "center" | "right";
 };
 
-// Anchors form a TIGHT CLUSTER (headline, then sub right below, then CTA) so the three read
-// as one unit. The GD compositor auto-fits each within the gap to its neighbour, so the
-// spacing stays clean across copy lengths. Bottom-zone layouts bottom-anchor the CTA; the
-// others keep all three top-anchored as a stacked cluster.
 const LAYOUT_POSITIONS: Record<string, LayoutPosition> = {
-  // LEFT cluster, vertically centered; product on the right
+  // text block sits on the LEFT, vertically centered, product on the right
   "diagonal-split": {
-    logo:     "top:6%;left:6%;width:30%;max-height:14%;",
-    headline: "top:34%;left:6%;right:50%;",
-    sub:      "top:50%;left:6%;right:50%;",
-    cta:      "top:64%;left:6%;",
+    logo:  "top:6%;left:6%;width:30%;max-height:14%;",
+    block: "left:6%;right:50%;top:50%;transform:translateY(-50%);",
     align: "left",
   },
-  // BOTTOM cluster, full width
+  // text block hugs the BOTTOM edge as one stack
   "hero-full-bleed": {
-    logo:     "top:5%;left:5%;width:28%;max-height:12%;",
-    headline: "top:60%;left:5%;right:5%;",
-    sub:      "top:75%;left:5%;right:5%;",
-    cta:      "bottom:7%;left:5%;",
+    logo:  "top:5%;left:5%;width:28%;max-height:12%;",
+    block: "left:5%;right:5%;bottom:7%;",
     align: "left",
   },
-  // BOTTOM cluster (product fills the top)
+  // text block hugs the BOTTOM (product fills the top)
   "top-image-bottom-text": {
-    logo:     "top:5%;left:5%;width:26%;max-height:11%;",
-    headline: "top:58%;left:5%;right:5%;",
-    sub:      "top:73%;left:5%;right:5%;",
-    cta:      "bottom:6%;left:5%;",
+    logo:  "top:5%;left:5%;width:26%;max-height:11%;",
+    block: "left:5%;right:5%;bottom:6%;",
     align: "left",
   },
-  // LEFT cluster, vertically centered
+  // text block on the LEFT panel, vertically centered
   "left-panel-right-image": {
-    logo:     "top:6%;left:4%;width:30%;max-height:14%;",
-    headline: "top:34%;left:4%;right:56%;",
-    sub:      "top:50%;left:4%;right:56%;",
-    cta:      "top:64%;left:4%;",
+    logo:  "top:6%;left:4%;width:30%;max-height:14%;",
+    block: "left:4%;right:54%;top:50%;transform:translateY(-50%);",
     align: "left",
   },
-  // CENTER cluster, vertically centered
+  // text block centered both ways
   "centered-minimal": {
-    logo:     "top:6%;left:50%;transform:translateX(-50%);width:26%;max-height:12%;",
-    headline: "top:34%;left:8%;right:8%;",
-    sub:      "top:52%;left:10%;right:10%;",
-    cta:      "top:68%;left:50%;transform:translateX(-50%);",
+    logo:  "top:6%;left:50%;transform:translateX(-50%);width:26%;max-height:12%;",
+    block: "left:8%;right:8%;top:50%;transform:translateY(-50%);",
     align: "center",
   },
-  // TOP cluster, below the logo
+  // text block near the TOP, below the logo
   "bold-headline-first": {
-    logo:     "top:5%;right:5%;width:22%;max-height:10%;",
-    headline: "top:20%;left:5%;right:42%;",
-    sub:      "top:36%;left:5%;right:46%;",
-    cta:      "top:50%;left:5%;",
+    logo:  "top:5%;right:5%;width:22%;max-height:10%;",
+    block: "left:5%;right:5%;top:19%;",
     align: "left",
   },
-  // BOTTOM cluster, centered, inside a framed product
+  // text block centered along the BOTTOM inside a framed product
   "frame-product": {
-    logo:     "top:6%;left:50%;transform:translateX(-50%);width:28%;max-height:13%;",
-    headline: "top:62%;left:5%;right:5%;",
-    sub:      "top:77%;left:5%;right:5%;",
-    cta:      "bottom:6%;left:50%;transform:translateX(-50%);",
+    logo:  "top:6%;left:50%;transform:translateX(-50%);width:28%;max-height:13%;",
+    block: "left:6%;right:6%;bottom:6%;",
     align: "center",
   },
-  // TOP-LEFT quadrant cluster
+  // editorial: text block in the TOP-LEFT quadrant
   "top-left-editorial": {
-    logo:     "top:5%;left:5%;width:26%;max-height:11%;",
-    headline: "top:22%;left:5%;right:42%;",
-    sub:      "top:38%;left:5%;right:46%;",
-    cta:      "top:53%;left:5%;",
+    logo:  "top:5%;left:5%;width:26%;max-height:11%;",
+    block: "left:5%;right:40%;top:21%;",
     align: "left",
   },
-  // TOP-RIGHT quadrant cluster
+  // editorial: text block in the TOP-RIGHT quadrant
   "top-right-editorial": {
-    logo:     "top:5%;right:5%;width:24%;max-height:11%;",
-    headline: "top:22%;left:44%;right:5%;",
-    sub:      "top:38%;left:48%;right:5%;",
-    cta:      "top:53%;right:5%;",
+    logo:  "top:5%;right:5%;width:24%;max-height:11%;",
+    block: "left:42%;right:5%;top:21%;",
     align: "right",
   },
-  // BOTTOM-RIGHT quadrant cluster
+  // editorial: text block in the BOTTOM-RIGHT quadrant
   "bottom-right-editorial": {
-    logo:     "top:5%;left:5%;width:24%;max-height:11%;",
-    headline: "top:54%;left:42%;right:5%;",
-    sub:      "top:70%;left:48%;right:5%;",
-    cta:      "bottom:6%;right:5%;",
+    logo:  "top:5%;left:5%;width:24%;max-height:11%;",
+    block: "left:42%;right:5%;bottom:7%;",
     align: "right",
   },
-  // LEFT story cluster, vertically centered
+  // story: cohesive left stack, vertically centered
   "vertical-story-stack": {
-    logo:     "top:5%;left:6%;width:24%;max-height:10%;",
-    headline: "top:30%;left:6%;right:42%;",
-    sub:      "top:48%;left:6%;right:48%;",
-    cta:      "top:68%;left:6%;",
+    logo:  "top:5%;left:6%;width:24%;max-height:10%;",
+    block: "left:6%;right:10%;top:50%;transform:translateY(-50%);",
     align: "left",
   },
-  // BOTTOM-LEFT cluster
+  // text block hugs the BOTTOM-LEFT
   "floating-islands": {
-    logo:     "top:5%;left:5%;width:24%;max-height:10%;",
-    headline: "top:60%;left:5%;right:5%;",
-    sub:      "top:75%;left:5%;right:5%;",
-    cta:      "bottom:7%;left:5%;",
+    logo:  "top:5%;left:5%;width:24%;max-height:10%;",
+    block: "left:6%;right:6%;bottom:7%;",
     align: "left",
   },
 };
@@ -1822,7 +1775,7 @@ function buildBackgroundPrompt(
     (() => {
       const pos = LAYOUT_POSITIONS[layout];
       return pos
-        ? `PRECISE OVERLAY ZONES (CSS coords on the final canvas — keep these areas contrast-friendly for overlaid text; the overlay drops the logo plus a tight headline→subheadline→CTA cluster here): logo[${pos.logo}] headline[${pos.headline}] subheadline[${pos.sub}] cta[${pos.cta}]. Do not place the product face, hero subject, brightest highlight, hard edges, or important visual details underneath ANY of those zones. Those text rows sit close together as one cluster — keep the SHARPEST focal subject and harshest contrast away from the full band from headline through CTA (soft design detail there is fine).`
+        ? `PRECISE OVERLAY ZONES (CSS coords on the final canvas — keep these rectangles contrast-friendly for overlaid text; the overlay drops the logo and the WHOLE text block here): logo[${pos.logo}] text-block[${pos.block}]. The headline, body copy and CTA stack TOGETHER as one block inside that rectangle — keep the SHARPEST focal subject and harshest contrast away from it (soft design detail there is fine).`
         : "";
     })(),
     "",
@@ -1856,133 +1809,14 @@ const LAYOUT_SCRIMS: Record<string, string> = {
   "top-image-bottom-text":  "inset:48% 0 0 0;background:linear-gradient(to bottom,rgba(0,0,0,0) 0%,rgba(0,0,0,0.68) 35%,rgba(0,0,0,0.80) 100%)",
   "left-panel-right-image": "inset:0 56% 0 0;background:linear-gradient(to right,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.30) 75%,rgba(0,0,0,0) 100%)",
   "centered-minimal":       "inset:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0.52) 0%,rgba(0,0,0,0.18) 65%,rgba(0,0,0,0) 100%)",
-  "bold-headline-first":    "inset:0 38% 34% 0;background:linear-gradient(to right,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.42) 72%,rgba(0,0,0,0) 100%)",
+  "bold-headline-first":    "inset:0 0 auto 0;height:64%;background:linear-gradient(to bottom,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.30) 78%,rgba(0,0,0,0) 100%)",
   "frame-product":          "inset:auto 0 0 0;height:46%;background:linear-gradient(to top,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0.20) 70%,rgba(0,0,0,0) 100%)",
   "top-left-editorial":     "inset:0 42% 32% 0;background:linear-gradient(135deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)",
   "top-right-editorial":    "inset:0 0 32% 42%;background:linear-gradient(225deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)",
   "bottom-right-editorial": "inset:42% 0 0 42%;background:linear-gradient(315deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)",
-  "vertical-story-stack":   "inset:0 42% 0 0;background:linear-gradient(to right,rgba(0,0,0,0.68) 0%,rgba(0,0,0,0.30) 72%,rgba(0,0,0,0) 100%)",
+  "vertical-story-stack":   "inset:0 46% 0 0;background:linear-gradient(to right,rgba(0,0,0,0.66) 0%,rgba(0,0,0,0.22) 70%,rgba(0,0,0,0) 100%)",
   "floating-islands":       "inset:auto 0 0 0;height:50%;background:linear-gradient(to top,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0.22) 65%,rgba(0,0,0,0) 100%)",
 };
-
-// Convert a vision-analysis box (x/y/w in % of canvas) to a CSS anchor string that
-// the GD compositor can parse (top/left/right as %).
-function boxToCssAnchor(box: ComposeTextBox, align: "left" | "center" | "right"): string {
-  const right = Math.max(0, 100 - box.x - box.w);
-  if (align === "right") return `top:${box.y}%;right:${right}%;left:${box.x}%;`;
-  return `top:${box.y}%;left:${box.x}%;right:${right}%;`;
-}
-
-// Analyze brand reference image URLs (ads/visuals uploaded by the user) and return a concise
-// text brief describing the brand's visual design language. This brief guides background
-// generation without ever sending raw pixels (no base64) to the expensive image model.
-// Returns "" on any failure — always fallback-safe.
-async function extractBrandVisualBrief(imageUrls: string[], apiKey: string): Promise<string> {
-  const validUrls = imageUrls
-    .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
-    .slice(0, 4);
-  if (!validUrls.length) return "";
-  const parts: unknown[] = [
-    ...validUrls.map((uri) => ({ fileData: { mimeType: "image/jpeg", fileUri: uri } })),
-    { text: `Study these brand reference images — they show how this brand creates its advertising.
-Write a concise visual design brief (4-6 sentences) that an art director could use to create NEW original ads that feel unmistakably like this brand, without copying the exact layout or content:
-• Composition and framing style (element placement, negative space, cropping, layering)
-• Color palette mood (dominant tones, warmth/coolness, saturation, contrast level)
-• Lighting and texture (soft/dramatic, studio/natural, matte/glossy, grain, glow)
-• Design devices and motifs (geometric shapes, overlays, depth, patterns, decorative elements)
-• Subject/product treatment (placement, scale, isolation vs context, lifestyle vs product-only)
-• Overall visual energy and premium level (bold/clean/dynamic/warm/luxurious/etc)
-Be specific and actionable. Describe the STYLE, not the content — no product names, no copy text, no logos.` },
-  ];
-  try {
-    const url = `${buildAiUrl("gemini-2.5-flash-lite")}?key=${apiKey}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 500 },
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) {
-      console.warn(`[brand-brief] vision call failed: ${res.status}`);
-      return "";
-    }
-    const data = await res.json();
-    const brief = extractTextFromGeminiPayload(data).trim();
-    console.log(`[brand-brief] extracted ${brief.length} chars from ${validUrls.length} reference URLs`);
-    return brief;
-  } catch (err) {
-    console.warn(`[brand-brief] skipped: ${err instanceof Error ? err.message : String(err)}`);
-    return "";
-  }
-}
-
-// Send the hosted background URL to a cheap vision model and get back the best text-safe
-// zones as a ComposeTextRec with boxes. Completely fallback-safe — any failure returns null.
-// Uses fileData.fileUri (HTTPS URL) so ZERO base64 is transmitted.
-async function analyzeBackgroundLayout(
-  bgUrl: string,
-  format: AdFormat,
-  layoutHint: string,
-  apiKey: string,
-): Promise<ComposeTextRec | null> {
-  if (!bgUrl || !bgUrl.startsWith("http")) return null;
-  const w = format.width ?? 1080;
-  const h = format.height ?? 1080;
-  const prompt =
-    `This is the background image for a ${w}×${h}px ad with "${layoutHint}" composition. ` +
-    `Identify the best zones for white text overlay (calm/dark/low-contrast areas). ` +
-    `Return ONLY valid JSON — no other text:\n` +
-    `{"align":"left","boxes":{"headline":{"x":5,"y":20,"w":53},"sub":{"x":5,"y":34,"w":50},"cta":{"x":5,"y":48,"w":35}}}\n` +
-    `Rules: x/y/w are PERCENTAGES of canvas. align = "left"/"center"/"right" to match the calm zone. ` +
-    `headline y ≈ 20-40%, sub y ≈ headline.y+12-14%, cta y ≈ sub.y+12-14%. ` +
-    `Pick the zone with the softest contrast and least detail as text zone.`;
-  try {
-    const url = `${buildAiUrl("gemini-2.5-flash-lite")}?key=${apiKey}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [
-          { fileData: { mimeType: "image/jpeg", fileUri: bgUrl } },
-          { text: prompt },
-        ]}],
-        generationConfig: { temperature: 0.05, maxOutputTokens: 200, responseMimeType: "application/json" },
-      }),
-      signal: AbortSignal.timeout(12000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const text = extractTextFromGeminiPayload(data);
-    if (!text) return null;
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    const parsed = JSON.parse(jsonMatch[0]);
-    const rec: ComposeTextRec = { source: "vision_url" };
-    if (parsed.align === "left" || parsed.align === "center" || parsed.align === "right") rec.align = parsed.align;
-    if (parsed.boxes && typeof parsed.boxes === "object") {
-      const boxes: NonNullable<ComposeTextRec["boxes"]> = {};
-      for (const key of ["headline", "sub", "cta"] as const) {
-        const b = parsed.boxes[key];
-        if (b && typeof b.x === "number" && typeof b.y === "number" && typeof b.w === "number") {
-          boxes[key] = {
-            x: Math.min(90, Math.max(0, Number(b.x))),
-            y: Math.min(90, Math.max(0, Number(b.y))),
-            w: Math.min(95, Math.max(10, Number(b.w))),
-          };
-        }
-      }
-      if (Object.keys(boxes).length) rec.boxes = boxes;
-    }
-    console.log(`[vision-layout] layout=${layoutHint} align=${rec.align ?? "?"} boxes=${JSON.stringify(rec.boxes ?? null)}`);
-    return (rec.align || rec.boxes) ? rec : null;
-  } catch (err) {
-    console.warn(`[vision-layout] skipped: ${err instanceof Error ? err.message : String(err)}`);
-    return null;
-  }
-}
 
 function buildCompositionHtml(
   bgDataUrl: string,
@@ -2003,20 +1837,6 @@ function buildCompositionHtml(
   const detectedLayout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const layout = LAYOUT_POSITIONS[detectedLayout] ?? LAYOUT_POSITIONS["hero-full-bleed"];
 
-  // If vision analysis returned text-safe boxes, use them to override the default layout anchors.
-  // Falls back to LAYOUT_POSITIONS when vision is unavailable. Logo and scrim always use the
-  // static layout so they don't shift unexpectedly.
-  const recAlign = rec?.align ?? layout.align;
-  const effectiveLayout: LayoutPosition = rec?.boxes
-    ? {
-        ...layout,
-        headline: rec.boxes.headline ? boxToCssAnchor(rec.boxes.headline, recAlign) : layout.headline,
-        sub:      rec.boxes.sub      ? boxToCssAnchor(rec.boxes.sub,      recAlign) : layout.sub,
-        cta:      rec.boxes.cta      ? boxToCssAnchor(rec.boxes.cta,      recAlign) : layout.cta,
-        align:    recAlign,
-      }
-    : layout;
-
   const primaryColor = extractCssVarColor(cssVars, "--primary") || "#1a1a2e";
   const fontFamily = extractCssVarFont(cssVars) || "'Inter','Helvetica Neue',Arial,sans-serif";
 
@@ -2032,9 +1852,8 @@ function buildCompositionHtml(
   // min(cqh,cqw) keeps text proportional to the *binding* dimension (no overflow on
   // extreme aspect ratios). sizeScale = optional hint from the image model (how much
   // clean space it left); clamped, 1.0 = computed size when no/invalid recommendation.
-  const sizeScale = Math.min(1.15, Math.max(0.68, Number(rec?.headlineScale) || 1));
-  const isSocialFmt = isSocialFormat(format);
-  const ctaScale  = isSocialFmt ? Math.min(0.66, sizeScale * 0.66) : Math.min(1.2, sizeScale);
+  const sizeScale = Math.min(1.4, Math.max(0.7, Number(rec?.headlineScale) || 1));
+  const ctaScale  = Math.min(1.2, sizeScale);
   // Length-aware shrink: a long headline/subheadline must not dominate the creative.
   // Combined with the model's clean-space hint (sizeScale) and the cq units (which already
   // scale with the banner's binding dimension), this keeps type proportional on every size.
@@ -2044,12 +1863,10 @@ function buildCompositionHtml(
   const subLenScale = subLen <= 45 ? 1 : subLen <= 75 ? 0.88 : 0.78;
   // Base coefficients lowered (was 8.8cqh/8cqw) — the old size ran ~8% of width (~86px on a
   // 1080 square), which crowded the layout. ~6.2cqw ≈ 67px is a punchy, balanced headline.
-  const headlineFs = `calc(min(6.2cqh, 5.4cqw) * ${(sizeScale * hlLenScale).toFixed(3)})`;
-  const subFs      = `calc(min(6.2cqh, 5.4cqw) * ${(sizeScale * 0.44 * subLenScale).toFixed(3)})`;
-  const ctaFs      = isSocialFmt
-    ? `calc(min(3.0cqh, 2.7cqw) * ${ctaScale.toFixed(3)})`
-    : `calc(min(4.0cqh, 3.7cqw) * ${ctaScale.toFixed(3)})`;
-  const logoFs     = `calc(min(6.2cqh, 5.4cqw) * ${(sizeScale * 0.44).toFixed(3)})`;
+  const headlineFs = `calc(min(7cqh, 6.2cqw) * ${(sizeScale * hlLenScale).toFixed(3)})`;
+  const subFs      = `calc(min(7cqh, 6.2cqw) * ${(sizeScale * 0.46 * subLenScale).toFixed(3)})`;
+  const ctaFs      = `calc(min(4.4cqh, 4.1cqw) * ${ctaScale.toFixed(3)})`;
+  const logoFs     = `calc(min(7cqh, 6.2cqw) * ${(sizeScale * 0.46).toFixed(3)})`;
 
   // Always use white text in compose mode — the scrim layer guarantees contrast
   // regardless of what the AI generated. Using brand color for text caused
@@ -2057,8 +1874,9 @@ function buildCompositionHtml(
   const textColor = "#ffffff";
   const textShadow = "0 2px 12px rgba(0,0,0,0.70), 0 1px 3px rgba(0,0,0,0.50)";
   const subColor = "rgba(255,255,255,0.90)";
-  // The layout (or vision override) owns horizontal alignment so the cluster reads as one unit.
-  const textAlign = effectiveLayout.align;
+  // The layout owns horizontal alignment so the whole block reads as one unit.
+  const textAlign = layout.align;
+  const alignItems = textAlign === "center" ? "center" : textAlign === "right" ? "flex-end" : "flex-start";
 
   const fontImport = fontUrl ? `<style>@import url('${fontUrl}');</style>` : "";
 
@@ -2084,31 +1902,37 @@ function buildCompositionHtml(
     ? `<img src="${logoUrl}" style="position:absolute;${logoCss}object-fit:contain;z-index:20" alt="logo" />`
     : (data.brandName ? `<div style="position:absolute;${logoCss}font-family:${fontFamily};font-size:${logoFs};font-weight:700;color:${textColor};z-index:20;white-space:nowrap;text-shadow:${textShadow}">${String(data.brandName).trim()}</div>` : "");
 
-  // ── TEXT LAYERS — separate top-level elements (required by the GD compositor) ──
-  // headline / sub / cta are SEPARATE absolutely-positioned divs (NOT nested), each with its
-  // own font-size and anchor, so api/v1/external/compose-gd.php parses and auto-fits each one.
-  // The LAYOUT_POSITIONS anchors keep them in a tight cluster so they still read as one ad.
-  const headlineLayer = headline
-    ? `<div style="position:absolute;${effectiveLayout.headline}font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:${textColor};line-height:1.10;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word;word-break:normal">${headline}</div>`
+  // ── COHESIVE TEXT BLOCK ──────────────────────────────────────────────────
+  // headline + sub + CTA render INSIDE one flex column anchored to layout.block,
+  // so they always stay grouped (tight gaps) instead of being flung to separate
+  // corners of the canvas. The layout only moves the whole block around.
+  const headlineEl = headline
+    ? `<div style="font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:${textColor};line-height:1.12;text-align:${textAlign};text-shadow:${textShadow};overflow-wrap:break-word;">${headline}</div>`
     : "";
 
-  const subLayer = sub
-    ? `<div style="position:absolute;${effectiveLayout.sub}font-family:${fontFamily};font-size:${subFs};font-weight:400;color:${subColor};line-height:1.28;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word;word-break:normal">${sub}</div>`
+  const subEl = sub
+    ? `<div style="margin-top:1.6cqh;font-family:${fontFamily};font-size:${subFs};font-weight:400;color:${subColor};line-height:1.34;text-align:${textAlign};text-shadow:${textShadow};overflow-wrap:break-word;">${sub}</div>`
     : "";
 
-  // CTA layer — social formats get organic text gesture, display formats get a button.
+  // CTA — social formats get organic text gesture, display formats get a button.
+  // It is the last child of the block; a slightly larger top margin separates it.
   const ctaRaw = String(data.ctaText || "").trim();
-  let ctaLayer = "";
+  const isSocialFmt = isSocialFormat(format);
+  let ctaEl = "";
   if (ctaRaw) {
     if (isSocialFmt) {
-      ctaLayer = `<div style="position:absolute;${effectiveLayout.cta}font-family:${fontFamily};font-size:${ctaFs};font-weight:700;color:${textColor};text-shadow:${textShadow};z-index:25;white-space:nowrap;letter-spacing:0.2px;opacity:0.88;text-align:${textAlign};max-width:90%;">${ctaRaw} ↓</div>`;
+      ctaEl = `<div style="margin-top:2.6cqh;font-family:${fontFamily};font-size:${ctaFs};font-weight:600;color:${textColor};text-shadow:${textShadow};white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`;
     } else {
       const isDark = contrastTextColor(primaryColor).color === "#ffffff";
       const btnBg    = isDark ? "rgba(255,255,255,0.95)" : "rgba(20,20,20,0.88)";
       const btnColor = isDark ? "#111111"                : "#ffffff";
-      ctaLayer = `<div style="position:absolute;${effectiveLayout.cta}display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.38em 0.82em;border-radius:0.36em;box-shadow:0 4px 18px rgba(0,0,0,0.22);z-index:25;white-space:nowrap;max-width:90%;">${ctaRaw}</div>`;
+      ctaEl = `<div style="margin-top:2.8cqh;align-self:${alignItems};display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.42em 0.90em;border-radius:0.38em;box-shadow:0 4px 18px rgba(0,0,0,0.22);white-space:nowrap;">${ctaRaw}</div>`;
     }
   }
+
+  const textBlock = (headlineEl || subEl || ctaEl)
+    ? `<div style="position:absolute;${layout.block}display:flex;flex-direction:column;align-items:${alignItems};z-index:25;">${headlineEl}${subEl}${ctaEl}</div>`
+    : "";
 
   return `<!-- BANNER_START -->
 <div class="ad-banner" data-platform="${platform}" data-format="${formatName}" style="position:relative;width:${w}px;height:${h}px;overflow:hidden;font-family:${fontFamily};container-type:size">
@@ -2116,9 +1940,7 @@ function buildCompositionHtml(
   ${bgLayer}
   ${scrimLayer}
   ${logoLayer}
-  ${headlineLayer}
-  ${subLayer}
-  ${ctaLayer}
+  ${textBlock}
 </div>
 <!-- BANNER_END -->`;
 }
@@ -2650,9 +2472,8 @@ serve(async (req: Request) => {
     // reference image bytes. The HTML render uses a TEXT model that references the
     // images by URL (campaignFacts) + brand colors (CSS tokens) + the creative plan,
     // so sending base64 there only inflates INPUT TOKENS — and it was re-sent on
-    // every format/batch request. Fetch the bytes only for the modes that draw pixels.
-    // Compose mode uses Gemini vision via URL (no base64) for brand brief extraction.
-    const needsReferenceImages = mode === "image";
+    // every format/batch request. Fetch the bytes only for the modes that draw.
+    const needsReferenceImages = mode === "image" || mode === "compose";
     const fetchedImages = needsReferenceImages
       ? await Promise.all(
           imageSpecs.map(({ url, label }) =>
@@ -2775,28 +2596,56 @@ serve(async (req: Request) => {
         .filter((r) => r.data.length <= DRAW_REF_MAX_B64)
         .map((r) => ({ data: r.data, mimeType: r.mimeType }));
 
-      // ── Brand visual brief: study reference images via URL, never base64 ────────────────────
-      // Collect all reference image URLs the user provided (ad examples, background, product).
-      // Priority: composeCompanyRefs (direct brand ad examples) → backgroundImageUrl → productImageUrl.
-      const composeRefUrls: string[] = [
-        ...((campaignData as any).composeCompanyRefs as unknown[] || [])
-          .filter((u): u is string => typeof u === "string" && u.startsWith("http")),
-        ...(String(campaignData.backgroundImageUrl || "").startsWith("http") ? [String(campaignData.backgroundImageUrl)] : []),
-        ...(String(campaignData.productImageUrl || "").startsWith("http") ? [String(campaignData.productImageUrl)] : []),
-      ].filter((u, i, arr) => arr.indexOf(u) === i).slice(0, 4); // dedupe, max 4
+      // Brand visual identity brief (TEXT) — distilled ONCE from the reference images by the
+      // worker. When present it carries the brand's design language as words, which lets the
+      // image model RE-COMPOSE freely (more creative, less "closed") instead of copying pixels —
+      // and means we no longer re-send raw base64 on every generation (cheaper tokens).
+      const visualBrief = String((campaignData as any).brandVisualBrief || "").trim();
+      const briefDriven = visualBrief.length > 0;
 
-      // Use a pre-extracted brief from campaignData when available (cached by the PHP worker
-      // on previous runs). Otherwise extract it now from the reference URLs via Gemini vision.
-      // The brief describes HOW the brand designs ads (style, palette, devices) — not WHAT to copy.
-      let visualBrief = String((campaignData as any).brandVisualBrief || "").trim();
-      if (!visualBrief && composeRefUrls.length) {
-        visualBrief = await extractBrandVisualBrief(composeRefUrls, apiKey);
+      // ── Background source (compose) ────────────────────────────────────────
+      //  reference: the user's product/background images ARE the reference (match closely)
+      //  shapes   : no photo — abstract geometric/brand-color background (no refs)
+      //  company  : derive the background from the company's own images
+      //  creative : full freedom — the model invents the best backdrop
+      const explicitBgSource = String((campaignData as any).composeBackgroundSource || "").toLowerCase();
+      let bgSource = ["reference", "shapes", "company", "creative"].includes(explicitBgSource)
+        ? explicitBgSource
+        // No explicit choice: a provided background image is treated as a real reference;
+        // otherwise CREATIVE — the model decides the best backdrop for the campaign (full
+        // scene/photo, illustration, abstract, whatever fits). Never the bare 'shapes'
+        // fallback, which produced generic backgrounds disconnected from the brand.
+        : (String(campaignData.backgroundImageUrl || "").startsWith("http") ? "reference" : "creative");
+      // With a text brief in hand, prefer creative freedom (guided by the brief) over copying
+      // pixels — this is what unlocks the brand's design devices and depth. 'shapes' is kept
+      // (explicit abstract intent); reference/company collapse to creative.
+      if (briefDriven && bgSource !== "shapes") bgSource = "creative";
+
+      // User-uploaded reference images (the ads/visuals the caller wants to look like) arrive
+      // in composeCompanyRefs. ONLY fetch+decode them for the sources that actually consume
+      // them ('reference'/'company') — 'shapes'/'creative' discard refs, so we skip the work
+      // entirely (no wasted base64). Bounded count + image-model-only bytes (never to a text model).
+      const usesRefs = bgSource === "reference" || bgSource === "company";
+      const companyRefUrls = usesRefs && Array.isArray((campaignData as any).composeCompanyRefs)
+        ? ((campaignData as any).composeCompanyRefs as unknown[])
+            .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
+            .slice(0, 3)
+        : [];
+      const companyRefImages = companyRefUrls.length
+        ? (await Promise.all(companyRefUrls.map((url) => fetchImageBase64(url, DRAW_REF_MAX_B64).catch(() => null))))
+            .filter((img): img is { mimeType: string; data: string } => Boolean(img && img.data))
+            .map((r) => ({ data: r.data, mimeType: r.mimeType }))
+        : [];
+
+      let bgRefImages: { data: string; mimeType: string }[];
+      if (!usesRefs) {
+        bgRefImages = []; // no reference image — abstract (shapes) or full freedom (creative)
+      } else {
+        // 'reference' (FOLLOW CLOSELY) / 'company' (derive from brand world): the user's uploaded
+        // references lead, product/background assets follow. This is what makes the output
+        // resemble the ads the caller sent.
+        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 3);
       }
-
-      // Background source: compose mode always uses "creative" — the brand brief (text) already
-      // informs the visual style. No base64 pixels are ever sent to the image generation model.
-      const bgSource = "creative";
-      const bgRefImages: { data: string; mimeType: string }[] = []; // zero base64 in compose
 
       // brandSpec: use creativePlan if provided (e.g. from external API worker),
       // otherwise derive instantly from campaignData — PHP already enriched it with
@@ -2822,7 +2671,7 @@ serve(async (req: Request) => {
       let banners: Awaited<ReturnType<typeof runWithConcurrency>>;
 
       if (isAbVisual) {
-        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string; format?: AdFormat }>();
+        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string }>();
         const uniqueVariantRatios = [...new Map(
           imageTasks.map((task) => {
             const aspectRatio = imageAspectRatioForFormat(task.format);
@@ -2846,17 +2695,8 @@ serve(async (req: Request) => {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, format: task.format });
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint });
         }
-
-        // Vision analysis for A/B variants — parallel, best-effort
-        await Promise.allSettled(
-          [...bgByVariantRatio.entries()].map(async ([key, bg]) => {
-            if (!bg.url) return;
-            const visionRec = await analyzeBackgroundLayout(bg.url, (bg as any).format ?? {}, bg.layout, apiKey);
-            if (visionRec) bgByVariantRatio.set(key, { ...bg, rec: visionRec });
-          })
-        );
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
@@ -2879,7 +2719,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeRefUrls: composeRefUrls.length, brandBriefChars: visualBrief.length, refs: refDebug, note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(abComposeFns, 1);
@@ -2889,7 +2729,7 @@ serve(async (req: Request) => {
         // DIFFERENT layout (square / story / landscape look distinct). The chosen layout is
         // STORED per ratio so the HTML overlay reuses the exact same one the background
         // reserved space for — text and background never disagree.
-        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string; format: AdFormat }>();
+        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string }>();
         const uniqueRatios = [...new Set(imageTasks.map((task) => imageAspectRatioForFormat(task.format)))];
         for (const aspectRatio of uniqueRatios) {
           const task = imageTasks.find((candidate) => imageAspectRatioForFormat(candidate.format) === aspectRatio)!;
@@ -2908,19 +2748,8 @@ serve(async (req: Request) => {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, format: task.format });
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint });
         }
-
-        // Vision analysis: send each hosted background URL to a cheap text model and get back
-        // the precise text-safe zones as JSON boxes. Runs in parallel (one call per ratio) with
-        // a short timeout so it never delays the batch even if all fail.
-        await Promise.allSettled(
-          [...bgByRatio.entries()].map(async ([aspectRatio, bg]) => {
-            if (!bg.url) return;
-            const visionRec = await analyzeBackgroundLayout(bg.url, bg.format, bg.layout, apiKey);
-            if (visionRec) bgByRatio.set(aspectRatio, { ...bg, rec: visionRec });
-          })
-        );
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
@@ -2943,7 +2772,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeRefUrls: composeRefUrls.length, brandBriefChars: visualBrief.length, refs: refDebug, note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(composeFns, 4);

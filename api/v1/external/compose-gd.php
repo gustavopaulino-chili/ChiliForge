@@ -406,7 +406,6 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                     'right'      => extgd_pct($st['right'] ?? null, $W),
                     'top'        => extgd_pct($st['top'] ?? null, $H),
                     'bottom'     => extgd_pct($st['bottom'] ?? null, $H),
-                    'maxW'       => $st['max-width'] ?? null,
                     'center'     => isset($st['transform']) && stripos($st['transform'], 'translatex(-50%)') !== false,
                     'baseFontPx' => $baseFontPx,
                     'lineH'      => max(1.12, $lineHraw),
@@ -430,15 +429,12 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                 $textEls[$k]['repY']     = ($el['bottom'] !== null) ? ($H - $el['bottom']) : ($el['top'] ?? $H * 0.5);
                 $textEls[$k]['isBottom'] = ($el['bottom'] !== null);
                 $bx = $el['left'] ?? ($W * 0.05);
-                $bw = ($el['right'] !== null) ? max(40.0, $W - $el['right'] - $bx) : ($W - $bx - $W * 0.05);
-                $mw = extgd_pct($el['maxW'] ?? null, $W);
-                if ($mw !== null) $bw = min($bw, max(40.0, $mw));
                 $textEls[$k]['bx']  = $bx;
-                $textEls[$k]['bw2'] = $bw;
+                $textEls[$k]['bw2'] = ($el['right'] !== null) ? max(40.0, $W - $el['right'] - $bx) : ($W - $bx - $W * 0.05);
             }
 
-            // Fit + draw one element within $maxH; returns its actual [top,bottom].
-            $renderEl = function (array $el, float $maxH) use ($canvas, $W, $H, $floor): array {
+            // Fit + draw one element within $maxH; returns the Y where it actually starts (top).
+            $renderEl = function (array $el, float $maxH) use ($canvas, $W, $H, $floor): int {
                 $font = $el['font']; $bx = $el['bx']; $bw2 = $el['bw2'];
                 if ($el['hasBtn']) {
                     $fpx = $el['baseFontPx'];
@@ -452,13 +448,6 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                     $tw = abs($bb[2] - $bb[0]); $th = abs($bb[7] - $bb[1]);
                     $padX = (int)round($fpx * 0.90); $padY = (int)round($fpx * 0.42);
                     $bw3 = $tw + 2 * $padX; $bh3 = $th + 2 * $padY;
-                    for ($g = 0; $g < 8 && $bh3 > $maxH && $fpx > $floor; $g++) {
-                        $fpx *= 0.92;
-                        $bb = imagettfbbox($fpx, 0, $font, $el['text']);
-                        $tw = abs($bb[2] - $bb[0]); $th = abs($bb[7] - $bb[1]);
-                        $padX = (int)round($fpx * 0.90); $padY = (int)round($fpx * 0.42);
-                        $bw3 = $tw + 2 * $padX; $bh3 = $th + 2 * $padY;
-                    }
                     $bxBtn = $el['center'] ? (int)round(($el['left'] ?? $W / 2) - $bw3 / 2)
                         : ($el['right'] !== null ? (int)round($W - $el['right'] - $bw3) : (int)round($bx));
                     $byBtn = $el['isBottom'] ? (int)round($el['repY'] - $bh3) : (int)round($el['repY']);
@@ -466,7 +455,7 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                     extgd_filled_round_rect($canvas, $bxBtn, $byBtn, $bxBtn + $bw3, $byBtn + $bh3, (int)round($fpx * 0.38), imagecolorallocate($canvas, $bgc[0], $bgc[1], $bgc[2]));
                     $tc = imagecolorallocate($canvas, $el['col'][0], $el['col'][1], $el['col'][2]);
                     imagettftext($canvas, $fpx, 0, $bxBtn + $padX, $byBtn + $padY + abs($bb[7]), $tc, $font, $el['text']);
-                    return ['top' => $byBtn, 'bottom' => $byBtn + $bh3];
+                    return $byBtn;
                 }
                 $fpx = $el['baseFontPx'];
                 $lines = extgd_wrap_lines($el['text'], $font, $fpx, $bw2);
@@ -491,7 +480,7 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                     imagettftext($canvas, $fpx, 0, (int)$lx, $cy + (int)$asc, $fill, $font, $line);
                     $cy += $step;
                 }
-                return ['top' => $y0, 'bottom' => $y0 + $blockH];
+                return $y0;
             };
 
             // Phase A — bottom-anchored blocks (CTA): short/stable, fit first; record real tops.
@@ -501,8 +490,7 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                 $upper = max($H * 0.03, $logoBottomY + $gap);
                 $maxH = $el['repY'] - $upper - $gap;
                 if ($maxH < $floor) $maxH = $floor;
-                $box = $renderEl($el, $maxH);
-                $occupiedTops[] = $box['top'];
+                $occupiedTops[] = $renderEl($el, $maxH);
             }
 
             // Phase B — top-anchored blocks, top→bottom; bounded by the next top block's anchor
@@ -510,18 +498,13 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
             $topEls = array_values(array_filter($textEls, static fn($e) => empty($e['isBottom'])));
             usort($topEls, static fn($a, $b) => $a['repY'] <=> $b['repY']);
             $m = count($topEls);
-            $cursorY = max($H * 0.03, $logoBottomY > 0 ? $logoBottomY + $gap : $H * 0.03);
             foreach ($topEls as $i => $el) {
-                if ($el['repY'] < $cursorY) $el['repY'] = $cursorY;
                 $lower = $H * 0.97;
                 if ($i < $m - 1) $lower = min($lower, $topEls[$i + 1]['repY']);
                 foreach ($occupiedTops as $ot) { if ($ot > $el['repY']) $lower = min($lower, $ot); }
                 $maxH = $lower - $el['repY'] - $gap;
                 if ($maxH < $floor) $maxH = $floor;
-                $box = $renderEl($el, $maxH);
-                // Subsequent top-anchored blocks follow the real drawn bottom, not only the
-                // nominal anchor. This prevents a wrapped headline from sitting on the subhead.
-                $cursorY = max($cursorY, $box['bottom'] + $gap);
+                $renderEl($el, $maxH);
             }
         }
 
