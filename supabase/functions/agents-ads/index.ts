@@ -261,10 +261,14 @@ async function generateAdImage(
   opts: GenerateAdImageOptions = {},
 ): Promise<{ url: string; rec: ComposeTextRec | null } | null> {
   const { maxAttempts = 3, timeoutMs = 100000, singleConfig = false } = opts;
-  const parts: unknown[] = [{ text: prompt }];
+  // Reference images come FIRST — when the imagen model sees images before text it treats
+  // them as the visual basis to work from. Images after text = ignored context. This order
+  // is what makes reference images actually influence the output instead of being decorative.
+  const parts: unknown[] = [];
   for (const img of refImages) {
     parts.push({ inline_data: { mime_type: img.mimeType, data: img.data } });
   }
+  parts.push({ text: prompt });
   let lastError = "";
   for (const model of GEMINI_IMAGE_MODELS) {
     const primaryConfig = {
@@ -1668,6 +1672,46 @@ function buildBackgroundPrompt(
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
   const direction = visualDirection || BACKGROUND_DIRECTIONS[0];
+
+  // ── SHORT PATH: reference mode with actual reference images ─────────────
+  // When the caller sent reference images to match, the model needs a SHORT focused prompt —
+  // not 600 words of creative direction competing with the visual. The images (sent first in
+  // the parts array) ARE the brief. Everything else just defines the text-safe zone and the
+  // zero-text rule. Long prompts here cause the model to prioritize text over visuals and
+  // produce generic AI-looking output instead of following the reference.
+  if (bgSource === "reference" && hasRefImages) {
+    const pos = LAYOUT_POSITIONS[layout];
+    const overlayLine = pos
+      ? `OVERLAY ZONES (keep contrast-friendly — soft, not empty): logo[${pos.logo}] text-block[${pos.block}].`
+      : `TEXT ZONE: ${spaceGuide}`;
+    return [
+      "TASK: The image(s) attached are the visual reference. Recreate their aesthetic as a background for an advertising creative — same style, composition, lighting, color temperature, texture, and photographic quality.",
+      "Adapt framing to fit the target aspect ratio. Do NOT invent a new scene. Stay in the exact visual world shown.",
+      "",
+      "MATCH RULES:",
+      "• Preserve the photographic realism of the reference — if it's a real photo, keep it photorealistic. Do NOT stylize, paint, or add AI textures.",
+      "• Keep the palette and lighting of the reference. Adapt color balance only if needed for legibility.",
+      "• Remove any text, logo, watermark or UI from the reference — all surfaces must be clean.",
+      "• Reframe/extend to fit the aspect ratio while keeping the visual energy of the original.",
+      "",
+      overlayLine,
+      spaceGuide,
+      "",
+      "ZERO-TEXT & ZERO-CODE RULE — NO EXCEPTIONS:",
+      "❌ No text, letters, numbers, hex codes, URLs, or any alphanumeric character anywhere in the image.",
+      "❌ No logo, wordmark, icon, or placeholder. No button shapes or UI elements.",
+      "❌ Any product label, package, bottle, or object must have a completely BLANK surface.",
+      "",
+      `FORMAT: ${format.width}×${format.height}px | Aspect ratio: ${aspectRatio}`,
+      "",
+      "OUTPUT: Pure visual background — text-free, logo-free, UI-free.",
+      "",
+      "████ TEXT-OVERLAY RECOMMENDATION — RESPONSE TEXT ONLY, NEVER DRAWN IN THE IMAGE ████",
+      "In your RESPONSE (as a short text note, not painted into the image), add exactly one line:",
+      'CF_TEXT_REC: {"headlineScale": <number 0.7-1.4>, "align": "left"|"center"|"right"}',
+      "headlineScale = how large the headline can be given the clean/calm space you actually left (1.0 = default; >1.0 if you left generous empty space, <1.0 if the calm area is tight). align = the best horizontal alignment for the overlay text in its zone. This only tunes the separate HTML overlay — the image itself must still contain ZERO text/letters.",
+    ].filter(Boolean).join("\n");
+  }
 
   // Brand visual identity brief — a text description of the brand's design language
   // (motifs, textures, depth treatment, design flourishes) extracted ONCE from the
