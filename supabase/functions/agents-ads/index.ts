@@ -2793,11 +2793,9 @@ serve(async (req: Request) => {
         visualBrief = await extractBrandVisualBrief(composeRefUrls, apiKey);
       }
 
-      // Background source: reference images inform a text brief; the image model always gets
-      // "creative" mode (brand-informed freedom) or "shapes" (explicit abstract intent).
-      // No base64 pixels are ever sent to the image generation model in compose mode.
-      const explicitBgSource = String((campaignData as any).composeBackgroundSource || "").toLowerCase();
-      const bgSource = explicitBgSource === "shapes" ? "shapes" : "creative";
+      // Background source: compose mode always uses "creative" — the brand brief (text) already
+      // informs the visual style. No base64 pixels are ever sent to the image generation model.
+      const bgSource = "creative";
       const bgRefImages: { data: string; mimeType: string }[] = []; // zero base64 in compose
 
       // brandSpec: use creativePlan if provided (e.g. from external API worker),
