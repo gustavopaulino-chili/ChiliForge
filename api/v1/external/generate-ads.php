@@ -828,6 +828,15 @@ try {
             $companyFormData = array_merge($existing, $payloadCompany);
             if (!empty($mergedImages)) $companyFormData['images'] = $mergedImages;
 
+            // Logo already hosted on our server? Keep the cached URL — don't re-mirror the
+            // external URL the client re-sends every call. The logo is composited via <img src>
+            // in the HTML, never downloaded as base64, so the local URL is always correct.
+            $cachedLogo = trim((string)($existing['logoUrl'] ?? ''));
+            if ($cachedLogo !== '' && str_contains($cachedLogo, '/projects/')) {
+                $companyFormData['logoUrl'] = $cachedLogo;
+                if (isset($companyFormData['images']['logo'])) $companyFormData['images']['logo'] = $cachedLogo;
+            }
+
             $mergedJson = json_encode($companyFormData, JSON_UNESCAPED_UNICODE);
             if ($mergedJson && $mergedJson !== ($existingFormDataJson ?: '')) {
                 $updMerge = $conn->prepare("UPDATE projects SET company_form_data = ? WHERE id = ?");

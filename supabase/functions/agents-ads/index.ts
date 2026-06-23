@@ -2451,8 +2451,9 @@ serve(async (req: Request) => {
     const logoUrl = campaignData.logoUrl;
     const productUrl = campaignData.productImageUrl;
     const bgUrl = campaignData.backgroundImageUrl;
+    // Logo is never fetched as base64 — it goes into the HTML as <img src="url">.
+    // Only product and background images are references for the generation model.
     const imageSpecs = [
-      { url: logoUrl,    label: "Company Logo — render as <img> with object-fit:contain in the logo layer (z-index:20)" },
       { url: productUrl, label: "Product / Hero Image — render as <img> in the product layer (z-index:10)" },
       { url: bgUrl,      label: "Background Image — render as full-bleed <img> with object-fit:cover in the background layer (z-index:0)" },
     ].filter((s): s is { url: string; label: string } => typeof s.url === "string" && s.url.startsWith("http"));
@@ -2570,15 +2571,7 @@ serve(async (req: Request) => {
       // CRITICAL: never pass the logo to the background image generator.
       // The logo is composited later in HTML (buildCompositionHtml). Passing it as a
       // visual reference causes the model to embed it in the background pixel art.
-      const logoUrlNorm = String(campaignData.logoUrl || "").trim().toLowerCase();
-      const refImagesForGen = referenceImages
-        .filter((r) => {
-          const spec = imageSpecs.find((s) => s.label === r.label);
-          if (!spec) return true;
-          const urlNorm = spec.url.trim().toLowerCase();
-          return urlNorm !== logoUrlNorm && !spec.label.toLowerCase().startsWith("company logo");
-        })
-        .map((r) => ({ data: r.data, mimeType: r.mimeType }));
+      const refImagesForGen = referenceImages.map((r) => ({ data: r.data, mimeType: r.mimeType }));
 
       // Brand visual identity brief (TEXT) — distilled ONCE from the reference images by the
       // worker. When present it carries the brand's design language as words, which lets the
