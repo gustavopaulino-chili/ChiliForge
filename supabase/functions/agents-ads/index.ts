@@ -1417,90 +1417,120 @@ const CREATIVE_SPACE_GUIDANCE: Record<string, string> = {
   "floating-islands":    "HTML elements will be spread across separate visual islands. Keep multiple calm zones available, with expressive detail between them.",
 };
 
-// COHESIVE TEXT BLOCK MODEL.
-// Earlier each text part (headline / sub / cta) was an independent absolutely-positioned
-// element with its own fixed top/bottom anchor — which flung them apart ("title up top,
-// CTA at the bottom, sub floating in the middle"). Now a layout only decides WHERE a single
-// text block sits (`block` = the anchor rectangle for a flex column) and how it aligns
-// (`align`). Headline, sub and CTA always render together inside that block with controlled
-// gaps, so they read as one cohesive ad — varied by zone across layouts, never scattered.
+// TEXT POSITIONS — headline / sub / cta are SEPARATE absolutely-positioned elements.
+// This shape is required by the server-side GD compositor (api/v1/external/compose-gd.php),
+// which walks the DIRECT children of .ad-banner and renders each text div on its own (with a
+// 2-pass auto-fit + button rendering for the CTA). They must stay separate top-level elements
+// — NOT nested in a flex container (the GD parser then sees one blob: wrong size, glued
+// headline+sub, no CTA button). The anchors below are tuned to sit CLOSE TOGETHER as a tight
+// cluster per layout, which fixes the old "scattered text" look while staying GD-compatible.
 type LayoutPosition = {
-  logo: string;   // absolute anchor for the logo / brand name
-  block: string;  // absolute anchor rectangle for the headline+sub+cta flex column
+  logo: string;     // absolute anchor for the logo / brand name
+  headline: string; // absolute anchor for the headline
+  sub: string;      // absolute anchor for the subheadline (just below the headline)
+  cta: string;      // absolute anchor for the CTA (closes the cluster)
   align: "left" | "center" | "right";
 };
 
+// Anchors form a TIGHT CLUSTER (headline, then sub right below, then CTA) so the three read
+// as one unit. The GD compositor auto-fits each within the gap to its neighbour, so the
+// spacing stays clean across copy lengths. Bottom-zone layouts bottom-anchor the CTA; the
+// others keep all three top-anchored as a stacked cluster.
 const LAYOUT_POSITIONS: Record<string, LayoutPosition> = {
-  // text block sits on the LEFT, vertically centered, product on the right
+  // LEFT cluster, vertically centered; product on the right
   "diagonal-split": {
-    logo:  "top:6%;left:6%;width:30%;max-height:14%;",
-    block: "left:6%;right:50%;top:50%;transform:translateY(-50%);",
+    logo:     "top:6%;left:6%;width:30%;max-height:14%;",
+    headline: "top:34%;left:6%;right:50%;",
+    sub:      "top:50%;left:6%;right:50%;",
+    cta:      "top:64%;left:6%;",
     align: "left",
   },
-  // text block hugs the BOTTOM edge as one stack
+  // BOTTOM cluster, full width
   "hero-full-bleed": {
-    logo:  "top:5%;left:5%;width:28%;max-height:12%;",
-    block: "left:5%;right:5%;bottom:7%;",
+    logo:     "top:5%;left:5%;width:28%;max-height:12%;",
+    headline: "top:60%;left:5%;right:5%;",
+    sub:      "top:75%;left:5%;right:5%;",
+    cta:      "bottom:7%;left:5%;",
     align: "left",
   },
-  // text block hugs the BOTTOM (product fills the top)
+  // BOTTOM cluster (product fills the top)
   "top-image-bottom-text": {
-    logo:  "top:5%;left:5%;width:26%;max-height:11%;",
-    block: "left:5%;right:5%;bottom:6%;",
+    logo:     "top:5%;left:5%;width:26%;max-height:11%;",
+    headline: "top:58%;left:5%;right:5%;",
+    sub:      "top:73%;left:5%;right:5%;",
+    cta:      "bottom:6%;left:5%;",
     align: "left",
   },
-  // text block on the LEFT panel, vertically centered
+  // LEFT cluster, vertically centered
   "left-panel-right-image": {
-    logo:  "top:6%;left:4%;width:30%;max-height:14%;",
-    block: "left:4%;right:54%;top:50%;transform:translateY(-50%);",
+    logo:     "top:6%;left:4%;width:30%;max-height:14%;",
+    headline: "top:34%;left:4%;right:56%;",
+    sub:      "top:50%;left:4%;right:56%;",
+    cta:      "top:64%;left:4%;",
     align: "left",
   },
-  // text block centered both ways
+  // CENTER cluster, vertically centered
   "centered-minimal": {
-    logo:  "top:6%;left:50%;transform:translateX(-50%);width:26%;max-height:12%;",
-    block: "left:8%;right:8%;top:50%;transform:translateY(-50%);",
+    logo:     "top:6%;left:50%;transform:translateX(-50%);width:26%;max-height:12%;",
+    headline: "top:34%;left:8%;right:8%;",
+    sub:      "top:52%;left:10%;right:10%;",
+    cta:      "top:68%;left:50%;transform:translateX(-50%);",
     align: "center",
   },
-  // text block near the TOP, below the logo
+  // TOP cluster, below the logo
   "bold-headline-first": {
-    logo:  "top:5%;right:5%;width:22%;max-height:10%;",
-    block: "left:5%;right:5%;top:19%;",
+    logo:     "top:5%;right:5%;width:22%;max-height:10%;",
+    headline: "top:20%;left:5%;right:5%;",
+    sub:      "top:35%;left:5%;right:5%;",
+    cta:      "top:50%;left:5%;",
     align: "left",
   },
-  // text block centered along the BOTTOM inside a framed product
+  // BOTTOM cluster, centered, inside a framed product
   "frame-product": {
-    logo:  "top:6%;left:50%;transform:translateX(-50%);width:28%;max-height:13%;",
-    block: "left:6%;right:6%;bottom:6%;",
+    logo:     "top:6%;left:50%;transform:translateX(-50%);width:28%;max-height:13%;",
+    headline: "top:62%;left:5%;right:5%;",
+    sub:      "top:77%;left:5%;right:5%;",
+    cta:      "bottom:6%;left:50%;transform:translateX(-50%);",
     align: "center",
   },
-  // editorial: text block in the TOP-LEFT quadrant
+  // TOP-LEFT quadrant cluster
   "top-left-editorial": {
-    logo:  "top:5%;left:5%;width:26%;max-height:11%;",
-    block: "left:5%;right:40%;top:21%;",
+    logo:     "top:5%;left:5%;width:26%;max-height:11%;",
+    headline: "top:22%;left:5%;right:42%;",
+    sub:      "top:38%;left:5%;right:46%;",
+    cta:      "top:53%;left:5%;",
     align: "left",
   },
-  // editorial: text block in the TOP-RIGHT quadrant
+  // TOP-RIGHT quadrant cluster
   "top-right-editorial": {
-    logo:  "top:5%;right:5%;width:24%;max-height:11%;",
-    block: "left:42%;right:5%;top:21%;",
+    logo:     "top:5%;right:5%;width:24%;max-height:11%;",
+    headline: "top:22%;left:44%;right:5%;",
+    sub:      "top:38%;left:48%;right:5%;",
+    cta:      "top:53%;right:5%;",
     align: "right",
   },
-  // editorial: text block in the BOTTOM-RIGHT quadrant
+  // BOTTOM-RIGHT quadrant cluster
   "bottom-right-editorial": {
-    logo:  "top:5%;left:5%;width:24%;max-height:11%;",
-    block: "left:42%;right:5%;bottom:7%;",
+    logo:     "top:5%;left:5%;width:24%;max-height:11%;",
+    headline: "top:54%;left:42%;right:5%;",
+    sub:      "top:70%;left:48%;right:5%;",
+    cta:      "bottom:6%;right:5%;",
     align: "right",
   },
-  // story: cohesive left stack, vertically centered
+  // LEFT story cluster, vertically centered
   "vertical-story-stack": {
-    logo:  "top:5%;left:6%;width:24%;max-height:10%;",
-    block: "left:6%;right:10%;top:50%;transform:translateY(-50%);",
+    logo:     "top:5%;left:6%;width:24%;max-height:10%;",
+    headline: "top:34%;left:6%;right:12%;",
+    sub:      "top:52%;left:6%;right:20%;",
+    cta:      "top:68%;left:6%;",
     align: "left",
   },
-  // text block hugs the BOTTOM-LEFT
+  // BOTTOM-LEFT cluster
   "floating-islands": {
-    logo:  "top:5%;left:5%;width:24%;max-height:10%;",
-    block: "left:6%;right:6%;bottom:7%;",
+    logo:     "top:5%;left:5%;width:24%;max-height:10%;",
+    headline: "top:60%;left:5%;right:5%;",
+    sub:      "top:75%;left:5%;right:5%;",
+    cta:      "bottom:7%;left:5%;",
     align: "left",
   },
 };
@@ -1775,7 +1805,7 @@ function buildBackgroundPrompt(
     (() => {
       const pos = LAYOUT_POSITIONS[layout];
       return pos
-        ? `PRECISE OVERLAY ZONES (CSS coords on the final canvas — keep these rectangles contrast-friendly for overlaid text; the overlay drops the logo and the WHOLE text block here): logo[${pos.logo}] text-block[${pos.block}]. The headline, body copy and CTA stack TOGETHER as one block inside that rectangle — keep the SHARPEST focal subject and harshest contrast away from it (soft design detail there is fine).`
+        ? `PRECISE OVERLAY ZONES (CSS coords on the final canvas — keep these areas contrast-friendly for overlaid text; the overlay drops the logo plus a tight headline→sub→CTA cluster here): logo[${pos.logo}] headline[${pos.headline}] cta[${pos.cta}]. Those text rows sit close together as one cluster — keep the SHARPEST focal subject and harshest contrast away from that band (soft design detail there is fine).`
         : "";
     })(),
     "",
@@ -1874,9 +1904,8 @@ function buildCompositionHtml(
   const textColor = "#ffffff";
   const textShadow = "0 2px 12px rgba(0,0,0,0.70), 0 1px 3px rgba(0,0,0,0.50)";
   const subColor = "rgba(255,255,255,0.90)";
-  // The layout owns horizontal alignment so the whole block reads as one unit.
+  // The layout owns horizontal alignment so the cluster reads as one unit.
   const textAlign = layout.align;
-  const alignItems = textAlign === "center" ? "center" : textAlign === "right" ? "flex-end" : "flex-start";
 
   const fontImport = fontUrl ? `<style>@import url('${fontUrl}');</style>` : "";
 
@@ -1902,37 +1931,32 @@ function buildCompositionHtml(
     ? `<img src="${logoUrl}" style="position:absolute;${logoCss}object-fit:contain;z-index:20" alt="logo" />`
     : (data.brandName ? `<div style="position:absolute;${logoCss}font-family:${fontFamily};font-size:${logoFs};font-weight:700;color:${textColor};z-index:20;white-space:nowrap;text-shadow:${textShadow}">${String(data.brandName).trim()}</div>` : "");
 
-  // ── COHESIVE TEXT BLOCK ──────────────────────────────────────────────────
-  // headline + sub + CTA render INSIDE one flex column anchored to layout.block,
-  // so they always stay grouped (tight gaps) instead of being flung to separate
-  // corners of the canvas. The layout only moves the whole block around.
-  const headlineEl = headline
-    ? `<div style="font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:${textColor};line-height:1.12;text-align:${textAlign};text-shadow:${textShadow};overflow-wrap:break-word;">${headline}</div>`
+  // ── TEXT LAYERS — separate top-level elements (required by the GD compositor) ──
+  // headline / sub / cta are SEPARATE absolutely-positioned divs (NOT nested), each with its
+  // own font-size and anchor, so api/v1/external/compose-gd.php parses and auto-fits each one.
+  // The LAYOUT_POSITIONS anchors keep them in a tight cluster so they still read as one ad.
+  const headlineLayer = headline
+    ? `<div style="position:absolute;${layout.headline}font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:${textColor};line-height:1.14;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word">${headline}</div>`
     : "";
 
-  const subEl = sub
-    ? `<div style="margin-top:1.6cqh;font-family:${fontFamily};font-size:${subFs};font-weight:400;color:${subColor};line-height:1.34;text-align:${textAlign};text-shadow:${textShadow};overflow-wrap:break-word;">${sub}</div>`
+  const subLayer = sub
+    ? `<div style="position:absolute;${layout.sub}font-family:${fontFamily};font-size:${subFs};font-weight:400;color:${subColor};line-height:1.38;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word">${sub}</div>`
     : "";
 
-  // CTA — social formats get organic text gesture, display formats get a button.
-  // It is the last child of the block; a slightly larger top margin separates it.
+  // CTA layer — social formats get organic text gesture, display formats get a button.
   const ctaRaw = String(data.ctaText || "").trim();
   const isSocialFmt = isSocialFormat(format);
-  let ctaEl = "";
+  let ctaLayer = "";
   if (ctaRaw) {
     if (isSocialFmt) {
-      ctaEl = `<div style="margin-top:2.6cqh;font-family:${fontFamily};font-size:${ctaFs};font-weight:600;color:${textColor};text-shadow:${textShadow};white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`;
+      ctaLayer = `<div style="position:absolute;${layout.cta}font-family:${fontFamily};font-size:${ctaFs};font-weight:600;color:${textColor};text-shadow:${textShadow};z-index:25;white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`;
     } else {
       const isDark = contrastTextColor(primaryColor).color === "#ffffff";
       const btnBg    = isDark ? "rgba(255,255,255,0.95)" : "rgba(20,20,20,0.88)";
       const btnColor = isDark ? "#111111"                : "#ffffff";
-      ctaEl = `<div style="margin-top:2.8cqh;align-self:${alignItems};display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.42em 0.90em;border-radius:0.38em;box-shadow:0 4px 18px rgba(0,0,0,0.22);white-space:nowrap;">${ctaRaw}</div>`;
+      ctaLayer = `<div style="position:absolute;${layout.cta}display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.42em 0.90em;border-radius:0.38em;box-shadow:0 4px 18px rgba(0,0,0,0.22);z-index:25;white-space:nowrap;">${ctaRaw}</div>`;
     }
   }
-
-  const textBlock = (headlineEl || subEl || ctaEl)
-    ? `<div style="position:absolute;${layout.block}display:flex;flex-direction:column;align-items:${alignItems};z-index:25;">${headlineEl}${subEl}${ctaEl}</div>`
-    : "";
 
   return `<!-- BANNER_START -->
 <div class="ad-banner" data-platform="${platform}" data-format="${formatName}" style="position:relative;width:${w}px;height:${h}px;overflow:hidden;font-family:${fontFamily};container-type:size">
@@ -1940,7 +1964,9 @@ function buildCompositionHtml(
   ${bgLayer}
   ${scrimLayer}
   ${logoLayer}
-  ${textBlock}
+  ${headlineLayer}
+  ${subLayer}
+  ${ctaLayer}
 </div>
 <!-- BANNER_END -->`;
 }
