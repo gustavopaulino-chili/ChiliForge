@@ -332,10 +332,11 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
 
     $bgSourceRaw = strtolower(trim((string)($campaignData['composeBackgroundSource'] ?? '')));
     if (!in_array($bgSourceRaw, ['reference', 'company', 'creative', 'shapes'], true)) {
-        // When the company has uploaded reference images, default to deriving the background
-        // from them ('company'). Otherwise CREATIVE — a real art-directed scene — never the
-        // abstract 'shapes' fallback. An explicit caller choice still wins.
-        $bgSourceRaw = !empty($companyRefs) ? 'company' : 'creative';
+        // When the caller uploaded reference images, FOLLOW THEM CLOSELY ('reference') so the
+        // creative actually resembles what they sent — not the looser 'company' synthesis that
+        // only borrowed the brand "mood". Otherwise CREATIVE — a real art-directed scene —
+        // never the abstract 'shapes' fallback. An explicit caller choice still wins.
+        $bgSourceRaw = !empty($companyRefs) ? 'reference' : 'creative';
     }
     $campaignData['composeBackgroundSource'] = $bgSourceRaw;
 

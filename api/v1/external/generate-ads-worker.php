@@ -489,32 +489,25 @@ try {
         agents_reconnect_mysqli_if_needed($conn);
     }
 
-    // ── 8c. Random text/logo layout ─────────────────────────────────────────
-    // When the caller didn't pin a layout (textLayout / logo_position), pick a RANDOM one
-    // per generation so creatives aren't all left-aligned and identical. The edge then
-    // FORCES this layout and the AI background reserves the matching negative space. The RNG
-    // lives here (PHP) because the edge runtime forbids Math.random. Skipped for A/B-visual,
-    // where the edge already assigns a distinct layout per variant.
-    // Curated CLEAN layouts for the random pick (text left/center/right/top/bottom). Excludes the
-    // experimental/chaotic ones (frame-product, vertical-story-stack, floating-islands) — random
-    // means "one of our solid models", not scattering elements.
-    $LAYOUT_KEYS = [
-        'hero-full-bleed',          // text bottom
-        'top-image-bottom-text',    // text bottom
-        'bold-headline-first',      // text top
-        'centered-minimal',         // text center
-        'left-panel-right-image',   // text left
-        'diagonal-split',           // text left
-        'top-left-editorial',       // text top-left
-        'top-right-editorial',      // text top-right
-        'bottom-right-editorial',   // text bottom-right
+    // ── 8c. Text layout — ASSORTED, not pinned ──────────────────────────────
+    // Previously this picked ONE random layout and the edge FORCED it across every format,
+    // so all creatives in a job shared the same text placement ("nada sortido"). We now
+    // leave textLayout EMPTY unless the caller explicitly pinned a valid one: the edge then
+    // rotates a DIFFERENT layout per aspect ratio (square / story / landscape look distinct)
+    // and reserves the matching negative space for each. A pinned layout still wins.
+    $VALID_LAYOUTS = [
+        'hero-full-bleed', 'top-image-bottom-text', 'bold-headline-first', 'centered-minimal',
+        'left-panel-right-image', 'diagonal-split', 'top-left-editorial', 'top-right-editorial',
+        'bottom-right-editorial', 'frame-product', 'vertical-story-stack', 'floating-islands',
     ];
-    $isAbVisual = !empty($campaignFormData['abTestingEnabled'])
-        && strtolower(trim((string)($campaignFormData['abTestFocus'] ?? ''))) === 'visual';
     $curLayout = strtolower(trim((string)($campaignFormData['textLayout'] ?? '')));
-    if (!$isAbVisual && !in_array($curLayout, $LAYOUT_KEYS, true)) {
-        $campaignFormData['textLayout'] = $LAYOUT_KEYS[array_rand($LAYOUT_KEYS)];
-        error_log('[generate-ads-worker] random textLayout=' . $campaignFormData['textLayout']);
+    if (!in_array($curLayout, $VALID_LAYOUTS, true)) {
+        // Not a valid explicit choice → clear it so the edge assorts per aspect ratio.
+        unset($campaignFormData['textLayout']);
+    } else {
+        // Caller pinned a layout — keep it; the edge forces it and the design adapts to it.
+        $campaignFormData['textLayout'] = $curLayout;
+        error_log('[generate-ads-worker] pinned textLayout=' . $curLayout);
     }
 
     // ── 9. Interpret ──────────────────────────────────────────────────────

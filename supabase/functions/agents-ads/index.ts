@@ -1417,85 +1417,91 @@ const CREATIVE_SPACE_GUIDANCE: Record<string, string> = {
   "floating-islands":    "HTML elements will be spread across separate visual islands. Keep multiple calm zones available, with expressive detail between them.",
 };
 
+// COHESIVE TEXT BLOCK MODEL.
+// Earlier each text part (headline / sub / cta) was an independent absolutely-positioned
+// element with its own fixed top/bottom anchor — which flung them apart ("title up top,
+// CTA at the bottom, sub floating in the middle"). Now a layout only decides WHERE a single
+// text block sits (`block` = the anchor rectangle for a flex column) and how it aligns
+// (`align`). Headline, sub and CTA always render together inside that block with controlled
+// gaps, so they read as one cohesive ad — varied by zone across layouts, never scattered.
 type LayoutPosition = {
-  logo: string;
-  headline: string;
-  sub: string;
-  cta: string;
+  logo: string;   // absolute anchor for the logo / brand name
+  block: string;  // absolute anchor rectangle for the headline+sub+cta flex column
+  align: "left" | "center" | "right";
 };
 
 const LAYOUT_POSITIONS: Record<string, LayoutPosition> = {
+  // text block sits on the LEFT, vertically centered, product on the right
   "diagonal-split": {
-    logo:     "top:6%;left:6%;width:30%;max-height:14%;",
-    headline: "top:28%;left:6%;right:54%;",
-    sub:      "top:52%;left:6%;right:54%;",
-    cta:      "bottom:10%;left:6%;",
+    logo:  "top:6%;left:6%;width:30%;max-height:14%;",
+    block: "left:6%;right:50%;top:50%;transform:translateY(-50%);",
+    align: "left",
   },
+  // text block hugs the BOTTOM edge as one stack
   "hero-full-bleed": {
-    logo:     "top:5%;left:5%;width:28%;max-height:12%;",
-    headline: "bottom:28%;left:5%;right:5%;",
-    sub:      "bottom:17%;left:5%;right:5%;",
-    cta:      "bottom:6%;left:5%;",
+    logo:  "top:5%;left:5%;width:28%;max-height:12%;",
+    block: "left:5%;right:5%;bottom:7%;",
+    align: "left",
   },
+  // text block hugs the BOTTOM (product fills the top)
   "top-image-bottom-text": {
-    logo:     "bottom:43%;left:5%;width:28%;max-height:12%;",
-    headline: "bottom:24%;left:5%;right:5%;",
-    sub:      "bottom:13%;left:5%;right:5%;",
-    cta:      "bottom:4%;left:5%;",
+    logo:  "top:5%;left:5%;width:26%;max-height:11%;",
+    block: "left:5%;right:5%;bottom:6%;",
+    align: "left",
   },
+  // text block on the LEFT panel, vertically centered
   "left-panel-right-image": {
-    logo:     "top:6%;left:4%;width:30%;max-height:14%;",
-    headline: "top:28%;left:4%;right:60%;",
-    sub:      "top:50%;left:4%;right:60%;",
-    cta:      "bottom:10%;left:4%;",
+    logo:  "top:6%;left:4%;width:30%;max-height:14%;",
+    block: "left:4%;right:54%;top:50%;transform:translateY(-50%);",
+    align: "left",
   },
+  // text block centered both ways
   "centered-minimal": {
-    logo:     "top:5%;left:50%;transform:translateX(-50%);width:28%;max-height:12%;",
-    headline: "top:20%;left:5%;right:5%;text-align:center;",
-    sub:      "top:44%;left:10%;right:10%;text-align:center;",
-    cta:      "bottom:8%;left:50%;transform:translateX(-50%);",
+    logo:  "top:6%;left:50%;transform:translateX(-50%);width:26%;max-height:12%;",
+    block: "left:8%;right:8%;top:50%;transform:translateY(-50%);",
+    align: "center",
   },
+  // text block near the TOP, below the logo
   "bold-headline-first": {
-    logo:     "top:5%;right:5%;width:22%;max-height:10%;",
-    headline: "top:10%;left:5%;right:5%;",
-    sub:      "top:44%;left:5%;right:5%;",
-    cta:      "bottom:6%;left:5%;",
+    logo:  "top:5%;right:5%;width:22%;max-height:10%;",
+    block: "left:5%;right:5%;top:19%;",
+    align: "left",
   },
+  // text block centered along the BOTTOM inside a framed product
   "frame-product": {
-    logo:     "top:5%;left:50%;transform:translateX(-50%);width:30%;max-height:14%;",
-    headline: "bottom:22%;left:5%;right:5%;text-align:center;",
-    sub:      "bottom:13%;left:5%;right:5%;text-align:center;",
-    cta:      "bottom:4%;left:50%;transform:translateX(-50%);",
+    logo:  "top:6%;left:50%;transform:translateX(-50%);width:28%;max-height:13%;",
+    block: "left:6%;right:6%;bottom:6%;",
+    align: "center",
   },
+  // editorial: text block in the TOP-LEFT quadrant
   "top-left-editorial": {
-    logo:     "top:5%;left:5%;width:26%;max-height:11%;",
-    headline: "top:18%;left:5%;right:42%;",
-    sub:      "top:42%;left:5%;right:48%;",
-    cta:      "top:68%;left:5%;",
+    logo:  "top:5%;left:5%;width:26%;max-height:11%;",
+    block: "left:5%;right:40%;top:21%;",
+    align: "left",
   },
+  // editorial: text block in the TOP-RIGHT quadrant
   "top-right-editorial": {
-    logo:     "top:5%;right:5%;width:24%;max-height:11%;",
-    headline: "top:18%;left:44%;right:5%;text-align:right;",
-    sub:      "top:42%;left:48%;right:5%;text-align:right;",
-    cta:      "top:68%;right:5%;",
+    logo:  "top:5%;right:5%;width:24%;max-height:11%;",
+    block: "left:42%;right:5%;top:21%;",
+    align: "right",
   },
+  // editorial: text block in the BOTTOM-RIGHT quadrant
   "bottom-right-editorial": {
-    logo:     "top:5%;left:5%;width:24%;max-height:11%;",
-    headline: "bottom:25%;left:42%;right:5%;text-align:right;",
-    sub:      "bottom:13%;left:48%;right:5%;text-align:right;",
-    cta:      "bottom:5%;right:5%;",
+    logo:  "top:5%;left:5%;width:24%;max-height:11%;",
+    block: "left:42%;right:5%;bottom:7%;",
+    align: "right",
   },
+  // story: cohesive left stack, vertically centered
   "vertical-story-stack": {
-    logo:     "top:5%;left:6%;width:24%;max-height:10%;",
-    headline: "top:16%;left:6%;right:16%;",
-    sub:      "top:58%;left:6%;right:24%;",
-    cta:      "bottom:6%;left:6%;",
+    logo:  "top:5%;left:6%;width:24%;max-height:10%;",
+    block: "left:6%;right:10%;top:50%;transform:translateY(-50%);",
+    align: "left",
   },
+  // text block hugs the BOTTOM-LEFT
   "floating-islands": {
-    logo:     "top:5%;left:5%;width:24%;max-height:10%;",
-    headline: "top:16%;left:5%;right:38%;",
-    sub:      "bottom:18%;left:40%;right:5%;text-align:right;",
-    cta:      "bottom:6%;right:5%;",
+    logo:  "top:5%;left:5%;width:24%;max-height:10%;",
+    block: "left:6%;right:6%;bottom:7%;",
+    align: "left",
   },
 };
 
@@ -1666,11 +1672,12 @@ function buildBackgroundPrompt(
   let sourceBlock = "";
   if (bgSource === "reference" && hasRefImages) {
     sourceBlock = [
-      "████ BACKGROUND SOURCE: USER REFERENCE — FOLLOW CLOSELY ████",
-      "The attached image(s) are the user's chosen REFERENCE for this background. Treat them as the ACTUAL basis:",
-      "• Preserve the main subject, scene, composition, color mood and overall style of the reference.",
+      "████ BACKGROUND SOURCE: USER REFERENCE — MATCH IT CLOSELY ████",
+      "The attached image(s) are the EXACT look the user wants this ad to resemble. Treat them as the authoritative visual basis:",
+      "• Match their composition, layout balance, subject placement, color mood, lighting, materials and overall style as closely as possible.",
       "• Adapt only what is needed: reframe/extend for the target aspect ratio and open up the reserved text-safe zone.",
-      "• Do NOT invent an unrelated scene and do NOT drift to a generic stock look. This must clearly read as the same visual the user provided.",
+      "• Do NOT invent an unrelated scene and do NOT drift to a generic stock look. The result must clearly read as the same visual world the user provided.",
+      "• BUT reproduce only the VISUAL STYLE — never copy any text, headline, price, logo, wordmark or watermark that appears in the reference. Those are added later as a clean overlay. Any surface stays blank.",
     ].join("\n");
   } else if (bgSource === "company" && hasRefImages) {
     sourceBlock = [
@@ -1746,7 +1753,7 @@ function buildBackgroundPrompt(
     (() => {
       const pos = LAYOUT_POSITIONS[layout];
       return pos
-        ? `PRECISE OVERLAY ZONES (CSS coords on the final canvas — keep these exact rectangles the calmest, most contrast-friendly areas; the overlay drops text/logo here): logo[${pos.logo}] headline[${pos.headline}] cta[${pos.cta}]. Concentrate visual detail and focal subject AWAY from these rectangles.`
+        ? `PRECISE OVERLAY ZONES (CSS coords on the final canvas — keep these exact rectangles the calmest, most contrast-friendly areas; the overlay drops the logo and the WHOLE text block here): logo[${pos.logo}] text-block[${pos.block}]. The headline, body copy and CTA are stacked TOGETHER as one block inside that rectangle — concentrate visual detail and the focal subject AWAY from it.`
         : "";
     })(),
     "These zones need enough visual calm and contrast so that white or dark text is legible on top.",
@@ -1782,13 +1789,13 @@ const LAYOUT_SCRIMS: Record<string, string> = {
   "top-image-bottom-text":  "inset:48% 0 0 0;background:linear-gradient(to bottom,rgba(0,0,0,0) 0%,rgba(0,0,0,0.68) 35%,rgba(0,0,0,0.80) 100%)",
   "left-panel-right-image": "inset:0 56% 0 0;background:linear-gradient(to right,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.30) 75%,rgba(0,0,0,0) 100%)",
   "centered-minimal":       "inset:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0.52) 0%,rgba(0,0,0,0.18) 65%,rgba(0,0,0,0) 100%)",
-  "bold-headline-first":    "inset:0 0 auto 0;height:50%;background:linear-gradient(to bottom,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.28) 72%,rgba(0,0,0,0) 100%)",
-  "frame-product":          "inset:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0.08) 28%,rgba(0,0,0,0.64) 100%)",
-  "top-left-editorial":     "inset:0 52% 52% 0;background:linear-gradient(135deg,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0) 100%)",
-  "top-right-editorial":    "inset:0 0 52% 52%;background:linear-gradient(225deg,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0) 100%)",
-  "bottom-right-editorial": "inset:50% 0 0 50%;background:linear-gradient(315deg,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0) 100%)",
-  "vertical-story-stack":   "inset:0;background:linear-gradient(to bottom,rgba(0,0,0,0.58) 0%,rgba(0,0,0,0.16) 35%,rgba(0,0,0,0.16) 65%,rgba(0,0,0,0.58) 100%)",
-  "floating-islands":       "inset:0;background:rgba(0,0,0,0.30)",
+  "bold-headline-first":    "inset:0 0 auto 0;height:64%;background:linear-gradient(to bottom,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.30) 78%,rgba(0,0,0,0) 100%)",
+  "frame-product":          "inset:auto 0 0 0;height:46%;background:linear-gradient(to top,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0.20) 70%,rgba(0,0,0,0) 100%)",
+  "top-left-editorial":     "inset:0 42% 32% 0;background:linear-gradient(135deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)",
+  "top-right-editorial":    "inset:0 0 32% 42%;background:linear-gradient(225deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)",
+  "bottom-right-editorial": "inset:42% 0 0 42%;background:linear-gradient(315deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)",
+  "vertical-story-stack":   "inset:0 46% 0 0;background:linear-gradient(to right,rgba(0,0,0,0.66) 0%,rgba(0,0,0,0.22) 70%,rgba(0,0,0,0) 100%)",
+  "floating-islands":       "inset:auto 0 0 0;height:50%;background:linear-gradient(to top,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0.22) 65%,rgba(0,0,0,0) 100%)",
 };
 
 function buildCompositionHtml(
@@ -1847,7 +1854,9 @@ function buildCompositionHtml(
   const textColor = "#ffffff";
   const textShadow = "0 2px 12px rgba(0,0,0,0.70), 0 1px 3px rgba(0,0,0,0.50)";
   const subColor = "rgba(255,255,255,0.90)";
-  const textAlign = rec?.align ?? "left";
+  // The layout owns horizontal alignment so the whole block reads as one unit.
+  const textAlign = layout.align;
+  const alignItems = textAlign === "center" ? "center" : textAlign === "right" ? "flex-end" : "flex-start";
 
   const fontImport = fontUrl ? `<style>@import url('${fontUrl}');</style>` : "";
 
@@ -1873,30 +1882,37 @@ function buildCompositionHtml(
     ? `<img src="${logoUrl}" style="position:absolute;${logoCss}object-fit:contain;z-index:20" alt="logo" />`
     : (data.brandName ? `<div style="position:absolute;${logoCss}font-family:${fontFamily};font-size:${logoFs};font-weight:700;color:${textColor};z-index:20;white-space:nowrap;text-shadow:${textShadow}">${String(data.brandName).trim()}</div>` : "");
 
-  const headlineLayer = headline
-    ? `<div style="position:absolute;${layout.headline}font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:${textColor};line-height:1.15;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word">${headline}</div>`
+  // ── COHESIVE TEXT BLOCK ──────────────────────────────────────────────────
+  // headline + sub + CTA render INSIDE one flex column anchored to layout.block,
+  // so they always stay grouped (tight gaps) instead of being flung to separate
+  // corners of the canvas. The layout only moves the whole block around.
+  const headlineEl = headline
+    ? `<div style="font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:${textColor};line-height:1.12;text-align:${textAlign};text-shadow:${textShadow};overflow-wrap:break-word;">${headline}</div>`
     : "";
 
-  const subLayer = sub
-    ? `<div style="position:absolute;${layout.sub}font-family:${fontFamily};font-size:${subFs};font-weight:400;color:${subColor};line-height:1.4;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word">${sub}</div>`
+  const subEl = sub
+    ? `<div style="margin-top:1.6cqh;font-family:${fontFamily};font-size:${subFs};font-weight:400;color:${subColor};line-height:1.34;text-align:${textAlign};text-shadow:${textShadow};overflow-wrap:break-word;">${sub}</div>`
     : "";
 
-  // CTA layer — social formats get organic text gesture, display formats get a button
+  // CTA — social formats get organic text gesture, display formats get a button.
+  // It is the last child of the block; a slightly larger top margin separates it.
   const ctaRaw = String(data.ctaText || "").trim();
   const isSocialFmt = isSocialFormat(format);
-  let ctaLayer = "";
+  let ctaEl = "";
   if (ctaRaw) {
     if (isSocialFmt) {
-      // Organic CTA: plain text + gesture indicator, no button shape
-      ctaLayer = `<div style="position:absolute;${layout.cta}font-family:${fontFamily};font-size:${ctaFs};font-weight:600;color:${textColor};text-shadow:${textShadow};z-index:25;white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`;
+      ctaEl = `<div style="margin-top:2.6cqh;font-family:${fontFamily};font-size:${ctaFs};font-weight:600;color:${textColor};text-shadow:${textShadow};white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`;
     } else {
-      // Display CTA: contrasting button. Padding/radius in em so the button scales with its font.
       const isDark = contrastTextColor(primaryColor).color === "#ffffff";
       const btnBg    = isDark ? "rgba(255,255,255,0.95)" : "rgba(20,20,20,0.88)";
       const btnColor = isDark ? "#111111"                : "#ffffff";
-      ctaLayer = `<div style="position:absolute;${layout.cta}display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.42em 0.90em;border-radius:0.38em;box-shadow:0 4px 18px rgba(0,0,0,0.22);z-index:25;white-space:nowrap;">${ctaRaw}</div>`;
+      ctaEl = `<div style="margin-top:2.8cqh;align-self:${alignItems};display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.42em 0.90em;border-radius:0.38em;box-shadow:0 4px 18px rgba(0,0,0,0.22);white-space:nowrap;">${ctaRaw}</div>`;
     }
   }
+
+  const textBlock = (headlineEl || subEl || ctaEl)
+    ? `<div style="position:absolute;${layout.block}display:flex;flex-direction:column;align-items:${alignItems};z-index:25;">${headlineEl}${subEl}${ctaEl}</div>`
+    : "";
 
   return `<!-- BANNER_START -->
 <div class="ad-banner" data-platform="${platform}" data-format="${formatName}" style="position:relative;width:${w}px;height:${h}px;overflow:hidden;font-family:${fontFamily};container-type:size">
@@ -1904,9 +1920,7 @@ function buildCompositionHtml(
   ${bgLayer}
   ${scrimLayer}
   ${logoLayer}
-  ${headlineLayer}
-  ${subLayer}
-  ${ctaLayer}
+  ${textBlock}
 </div>
 <!-- BANNER_END -->`;
 }
@@ -1940,12 +1954,17 @@ type ReferenceImage = {
   role?: "reference" | "source_to_reconstruct";
 };
 
-// Max base64 size (~300 KB decoded) for reference images sent to the image model.
-// Larger images waste input tokens and can OOM the edge function. Style/color
-// reference quality is identical at this size.
-const MAX_REF_IMAGE_BYTES = 400_000; // base64 chars ≈ 300 KB binary
+// Max base64 size for reference images. base64 chars ≈ 0.75 × binary bytes.
+//  - TEXT modes never fetch reference bytes at all (needsReferenceImages gate), so this
+//    only ever bounds bytes sent to the IMAGE model, which genuinely needs the pixels.
+//  - The old 400 KB cap silently DROPPED most real reference ads/screenshots (they are
+//    usually 0.5–2 MB) → "the reference image was totally ignored". DRAW_REF_MAX_B64 lifts
+//    the cap for the image model only, while we still bound the COUNT of refs so the
+//    request payload stays small. NEVER raise this for a text-model path.
+const MAX_REF_IMAGE_BYTES = 400_000;     // base64 chars ≈ 300 KB binary (text-safe default)
+const DRAW_REF_MAX_B64    = 1_000_000;   // base64 chars ≈ 750 KB binary (image model only)
 
-async function fetchImageBase64(url: string): Promise<{ mimeType: string; data: string } | null> {
+async function fetchImageBase64(url: string, maxBytes: number = MAX_REF_IMAGE_BYTES): Promise<{ mimeType: string; data: string } | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
@@ -1966,8 +1985,8 @@ async function fetchImageBase64(url: string): Promise<{ mimeType: string; data: 
     }
     const data = btoa(bin);
 
-    // Skip oversized reference images — model only needs color/style, not full resolution.
-    if (data.length > MAX_REF_IMAGE_BYTES) return null;
+    // Skip oversized reference images — bounds payload to the image model.
+    if (data.length > maxBytes) return null;
 
     return { mimeType: mime, data };
   } catch {
@@ -2377,7 +2396,8 @@ serve(async (req: Request) => {
     const fetchedImages = needsReferenceImages
       ? await Promise.all(
           imageSpecs.map(({ url, label }) =>
-            fetchImageBase64(url).then((img) => (img ? { label, ...img } : null)).catch(() => null)
+            // Image model only — bigger cap so real product/reference photos aren't dropped.
+            fetchImageBase64(url, DRAW_REF_MAX_B64).then((img) => (img ? { label, ...img } : null)).catch(() => null)
           )
         )
       : [];
@@ -2485,7 +2505,6 @@ serve(async (req: Request) => {
       // The logo is composited later in HTML (buildCompositionHtml). Passing it as a
       // visual reference causes the model to embed it in the background pixel art.
       const logoUrlNorm = String(campaignData.logoUrl || "").trim().toLowerCase();
-      const MAX_REF_IMAGE_B64 = 400_000;
       const refImagesForGen = referenceImages
         .filter((r) => {
           const spec = imageSpecs.find((s) => s.label === r.label);
@@ -2493,8 +2512,23 @@ serve(async (req: Request) => {
           const urlNorm = spec.url.trim().toLowerCase();
           return urlNorm !== logoUrlNorm && !spec.label.toLowerCase().startsWith("company logo");
         })
-        .filter((r) => r.data.length <= MAX_REF_IMAGE_B64)
+        .filter((r) => r.data.length <= DRAW_REF_MAX_B64)
         .map((r) => ({ data: r.data, mimeType: r.mimeType }));
+
+      // User-uploaded reference images (the ads/visuals the caller wants to look like) arrive
+      // in composeCompanyRefs. Fetch them ONCE here so they can feed both the 'reference' and
+      // 'company' background treatments — they are the strongest signal for "make it look like
+      // what I sent". Bounded count + image-model-only bytes (never sent to a text model).
+      const companyRefUrls = Array.isArray((campaignData as any).composeCompanyRefs)
+        ? ((campaignData as any).composeCompanyRefs as unknown[])
+            .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
+            .slice(0, 3)
+        : [];
+      const companyRefImages = companyRefUrls.length
+        ? (await Promise.all(companyRefUrls.map((url) => fetchImageBase64(url, DRAW_REF_MAX_B64).catch(() => null))))
+            .filter((img): img is { mimeType: string; data: string } => Boolean(img && img.data))
+            .map((r) => ({ data: r.data, mimeType: r.mimeType }))
+        : [];
 
       // ── Background source (compose) ────────────────────────────────────────
       //  reference: the user's product/background images ARE the reference
@@ -2509,28 +2543,17 @@ serve(async (req: Request) => {
         // fallback, which produced generic backgrounds disconnected from the brand.
         : (String(campaignData.backgroundImageUrl || "").startsWith("http") ? "reference" : "creative");
 
-      let bgRefImages = refImagesForGen;
+      let bgRefImages: { data: string; mimeType: string }[];
       if (bgSource === "shapes" || bgSource === "creative") {
         bgRefImages = []; // no reference image — abstract (shapes) or full freedom (creative)
       } else if (bgSource === "company") {
-        const companyRefUrls = Array.isArray((campaignData as any).composeCompanyRefs)
-          ? ((campaignData as any).composeCompanyRefs as unknown[])
-              .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
-              .slice(0, 4)
-          : [];
-        const companyFetched = await Promise.all(
-          companyRefUrls.map((url) => fetchImageBase64(url).then((img) => img).catch(() => null)),
-        );
-        bgRefImages = companyFetched
-          .filter((img): img is { mimeType: string; data: string } => Boolean(img && img.data))
-          .filter((r) => r.data.length <= MAX_REF_IMAGE_B64)
-          .map((r) => ({ data: r.data, mimeType: r.mimeType }));
-        // No company images available → fall back to abstract shapes.
-        if (!bgRefImages.length) {
-          // keep empty refs; prompt uses the company-but-no-refs guidance below
-        }
+        // Derive a fresh original backdrop from the brand world: user refs first, then assets.
+        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 3);
+      } else {
+        // 'reference' (FOLLOW CLOSELY): the user's uploaded references lead, product/background
+        // assets follow. This is what makes the output resemble the ads the caller sent.
+        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 3);
       }
-      // 'reference' keeps refImagesForGen (product + user background) as-is.
 
       // brandSpec: use creativePlan if provided (e.g. from external API worker),
       // otherwise derive instantly from campaignData — PHP already enriched it with
@@ -2556,7 +2579,7 @@ serve(async (req: Request) => {
       let banners: Awaited<ReturnType<typeof runWithConcurrency>>;
 
       if (isAbVisual) {
-        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number }>();
+        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string }>();
         const uniqueVariantRatios = [...new Map(
           imageTasks.map((task) => {
             const aspectRatio = imageAspectRatioForFormat(task.format);
@@ -2580,15 +2603,16 @@ serve(async (req: Request) => {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length });
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint });
         }
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
           const aspectRatio = imageAspectRatioForFormat(format);
-          const layoutHint = userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
           const taskBrandSpec = specForFormat(brandSpec, format);
-          const bg = bgByVariantRatio.get(`${task.variantIndex}:${aspectRatio}`) ?? { url: "", rec: null, prompt: "", refCount: 0 };
+          const bg = bgByVariantRatio.get(`${task.variantIndex}:${aspectRatio}`) ?? { url: "", rec: null, prompt: "", refCount: 0, layout: userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length] };
+          // Reuse the exact layout the variant's background reserved space for.
+          const layoutHint = bg.layout;
 
           const bannerHtml = buildCompositionHtml(
             bg.url, campaignData, format, taskBrandSpec, cssVars, fontUrl,
@@ -2608,8 +2632,12 @@ serve(async (req: Request) => {
         });
         banners = await runWithConcurrency(abComposeFns, 1);
       } else {
-        // Standard path: deduplicate backgrounds by aspect ratio (cost saving)
-        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number }>();
+        // Standard path: deduplicate backgrounds by aspect ratio (cost saving).
+        // ASSORTED LAYOUTS: when the caller didn't pin a layout, each aspect ratio gets a
+        // DIFFERENT layout (square / story / landscape look distinct). The chosen layout is
+        // STORED per ratio so the HTML overlay reuses the exact same one the background
+        // reserved space for — text and background never disagree.
+        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string }>();
         const uniqueRatios = [...new Set(imageTasks.map((task) => imageAspectRatioForFormat(task.format)))];
         for (const aspectRatio of uniqueRatios) {
           const task = imageTasks.find((candidate) => imageAspectRatioForFormat(candidate.format) === aspectRatio)!;
@@ -2628,18 +2656,20 @@ serve(async (req: Request) => {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length });
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint });
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
           const aspectRatio = imageAspectRatioForFormat(format);
-          const layoutHint = userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
-          const bg = bgByRatio.get(aspectRatio) ?? { url: "", rec: null, prompt: "", refCount: 0 };
+          const bg = bgByRatio.get(aspectRatio) ?? { url: "", rec: null, prompt: "", refCount: 0, layout: userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length] };
+          // Use the EXACT layout the background reserved space for (forced), so the text
+          // block lands on the calm zone the image model left for it.
+          const layoutHint = bg.layout;
           const taskBrandSpec = specForFormat(brandSpec, format);
 
           const bannerHtml = buildCompositionHtml(
-            bg.url, campaignData, format, taskBrandSpec, cssVars, fontUrl, layoutHint, Boolean(userLayout), bg.rec,
+            bg.url, campaignData, format, taskBrandSpec, cssVars, fontUrl, layoutHint, true, bg.rec,
           );
           const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
           return {
