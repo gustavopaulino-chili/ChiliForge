@@ -255,7 +255,7 @@ function parseComposeTextRec(text: string): ComposeTextRec | null {
 
 async function generateAdImage(
   prompt: string,
-  refImages: Array<{ data: string; mimeType: string }>,
+  refImages: Array<{ url: string; mimeType: string }>,
   apiKey: string,
   aspectRatio?: string,
   opts: GenerateAdImageOptions = {},
@@ -263,7 +263,7 @@ async function generateAdImage(
   const { maxAttempts = 3, timeoutMs = 100000, singleConfig = false } = opts;
   const parts: unknown[] = [{ text: prompt }];
   for (const img of refImages) {
-    parts.push({ inline_data: { mime_type: img.mimeType, data: img.data } });
+    parts.push({ file_data: { file_uri: img.url, mime_type: img.mimeType } });
   }
   let lastError = "";
   for (const model of GEMINI_IMAGE_MODELS) {
@@ -1970,49 +1970,19 @@ type GeminiResult = {
 type ReferenceImage = {
   label: string;
   mimeType: string;
-  data: string;
+  url: string;
   role?: "reference" | "source_to_reconstruct";
 };
 
-// Max base64 size for reference images. base64 chars ≈ 0.75 × binary bytes.
-//  - TEXT modes never fetch reference bytes at all (needsReferenceImages gate), so this
-//    only ever bounds bytes sent to the IMAGE model, which genuinely needs the pixels.
-//  - The old 400 KB cap silently DROPPED most real reference ads/screenshots (they are
-//    usually 0.5–2 MB) → "the reference image was totally ignored". DRAW_REF_MAX_B64 lifts
-//    the cap for the image model only, while we still bound the COUNT of refs so the
-//    request payload stays small. NEVER raise this for a text-model path.
-const MAX_REF_IMAGE_BYTES = 400_000;     // base64 chars ≈ 300 KB binary (text-safe default)
-const DRAW_REF_MAX_B64    = 1_000_000;   // base64 chars ≈ 750 KB binary (image model only)
-
-async function fetchImageBase64(url: string, maxBytes: number = MAX_REF_IMAGE_BYTES): Promise<{ mimeType: string; data: string } | null> {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return null;
-    const mime = res.headers.get("content-type")?.split(";")[0].trim() ?? "image/jpeg";
-    if (!mime.startsWith("image/")) return null;
-    // Gemini inline image parts do not accept SVG.
-    if (mime === "image/svg+xml") return null;
-    const buf = await res.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-
-    // IMPORTANT: do NOT use char-by-char concatenation (bin += String.fromCharCode(bytes[i])).
-    // That is O(n²) in memory — a 1 MB image produces ~50 MB of garbage strings.
-    // Chunked spread is O(n) and stays within the 256 MB edge function limit.
-    const CHUNK = 8192;
-    let bin = "";
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-    }
-    const data = btoa(bin);
-
-    // Skip oversized reference images — bounds payload to the image model.
-    if (data.length > maxBytes) return null;
-
-    return { mimeType: mime, data };
-  } catch {
-    return null;
-  }
+function guessMimeType(url: string): string {
+  const ext = url.split("?")[0].split(".").pop()?.toLowerCase() ?? "";
+  const map: Record<string, string> = {
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+    webp: "image/webp", gif: "image/gif", avif: "image/avif", bmp: "image/bmp",
+  };
+  return map[ext] ?? "image/jpeg";
 }
+
 
 type GeminiCallOptions = {
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
@@ -2152,7 +2122,7 @@ async function callGemini(
         ? `ANALYZE THIS IMAGE AND RECONSTRUCT AS HTML/CSS — ${img.label}:`
         : `VISUAL REFERENCE — ${img.label} (use this image in the ad as instructed):`;
       parts.push({ text: labelText });
-      parts.push({ inline_data: { mime_type: img.mimeType, data: img.data } });
+      parts.push({ file_data: { file_uri: img.url, mime_type: img.mimeType } });
     }
   }
   parts.push({ text: userMessage });
@@ -2313,14 +2283,11 @@ serve(async (req: Request) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const fetched = await Promise.all(
-        refUrls.map((url, i) =>
-          fetchImageBase64(url, DRAW_REF_MAX_B64)
-            .then((img) => (img ? { label: `Brand reference ${i + 1}`, mimeType: img.mimeType, data: img.data } as ReferenceImage : null))
-            .catch(() => null),
-        ),
-      );
-      const visRefs = fetched.filter((r): r is ReferenceImage => r !== null);
+      const visRefs: ReferenceImage[] = refUrls.map((url, i) => ({
+        label: `Brand reference ${i + 1}`,
+        mimeType: guessMimeType(url),
+        url,
+      }));
       if (!visRefs.length) {
         return new Response(JSON.stringify({ brief: "" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2474,20 +2441,14 @@ serve(async (req: Request) => {
     // so sending base64 there only inflates INPUT TOKENS — and it was re-sent on
     // every format/batch request. Fetch the bytes only for the modes that draw.
     const needsReferenceImages = mode === "image" || mode === "compose";
-    const fetchedImages = needsReferenceImages
-      ? await Promise.all(
-          imageSpecs.map(({ url, label }) =>
-            // Image model only — bigger cap so real product/reference photos aren't dropped.
-            fetchImageBase64(url, DRAW_REF_MAX_B64).then((img) => (img ? { label, ...img } : null)).catch(() => null)
-          )
-        )
+    const referenceImages: ReferenceImage[] = needsReferenceImages
+      ? imageSpecs
+          .filter((s) => s.url.startsWith("http"))
+          .map((s) => ({ label: s.label, url: s.url, mimeType: guessMimeType(s.url) }))
       : [];
-    const referenceImages: ReferenceImage[] = fetchedImages.filter((img): img is ReferenceImage => img !== null);
 
-    // For debug: which reference URLs were provided and whether each was fetched
-    // within the ~300KB inline limit (fetched=false ⇒ dropped, won't reach the model).
     const refDebug = debug
-      ? imageSpecs.map((s, i) => ({ slot: s.label.split(" — ")[0], url: s.url, fetched: !!fetchedImages[i] }))
+      ? imageSpecs.map((s) => ({ slot: s.label.split(" — ")[0], url: s.url, included: s.url.startsWith("http") }))
       : [];
 
     // ── COMPOSE MODE: background image + HTML overlay ─────────────────────────
@@ -2496,7 +2457,7 @@ serve(async (req: Request) => {
     // hosted URLs (uploaded to ad-images) instead of base64; falls back to base64 if upload fails.
     if (mode === "image") {
       const campaignFactsImg = buildCampaignFactsForImage(campaignData);
-      const refImagesForGen = referenceImages.map((r) => ({ data: r.data, mimeType: r.mimeType }));
+      const refImagesForGen = referenceImages.map((r) => ({ url: r.url, mimeType: r.mimeType }));
       const IMAGE_LANGUAGE_NAMES: Record<string, string> = {
         pt: "Portuguese (Brazilian)", en: "English", es: "Spanish", fr: "French",
         de: "German", it: "Italian", ja: "Japanese", zh: "Chinese",
@@ -2593,8 +2554,7 @@ serve(async (req: Request) => {
           const urlNorm = spec.url.trim().toLowerCase();
           return urlNorm !== logoUrlNorm && !spec.label.toLowerCase().startsWith("company logo");
         })
-        .filter((r) => r.data.length <= DRAW_REF_MAX_B64)
-        .map((r) => ({ data: r.data, mimeType: r.mimeType }));
+        .map((r) => ({ url: r.url, mimeType: r.mimeType }));
 
       // Brand visual identity brief (TEXT) — distilled ONCE from the reference images by the
       // worker. When present it carries the brand's design language as words, which lets the
@@ -2637,13 +2597,10 @@ serve(async (req: Request) => {
             .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
             .slice(0, 3)
         : [];
-      const companyRefImages = companyRefUrls.length
-        ? (await Promise.all(companyRefUrls.map((url) => fetchImageBase64(url, DRAW_REF_MAX_B64).catch(() => null))))
-            .filter((img): img is { mimeType: string; data: string } => Boolean(img && img.data))
-            .map((r) => ({ data: r.data, mimeType: r.mimeType }))
-        : [];
+      const companyRefImages = companyRefUrls
+        .map((url) => ({ url, mimeType: guessMimeType(url) }));
 
-      let bgRefImages: { data: string; mimeType: string }[];
+      let bgRefImages: { url: string; mimeType: string }[];
       if (!usesRefs) {
         bgRefImages = []; // no reference image — abstract (shapes) or full freedom (creative)
       } else {

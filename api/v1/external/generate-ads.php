@@ -313,7 +313,7 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
 
     // Every image the caller provides — regardless of field name — is a reference for
     // the background generator. Gather ALL image URLs from company and campaign into
-    // composeCompanyRefs so the edge fetches them as base64 background references.
+    // composeCompanyRefs so the edge passes them via file_data (URL, no base64) to Gemini.
     // They also go through the re-absolutizing step at line ~1053 so root-relative
     // /projects/... paths (produced by asset mirroring) become fetchable absolute URLs.
     $logoUrl = trim((string)($campaignData['logoUrl'] ?? $companyData['logoUrl'] ?? ''));
