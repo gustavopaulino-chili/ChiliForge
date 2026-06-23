@@ -2515,21 +2515,6 @@ serve(async (req: Request) => {
         .filter((r) => r.data.length <= DRAW_REF_MAX_B64)
         .map((r) => ({ data: r.data, mimeType: r.mimeType }));
 
-      // User-uploaded reference images (the ads/visuals the caller wants to look like) arrive
-      // in composeCompanyRefs. Fetch them ONCE here so they can feed both the 'reference' and
-      // 'company' background treatments — they are the strongest signal for "make it look like
-      // what I sent". Bounded count + image-model-only bytes (never sent to a text model).
-      const companyRefUrls = Array.isArray((campaignData as any).composeCompanyRefs)
-        ? ((campaignData as any).composeCompanyRefs as unknown[])
-            .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
-            .slice(0, 3)
-        : [];
-      const companyRefImages = companyRefUrls.length
-        ? (await Promise.all(companyRefUrls.map((url) => fetchImageBase64(url, DRAW_REF_MAX_B64).catch(() => null))))
-            .filter((img): img is { mimeType: string; data: string } => Boolean(img && img.data))
-            .map((r) => ({ data: r.data, mimeType: r.mimeType }))
-        : [];
-
       // ── Background source (compose) ────────────────────────────────────────
       //  reference: the user's product/background images ARE the reference
       //  shapes   : no photo — abstract geometric/brand-color background (no refs)
@@ -2543,15 +2528,29 @@ serve(async (req: Request) => {
         // fallback, which produced generic backgrounds disconnected from the brand.
         : (String(campaignData.backgroundImageUrl || "").startsWith("http") ? "reference" : "creative");
 
+      // User-uploaded reference images (the ads/visuals the caller wants to look like) arrive
+      // in composeCompanyRefs. ONLY fetch+decode them for the sources that actually consume
+      // them ('reference'/'company') — 'shapes'/'creative' discard refs, so we skip the work
+      // entirely (no wasted base64). Bounded count + image-model-only bytes (never to a text model).
+      const usesRefs = bgSource === "reference" || bgSource === "company";
+      const companyRefUrls = usesRefs && Array.isArray((campaignData as any).composeCompanyRefs)
+        ? ((campaignData as any).composeCompanyRefs as unknown[])
+            .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
+            .slice(0, 3)
+        : [];
+      const companyRefImages = companyRefUrls.length
+        ? (await Promise.all(companyRefUrls.map((url) => fetchImageBase64(url, DRAW_REF_MAX_B64).catch(() => null))))
+            .filter((img): img is { mimeType: string; data: string } => Boolean(img && img.data))
+            .map((r) => ({ data: r.data, mimeType: r.mimeType }))
+        : [];
+
       let bgRefImages: { data: string; mimeType: string }[];
-      if (bgSource === "shapes" || bgSource === "creative") {
+      if (!usesRefs) {
         bgRefImages = []; // no reference image — abstract (shapes) or full freedom (creative)
-      } else if (bgSource === "company") {
-        // Derive a fresh original backdrop from the brand world: user refs first, then assets.
-        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 3);
       } else {
-        // 'reference' (FOLLOW CLOSELY): the user's uploaded references lead, product/background
-        // assets follow. This is what makes the output resemble the ads the caller sent.
+        // 'reference' (FOLLOW CLOSELY) / 'company' (derive from brand world): the user's uploaded
+        // references lead, product/background assets follow. This is what makes the output
+        // resemble the ads the caller sent.
         bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 3);
       }
 
