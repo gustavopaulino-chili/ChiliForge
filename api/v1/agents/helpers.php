@@ -858,6 +858,29 @@ if (!function_exists('buildCompanyDocument')) {
             }
         }
 
+        // Brand visual identity from Instagram profile analysis — the most important signal
+        // for compose mode background generation. Stored verbatim from the scraper output.
+        $brandVisualGuidelines = $str($fd['brandVisualGuidelines'] ?? '');
+        if ($brandVisualGuidelines !== '') {
+            $doc .= "## Brand Visual Identity — Instagram Profile Analysis\n";
+            $doc .= "COMPOSE BACKGROUND DIRECTIVE: The following visual identity was extracted from this brand's own Instagram profile. ";
+            $doc .= "When generating advertising backgrounds (compose mode), these elements MUST be embodied. ";
+            $doc .= "Treat them as the brand's visual DNA — not optional inspiration.\n\n";
+            $doc .= $brandVisualGuidelines . "\n\n";
+        }
+
+        // Competitor layout examples — for composition/layout inspiration ONLY.
+        // Never use these for brand identity, colors, typography, or visual style.
+        $competitorLayoutExamples = $str($fd['competitorLayoutExamples'] ?? '');
+        if ($competitorLayoutExamples !== '') {
+            $doc .= "## Competitor Layout Examples — FOR LAYOUT INSPIRATION ONLY\n";
+            $doc .= "STRICT RESTRICTION: The following patterns come from COMPETITOR brands. ";
+            $doc .= "Use ONLY for composition structure, subject placement, whitespace ratios, and visual hierarchy. ";
+            $doc .= "FORBIDDEN to use: any competitor color, brand element, typography style, logo, identity mark, or visual aesthetic. ";
+            $doc .= "This brand's identity comes exclusively from its own Brand Visual Identity section above.\n\n";
+            $doc .= $competitorLayoutExamples . "\n\n";
+        }
+
         // Prescriptive rules for ad generation — consumed by the planner and HTML generator
         $adRules = [];
         $adRules[] = $logo !== ''

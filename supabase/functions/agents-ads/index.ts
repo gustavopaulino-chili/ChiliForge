@@ -2644,9 +2644,9 @@ serve(async (req: Request) => {
             ? "company"   // study brand refs → derive original background from that world
             : "creative"; // no refs at all → full AI creative freedom
       // With a text brief in hand, prefer creative freedom (guided by the brief) over copying
-      // pixels — this is what unlocks the brand's design devices and depth. 'shapes' is kept
-      // (explicit abstract intent); reference/company collapse to creative.
-      if (briefDriven && bgSource !== "shapes") bgSource = "creative";
+      // pixels — this is what unlocks the brand's design devices and depth. 'shapes' and
+      // 'inspired' are kept as-is ('inspired' already has full freedom + the ref image).
+      if (briefDriven && bgSource !== "shapes" && bgSource !== "inspired") bgSource = "creative";
 
       // ── Store-derived brand brief (compose) ───────────────────────────────
       // When no external creativePlan and no pre-generated brandVisualBrief, query the company
@@ -2677,9 +2677,9 @@ serve(async (req: Request) => {
 
       // User-uploaded reference images (the ads/visuals the caller wants to look like) arrive
       // in composeCompanyRefs. ONLY fetch+decode them for the sources that actually consume
-      // them ('reference'/'company') — 'shapes'/'creative' discard refs, so we skip the work
-      // entirely (no wasted base64). Bounded count + image-model-only bytes (never to a text model).
-      const usesRefs = bgSource === "reference" || bgSource === "company";
+      // them ('reference'/'company'/'inspired') — 'shapes'/'creative' discard refs, so we skip
+      // the work entirely (no wasted base64). Bounded count + image-model-only bytes (never to a text model).
+      const usesRefs = bgSource === "reference" || bgSource === "company" || bgSource === "inspired";
       const companyRefUrls = usesRefs && Array.isArray((campaignData as any).composeCompanyRefs)
         ? ((campaignData as any).composeCompanyRefs as unknown[])
             .filter((u): u is string => typeof u === "string" && u.startsWith("http"))

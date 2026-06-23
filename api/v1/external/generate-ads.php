@@ -236,6 +236,10 @@ function ext_map_campaign(array $cam, array $formats): array {
         'creativeStrategy'      => $str('creative_strategy'),
         'productImageUrl'       => $first(['product_image_url', 'product_image', 'image_url', 'creative_image_url']),
         'backgroundImageUrl'    => $first(['background_image_url', 'background_image', 'hero_image_url']),
+        // Creative reference image for this specific generation. Sent to the image model with
+        // full creative freedom — Gemini decides how to use it (composition, mood, texture, etc.).
+        // Sets bgSource='inspired' so the model can creatively interpret it, not just copy it.
+        'referenceImageUrl'     => $first(['reference_image', 'reference_image_url', 'creative_reference', 'inspiration_image']),
         'preferredStyle'        => $str('preferred_style'),
         'preferredLogoStrategy' => $str('logo_strategy'),
         // Logo corner: explicit logo_position, or parsed from the logo_strategy text.
@@ -322,7 +326,14 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
         if (is_array($val)) { foreach ($val as $v) { $v = trim((string)$v); if ($v !== '' && preg_match('~^https?://~i', $v) && !$isLogo($v)) $refs[] = $v; } }
         else { $v = trim((string)$val); if ($v !== '' && preg_match('~^https?://~i', $v) && !$isLogo($v)) $refs[] = $v; }
     };
+    // Generation-time reference image — caller sends this in campaign.reference_image.
+    // It goes FIRST in composeCompanyRefs (highest visual priority) and triggers 'inspired'
+    // bgSource so the model can creatively interpret it rather than copy it verbatim.
+    $genRefUrl = trim((string)($campaignData['referenceImageUrl'] ?? ''));
+    $genRefUrl = ($genRefUrl !== '' && preg_match('~^https?://~i', $genRefUrl) && !$isLogo($genRefUrl)) ? $genRefUrl : '';
+
     $allRefs = [];
+    if ($genRefUrl !== '') $allRefs[] = $genRefUrl;                                // [FIRST] campaign.reference_image
     $addRef($allRefs, $companyData['referenceImages'] ?? []);                      // company.reference_images
     $addRef($allRefs, ($images['productImages'] ?? []));                            // company.product_images
     $addRef($allRefs, $images['hero'] ?? '');                                       // company.hero_image_url
@@ -334,8 +345,12 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
     }
 
     $bgSourceRaw = strtolower(trim((string)($campaignData['composeBackgroundSource'] ?? '')));
-    if (!in_array($bgSourceRaw, ['reference', 'company', 'creative', 'shapes'], true)) {
-        $bgSourceRaw = !empty($allRefs) ? 'reference' : 'creative';
+    if (!in_array($bgSourceRaw, ['reference', 'company', 'creative', 'shapes', 'inspired'], true)) {
+        if ($genRefUrl !== '') {
+            $bgSourceRaw = 'inspired'; // ref image → full creative freedom, model decides how to use it
+        } else {
+            $bgSourceRaw = !empty($allRefs) ? 'reference' : 'creative';
+        }
     }
     $campaignData['composeBackgroundSource'] = $bgSourceRaw;
 

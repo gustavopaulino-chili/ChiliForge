@@ -72,6 +72,16 @@ $refInputs = [];
 if (is_array($body['reference_images'] ?? null)) $refInputs = $body['reference_images'];
 $logoInput = trim((string)($body['logo_url'] ?? ($company['logo_url'] ?? ($company['logo'] ?? ''))));
 
+// Rich text descriptions produced by scraping Instagram profiles.
+// brand_visual_guidelines: detailed visual identity of the brand's own posts (motifs, depth,
+//   layers, colors in use, photography style). Goes into the company Gemini store and is
+//   retrieved every time compose mode queries the store — directly influences background gen.
+// competitor_examples: layout and composition patterns observed from a competitor's profile.
+//   Stored with an explicit "layout/composition only" restriction so brand identity is never
+//   confused with the competitor's identity during generation.
+$brandVisualGuidelines = trim((string)($body['brand_visual_guidelines'] ?? ($company['brand_visual_guidelines'] ?? '')));
+$competitorExamples    = trim((string)($body['competitor_examples']     ?? ($company['competitor_examples']     ?? '')));
+
 if (count($refInputs) > CAA_MAX_IMAGES) caa_fail(400, 'Too many reference_images (max ' . CAA_MAX_IMAGES . ' per call).', 'too_many');
 
 try {
@@ -117,6 +127,10 @@ try {
         if ($v !== '') $formData[$out] = $v;
     }
     if (!is_array($formData['images'] ?? null)) $formData['images'] = [];
+
+    // Brand visual guidelines from Instagram scraping — always overwrite (caller owns this).
+    if ($brandVisualGuidelines !== '') $formData['brandVisualGuidelines']    = $brandVisualGuidelines;
+    if ($competitorExamples    !== '') $formData['competitorLayoutExamples'] = $competitorExamples;
 
     // ── Company folder on disk ────────────────────────────────────────────────
     $companyRelPath = extract_project_relative_path_from_folder_path((string)$folderPath);
@@ -216,15 +230,17 @@ try {
     }
 
     echo json_encode([
-        'success'          => true,
-        'company_id'       => $companyId,
-        'store_name'       => (string)$storeName,
-        'logo_url'         => $logoUrl ?: ($formData['logoUrl'] ?? ''),
-        'reference_images' => $allRefs,
-        'reference_count'  => count($allRefs),
-        'added'            => count($newRefs),
-        'skipped'          => $skipped,
-        'store_warning'    => $storeWarning,
+        'success'                  => true,
+        'company_id'               => $companyId,
+        'store_name'               => (string)$storeName,
+        'logo_url'                 => $logoUrl ?: ($formData['logoUrl'] ?? ''),
+        'reference_images'         => $allRefs,
+        'reference_count'          => count($allRefs),
+        'added'                    => count($newRefs),
+        'skipped'                  => $skipped,
+        'brand_visual_guidelines'  => $brandVisualGuidelines !== '' ? 'stored' : 'not_provided',
+        'competitor_examples'      => $competitorExamples !== '' ? 'stored' : 'not_provided',
+        'store_warning'            => $storeWarning,
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
 } catch (Throwable $e) {
