@@ -2577,7 +2577,7 @@ serve(async (req: Request) => {
       // worker. When present it carries the brand's design language as words, which lets the
       // image model RE-COMPOSE freely (more creative, less "closed") instead of copying pixels —
       // and means we no longer re-send raw base64 on every generation (cheaper tokens).
-      const visualBrief = String((campaignData as any).brandVisualBrief || "").trim();
+      let visualBrief = String((campaignData as any).brandVisualBrief || "").trim();
       const briefDriven = visualBrief.length > 0;
 
       // ── Background source (compose) ────────────────────────────────────────
@@ -2603,6 +2603,33 @@ serve(async (req: Request) => {
       // pixels — this is what unlocks the brand's design devices and depth. 'shapes' is kept
       // (explicit abstract intent); reference/company collapse to creative.
       if (briefDriven && bgSource !== "shapes") bgSource = "creative";
+
+      // ── Store-derived brand brief (compose) ───────────────────────────────
+      // When no external creativePlan and no pre-generated brandVisualBrief, query the company
+      // store (+ global ads store) for brand visual identity guidelines. This is the primary
+      // brand intelligence source for compose mode — without it the image model only gets colors
+      // from campaignData fields and cannot embody the brand's deeper design language.
+      // Does NOT override bgSource: store brief and reference images work together.
+      if (!String(payload.creativePlan || "").trim() && !briefDriven) {
+        const composeStores = [companyStoreName, globalStoreName]
+          .filter((s): s is string => Boolean(s?.trim()));
+        if (composeStores.length > 0) {
+          try {
+            const brandQuery = await callGemini(
+              "You are a brand visual identity analyst. Query the company store for brand guidelines, visual identity, and design language. Return a concise visual brief (150-250 words) describing: visual motifs, textures, photography or illustration style, depth and lighting treatment, color mood, and overall visual personality. Write ONLY the brief — no headings, no preamble, no meta commentary.",
+              `Brand: ${String(campaignData.businessName || "").trim() || "unknown"}. Industry: ${String(campaignData.businessCategory || "").trim() || "unknown"}.\n\nQuery the company store and extract the visual identity guidelines that should inform the background image of an advertising creative for this brand.`,
+              "gemini-2.5-flash",
+              0.3,
+              500,
+              apiKey,
+              composeStores,
+              undefined,
+              { jobId },
+            );
+            if (brandQuery.text?.trim()) visualBrief = brandQuery.text.trim();
+          } catch (_) { /* non-fatal — fall through with existing brief */ }
+        }
+      }
 
       // User-uploaded reference images (the ads/visuals the caller wants to look like) arrive
       // in composeCompanyRefs. ONLY fetch+decode them for the sources that actually consume
@@ -2700,7 +2727,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(abComposeFns, 1);
@@ -2753,7 +2780,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(composeFns, 4);
