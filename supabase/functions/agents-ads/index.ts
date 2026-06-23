@@ -1873,6 +1873,52 @@ function boxToCssAnchor(box: ComposeTextBox, align: "left" | "center" | "right")
   return `top:${box.y}%;left:${box.x}%;right:${right}%;`;
 }
 
+// Analyze brand reference image URLs (ads/visuals uploaded by the user) and return a concise
+// text brief describing the brand's visual design language. This brief guides background
+// generation without ever sending raw pixels (no base64) to the expensive image model.
+// Returns "" on any failure — always fallback-safe.
+async function extractBrandVisualBrief(imageUrls: string[], apiKey: string): Promise<string> {
+  const validUrls = imageUrls
+    .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
+    .slice(0, 4);
+  if (!validUrls.length) return "";
+  const parts: unknown[] = [
+    ...validUrls.map((uri) => ({ fileData: { mimeType: "image/jpeg", fileUri: uri } })),
+    { text: `Study these brand reference images — they show how this brand creates its advertising.
+Write a concise visual design brief (4-6 sentences) that an art director could use to create NEW original ads that feel unmistakably like this brand, without copying the exact layout or content:
+• Composition and framing style (element placement, negative space, cropping, layering)
+• Color palette mood (dominant tones, warmth/coolness, saturation, contrast level)
+• Lighting and texture (soft/dramatic, studio/natural, matte/glossy, grain, glow)
+• Design devices and motifs (geometric shapes, overlays, depth, patterns, decorative elements)
+• Subject/product treatment (placement, scale, isolation vs context, lifestyle vs product-only)
+• Overall visual energy and premium level (bold/clean/dynamic/warm/luxurious/etc)
+Be specific and actionable. Describe the STYLE, not the content — no product names, no copy text, no logos.` },
+  ];
+  try {
+    const url = `${buildAiUrl("gemini-2.5-flash-lite")}?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 500 },
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      console.warn(`[brand-brief] vision call failed: ${res.status}`);
+      return "";
+    }
+    const data = await res.json();
+    const brief = extractTextFromGeminiPayload(data).trim();
+    console.log(`[brand-brief] extracted ${brief.length} chars from ${validUrls.length} reference URLs`);
+    return brief;
+  } catch (err) {
+    console.warn(`[brand-brief] skipped: ${err instanceof Error ? err.message : String(err)}`);
+    return "";
+  }
+}
+
 // Send the hosted background URL to a cheap vision model and get back the best text-safe
 // zones as a ComposeTextRec with boxes. Completely fallback-safe — any failure returns null.
 // Uses fileData.fileUri (HTTPS URL) so ZERO base64 is transmitted.
@@ -2604,8 +2650,9 @@ serve(async (req: Request) => {
     // reference image bytes. The HTML render uses a TEXT model that references the
     // images by URL (campaignFacts) + brand colors (CSS tokens) + the creative plan,
     // so sending base64 there only inflates INPUT TOKENS — and it was re-sent on
-    // every format/batch request. Fetch the bytes only for the modes that draw.
-    const needsReferenceImages = mode === "image" || mode === "compose";
+    // every format/batch request. Fetch the bytes only for the modes that draw pixels.
+    // Compose mode uses Gemini vision via URL (no base64) for brand brief extraction.
+    const needsReferenceImages = mode === "image";
     const fetchedImages = needsReferenceImages
       ? await Promise.all(
           imageSpecs.map(({ url, label }) =>
@@ -2728,56 +2775,30 @@ serve(async (req: Request) => {
         .filter((r) => r.data.length <= DRAW_REF_MAX_B64)
         .map((r) => ({ data: r.data, mimeType: r.mimeType }));
 
-      // Brand visual identity brief (TEXT) — distilled ONCE from the reference images by the
-      // worker. When present it carries the brand's design language as words, which lets the
-      // image model RE-COMPOSE freely (more creative, less "closed") instead of copying pixels —
-      // and means we no longer re-send raw base64 on every generation (cheaper tokens).
-      const visualBrief = String((campaignData as any).brandVisualBrief || "").trim();
-      const briefDriven = visualBrief.length > 0;
+      // ── Brand visual brief: study reference images via URL, never base64 ────────────────────
+      // Collect all reference image URLs the user provided (ad examples, background, product).
+      // Priority: composeCompanyRefs (direct brand ad examples) → backgroundImageUrl → productImageUrl.
+      const composeRefUrls: string[] = [
+        ...((campaignData as any).composeCompanyRefs as unknown[] || [])
+          .filter((u): u is string => typeof u === "string" && u.startsWith("http")),
+        ...(String(campaignData.backgroundImageUrl || "").startsWith("http") ? [String(campaignData.backgroundImageUrl)] : []),
+        ...(String(campaignData.productImageUrl || "").startsWith("http") ? [String(campaignData.productImageUrl)] : []),
+      ].filter((u, i, arr) => arr.indexOf(u) === i).slice(0, 4); // dedupe, max 4
 
-      // ── Background source (compose) ────────────────────────────────────────
-      //  reference: the user's product/background images ARE the reference (match closely)
-      //  shapes   : no photo — abstract geometric/brand-color background (no refs)
-      //  company  : derive the background from the company's own images
-      //  creative : full freedom — the model invents the best backdrop
-      const explicitBgSource = String((campaignData as any).composeBackgroundSource || "").toLowerCase();
-      let bgSource = ["reference", "shapes", "company", "creative"].includes(explicitBgSource)
-        ? explicitBgSource
-        // No explicit choice: a provided background image is treated as a real reference;
-        // otherwise CREATIVE — the model decides the best backdrop for the campaign (full
-        // scene/photo, illustration, abstract, whatever fits). Never the bare 'shapes'
-        // fallback, which produced generic backgrounds disconnected from the brand.
-        : (String(campaignData.backgroundImageUrl || "").startsWith("http") ? "reference" : "creative");
-      // With a text brief in hand, prefer creative freedom (guided by the brief) over copying
-      // pixels — this is what unlocks the brand's design devices and depth. 'shapes' is kept
-      // (explicit abstract intent); reference/company collapse to creative.
-      if (briefDriven && bgSource !== "shapes") bgSource = "creative";
-
-      // User-uploaded reference images (the ads/visuals the caller wants to look like) arrive
-      // in composeCompanyRefs. ONLY fetch+decode them for the sources that actually consume
-      // them ('reference'/'company') — 'shapes'/'creative' discard refs, so we skip the work
-      // entirely (no wasted base64). Bounded count + image-model-only bytes (never to a text model).
-      const usesRefs = bgSource === "reference" || bgSource === "company";
-      const companyRefUrls = usesRefs && Array.isArray((campaignData as any).composeCompanyRefs)
-        ? ((campaignData as any).composeCompanyRefs as unknown[])
-            .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
-            .slice(0, 3)
-        : [];
-      const companyRefImages = companyRefUrls.length
-        ? (await Promise.all(companyRefUrls.map((url) => fetchImageBase64(url, DRAW_REF_MAX_B64).catch(() => null))))
-            .filter((img): img is { mimeType: string; data: string } => Boolean(img && img.data))
-            .map((r) => ({ data: r.data, mimeType: r.mimeType }))
-        : [];
-
-      let bgRefImages: { data: string; mimeType: string }[];
-      if (!usesRefs) {
-        bgRefImages = []; // no reference image — abstract (shapes) or full freedom (creative)
-      } else {
-        // 'reference' (FOLLOW CLOSELY) / 'company' (derive from brand world): the user's uploaded
-        // references lead, product/background assets follow. This is what makes the output
-        // resemble the ads the caller sent.
-        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 3);
+      // Use a pre-extracted brief from campaignData when available (cached by the PHP worker
+      // on previous runs). Otherwise extract it now from the reference URLs via Gemini vision.
+      // The brief describes HOW the brand designs ads (style, palette, devices) — not WHAT to copy.
+      let visualBrief = String((campaignData as any).brandVisualBrief || "").trim();
+      if (!visualBrief && composeRefUrls.length) {
+        visualBrief = await extractBrandVisualBrief(composeRefUrls, apiKey);
       }
+
+      // Background source: reference images inform a text brief; the image model always gets
+      // "creative" mode (brand-informed freedom) or "shapes" (explicit abstract intent).
+      // No base64 pixels are ever sent to the image generation model in compose mode.
+      const explicitBgSource = String((campaignData as any).composeBackgroundSource || "").toLowerCase();
+      const bgSource = explicitBgSource === "shapes" ? "shapes" : "creative";
+      const bgRefImages: { data: string; mimeType: string }[] = []; // zero base64 in compose
 
       // brandSpec: use creativePlan if provided (e.g. from external API worker),
       // otherwise derive instantly from campaignData — PHP already enriched it with
@@ -2860,7 +2881,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeRefUrls: composeRefUrls.length, brandBriefChars: visualBrief.length, refs: refDebug, note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(abComposeFns, 1);
@@ -2924,7 +2945,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeRefUrls: composeRefUrls.length, brandBriefChars: visualBrief.length, refs: refDebug, note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(composeFns, 4);
