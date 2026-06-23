@@ -222,9 +222,26 @@ async function uploadImageToStorage(dataUrl: string | null, strict = false, stor
   return dataUrl;
 }
 
-// Text-overlay recommendation the image model returns ALONGSIDE the background image
-// (response text part). Used to fine-tune the HTML overlay; always optional (fallback safe).
-type ComposeTextRec = { headlineScale?: number; align?: "left" | "center" | "right" };
+type ComposeTextBox = {
+  x: number;
+  y: number;
+  w: number;
+  h?: number;
+};
+
+// Text-overlay recommendation the image model returns ALONGSIDE the background image,
+// and/or the follow-up vision pass returns from the hosted background URL.
+// Used to tune the HTML/GD overlay; always optional (fallback safe).
+type ComposeTextRec = {
+  headlineScale?: number;
+  align?: "left" | "center" | "right";
+  boxes?: {
+    headline?: ComposeTextBox;
+    sub?: ComposeTextBox;
+    cta?: ComposeTextBox;
+  };
+  source?: "image_model" | "vision_url";
+};
 
 function extractTextFromGeminiPayload(data: any): string {
   const parts = data?.candidates?.[0]?.content?.parts;
@@ -1408,12 +1425,12 @@ const CREATIVE_SPACE_GUIDANCE: Record<string, string> = {
   "top-image-bottom-text": "Text will sit near the bottom. Put the visual hook in the upper area, while the lower area can contain soft texture, depth, or color wash.",
   "left-panel-right-image": "Text will use the left side. Keep the left side readable with low-detail brand atmosphere, not a blank block. Put subject/product energy on the right.",
   "centered-minimal":    "Text may sit at top and bottom. Use a strong central visual idea with clean surrounding air, avoiding tiny busy details behind text zones.",
-  "bold-headline-first": "Text will use top and bottom areas. Make the middle visually expressive, with reduced micro-detail behind the headline and CTA areas.",
+  "bold-headline-first": "Text occupies the top-left area. Keep that zone contrast-friendly — calmer values, soft blur or gentle darkening. Put the brightest highlights and main subject focus toward the lower-right or center.",
   "frame-product":       "Text may sit near edges. Use an inventive framed or layered scene, with readable edges and a stronger center focal area.",
   "top-left-editorial":  "Text will sit in the top-left quadrant. Keep that area lower-detail with atmospheric texture, while the strongest visual subject can sit bottom-right or center-right.",
   "top-right-editorial": "Text will sit in the top-right quadrant. Keep that area readable with soft contrast, while visual energy can sit left or lower-left.",
   "bottom-right-editorial": "Text will sit in the bottom-right quadrant. Keep that area calm and contrast-friendly, with visual subject energy left or upper-left.",
-  "vertical-story-stack": "Text will use a vertical story-style stack with logo near top, headline around upper/mid canvas, and CTA near bottom. Keep these lanes readable without making them empty.",
+  "vertical-story-stack": "Text runs down the left column. Keep the left side contrast-friendly — softer tones, low-detail atmosphere. Put the main subject and visual energy on the right side.",
   "floating-islands":    "HTML elements will be spread across separate visual islands. Keep multiple calm zones available, with expressive detail between them.",
 };
 
@@ -1480,8 +1497,8 @@ const LAYOUT_POSITIONS: Record<string, LayoutPosition> = {
   // TOP cluster, below the logo
   "bold-headline-first": {
     logo:     "top:5%;right:5%;width:22%;max-height:10%;",
-    headline: "top:20%;left:5%;right:5%;",
-    sub:      "top:35%;left:5%;right:5%;",
+    headline: "top:20%;left:5%;right:42%;",
+    sub:      "top:36%;left:5%;right:46%;",
     cta:      "top:50%;left:5%;",
     align: "left",
   },
@@ -1520,8 +1537,8 @@ const LAYOUT_POSITIONS: Record<string, LayoutPosition> = {
   // LEFT story cluster, vertically centered
   "vertical-story-stack": {
     logo:     "top:5%;left:6%;width:24%;max-height:10%;",
-    headline: "top:34%;left:6%;right:12%;",
-    sub:      "top:52%;left:6%;right:20%;",
+    headline: "top:30%;left:6%;right:42%;",
+    sub:      "top:48%;left:6%;right:48%;",
     cta:      "top:68%;left:6%;",
     align: "left",
   },
@@ -1805,7 +1822,7 @@ function buildBackgroundPrompt(
     (() => {
       const pos = LAYOUT_POSITIONS[layout];
       return pos
-        ? `PRECISE OVERLAY ZONES (CSS coords on the final canvas — keep these areas contrast-friendly for overlaid text; the overlay drops the logo plus a tight headline→sub→CTA cluster here): logo[${pos.logo}] headline[${pos.headline}] cta[${pos.cta}]. Those text rows sit close together as one cluster — keep the SHARPEST focal subject and harshest contrast away from that band (soft design detail there is fine).`
+        ? `PRECISE OVERLAY ZONES (CSS coords on the final canvas — keep these areas contrast-friendly for overlaid text; the overlay drops the logo plus a tight headline→subheadline→CTA cluster here): logo[${pos.logo}] headline[${pos.headline}] subheadline[${pos.sub}] cta[${pos.cta}]. Do not place the product face, hero subject, brightest highlight, hard edges, or important visual details underneath ANY of those zones. Those text rows sit close together as one cluster — keep the SHARPEST focal subject and harshest contrast away from the full band from headline through CTA (soft design detail there is fine).`
         : "";
     })(),
     "",
@@ -1839,14 +1856,87 @@ const LAYOUT_SCRIMS: Record<string, string> = {
   "top-image-bottom-text":  "inset:48% 0 0 0;background:linear-gradient(to bottom,rgba(0,0,0,0) 0%,rgba(0,0,0,0.68) 35%,rgba(0,0,0,0.80) 100%)",
   "left-panel-right-image": "inset:0 56% 0 0;background:linear-gradient(to right,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.30) 75%,rgba(0,0,0,0) 100%)",
   "centered-minimal":       "inset:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0.52) 0%,rgba(0,0,0,0.18) 65%,rgba(0,0,0,0) 100%)",
-  "bold-headline-first":    "inset:0 0 auto 0;height:64%;background:linear-gradient(to bottom,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.30) 78%,rgba(0,0,0,0) 100%)",
+  "bold-headline-first":    "inset:0 38% 34% 0;background:linear-gradient(to right,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.42) 72%,rgba(0,0,0,0) 100%)",
   "frame-product":          "inset:auto 0 0 0;height:46%;background:linear-gradient(to top,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0.20) 70%,rgba(0,0,0,0) 100%)",
   "top-left-editorial":     "inset:0 42% 32% 0;background:linear-gradient(135deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)",
   "top-right-editorial":    "inset:0 0 32% 42%;background:linear-gradient(225deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)",
   "bottom-right-editorial": "inset:42% 0 0 42%;background:linear-gradient(315deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)",
-  "vertical-story-stack":   "inset:0 46% 0 0;background:linear-gradient(to right,rgba(0,0,0,0.66) 0%,rgba(0,0,0,0.22) 70%,rgba(0,0,0,0) 100%)",
+  "vertical-story-stack":   "inset:0 42% 0 0;background:linear-gradient(to right,rgba(0,0,0,0.68) 0%,rgba(0,0,0,0.30) 72%,rgba(0,0,0,0) 100%)",
   "floating-islands":       "inset:auto 0 0 0;height:50%;background:linear-gradient(to top,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0.22) 65%,rgba(0,0,0,0) 100%)",
 };
+
+// Convert a vision-analysis box (x/y/w in % of canvas) to a CSS anchor string that
+// the GD compositor can parse (top/left/right as %).
+function boxToCssAnchor(box: ComposeTextBox, align: "left" | "center" | "right"): string {
+  const right = Math.max(0, 100 - box.x - box.w);
+  if (align === "right") return `top:${box.y}%;right:${right}%;left:${box.x}%;`;
+  return `top:${box.y}%;left:${box.x}%;right:${right}%;`;
+}
+
+// Send the hosted background URL to a cheap vision model and get back the best text-safe
+// zones as a ComposeTextRec with boxes. Completely fallback-safe — any failure returns null.
+// Uses fileData.fileUri (HTTPS URL) so ZERO base64 is transmitted.
+async function analyzeBackgroundLayout(
+  bgUrl: string,
+  format: AdFormat,
+  layoutHint: string,
+  apiKey: string,
+): Promise<ComposeTextRec | null> {
+  if (!bgUrl || !bgUrl.startsWith("http")) return null;
+  const w = format.width ?? 1080;
+  const h = format.height ?? 1080;
+  const prompt =
+    `This is the background image for a ${w}×${h}px ad with "${layoutHint}" composition. ` +
+    `Identify the best zones for white text overlay (calm/dark/low-contrast areas). ` +
+    `Return ONLY valid JSON — no other text:\n` +
+    `{"align":"left","boxes":{"headline":{"x":5,"y":20,"w":53},"sub":{"x":5,"y":34,"w":50},"cta":{"x":5,"y":48,"w":35}}}\n` +
+    `Rules: x/y/w are PERCENTAGES of canvas. align = "left"/"center"/"right" to match the calm zone. ` +
+    `headline y ≈ 20-40%, sub y ≈ headline.y+12-14%, cta y ≈ sub.y+12-14%. ` +
+    `Pick the zone with the softest contrast and least detail as text zone.`;
+  try {
+    const url = `${buildAiUrl("gemini-2.5-flash-lite")}?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { fileData: { mimeType: "image/jpeg", fileUri: bgUrl } },
+          { text: prompt },
+        ]}],
+        generationConfig: { temperature: 0.05, maxOutputTokens: 200, responseMimeType: "application/json" },
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const text = extractTextFromGeminiPayload(data);
+    if (!text) return null;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    const parsed = JSON.parse(jsonMatch[0]);
+    const rec: ComposeTextRec = { source: "vision_url" };
+    if (parsed.align === "left" || parsed.align === "center" || parsed.align === "right") rec.align = parsed.align;
+    if (parsed.boxes && typeof parsed.boxes === "object") {
+      const boxes: NonNullable<ComposeTextRec["boxes"]> = {};
+      for (const key of ["headline", "sub", "cta"] as const) {
+        const b = parsed.boxes[key];
+        if (b && typeof b.x === "number" && typeof b.y === "number" && typeof b.w === "number") {
+          boxes[key] = {
+            x: Math.min(90, Math.max(0, Number(b.x))),
+            y: Math.min(90, Math.max(0, Number(b.y))),
+            w: Math.min(95, Math.max(10, Number(b.w))),
+          };
+        }
+      }
+      if (Object.keys(boxes).length) rec.boxes = boxes;
+    }
+    console.log(`[vision-layout] layout=${layoutHint} align=${rec.align ?? "?"} boxes=${JSON.stringify(rec.boxes ?? null)}`);
+    return (rec.align || rec.boxes) ? rec : null;
+  } catch (err) {
+    console.warn(`[vision-layout] skipped: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
 
 function buildCompositionHtml(
   bgDataUrl: string,
@@ -1867,6 +1957,20 @@ function buildCompositionHtml(
   const detectedLayout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const layout = LAYOUT_POSITIONS[detectedLayout] ?? LAYOUT_POSITIONS["hero-full-bleed"];
 
+  // If vision analysis returned text-safe boxes, use them to override the default layout anchors.
+  // Falls back to LAYOUT_POSITIONS when vision is unavailable. Logo and scrim always use the
+  // static layout so they don't shift unexpectedly.
+  const recAlign = rec?.align ?? layout.align;
+  const effectiveLayout: LayoutPosition = rec?.boxes
+    ? {
+        ...layout,
+        headline: rec.boxes.headline ? boxToCssAnchor(rec.boxes.headline, recAlign) : layout.headline,
+        sub:      rec.boxes.sub      ? boxToCssAnchor(rec.boxes.sub,      recAlign) : layout.sub,
+        cta:      rec.boxes.cta      ? boxToCssAnchor(rec.boxes.cta,      recAlign) : layout.cta,
+        align:    recAlign,
+      }
+    : layout;
+
   const primaryColor = extractCssVarColor(cssVars, "--primary") || "#1a1a2e";
   const fontFamily = extractCssVarFont(cssVars) || "'Inter','Helvetica Neue',Arial,sans-serif";
 
@@ -1882,8 +1986,9 @@ function buildCompositionHtml(
   // min(cqh,cqw) keeps text proportional to the *binding* dimension (no overflow on
   // extreme aspect ratios). sizeScale = optional hint from the image model (how much
   // clean space it left); clamped, 1.0 = computed size when no/invalid recommendation.
-  const sizeScale = Math.min(1.4, Math.max(0.7, Number(rec?.headlineScale) || 1));
-  const ctaScale  = Math.min(1.2, sizeScale);
+  const sizeScale = Math.min(1.15, Math.max(0.68, Number(rec?.headlineScale) || 1));
+  const isSocialFmt = isSocialFormat(format);
+  const ctaScale  = isSocialFmt ? Math.min(0.66, sizeScale * 0.66) : Math.min(1.2, sizeScale);
   // Length-aware shrink: a long headline/subheadline must not dominate the creative.
   // Combined with the model's clean-space hint (sizeScale) and the cq units (which already
   // scale with the banner's binding dimension), this keeps type proportional on every size.
@@ -1893,10 +1998,12 @@ function buildCompositionHtml(
   const subLenScale = subLen <= 45 ? 1 : subLen <= 75 ? 0.88 : 0.78;
   // Base coefficients lowered (was 8.8cqh/8cqw) — the old size ran ~8% of width (~86px on a
   // 1080 square), which crowded the layout. ~6.2cqw ≈ 67px is a punchy, balanced headline.
-  const headlineFs = `calc(min(7cqh, 6.2cqw) * ${(sizeScale * hlLenScale).toFixed(3)})`;
-  const subFs      = `calc(min(7cqh, 6.2cqw) * ${(sizeScale * 0.46 * subLenScale).toFixed(3)})`;
-  const ctaFs      = `calc(min(4.4cqh, 4.1cqw) * ${ctaScale.toFixed(3)})`;
-  const logoFs     = `calc(min(7cqh, 6.2cqw) * ${(sizeScale * 0.46).toFixed(3)})`;
+  const headlineFs = `calc(min(6.2cqh, 5.4cqw) * ${(sizeScale * hlLenScale).toFixed(3)})`;
+  const subFs      = `calc(min(6.2cqh, 5.4cqw) * ${(sizeScale * 0.44 * subLenScale).toFixed(3)})`;
+  const ctaFs      = isSocialFmt
+    ? `calc(min(3.0cqh, 2.7cqw) * ${ctaScale.toFixed(3)})`
+    : `calc(min(4.0cqh, 3.7cqw) * ${ctaScale.toFixed(3)})`;
+  const logoFs     = `calc(min(6.2cqh, 5.4cqw) * ${(sizeScale * 0.44).toFixed(3)})`;
 
   // Always use white text in compose mode — the scrim layer guarantees contrast
   // regardless of what the AI generated. Using brand color for text caused
@@ -1904,8 +2011,8 @@ function buildCompositionHtml(
   const textColor = "#ffffff";
   const textShadow = "0 2px 12px rgba(0,0,0,0.70), 0 1px 3px rgba(0,0,0,0.50)";
   const subColor = "rgba(255,255,255,0.90)";
-  // The layout owns horizontal alignment so the cluster reads as one unit.
-  const textAlign = layout.align;
+  // The layout (or vision override) owns horizontal alignment so the cluster reads as one unit.
+  const textAlign = effectiveLayout.align;
 
   const fontImport = fontUrl ? `<style>@import url('${fontUrl}');</style>` : "";
 
@@ -1936,25 +2043,24 @@ function buildCompositionHtml(
   // own font-size and anchor, so api/v1/external/compose-gd.php parses and auto-fits each one.
   // The LAYOUT_POSITIONS anchors keep them in a tight cluster so they still read as one ad.
   const headlineLayer = headline
-    ? `<div style="position:absolute;${layout.headline}font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:${textColor};line-height:1.14;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word">${headline}</div>`
+    ? `<div style="position:absolute;${effectiveLayout.headline}font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:${textColor};line-height:1.10;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word;word-break:normal">${headline}</div>`
     : "";
 
   const subLayer = sub
-    ? `<div style="position:absolute;${layout.sub}font-family:${fontFamily};font-size:${subFs};font-weight:400;color:${subColor};line-height:1.38;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word">${sub}</div>`
+    ? `<div style="position:absolute;${effectiveLayout.sub}font-family:${fontFamily};font-size:${subFs};font-weight:400;color:${subColor};line-height:1.28;text-align:${textAlign};text-shadow:${textShadow};z-index:25;overflow-wrap:break-word;word-break:normal">${sub}</div>`
     : "";
 
   // CTA layer — social formats get organic text gesture, display formats get a button.
   const ctaRaw = String(data.ctaText || "").trim();
-  const isSocialFmt = isSocialFormat(format);
   let ctaLayer = "";
   if (ctaRaw) {
     if (isSocialFmt) {
-      ctaLayer = `<div style="position:absolute;${layout.cta}font-family:${fontFamily};font-size:${ctaFs};font-weight:600;color:${textColor};text-shadow:${textShadow};z-index:25;white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`;
+      ctaLayer = `<div style="position:absolute;${effectiveLayout.cta}font-family:${fontFamily};font-size:${ctaFs};font-weight:700;color:${textColor};text-shadow:${textShadow};z-index:25;white-space:nowrap;letter-spacing:0.2px;opacity:0.88;text-align:${textAlign};max-width:90%;">${ctaRaw} ↓</div>`;
     } else {
       const isDark = contrastTextColor(primaryColor).color === "#ffffff";
       const btnBg    = isDark ? "rgba(255,255,255,0.95)" : "rgba(20,20,20,0.88)";
       const btnColor = isDark ? "#111111"                : "#ffffff";
-      ctaLayer = `<div style="position:absolute;${layout.cta}display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.42em 0.90em;border-radius:0.38em;box-shadow:0 4px 18px rgba(0,0,0,0.22);z-index:25;white-space:nowrap;">${ctaRaw}</div>`;
+      ctaLayer = `<div style="position:absolute;${effectiveLayout.cta}display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.38em 0.82em;border-radius:0.36em;box-shadow:0 4px 18px rgba(0,0,0,0.22);z-index:25;white-space:nowrap;max-width:90%;">${ctaRaw}</div>`;
     }
   }
 
@@ -2697,7 +2803,7 @@ serve(async (req: Request) => {
       let banners: Awaited<ReturnType<typeof runWithConcurrency>>;
 
       if (isAbVisual) {
-        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string }>();
+        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string; format?: AdFormat }>();
         const uniqueVariantRatios = [...new Map(
           imageTasks.map((task) => {
             const aspectRatio = imageAspectRatioForFormat(task.format);
@@ -2721,8 +2827,17 @@ serve(async (req: Request) => {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint });
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, format: task.format });
         }
+
+        // Vision analysis for A/B variants — parallel, best-effort
+        await Promise.allSettled(
+          [...bgByVariantRatio.entries()].map(async ([key, bg]) => {
+            if (!bg.url) return;
+            const visionRec = await analyzeBackgroundLayout(bg.url, (bg as any).format ?? {}, bg.layout, apiKey);
+            if (visionRec) bgByVariantRatio.set(key, { ...bg, rec: visionRec });
+          })
+        );
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
@@ -2755,7 +2870,7 @@ serve(async (req: Request) => {
         // DIFFERENT layout (square / story / landscape look distinct). The chosen layout is
         // STORED per ratio so the HTML overlay reuses the exact same one the background
         // reserved space for — text and background never disagree.
-        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string }>();
+        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string; format: AdFormat }>();
         const uniqueRatios = [...new Set(imageTasks.map((task) => imageAspectRatioForFormat(task.format)))];
         for (const aspectRatio of uniqueRatios) {
           const task = imageTasks.find((candidate) => imageAspectRatioForFormat(candidate.format) === aspectRatio)!;
@@ -2774,8 +2889,19 @@ serve(async (req: Request) => {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint });
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, format: task.format });
         }
+
+        // Vision analysis: send each hosted background URL to a cheap text model and get back
+        // the precise text-safe zones as JSON boxes. Runs in parallel (one call per ratio) with
+        // a short timeout so it never delays the batch even if all fail.
+        await Promise.allSettled(
+          [...bgByRatio.entries()].map(async ([aspectRatio, bg]) => {
+            if (!bg.url) return;
+            const visionRec = await analyzeBackgroundLayout(bg.url, bg.format, bg.layout, apiKey);
+            if (visionRec) bgByRatio.set(aspectRatio, { ...bg, rec: visionRec });
+          })
+        );
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
