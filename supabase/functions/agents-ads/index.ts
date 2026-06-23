@@ -1719,9 +1719,9 @@ function buildBackgroundPrompt(
   const briefBlock = String(visualBrief || "").trim()
     ? [
         "████ BRAND VISUAL IDENTITY — EMBODY THIS DESIGN LANGUAGE ████",
-        "This brand's signature visual identity (extracted from its real references). Make the background unmistakably feel like THIS brand — adopt these design devices, not a generic look:",
+        "The following describes this brand's signature visual DNA (extracted from its Instagram profile analysis and brand guidelines stored in the company profile). Make the background unmistakably feel like THIS brand:",
         String(visualBrief).trim(),
-        "Use these as living design ingredients (re-compose them freshly), not a checklist to copy literally.",
+        "BRAND_DNA takes absolute precedence over any creative instinct — embody these specific design devices (motifs, depth, layers, textures, color treatment) in the background. LAYOUT_INSPIRATION may inform composition structure but must never bleed into brand identity.",
       ].join("\n")
     : "";
 
@@ -1743,6 +1743,19 @@ function buildBackgroundPrompt(
       "• Study their palette, materials, textures, lighting and mood, then compose a fresh original backdrop in that language.",
       "• Do NOT copy, trace or paste the reference images — synthesize a new, cohesive brand-consistent scene/texture.",
     ].join("\n");
+  } else if (bgSource === "inspired") {
+    sourceBlock = [
+      "████ BACKGROUND SOURCE: INSPIRED BY REFERENCE — CREATIVE FREEDOM ████",
+      hasRefImages
+        ? "The attached image is a creative reference for this ad. You have FULL creative freedom to decide how to use it — you are NOT required to reproduce it:"
+        : "You have FULL creative freedom to design the strongest possible background for this ad.",
+      hasRefImages ? "• Adopt its color temperature and lighting mood as an emotional anchor" : "",
+      hasRefImages ? "• Mirror its compositional energy (depth, subject placement, visual weight)" : "",
+      hasRefImages ? "• Extract a texture, material quality, or visual motif and reinterpret it in this brand's language" : "",
+      hasRefImages ? "• Or take only its overall atmosphere and invent an original scene that shares that spirit" : "",
+      hasRefImages ? "The goal is an ORIGINAL background that carries the energy of the reference while being unmistakably this brand's own creative." : "",
+      "Let the brand visual identity (described above in the brand brief) define the brand language; let the reference image define the creative direction for this specific ad.",
+    ].filter(Boolean).join("\n");
   } else if (bgSource === "creative") {
     sourceBlock = [
       "████ BACKGROUND SOURCE: FULL CREATIVE FREEDOM ████",
@@ -2649,30 +2662,42 @@ serve(async (req: Request) => {
       if (briefDriven && bgSource !== "shapes" && bgSource !== "inspired") bgSource = "creative";
 
       // ── Store-derived brand brief (compose) ───────────────────────────────
-      // When no external creativePlan and no pre-generated brandVisualBrief, query the company
-      // store (+ global ads store) for brand visual identity guidelines. This is the primary
-      // brand intelligence source for compose mode — without it the image model only gets colors
-      // from campaignData fields and cannot embody the brand's deeper design language.
+      // Query the company store for brand visual identity guidelines BEFORE generating the
+      // background. This runs even when creativePlan is set — creativePlan carries HTML/layout
+      // direction for the text overlay; the store query carries visual DNA for the IMAGE model.
+      // Without this, the image model only gets hex colors from campaignData and cannot embody
+      // the brand's deeper design language (motifs, layers, depth, Instagram aesthetic, etc.).
       // Does NOT override bgSource: store brief and reference images work together.
-      if (!String(payload.creativePlan || "").trim() && !briefDriven) {
+      if (!briefDriven && companyStoreName?.trim()) {
         const composeStores = [companyStoreName, globalStoreName]
           .filter((s): s is string => Boolean(s?.trim()));
-        if (composeStores.length > 0) {
-          try {
-            const brandQuery = await callGemini(
-              "You are a brand visual identity analyst. Query the company store for brand guidelines, visual identity, and design language. Return a concise visual brief (150-250 words) describing: visual motifs, textures, photography or illustration style, depth and lighting treatment, color mood, and overall visual personality. Write ONLY the brief — no headings, no preamble, no meta commentary.",
-              `Brand: ${String(campaignData.businessName || "").trim() || "unknown"}. Industry: ${String(campaignData.businessCategory || "").trim() || "unknown"}.\n\nQuery the company store and extract the visual identity guidelines that should inform the background image of an advertising creative for this brand.`,
-              "gemini-2.5-flash",
-              0.3,
-              500,
-              apiKey,
-              composeStores,
-              undefined,
-              { jobId },
-            );
-            if (brandQuery.text?.trim()) visualBrief = brandQuery.text.trim();
-          } catch (_) { /* non-fatal — fall through with existing brief */ }
-        }
+        try {
+          const brandQuery = await callGemini(
+            [
+              "You are a brand visual identity analyst for advertising image generation.",
+              "Query the company store and extract TWO distinct sections:",
+              "",
+              "SECTION 1 — BRAND VISUAL DNA (from the brand's own Instagram profile analysis):",
+              "Extract every specific visual device described: background motifs (circles, dots, geometric shapes, textures, patterns), layering and depth treatment (transparent overlays, stacked elements), photography style (product placement, cropping, depth of field, color grading), lighting approach, recurring design elements that make this brand visually recognizable. Be specific and concrete — not generic ('uses gradient') but precise ('warm peach-to-coral gradient with soft grain texture, product centered bottom-right, circular motif in top-left').",
+              "",
+              "SECTION 2 — LAYOUT INSPIRATION (from competitor examples, if present in the store):",
+              "Extract only composition and layout patterns: subject placement, visual hierarchy structure, text-zone positioning, use of negative space. NEVER extract competitor colors, fonts, brand elements, or visual style.",
+              "",
+              "Return exactly in this format (no preamble, no extra commentary):",
+              "BRAND_DNA: [paragraph describing the brand's specific visual devices — be concrete and specific]",
+              "LAYOUT_INSPIRATION: [one or two sentences on effective composition patterns from competitor analysis, or 'none' if not available]",
+            ].join("\n"),
+            `Brand: ${String(campaignData.businessName || "").trim() || "unknown"}. Industry: ${String(campaignData.businessCategory || "").trim() || "unknown"}.`,
+            "gemini-2.5-flash",
+            0.2,
+            600,
+            apiKey,
+            composeStores,
+            undefined,
+            { jobId },
+          );
+          if (brandQuery.text?.trim()) visualBrief = brandQuery.text.trim();
+        } catch (_) { /* non-fatal — fall through with existing brief */ }
       }
 
       // User-uploaded reference images (the ads/visuals the caller wants to look like) arrive
