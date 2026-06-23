@@ -510,6 +510,54 @@ try {
         error_log('[generate-ads-worker] pinned textLayout=' . $curLayout);
     }
 
+    // ── 8d. Brand visual identity brief (vision → text, cached) ─────────────
+    // Distill the brand's reference images into a TEXT design-language brief ONCE, then
+    // reuse it on every generation. This is what gives the creatives the brand's real
+    // identity (dots, depth, texture, decorative devices) instead of a flat/generic look.
+    // Cached in company_form_data keyed by a hash of the ref URLs — re-extracted only when
+    // the references change. Cheaper over time than re-sending raw pixels every job.
+    $composeRefs = is_array($campaignFormData['composeCompanyRefs'] ?? null)
+        ? array_values(array_filter(array_map('strval', $campaignFormData['composeCompanyRefs'])))
+        : [];
+    if (!empty($composeRefs)) {
+        $refsHash      = md5(implode('|', $composeRefs));
+        $cachedBrief   = trim((string)($companyFormData['brandVisualBrief'] ?? ''));
+        $cachedHash    = (string)($companyFormData['brandVisualBriefHash'] ?? '');
+        $brandVisualBrief = '';
+        if ($cachedBrief !== '' && $cachedHash === $refsHash) {
+            $brandVisualBrief = $cachedBrief; // cache hit — no edge call
+        } else {
+            try {
+                $bvRes = agents_call_edge_function('agents-ads', [
+                    'mode'               => 'brand_visual',
+                    'jobId'              => $jobId,
+                    'referenceImageUrls' => $composeRefs,
+                ], $passKey);
+                agents_reconnect_mysqli_if_needed($conn);
+                $brandVisualBrief = trim((string)($bvRes['brief'] ?? ''));
+                if ($brandVisualBrief !== '') {
+                    // Persist to the company project so future jobs skip the extraction.
+                    $companyFormData['brandVisualBrief']     = $brandVisualBrief;
+                    $companyFormData['brandVisualBriefHash'] = $refsHash;
+                    $cfJson = json_encode($companyFormData, JSON_UNESCAPED_UNICODE);
+                    if ($cfJson) {
+                        $uB = $conn->prepare("UPDATE projects SET company_form_data = ? WHERE id = ?");
+                        if ($uB) { $uB->bind_param('si', $cfJson, $companyId); $uB->execute(); $uB->close(); }
+                    }
+                    agents_reconnect_mysqli_if_needed($conn);
+                }
+            } catch (Throwable $bvErr) {
+                // Non-fatal: fall back to whatever brief is cached (may be empty).
+                error_log('[generate-ads-worker] brand_visual failed (non-fatal): ' . $bvErr->getMessage());
+                $brandVisualBrief = $cachedBrief;
+                agents_reconnect_mysqli_if_needed($conn);
+            }
+        }
+        if ($brandVisualBrief !== '') {
+            $campaignFormData['brandVisualBrief'] = $brandVisualBrief;
+        }
+    }
+
     // ── 9. Interpret ──────────────────────────────────────────────────────
 
     // Interpret is a planning aid, not a hard requirement for COMPOSE (image): the

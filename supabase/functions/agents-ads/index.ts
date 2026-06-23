@@ -1663,10 +1663,23 @@ function buildBackgroundPrompt(
   forceLayout?: boolean,
   bgSource: string = "shapes",
   hasRefImages: boolean = false,
+  visualBrief: string = "",
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
   const direction = visualDirection || BACKGROUND_DIRECTIONS[0];
+
+  // Brand visual identity brief — a text description of the brand's design language
+  // (motifs, textures, depth treatment, design flourishes) extracted ONCE from the
+  // reference images. Drives creative freedom without re-sending raw pixels every time.
+  const briefBlock = String(visualBrief || "").trim()
+    ? [
+        "████ BRAND VISUAL IDENTITY — EMBODY THIS DESIGN LANGUAGE ████",
+        "This brand's signature visual identity (extracted from its real references). Make the background unmistakably feel like THIS brand — adopt these design devices, not a generic look:",
+        String(visualBrief).trim(),
+        "Use these as living design ingredients (re-compose them freshly), not a checklist to copy literally.",
+      ].join("\n")
+    : "";
 
   // Source-specific guidance for HOW to treat (or not) the attached reference images.
   let sourceBlock = "";
@@ -1721,6 +1734,7 @@ function buildBackgroundPrompt(
     "",
     sourceBlock,
     "",
+    briefBlock,
     "████ CAMPAIGN RELEVANCE — MAKE IT SPECIFIC, NOT RANDOM ████",
     "The backdrop MUST visually evoke THIS specific campaign — never a generic, arbitrary scene.",
     "Derive the setting, props, materials, color mood, lighting and atmosphere from the product/service, industry, audience, offer and tone described in the CAMPAIGN CONTEXT below.",
@@ -1746,18 +1760,24 @@ function buildBackgroundPrompt(
       : bgSource === "creative"
         ? "Be bold and original — invent a distinctive composition that fits the campaign; avoid generic stock looks."
         : "Do not repeat the same asset placement unless the format absolutely requires it. Reinterpret the reference assets as a brand world, not a template.",
-    "When a low-detail zone is requested, do not make it a blank panel. Use soft gradients, depth blur, atmospheric color, subtle materials, or low-contrast pattern.",
     "",
-    "████ SPACE RULE — REQUIRED ████",
-    `Reserve calm, low-detail zones where the text and logo will later be placed: ${spaceGuide}`,
+    "████ DESIGN ENERGY — THIS IS A DESIGNED AD, NOT A FLAT PHOTO ████",
+    "Real brand ads are layered and full of crafted design devices. Make this look art-directed, with depth and personality. Pull from (only what fits the brand):",
+    "• Depth & layering: foreground elements with soft blur, mid-ground subject, atmospheric background — overlapping translucent shapes, drop shadows, parallax-style separation so it feels 3D, not flat.",
+    "• Texture & grain: subtle film grain, paper/fabric/concrete texture, noise, gradient mesh — never a dead flat fill.",
+    "• Brand motifs & accents: scattered dots/bokeh/particles, confetti, geometric accents, sparkles, halftone, organic blobs, lines and arcs in the brand colors — the little decorative touches that give a brand its signature feel.",
+    "• Light: light leaks, glow, rim light, soft vignettes, color wash — give the scene mood.",
+    "Be generous and expressive: a rich, busy, beautifully-composed canvas reads as premium. Empty/flat backgrounds read as cheap and unfinished.",
+    "",
+    "████ SPACE RULE — KEEP TEXT LEGIBLE, NOT EMPTY ████",
+    `Where the text and logo will land, you do NOT have to leave it blank — keep the design flowing there, but tune that zone so overlaid text stays legible: ${spaceGuide}`,
+    "Make the text zone CONTRAST-FRIENDLY (a calmer value range, soft blur, gentle darkening, or low-contrast pattern) — decorative detail is welcome there as long as it won't fight white text on top. Busy focal subjects and hard high-contrast edges go AWAY from that zone, not the design itself.",
     (() => {
       const pos = LAYOUT_POSITIONS[layout];
       return pos
-        ? `PRECISE OVERLAY ZONES (CSS coords on the final canvas — keep these exact rectangles the calmest, most contrast-friendly areas; the overlay drops the logo and the WHOLE text block here): logo[${pos.logo}] text-block[${pos.block}]. The headline, body copy and CTA are stacked TOGETHER as one block inside that rectangle — concentrate visual detail and the focal subject AWAY from it.`
+        ? `PRECISE OVERLAY ZONES (CSS coords on the final canvas — keep these rectangles contrast-friendly for overlaid text; the overlay drops the logo and the WHOLE text block here): logo[${pos.logo}] text-block[${pos.block}]. The headline, body copy and CTA stack TOGETHER as one block inside that rectangle — keep the SHARPEST focal subject and harshest contrast away from it (soft design detail there is fine).`
         : "";
     })(),
-    "These zones need enough visual calm and contrast so that white or dark text is legible on top.",
-    "Avoid filling every pixel — the brand logo and headline need clear breathing room.",
     "",
     colorLine,
     safeSpec
@@ -2268,6 +2288,67 @@ serve(async (req: Request) => {
     // Tags every cost/token log line so one generation can be filtered & summed in Supabase logs.
     const jobId = String((payload as any).jobId ?? (payload as any).campaignData?.jobId ?? "");
 
+    // ── BRAND_VISUAL MODE: vision → text brand identity brief ──────────────────
+    // ONE-TIME extraction: read the brand's reference images and distill its visual
+    // DESIGN LANGUAGE into a compact text brief (motifs, textures, depth treatment,
+    // decorative devices, palette mood, composition). This is the ONLY sanctioned
+    // base64→text call, and it is deliberate: it runs once per ref-set (the worker
+    // caches the result), and the reusable text it returns REPLACES sending raw pixels
+    // on every generation — so it lowers ongoing token cost, not raises it.
+    if (mode === "brand_visual") {
+      const visKey = getApiKey(typeof payload.geminiApiKey === "string" ? payload.geminiApiKey : undefined);
+      if (!visKey) {
+        return new Response(JSON.stringify({ error: "Gemini API key not configured" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const refUrls = [
+        ...(Array.isArray((payload as any).referenceImageUrls) ? (payload as any).referenceImageUrls : []),
+        ...(Array.isArray((payload as any).campaignData?.composeCompanyRefs) ? (payload as any).campaignData.composeCompanyRefs : []),
+      ]
+        .filter((u: unknown): u is string => typeof u === "string" && u.startsWith("http"))
+        .slice(0, 3);
+      if (!refUrls.length) {
+        return new Response(JSON.stringify({ brief: "" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const fetched = await Promise.all(
+        refUrls.map((url, i) =>
+          fetchImageBase64(url, DRAW_REF_MAX_B64)
+            .then((img) => (img ? { label: `Brand reference ${i + 1}`, mimeType: img.mimeType, data: img.data } as ReferenceImage : null))
+            .catch(() => null),
+        ),
+      );
+      const visRefs = fetched.filter((r): r is ReferenceImage => r !== null);
+      if (!visRefs.length) {
+        return new Response(JSON.stringify({ brief: "" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const BRAND_VISUAL_SYSTEM = [
+        "You are an art director profiling a brand's VISUAL DESIGN LANGUAGE from its real ads/visuals.",
+        "Output a tight, practical brief (max ~140 words) another designer could use to recreate the brand's LOOK on a fresh ad — describe the DESIGN DEVICES, not the specific products or any text/copy you see.",
+        "Cover, in plain prose (no markdown headers, no bullet symbols, no hex codes, no numbers-as-codes):",
+        "• Color mood (name the colors, e.g. warm coral + cream — NOT hex).",
+        "• Signature decorative devices (e.g. scattered dots/bokeh, confetti, grain, halftone, geometric accents, organic blobs, hand-drawn lines, sticker/emoji style).",
+        "• Depth & layering treatment (flat vs layered, drop shadows, overlapping elements, foreground blur, 3D feel).",
+        "• Texture & finish (matte, glossy, paper grain, gradient mesh, light leaks).",
+        "• Typography vibe and composition energy (minimal/airy vs bold/busy, alignment tendencies).",
+        "Return ONLY the brief text — no preamble, no quotes, no labels.",
+      ].join("\n");
+      const vis = await callGemini(
+        BRAND_VISUAL_SYSTEM,
+        "Profile this brand's visual design language from the attached reference image(s). Return only the brief.",
+        "gemini-2.5-flash", 0.5, 700, visKey, undefined, visRefs, { jobId },
+      );
+      const brief = String(vis.text || "").trim().slice(0, 1200);
+      console.log(`[brand_visual]${jobId ? ` job=${jobId}` : ""} refs=${visRefs.length} briefLen=${brief.length}`);
+      return new Response(JSON.stringify({ brief }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (!payload.agentConfig?.systemPrompt) {
       return new Response(JSON.stringify({ error: "agentConfig.systemPrompt is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2515,18 +2596,30 @@ serve(async (req: Request) => {
         .filter((r) => r.data.length <= DRAW_REF_MAX_B64)
         .map((r) => ({ data: r.data, mimeType: r.mimeType }));
 
+      // Brand visual identity brief (TEXT) — distilled ONCE from the reference images by the
+      // worker. When present it carries the brand's design language as words, which lets the
+      // image model RE-COMPOSE freely (more creative, less "closed") instead of copying pixels —
+      // and means we no longer re-send raw base64 on every generation (cheaper tokens).
+      const visualBrief = String((campaignData as any).brandVisualBrief || "").trim();
+      const briefDriven = visualBrief.length > 0;
+
       // ── Background source (compose) ────────────────────────────────────────
-      //  reference: the user's product/background images ARE the reference
+      //  reference: the user's product/background images ARE the reference (match closely)
       //  shapes   : no photo — abstract geometric/brand-color background (no refs)
       //  company  : derive the background from the company's own images
+      //  creative : full freedom — the model invents the best backdrop
       const explicitBgSource = String((campaignData as any).composeBackgroundSource || "").toLowerCase();
-      const bgSource = ["reference", "shapes", "company", "creative"].includes(explicitBgSource)
+      let bgSource = ["reference", "shapes", "company", "creative"].includes(explicitBgSource)
         ? explicitBgSource
         // No explicit choice: a provided background image is treated as a real reference;
         // otherwise CREATIVE — the model decides the best backdrop for the campaign (full
         // scene/photo, illustration, abstract, whatever fits). Never the bare 'shapes'
         // fallback, which produced generic backgrounds disconnected from the brand.
         : (String(campaignData.backgroundImageUrl || "").startsWith("http") ? "reference" : "creative");
+      // With a text brief in hand, prefer creative freedom (guided by the brief) over copying
+      // pixels — this is what unlocks the brand's design devices and depth. 'shapes' is kept
+      // (explicit abstract intent); reference/company collapse to creative.
+      if (briefDriven && bgSource !== "shapes") bgSource = "creative";
 
       // User-uploaded reference images (the ads/visuals the caller wants to look like) arrive
       // in composeCompanyRefs. ONLY fetch+decode them for the sources that actually consume
@@ -2592,7 +2685,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[taskIndex % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBrief);
           const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
             // ONE attempt with a generous timeout. The image model is slow (~40-90s) and
             // its first request often lags; a SECOND attempt pushed the edge call past the
@@ -2645,7 +2738,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[(taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[(taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBrief);
           const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
             // ONE attempt with a generous timeout. The image model is slow (~40-90s) and
             // its first request often lags; a SECOND attempt pushed the edge call past the
