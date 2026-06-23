@@ -332,11 +332,14 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
 
     $bgSourceRaw = strtolower(trim((string)($campaignData['composeBackgroundSource'] ?? '')));
     if (!in_array($bgSourceRaw, ['reference', 'company', 'creative', 'shapes'], true)) {
-        // When the caller uploaded reference images, FOLLOW THEM CLOSELY ('reference') so the
-        // creative actually resembles what they sent — not the looser 'company' synthesis that
-        // only borrowed the brand "mood". Otherwise CREATIVE — a real art-directed scene —
-        // never the abstract 'shapes' fallback. An explicit caller choice still wins.
-        $bgSourceRaw = !empty($companyRefs) ? 'reference' : 'creative';
+        // Any image available (company refs, backgroundImageUrl, or productImageUrl) activates
+        // reference mode so the edge function sends them as base64 to the background generator.
+        // Without this, images arriving via product_image_url / image_url (common API pattern)
+        // were silently discarded and the background came out abstract/generic every time.
+        $hasAnyRef = !empty($companyRefs)
+            || !empty($campaignData['backgroundImageUrl'])
+            || !empty($campaignData['productImageUrl']);
+        $bgSourceRaw = $hasAnyRef ? 'reference' : 'creative';
     }
     $campaignData['composeBackgroundSource'] = $bgSourceRaw;
 
