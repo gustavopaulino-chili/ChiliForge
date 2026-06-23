@@ -2609,13 +2609,19 @@ serve(async (req: Request) => {
       //  company  : derive the background from the company's own images
       //  creative : full freedom — the model invents the best backdrop
       const explicitBgSource = String((campaignData as any).composeBackgroundSource || "").toLowerCase();
+      // composeCompanyRefs: brand reference images uploaded by the caller (style examples).
+      // When present without an explicit bgSource, treat as "company" so the model studies them.
+      const hasCompanyRefs = Array.isArray((campaignData as any).composeCompanyRefs) &&
+        ((campaignData as any).composeCompanyRefs as unknown[]).some(
+          (u): u is string => typeof u === "string" && u.startsWith("http")
+        );
       let bgSource = ["reference", "shapes", "company", "creative"].includes(explicitBgSource)
         ? explicitBgSource
-        // No explicit choice: a provided background image is treated as a real reference;
-        // otherwise CREATIVE — the model decides the best backdrop for the campaign (full
-        // scene/photo, illustration, abstract, whatever fits). Never the bare 'shapes'
-        // fallback, which produced generic backgrounds disconnected from the brand.
-        : (String(campaignData.backgroundImageUrl || "").startsWith("http") ? "reference" : "creative");
+        : String(campaignData.backgroundImageUrl || "").startsWith("http")
+          ? "reference"
+          : hasCompanyRefs
+            ? "company"   // study brand refs → derive original background from that world
+            : "creative"; // no refs at all → full AI creative freedom
       // With a text brief in hand, prefer creative freedom (guided by the brief) over copying
       // pixels — this is what unlocks the brand's design devices and depth. 'shapes' is kept
       // (explicit abstract intent); reference/company collapse to creative.
