@@ -311,35 +311,31 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
         if ($background !== '') $campaignData['backgroundImageUrl'] = $background;
     }
 
-    // COMPOSE background richness (generation_type=image routes through compose).
-    // Compose's own default is 'shapes' — an abstract, generic backdrop that ignores
-    // the product and the campaign objective (the "hipergenerico" look). Pure image
-    // mode instead drew a full, on-brand, art-directed scene. For the external API we
-    // pick a rich source so the background is relevant: base it on the provided
-    // product/background image when present, otherwise give the model full creative
-    // freedom (a real photographic/illustrated scene from the campaign) — never the
-    // abstract 'shapes' fallback. An explicit caller choice still wins.
-    // Reference images uploaded via the company-assets API are ALWAYS consulted: bridge them
-    // into composeCompanyRefs (the edge fetches them as background references) and, when the
-    // caller didn't pick a source, derive the background from them ('company').
-    $companyRefs = [];
-    if (is_array($companyData['referenceImages'] ?? null)) {
-        foreach ($companyData['referenceImages'] as $u) { $u = trim((string)$u); if ($u !== '') $companyRefs[] = $u; }
-    }
-    if (!empty($companyRefs)) {
-        $campaignData['composeCompanyRefs'] = array_slice(array_values(array_unique($companyRefs)), 0, 4);
+    // Every image the caller provides — regardless of field name — is a reference for
+    // the background generator. Gather ALL image URLs from company and campaign into
+    // composeCompanyRefs so the edge fetches them as base64 background references.
+    // They also go through the re-absolutizing step at line ~1053 so root-relative
+    // /projects/... paths (produced by asset mirroring) become fetchable absolute URLs.
+    $logoUrl = trim((string)($campaignData['logoUrl'] ?? $companyData['logoUrl'] ?? ''));
+    $isLogo  = fn(string $u): bool => $logoUrl !== '' && $u === $logoUrl;
+    $addRef  = function (array &$refs, $val) use ($isLogo): void {
+        if (is_array($val)) { foreach ($val as $v) { $v = trim((string)$v); if ($v !== '' && preg_match('~^https?://~i', $v) && !$isLogo($v)) $refs[] = $v; } }
+        else { $v = trim((string)$val); if ($v !== '' && preg_match('~^https?://~i', $v) && !$isLogo($v)) $refs[] = $v; }
+    };
+    $allRefs = [];
+    $addRef($allRefs, $companyData['referenceImages'] ?? []);                      // company.reference_images
+    $addRef($allRefs, ($images['productImages'] ?? []));                            // company.product_images
+    $addRef($allRefs, $images['hero'] ?? '');                                       // company.hero_image_url
+    $addRef($allRefs, $campaignData['productImageUrl'] ?? '');                      // campaign.product_image_url
+    $addRef($allRefs, $campaignData['backgroundImageUrl'] ?? '');                   // campaign.background_image_url
+    $allRefs = array_values(array_unique($allRefs));
+    if (!empty($allRefs)) {
+        $campaignData['composeCompanyRefs'] = array_slice($allRefs, 0, 4);
     }
 
     $bgSourceRaw = strtolower(trim((string)($campaignData['composeBackgroundSource'] ?? '')));
     if (!in_array($bgSourceRaw, ['reference', 'company', 'creative', 'shapes'], true)) {
-        // Any image available (company refs, backgroundImageUrl, or productImageUrl) activates
-        // reference mode so the edge function sends them as base64 to the background generator.
-        // Without this, images arriving via product_image_url / image_url (common API pattern)
-        // were silently discarded and the background came out abstract/generic every time.
-        $hasAnyRef = !empty($companyRefs)
-            || !empty($campaignData['backgroundImageUrl'])
-            || !empty($campaignData['productImageUrl']);
-        $bgSourceRaw = $hasAnyRef ? 'reference' : 'creative';
+        $bgSourceRaw = !empty($allRefs) ? 'reference' : 'creative';
     }
     $campaignData['composeBackgroundSource'] = $bgSourceRaw;
 
