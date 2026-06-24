@@ -282,12 +282,25 @@ try {
     $briefEmptyReason = null;  // reason code returned by edge when brief is empty
     if (!empty($allBrandPosts) && $geminiApiKey !== '') {
         try {
+            // Mirrored brand post images are stored as root-relative /projects/... URLs.
+            // The edge function only accepts http(s) URLs, so absolutize them here.
+            $absBase = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http')
+                . '://' . ($_SERVER['HTTP_HOST'] ?? '');
+            $toAbsolute = function (array $urls) use ($absBase): array {
+                return array_values(array_filter(array_map(function ($u) use ($absBase) {
+                    $u = trim((string)$u);
+                    if ($u === '') return '';
+                    if (preg_match('~^https?://~i', $u)) return $u;
+                    return $absBase !== '' ? $absBase . $u : $u;
+                }, $urls), 'strlen'));
+            };
+
             // Send up to 10 brand posts + up to 6 competitor posts to the edge function.
             $briefPayload = [
                 'mode'                => 'brand_visual',
                 'geminiApiKey'        => $geminiApiKey,
-                'brandImageUrls'      => array_slice($allBrandPosts, -10),
-                'competitorImageUrls' => array_slice($allCompPosts, -6),
+                'brandImageUrls'      => $toAbsolute(array_slice($allBrandPosts, -10)),
+                'competitorImageUrls' => $toAbsolute(array_slice($allCompPosts, -6)),
             ];
             $bvRes = agents_call_edge_function('agents-ads', $briefPayload, $geminiApiKey);
             $briefEdgeCalled = true;
