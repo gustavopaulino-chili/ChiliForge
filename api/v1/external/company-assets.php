@@ -2,18 +2,28 @@
 /**
  * External API — add/replace COMPANY assets & info (reference images + logo + brand fields).
  *
- * POST { api_key | Authorization: Bearer, phone, company?, logo_url?, reference_images?[] }
- *   - Finds/creates the company (project_type='project') by (user_id, phone).
- *   - Mirrors logo + reference images to the company's assets folder (URLs OR data: URIs are
- *     converted to hosted files — NO base64 is ever stored or sent to Gemini: anti-base64).
- *   - Persists them in company_form_data (logoUrl/images.logo, referenceImages[],
- *     images.productImages[]) so EVERY future generation consults them.
- *   - Re-syncs the company Gemini File Search store once per call (cost-aware).
- *   - No custom request limit — only Gemini's own quota applies (handled gracefully).
+ * POST {
+ *   api_key | Authorization: Bearer,
+ *   phone,
+ *   company?,
+ *   logo_url?,
+ *   reference_images?[],      — generic reference images (legacy)
+ *   brand_posts?[],           — Instagram posts from the brand's own profile (up to 12)
+ *   competitor_posts?[],      — Instagram posts from a competitor's profile (up to 8)
+ *   gemini_api_key?,          — required when brand_posts or competitor_posts are provided
+ * }
  *
- * The reference images become the brand's compose references: generate-ads.php bridges
- * referenceImages -> campaignData.composeCompanyRefs and defaults the compose background to
- * "company" when references exist, so they are always used.
+ * - Finds/creates the company (project_type='project') by (user_id, phone).
+ * - Mirrors all images to the company's assets folder (URLs OR data: URIs → hosted files).
+ *   Anti-base64: NO base64 is ever stored or forwarded to Gemini.
+ * - brand_posts are analyzed by Gemini (brand_visual mode) → produces a rich 300-400 word
+ *   visual identity brief stored as brandVisualBrief in company_form_data. This brief drives
+ *   every future compose generation, giving the image model the brand's real aesthetic DNA
+ *   (motifs, depth treatment, color system, design devices) from the Instagram profile.
+ * - competitor_posts are analyzed for LAYOUT PATTERNS ONLY — competitor brand identity never
+ *   bleeds into the brand's ads.
+ * - brandVisualBrief accumulates across calls (new posts merged with existing).
+ * - Re-syncs the company Gemini File Search store once per call (cost-aware).
  */
 header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
@@ -28,9 +38,13 @@ include __DIR__ . '/../../db.php';
 include __DIR__ . '/../agents/helpers.php';
 include __DIR__ . '/../../site_helpers.php';
 
-const CAA_MAX_IMAGES   = 12;          // per request
-const CAA_MAX_BYTES    = 8000000;     // 8 MB per image (decoded)
-const CAA_MAX_STORED   = 24;          // cap referenceImages kept on the company
+const CAA_MAX_IMAGES        = 12;   // per request (reference_images)
+const CAA_MAX_BRAND_POSTS   = 12;   // brand_posts per request
+const CAA_MAX_COMP_POSTS    = 8;    // competitor_posts per request
+const CAA_MAX_BYTES         = 8000000; // 8 MB per image (decoded)
+const CAA_MAX_STORED        = 24;   // cap referenceImages kept on the company
+const CAA_MAX_BRAND_STORED  = 20;   // cap brandPostImages accumulated on the company
+const CAA_MAX_COMP_STORED   = 12;   // cap competitorPostImages accumulated on the company
 // No custom request rate limit: the only upstream cost here is the Gemini store sync, which
 // already handles Gemini's own 429/rate-limit gracefully (kept as a warning, never fatal).
 
@@ -72,17 +86,28 @@ $refInputs = [];
 if (is_array($body['reference_images'] ?? null)) $refInputs = $body['reference_images'];
 $logoInput = trim((string)($body['logo_url'] ?? ($company['logo_url'] ?? ($company['logo'] ?? ''))));
 
-// Rich text descriptions produced by scraping Instagram profiles.
-// brand_visual_guidelines: detailed visual identity of the brand's own posts (motifs, depth,
-//   layers, colors in use, photography style). Goes into the company Gemini store and is
-//   retrieved every time compose mode queries the store — directly influences background gen.
-// competitor_examples: layout and composition patterns observed from a competitor's profile.
-//   Stored with an explicit "layout/composition only" restriction so brand identity is never
-//   confused with the competitor's identity during generation.
+// Instagram post images — processed separately from generic reference_images.
+// brand_posts: scraped from the brand's OWN Instagram profile. Gemini analyzes them
+//   and produces a rich 300-400 word visual identity brief (brandVisualBrief) stored in
+//   company_form_data. This brief drives every future compose generation.
+// competitor_posts: scraped from a COMPETITOR's Instagram profile. Analyzed for layout
+//   and composition patterns only — brand identity is never extracted from competitor content.
+$brandPostInputs = is_array($body['brand_posts'] ?? null) ? array_values($body['brand_posts']) : [];
+$compPostInputs  = is_array($body['competitor_posts'] ?? null) ? array_values($body['competitor_posts']) : [];
+$geminiApiKey    = trim((string)($body['gemini_api_key'] ?? ''));
+
+// Legacy text description fields (kept for backwards-compat; image-based analysis is preferred).
 $brandVisualGuidelines = trim((string)($body['brand_visual_guidelines'] ?? ($company['brand_visual_guidelines'] ?? '')));
 $competitorExamples    = trim((string)($body['competitor_examples']     ?? ($company['competitor_examples']     ?? '')));
 
-if (count($refInputs) > CAA_MAX_IMAGES) caa_fail(400, 'Too many reference_images (max ' . CAA_MAX_IMAGES . ' per call).', 'too_many');
+if (count($refInputs) > CAA_MAX_IMAGES)
+    caa_fail(400, 'Too many reference_images (max ' . CAA_MAX_IMAGES . ' per call).', 'too_many');
+if (count($brandPostInputs) > CAA_MAX_BRAND_POSTS)
+    caa_fail(400, 'Too many brand_posts (max ' . CAA_MAX_BRAND_POSTS . ' per call).', 'too_many_brand');
+if (count($compPostInputs) > CAA_MAX_COMP_POSTS)
+    caa_fail(400, 'Too many competitor_posts (max ' . CAA_MAX_COMP_POSTS . ' per call).', 'too_many_comp');
+if ((!empty($brandPostInputs) || !empty($compPostInputs)) && $geminiApiKey === '')
+    caa_fail(400, 'gemini_api_key is required when brand_posts or competitor_posts are provided.', 'missing_gemini_key');
 
 try {
     // ── Find/create company (project_type='project') by (user_id, phone) ──────
@@ -193,7 +218,7 @@ try {
         }
     }
 
-    // ── Reference images ──────────────────────────────────────────────────────
+    // ── Reference images (legacy / generic) ──────────────────────────────────
     $newRefs = [];
     $n = 1;
     foreach ($refInputs as $ref) {
@@ -202,8 +227,6 @@ try {
         elseif (isset($r['skip'])) $skipped[] = ['type' => 'reference', 'reason' => $r['reason']];
     }
 
-    // Merge with existing, dedupe, cap. referenceImages drive compose; productImages keep
-    // the existing pipeline (productImageUrl) working too.
     $existingRefs = is_array($formData['referenceImages'] ?? null) ? $formData['referenceImages'] : [];
     $allRefs = array_values(array_unique(array_filter(array_merge($existingRefs, $newRefs), 'strlen')));
     if (count($allRefs) > CAA_MAX_STORED) $allRefs = array_slice($allRefs, -CAA_MAX_STORED);
@@ -213,10 +236,72 @@ try {
         $formData['images']['productImages'] = array_values(array_unique(array_filter(array_merge($existingProd, $newRefs), 'strlen')));
     }
 
+    // ── Brand Instagram posts ─────────────────────────────────────────────────
+    // Mirror brand post images to the company assets folder, accumulate with existing,
+    // then call brand_visual to generate (or update) the visual identity brief.
+    $newBrandUrls = [];
+    $nb = 1;
+    foreach ($brandPostInputs as $bp) {
+        $r = $storeImage($bp, 'brand-post', $nb++);
+        if (isset($r['url'])) $newBrandUrls[] = $r['url'];
+        elseif (isset($r['skip'])) $skipped[] = ['type' => 'brand_post', 'reason' => $r['reason']];
+    }
+
+    $existingBrandPosts = is_array($formData['brandPostImages'] ?? null) ? $formData['brandPostImages'] : [];
+    $allBrandPosts = array_values(array_unique(array_filter(array_merge($existingBrandPosts, $newBrandUrls), 'strlen')));
+    if (count($allBrandPosts) > CAA_MAX_BRAND_STORED) $allBrandPosts = array_slice($allBrandPosts, -CAA_MAX_BRAND_STORED);
+    if (!empty($allBrandPosts)) $formData['brandPostImages'] = $allBrandPosts;
+
+    // ── Competitor Instagram posts ────────────────────────────────────────────
+    $newCompUrls = [];
+    $nc = 1;
+    foreach ($compPostInputs as $cp) {
+        $r = $storeImage($cp, 'comp-post', $nc++);
+        if (isset($r['url'])) $newCompUrls[] = $r['url'];
+        elseif (isset($r['skip'])) $skipped[] = ['type' => 'competitor_post', 'reason' => $r['reason']];
+    }
+
+    $existingCompPosts = is_array($formData['competitorPostImages'] ?? null) ? $formData['competitorPostImages'] : [];
+    $allCompPosts = array_values(array_unique(array_filter(array_merge($existingCompPosts, $newCompUrls), 'strlen')));
+    if (count($allCompPosts) > CAA_MAX_COMP_STORED) $allCompPosts = array_slice($allCompPosts, -CAA_MAX_COMP_STORED);
+    if (!empty($allCompPosts)) $formData['competitorPostImages'] = $allCompPosts;
+
     // ── Persist company_form_data ─────────────────────────────────────────────
     $formJson = json_encode($formData, JSON_UNESCAPED_UNICODE);
     if ($u = $conn->prepare("UPDATE projects SET company_form_data = ? WHERE id = ?")) {
         $u->bind_param('si', $formJson, $companyId); $u->execute(); $u->close();
+    }
+
+    // ── Brand visual brief (Gemini analysis of Instagram posts) ──────────────
+    // Run when brand_posts were provided. Uses the ACCUMULATED set of posts (not just new
+    // ones) so the brief always reflects the full brand profile. Non-fatal: a failed call
+    // leaves the previously stored brief in place.
+    $brandBriefResult = null;
+    $briefWarning     = null;
+    if (!empty($allBrandPosts) && $geminiApiKey !== '') {
+        try {
+            // Send up to 10 brand posts + up to 6 competitor posts to the edge function.
+            $briefPayload = [
+                'mode'                => 'brand_visual',
+                'geminiApiKey'        => $geminiApiKey,
+                'brandImageUrls'      => array_slice($allBrandPosts, -10),
+                'competitorImageUrls' => array_slice($allCompPosts, -6),
+            ];
+            $bvRes = agents_call_edge_function('agents-ads', $briefPayload, $geminiApiKey);
+            $newBrief = trim((string)($bvRes['brief'] ?? ''));
+            if ($newBrief !== '') {
+                $formData['brandVisualBrief']     = $newBrief;
+                $formData['brandVisualBriefHash'] = 'instagram-profile'; // sentinel → worker won't regenerate
+                $fj2 = json_encode($formData, JSON_UNESCAPED_UNICODE);
+                if ($fj2 && ($ub2 = $conn->prepare("UPDATE projects SET company_form_data = ? WHERE id = ?"))) {
+                    $ub2->bind_param('si', $fj2, $companyId); $ub2->execute(); $ub2->close();
+                }
+                $brandBriefResult = $newBrief;
+            }
+        } catch (Throwable $bvErr) {
+            $briefWarning = $bvErr->getMessage();
+            error_log('[company-assets] brand_visual failed (non-fatal): ' . $bvErr->getMessage());
+        }
     }
 
     // ── Re-sync the Gemini company store (once per call) ──────────────────────
@@ -237,9 +322,14 @@ try {
         'reference_images'         => $allRefs,
         'reference_count'          => count($allRefs),
         'added'                    => count($newRefs),
+        'brand_posts_stored'       => count($allBrandPosts),
+        'brand_posts_added'        => count($newBrandUrls),
+        'competitor_posts_stored'  => count($allCompPosts),
+        'competitor_posts_added'   => count($newCompUrls),
+        'brand_visual_brief'       => $brandBriefResult !== null ? substr($brandBriefResult, 0, 200) . '...' : null,
+        'brand_visual_status'      => $brandBriefResult !== null ? 'generated' : ($briefWarning !== null ? 'failed' : (isset($formData['brandVisualBrief']) ? 'cached' : 'not_requested')),
         'skipped'                  => $skipped,
-        'brand_visual_guidelines'  => $brandVisualGuidelines !== '' ? 'stored' : 'not_provided',
-        'competitor_examples'      => $competitorExamples !== '' ? 'stored' : 'not_provided',
+        'brief_warning'            => $briefWarning,
         'store_warning'            => $storeWarning,
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 

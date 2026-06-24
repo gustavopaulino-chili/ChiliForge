@@ -2334,12 +2334,11 @@ serve(async (req: Request) => {
     const jobId = String((payload as any).jobId ?? (payload as any).campaignData?.jobId ?? "");
 
     // ── BRAND_VISUAL MODE: vision → text brand identity brief ──────────────────
-    // ONE-TIME extraction: read the brand's reference images and distill its visual
-    // DESIGN LANGUAGE into a compact text brief (motifs, textures, depth treatment,
-    // decorative devices, palette mood, composition). This is the ONLY sanctioned
-    // base64→text call, and it is deliberate: it runs once per ref-set (the worker
-    // caches the result), and the reusable text it returns REPLACES sending raw pixels
-    // on every generation — so it lowers ongoing token cost, not raises it.
+    // ONE-TIME extraction per profile: reads brand posts (+ optional competitor posts)
+    // and distills the brand's full visual design language into a rich text brief
+    // (300-400 words). Cached in company_form_data — never re-run until posts change.
+    // Competitor posts are analyzed separately and stored under a distinct section
+    // restricted to layout/composition patterns only — identity never bleeds across.
     if (mode === "brand_visual") {
       const visKey = getApiKey(typeof payload.geminiApiKey === "string" ? payload.geminiApiKey : undefined);
       if (!visKey) {
@@ -2347,48 +2346,106 @@ serve(async (req: Request) => {
           status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const refUrls = [
+
+      // Brand posts: deep visual identity analysis (up to 10 images)
+      const brandUrls = [
+        ...(Array.isArray((payload as any).brandImageUrls) ? (payload as any).brandImageUrls : []),
+        // legacy fallback — worker still passes referenceImageUrls
         ...(Array.isArray((payload as any).referenceImageUrls) ? (payload as any).referenceImageUrls : []),
         ...(Array.isArray((payload as any).campaignData?.composeCompanyRefs) ? (payload as any).campaignData.composeCompanyRefs : []),
       ]
         .filter((u: unknown): u is string => typeof u === "string" && u.startsWith("http"))
-        .slice(0, 3);
-      if (!refUrls.length) {
+        .slice(0, 10);
+
+      // Competitor posts: layout patterns only (up to 6 images)
+      const competitorUrls = (Array.isArray((payload as any).competitorImageUrls)
+        ? (payload as any).competitorImageUrls as unknown[]
+        : []
+      ).filter((u): u is string => typeof u === "string" && u.startsWith("http")).slice(0, 6);
+
+      if (!brandUrls.length) {
         return new Response(JSON.stringify({ brief: "" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const fetched = await Promise.all(
-        refUrls.map((url, i) =>
+
+      // Fetch brand images
+      const fetchedBrand = await Promise.all(
+        brandUrls.map((url, i) =>
           fetchImageAsBase64(url)
-            .then((img) => (img ? { label: `Brand reference ${i + 1}`, ...img } as ReferenceImage : null))
+            .then((img) => (img ? { label: `Brand post ${i + 1}`, ...img } as ReferenceImage : null))
             .catch(() => null)
         )
       );
-      const visRefs = fetched.filter((r): r is ReferenceImage => r !== null);
-      if (!visRefs.length) {
+      const brandRefs = fetchedBrand.filter((r): r is ReferenceImage => r !== null);
+
+      if (!brandRefs.length) {
         return new Response(JSON.stringify({ brief: "" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const BRAND_VISUAL_SYSTEM = [
-        "You are an art director profiling a brand's VISUAL DESIGN LANGUAGE from its real ads/visuals.",
-        "Output a tight, practical brief (max ~140 words) another designer could use to recreate the brand's LOOK on a fresh ad — describe the DESIGN DEVICES, not the specific products or any text/copy you see.",
-        "Cover, in plain prose (no markdown headers, no bullet symbols, no hex codes, no numbers-as-codes):",
-        "• Color mood (name the colors, e.g. warm coral + cream — NOT hex).",
-        "• Signature decorative devices (e.g. scattered dots/bokeh, confetti, grain, halftone, geometric accents, organic blobs, hand-drawn lines, sticker/emoji style).",
-        "• Depth & layering treatment (flat vs layered, drop shadows, overlapping elements, foreground blur, 3D feel).",
-        "• Texture & finish (matte, glossy, paper grain, gradient mesh, light leaks).",
-        "• Typography vibe and composition energy (minimal/airy vs bold/busy, alignment tendencies).",
-        "Return ONLY the brief text — no preamble, no quotes, no labels.",
+
+      // ── Phase 1: full brand visual identity ────────────────────────────────
+      const BRAND_IDENTITY_SYSTEM = [
+        "You are a senior art director profiling a brand's complete VISUAL DESIGN LANGUAGE from its real Instagram posts.",
+        "Your output will be used as the authoritative creative brief for an AI image generation model to produce on-brand advertising backgrounds.",
+        "Write 300-400 words of dense, specific, actionable prose. Another designer reading this must be able to recreate the EXACT visual feel of this brand on a fresh ad with no other reference.",
+        "",
+        "Cover ALL of the following — be hyper-specific, never generic:",
+        "COLOR SYSTEM: Name every color you see in use (warm coral, dusty sage, midnight navy — never hex). Identify which is dominant, which is accent, and how they relate (analogous harmony, high contrast, muted pastels, etc.). Note if backgrounds are always pure white/black or always tinted.",
+        "BACKGROUND TREATMENT: Is the background always photography, always flat color, always gradient? What is the gradient direction and color transition? Is there always a texture layer on top (grain, noise, halftone)?",
+        "SIGNATURE DECORATIVE DEVICES: The specific recurring motifs — scattered dots/bokeh, floating geometric shapes, confetti, botanical line art, hand-drawn strokes, sticker/emoji overlays, gradient blobs, particle bursts, light leaks, film grain, duotone washes. Name them precisely and say how densely they appear and where (corners, full bleed, behind the subject).",
+        "DEPTH & LAYERING: Flat (everything on one plane) vs layered (background → decorative mid-layer → subject → text). Is there visible foreground blur? Drop shadows? Overlapping translucent elements? 3D separation or flat sticker-on-background?",
+        "SUBJECT TREATMENT: How are products or people positioned — centered, off-center, cropped, floating, cutout silhouette, placed on a surface? Is there a consistent framing device (circle mask, arch, frame line)?",
+        "COMPOSITION ENERGY: Symmetric and still vs asymmetric and kinetic. Where does the eye land first? Is the layout airy with lots of breathing room, or dense and packed?",
+        "TYPOGRAPHY VIBE (describe the STYLE, not the font name): Weight (ultra-bold, thin, medium), case (all-caps, sentence, mixed), tracking (tight/loose), serif vs sans, editorial vs playful. How does headline size relate to body size?",
+        "FINISH & MOOD: Matte paper feel, glossy editorial, raw/gritty, clean digital, warm/nostalgic, cold/clinical, vibrant/saturated, desaturated/editorial.",
+        "",
+        "Return ONLY the brand identity brief — no preamble, no section headers, no bullet points, no markdown, no hex codes.",
       ].join("\n");
-      const vis = await callGemini(
-        BRAND_VISUAL_SYSTEM,
-        "Profile this brand's visual design language from the attached reference image(s). Return only the brief.",
-        "gemini-2.5-flash", 0.5, 700, visKey, undefined, visRefs, { jobId },
+
+      const brandVis = await callGemini(
+        BRAND_IDENTITY_SYSTEM,
+        `Analyze these ${brandRefs.length} brand posts and write the complete visual identity brief.`,
+        "gemini-2.5-flash", 0.4, 1200, visKey, undefined, brandRefs, { jobId },
       );
-      const brief = String(vis.text || "").trim().slice(0, 1200);
-      console.log(`[brand_visual]${jobId ? ` job=${jobId}` : ""} refs=${visRefs.length} briefLen=${brief.length}`);
+      const brandBrief = String(brandVis.text || "").trim().slice(0, 2000);
+
+      // ── Phase 2: competitor layout patterns (if provided) ──────────────────
+      let competitorSection = "";
+      if (competitorUrls.length > 0) {
+        const fetchedComp = await Promise.all(
+          competitorUrls.map((url, i) =>
+            fetchImageAsBase64(url)
+              .then((img) => (img ? { label: `Competitor post ${i + 1}`, ...img } as ReferenceImage : null))
+              .catch(() => null)
+          )
+        );
+        const compRefs = fetchedComp.filter((r): r is ReferenceImage => r !== null);
+
+        if (compRefs.length > 0) {
+          const COMPETITOR_LAYOUT_SYSTEM = [
+            "You are analyzing competitor Instagram posts to extract LAYOUT AND COMPOSITION PATTERNS ONLY.",
+            "FORBIDDEN: extracting or describing any color scheme, brand colors, logo, typography, brand personality, or any identity element. These belong to the competitor and must NEVER influence this brand's output.",
+            "ALLOWED: abstract structural patterns only — where is the text block (top/bottom/left/right/center), what proportion of the frame does imagery occupy vs text zone, how is the CTA positioned, is there a product image and where does it sit, what is the visual hierarchy order.",
+            "Write 100-150 words describing only these structural/compositional patterns.",
+            "Return ONLY the layout patterns — no preamble, no headers.",
+          ].join("\n");
+
+          const compVis = await callGemini(
+            COMPETITOR_LAYOUT_SYSTEM,
+            `Extract layout and composition patterns from these ${compRefs.length} competitor posts.`,
+            "gemini-2.5-flash", 0.3, 400, visKey, undefined, compRefs, { jobId },
+          );
+          const compText = String(compVis.text || "").trim().slice(0, 600);
+          if (compText) {
+            competitorSection = `\n\n[COMPETITOR LAYOUT PATTERNS — structure only, no identity]\n${compText}`;
+          }
+        }
+      }
+
+      const brief = (brandBrief + competitorSection).trim();
+      console.log(`[brand_visual]${jobId ? ` job=${jobId}` : ""} brandRefs=${brandRefs.length} competitorUrls=${competitorUrls.length} briefLen=${brief.length}`);
       return new Response(JSON.stringify({ brief }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -2659,7 +2716,11 @@ serve(async (req: Request) => {
       // With a text brief in hand, prefer creative freedom (guided by the brief) over copying
       // pixels — this is what unlocks the brand's design devices and depth. 'shapes' and
       // 'inspired' are kept as-is ('inspired' already has full freedom + the ref image).
-      if (briefDriven && bgSource !== "shapes" && bgSource !== "inspired") bgSource = "creative";
+      // When the brand brief exists AND brand reference images are present (e.g. Instagram posts
+      // stored via company-assets), keep them working TOGETHER — brief provides the text
+      // description of the visual identity, images provide the pixel evidence. Only switch to
+      // "creative" when brief exists but there are NO images to reference.
+      if (briefDriven && !hasCompanyRefs && bgSource !== "shapes") bgSource = "creative";
 
       // ── Store-derived brand brief (compose) ───────────────────────────────
       // Query the company store for brand visual identity guidelines BEFORE generating the
@@ -2715,14 +2776,34 @@ serve(async (req: Request) => {
       )).filter((r): r is { mimeType: string; data: string } => Boolean(r?.data));
 
       let bgRefImages: { data: string; mimeType: string }[];
+      let brandRefCountInBg = 0; // how many brand-post images are in bgRefImages
+      let genRefCountInBg = 0;   // how many generation-specific images are in bgRefImages
+
       if (!usesRefs) {
-        bgRefImages = []; // no reference image — abstract (shapes) or full freedom (creative)
+        bgRefImages = [];
+      } else if (briefDriven && refImagesForGen.length > 0 && companyRefImages.length > 0) {
+        // Brand brief + brand post images + generation-specific reference:
+        // Reserve the last slot for the generation image so the model can distinguish roles.
+        // Cap brand posts at 2 so there is always room for the generation ref.
+        const brandSlice = companyRefImages.slice(0, 2);
+        const genSlice = refImagesForGen.slice(0, 1);
+        bgRefImages = [...brandSlice, ...genSlice];
+        brandRefCountInBg = brandSlice.length;
+        genRefCountInBg = genSlice.length;
       } else {
-        // 'reference' (FOLLOW CLOSELY) / 'company' (derive from brand world): the user's uploaded
-        // references lead, product/background assets follow. This is what makes the output
-        // resemble the ads the caller sent.
+        // Standard: brand images + gen assets fill all slots (up to 3 total).
         bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 3);
+        brandRefCountInBg = Math.min(companyRefImages.length, bgRefImages.length);
       }
+
+      // When brand posts and the generation reference coexist in bgRefImages, annotate the
+      // visual brief so the image model knows which role each image plays. This is what lets
+      // the model use the generation image creatively (product, anchor, element) while staying
+      // true to the brand's design language from the posts.
+      const visualBriefForPrompt = (brandRefCountInBg > 0 && genRefCountInBg > 0)
+        ? (visualBrief ? visualBrief + "\n\n" : "") +
+          `IMAGE ROLES: The first ${brandRefCountInBg} image(s) are brand Instagram posts — study their visual motifs, color palette, depth treatment, layering, and recurring design devices. These define the aesthetic universe for this ad. The last image is the creative reference for this specific campaign: incorporate it as you see fit — as the hero product, a background subject, a scene anchor, or a compositional element — while staying firmly within the brand's visual world.`
+        : visualBrief;
 
       // brandSpec: use creativePlan if provided (e.g. from external API worker),
       // otherwise derive instantly from campaignData — PHP already enriched it with
@@ -2762,7 +2843,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[taskIndex % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBrief);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt);
           const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
             // ONE attempt with a generous timeout. The image model is slow (~40-90s) and
             // its first request often lags; a SECOND attempt pushed the edge call past the
@@ -2815,7 +2896,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[(taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[(taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBrief);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt);
           const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
             // ONE attempt with a generous timeout. The image model is slow (~40-90s) and
             // its first request often lags; a SECOND attempt pushed the edge call past the
