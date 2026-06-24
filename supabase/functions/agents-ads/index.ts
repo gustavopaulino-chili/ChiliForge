@@ -1738,10 +1738,19 @@ function buildBackgroundPrompt(
     ].join("\n");
   } else if (bgSource === "company" && hasRefImages) {
     sourceBlock = [
-      "████ BACKGROUND SOURCE: COMPANY IMAGES — DERIVE FROM BRAND WORLD ████",
-      "The attached image(s) are the company's own brand images. Create an ORIGINAL background that captures this brand's visual world:",
-      "• Study their palette, materials, textures, lighting and mood, then compose a fresh original backdrop in that language.",
-      "• Do NOT copy, trace or paste the reference images — synthesize a new, cohesive brand-consistent scene/texture.",
+      "████ BACKGROUND SOURCE: COMPANY BRAND POSTS — BUILD THE AD WORLD FROM THESE ████",
+      "The attached image(s) are this brand's own Instagram posts. They are the visual reference for what this brand looks and feels like.",
+      "Your job: create an ORIGINAL advertising background that is unmistakably from THIS brand's world — not a copy of the posts, but a fresh creative that shares their DNA.",
+      "",
+      "STUDY these brand posts for:",
+      "• Color palette — the exact tones and how they are combined (warm coral over white? dark background with electric accents?)",
+      "• Background treatment — is it always photography, flat color, gradient, texture overlay?",
+      "• Design devices — recurring motifs: bokeh, scattered dots, geometric shapes, grain, blobs, light leaks, confetti, botanical elements",
+      "• Depth & layering — is there always a foreground blur? Overlapping translucent shapes? 3D separation or flat?",
+      "• Mood & finish — matte/glossy, vibrant/muted, warm/cold, editorial/playful",
+      "",
+      "Then synthesize a NEW background that inherits all of the above — feel like you could post it on their Instagram and it would fit perfectly.",
+      "Do NOT copy subject matter or composition from the posts. Compose fresh for the ad format and the reserved text zone.",
     ].join("\n");
   } else if (bgSource === "inspired") {
     sourceBlock = [

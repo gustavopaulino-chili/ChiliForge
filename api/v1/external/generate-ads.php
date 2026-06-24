@@ -339,6 +339,15 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
     $addRef($allRefs, $images['hero'] ?? '');                                       // company.hero_image_url
     $addRef($allRefs, $campaignData['productImageUrl'] ?? '');                      // campaign.product_image_url
     $addRef($allRefs, $campaignData['backgroundImageUrl'] ?? '');                   // campaign.background_image_url
+    // Brand posts (Instagram) mirrored via company-assets — stored as root-relative /projects/...
+    // Added directly (not via $addRef) because $addRef filters non-http. The absolutize step
+    // in asset-mirroring (line ~1073) converts them to absolute URLs before the edge call.
+    if (!empty($companyData['brandPostImages']) && is_array($companyData['brandPostImages'])) {
+        foreach (array_slice($companyData['brandPostImages'], 0, 3) as $bp) {
+            $bp = trim((string)$bp);
+            if ($bp !== '' && !$isLogo($bp)) $allRefs[] = $bp;
+        }
+    }
     $allRefs = array_values(array_unique($allRefs));
     if (!empty($allRefs)) {
         $campaignData['composeCompanyRefs'] = array_slice($allRefs, 0, 4);
@@ -349,7 +358,9 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
         if ($genRefUrl !== '') {
             $bgSourceRaw = 'inspired'; // ref image → full creative freedom, model decides how to use it
         } else {
-            $bgSourceRaw = !empty($allRefs) ? 'reference' : 'creative';
+            // brandPostImages → treat as "company" so the model studies the brand's visual world.
+            $hasBrandPosts = !empty($companyData['brandPostImages']) && is_array($companyData['brandPostImages']);
+            $bgSourceRaw = !empty($allRefs) ? ($hasBrandPosts && empty($genRefUrl) ? 'company' : 'reference') : 'creative';
         }
     }
     $campaignData['composeBackgroundSource'] = $bgSourceRaw;
