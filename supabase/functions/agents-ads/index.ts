@@ -253,57 +253,111 @@ function parseComposeTextRec(text: string): ComposeTextRec | null {
   }
 }
 
-// Calls Gemini Flash (text model) to analyze the generated background image and return
-// optimal CSS positions for logo and text block overlay. Returns null on any failure;
-// callers fall back to the fixed LAYOUT_POSITIONS when null.
-async function analyzeBackgroundForTextPlacement(
+// Calls Gemini Flash (text model) with the generated background image.
+// Receives pre-built HTML elements with UPPERCASE placeholders; Gemini fills in
+// the position/alignment CSS and returns the completed HTML overlay fragment.
+// Returns null on any failure — callers fall back to buildCompositionHtml template.
+async function buildOverlayHtmlFromGemini(
   bgDataUrl: string,
+  data: AgentsAdsPayload["campaignData"],
+  format: AdFormat,
+  cssVars: string,
   apiKey: string,
+  rec?: ComposeTextRec | null,
   opts: { jobId?: number } = {}
-): Promise<LayoutPosition | null> {
+): Promise<string | null> {
   const match = bgDataUrl.match(/^data:([^;]+);base64,(.+)$/s);
   if (!match) return null;
-  const bgRef: ReferenceImage = { data: match[2], mimeType: match[1], label: "Generated ad background" };
+  const bgRef: ReferenceImage = { data: match[2], mimeType: match[1], label: "Ad background" };
 
-  const SYSTEM = "You analyze advertising background images and return JSON text-placement recommendations. No explanation, no markdown.";
-  const USER = `This is a generated background image for an advertisement. White text (headline + subheadline + CTA) and a brand logo will be composited on top of it.
+  const W = format.width ?? 1080;
+  const H = format.height ?? 1080;
+  const headline = String(data.mainHeadline || "").trim();
+  const sub      = String(data.subheadline || (data as any).offer || "").trim();
+  const ctaRaw   = String((data as any).ctaText || "").trim();
+  const logoUrl  = String((data as any).logoUrl || "").trim();
+  const brandName = String(data.brandName || "").trim();
+  const primaryColor = extractCssVarColor(cssVars, "--primary") || "#1a1a2e";
+  const fontFamily   = extractCssVarFont(cssVars) || "'Inter','Helvetica Neue',Arial,sans-serif";
 
-Find: (1) the cleanest, darkest, most uniform zone for white text legibility; (2) the best corner for a small logo.
+  const sizeScale    = Math.min(1.4, Math.max(0.7, Number(rec?.headlineScale) || 1));
+  const hlLenScale   = headline.length <= 22 ? 1 : headline.length <= 38 ? 0.86 : headline.length <= 55 ? 0.75 : 0.66;
+  const subLenScale  = sub.length <= 45 ? 1 : sub.length <= 75 ? 0.88 : 0.78;
+  const headlineFs   = `calc(min(7cqh,6.2cqw)*${(sizeScale * hlLenScale).toFixed(3)})`;
+  const subFs        = `calc(min(7cqh,6.2cqw)*${(sizeScale * 0.46 * subLenScale).toFixed(3)})`;
+  const ctaFs        = `calc(min(4.4cqh,4.1cqw)*${Math.min(1.2, sizeScale).toFixed(3)})`;
+  const logoFs       = `calc(min(7cqh,6.2cqw)*${(sizeScale * 0.46).toFixed(3)})`;
+  const isDark       = contrastTextColor(primaryColor).color === "#ffffff";
+  const btnBg        = isDark ? "rgba(255,255,255,0.95)" : "rgba(20,20,20,0.88)";
+  const btnColor     = isDark ? "#111111" : "#ffffff";
+  const ts           = "0 2px 12px rgba(0,0,0,0.70),0 1px 3px rgba(0,0,0,0.50)";
+  const isSocial     = isSocialFormat(format);
 
-Return ONLY compact JSON (no markdown fences, no explanation):
-{"logo":"<CSS>","block":"<CSS>","align":"left"|"center"|"right"}
+  // Elements with UPPERCASE placeholders that Gemini must fill with real CSS values.
+  const logoEl = logoUrl
+    ? `<img src="${logoUrl}" style="position:absolute;LOGO_POS_CSS;object-fit:contain;z-index:20" alt="logo" />`
+    : (brandName ? `<div style="position:absolute;LOGO_POS_CSS;font-family:${fontFamily};font-size:${logoFs};font-weight:700;color:#ffffff;z-index:20;white-space:nowrap;text-shadow:${ts}">${brandName}</div>` : "");
+  const scrimEl = `<div style="position:absolute;SCRIM_CSS;z-index:1;pointer-events:none"></div>`;
+  const headlineEl = headline
+    ? `<div style="font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:#ffffff;line-height:1.12;text-align:TEXT_ALIGN;text-shadow:${ts};overflow-wrap:break-word;">${headline}</div>`
+    : "";
+  const subEl = sub
+    ? `<div style="margin-top:1.6cqh;font-family:${fontFamily};font-size:${subFs};font-weight:400;color:rgba(255,255,255,0.90);line-height:1.34;text-align:TEXT_ALIGN;text-shadow:${ts};overflow-wrap:break-word;">${sub}</div>`
+    : "";
+  const ctaEl = ctaRaw
+    ? (isSocial
+        ? `<div style="margin-top:2.6cqh;font-family:${fontFamily};font-size:${ctaFs};font-weight:600;color:#ffffff;text-shadow:${ts};white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`
+        : `<div style="margin-top:2.8cqh;align-self:ALIGN_SELF;display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.42em 0.90em;border-radius:0.38em;box-shadow:0 4px 18px rgba(0,0,0,0.22);white-space:nowrap;">${ctaRaw}</div>`)
+    : "";
+  const blockEl = (headlineEl || subEl || ctaEl)
+    ? `<div style="position:absolute;BLOCK_POS_CSS;display:flex;flex-direction:column;align-items:ALIGN_SELF;z-index:25;">${headlineEl}${subEl}${ctaEl}</div>`
+    : "";
 
-CSS uses only: top/left/right/bottom as percentages, width/max-height as percentages.
-Examples:
-- logo: "top:5%;left:5%;width:26%;max-height:12%;"
-- block (bottom anchor): "left:5%;right:5%;bottom:7%;"
-- block (left panel): "left:5%;right:52%;top:50%;transform:translateY(-50%);"
-- block (top anchor): "left:5%;right:5%;top:18%;"
+  const SYSTEM = "You are an HTML/CSS ad layout specialist. You analyze advertising background images and return completed HTML overlay fragments. Return ONLY the HTML — no explanation, no markdown fences.";
+  const USER = `This background image (${W}×${H}px) needs a text/logo overlay composited on top. Analyze it and fill in the CSS position placeholders.
 
-Rules:
-- text block: largest uniformly dark or calm zone; prefer bottom:X% anchor when bottom is clean
-- logo corner: avoid the text block zone and main subject
-- align: "left" when block is left-anchored, "center" when centered, "right" when right-anchored
-- if ANY text is already drawn in the image, pick a DIFFERENT clean zone for the block`;
+PLACEHOLDERS TO FILL:
+• LOGO_POS_CSS → position + size CSS for logo (e.g.: "top:5%;left:5%;width:26%;max-height:12%;")
+• SCRIM_CSS → position + gradient CSS covering the text zone (e.g.: "inset:45% 0 0 0;height:55%;background:linear-gradient(to top,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0) 100%)")
+• BLOCK_POS_CSS → absolute anchor for the text block (e.g.: "left:5%;right:5%;bottom:7%;" or "left:5%;right:52%;top:50%;transform:translateY(-50%);")
+• TEXT_ALIGN → "left", "center", or "right" matching block side
+• ALIGN_SELF → "flex-start" (left), "center", or "flex-end" (right)
+
+PLACEMENT RULES:
+1. Text block → darkest, most uniform zone; white text must be instantly legible
+2. Logo corner → clean space opposite or away from text block
+3. Scrim gradient → direction must face INTO the text zone (bottom zone → "to top"; top zone → "to bottom"; left panel → "to right"; right panel → "to left")
+4. TEXT_ALIGN and ALIGN_SELF must match the block's horizontal position
+5. Use % only (no px for positions/sizes)
+6. If any text was already drawn inside the image, place the block in a DIFFERENT clean zone
+
+ELEMENTS (replace all UPPERCASE placeholders with real CSS, keep everything else unchanged):
+${logoEl || "<!-- no logo -->"}
+${scrimEl}
+${blockEl || "<!-- no text content -->"}
+
+Return ONLY the completed HTML elements above.`;
 
   try {
-    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.1, 180, apiKey, undefined, [bgRef], opts);
-    const raw = String(res.text || "").trim().replace(/^```[a-z]*\n?/, "").replace(/\n?```$/, "").trim();
-    const jsonMatch = raw.match(/\{[\s\S]*?\}/);
-    if (!jsonMatch) return null;
-    const parsed = JSON.parse(jsonMatch[0]);
-    if (typeof parsed.logo === "string" && typeof parsed.block === "string") {
-      const ensure = (s: string) => s.endsWith(";") ? s : s + ";";
-      return {
-        logo:  ensure(parsed.logo),
-        block: ensure(parsed.block),
-        align: parsed.align === "center" ? "center" : parsed.align === "right" ? "right" : "left",
-      };
+    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.1, 700, apiKey, undefined, [bgRef], opts);
+    const raw = String(res.text || "").trim()
+      .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
+    // Reject if Gemini left any placeholder unfilled
+    if (/LOGO_POS_CSS|SCRIM_CSS|BLOCK_POS_CSS|TEXT_ALIGN|ALIGN_SELF/.test(raw)) {
+      console.warn(`[overlay-html] unfilled placeholders job=${opts.jobId ?? "?"}`);
+      return null;
     }
+    // Must contain at least the scrim div (always present)
+    if (!raw.includes("z-index:1") && !raw.includes("z-index:25")) {
+      console.warn(`[overlay-html] unexpected output job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
+      return null;
+    }
+    console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${raw.length}`);
+    return raw;
   } catch (err) {
-    console.warn(`[layout-analysis] failed job=${opts.jobId ?? "?"}: ${err}`);
+    console.warn(`[overlay-html] failed job=${opts.jobId ?? "?"}: ${err}`);
+    return null;
   }
-  return null;
 }
 
 async function generateAdImage(
@@ -1947,30 +2001,6 @@ const LAYOUT_SCRIMS: Record<string, string> = {
   "floating-islands":       "inset:auto 0 0 0;height:50%;background:linear-gradient(to top,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0.22) 65%,rgba(0,0,0,0) 100%)",
 };
 
-// Derives a gradient scrim from a dynamic block CSS string (returned by analyzeBackgroundForTextPlacement).
-// Falls back to a bottom-anchor scrim when no clear anchor is found.
-function deriveDynamicScrim(blockCss: string): string {
-  const bottom = blockCss.match(/bottom:\s*([\d.]+)%/);
-  const top    = blockCss.match(/top:\s*([\d.]+)%/);
-  const left   = blockCss.match(/left:\s*([\d.]+)%/);
-  const right  = blockCss.match(/right:\s*([\d.]+)%/);
-  if (bottom) {
-    const bPct = parseFloat(bottom[1]);
-    const startPct = Math.max(0, Math.round(100 - bPct - 52));
-    return `inset:${startPct}% 0 0 0;height:${100 - startPct}%;background:linear-gradient(to top,rgba(0,0,0,0.75) 0%,rgba(0,0,0,0.40) 55%,rgba(0,0,0,0) 100%)`;
-  }
-  if (top && left && !right) {
-    return `inset:0 50% 35% 0;background:linear-gradient(135deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)`;
-  }
-  if (top && right && !left) {
-    return `inset:0 0 35% 50%;background:linear-gradient(225deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)`;
-  }
-  if (top) {
-    return `inset:0 0 auto 0;height:60%;background:linear-gradient(to bottom,rgba(0,0,0,0.75) 0%,rgba(0,0,0,0.35) 65%,rgba(0,0,0,0) 100%)`;
-  }
-  return `inset:45% 0 0 0;height:55%;background:linear-gradient(to top,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.36) 55%,rgba(0,0,0,0) 100%)`;
-}
-
 function buildCompositionHtml(
   bgDataUrl: string,
   data: AgentsAdsPayload["campaignData"],
@@ -1981,7 +2011,7 @@ function buildCompositionHtml(
   layoutKey?: string,
   forceLayout?: boolean,
   rec?: ComposeTextRec | null,
-  dynamicLayout?: LayoutPosition | null,
+  overlayHtml?: string | null,
 ): string {
   const w = format.width ?? 1080;
   const h = format.height ?? 1080;
@@ -1989,7 +2019,7 @@ function buildCompositionHtml(
   const formatName = format.format || "ad";
 
   const detectedLayout = resolveCompositionLayout(spec, layoutKey, forceLayout);
-  const layout = dynamicLayout ?? LAYOUT_POSITIONS[detectedLayout] ?? LAYOUT_POSITIONS["hero-full-bleed"];
+  const layout = LAYOUT_POSITIONS[detectedLayout] ?? LAYOUT_POSITIONS["hero-full-bleed"];
 
   const primaryColor = extractCssVarColor(cssVars, "--primary") || "#1a1a2e";
   const fontFamily = extractCssVarFont(cssVars) || "'Inter','Helvetica Neue',Arial,sans-serif";
@@ -2039,9 +2069,7 @@ function buildCompositionHtml(
     : `<div class="ad-bg" style="position:absolute;inset:0;background:${primaryColor};z-index:0"></div>`;
 
   // Scrim: semi-transparent gradient over the text zone, ensures white text legibility
-  const scrimCss = dynamicLayout
-    ? deriveDynamicScrim(dynamicLayout.block)
-    : (LAYOUT_SCRIMS[detectedLayout] ?? LAYOUT_SCRIMS["hero-full-bleed"]);
+  const scrimCss = LAYOUT_SCRIMS[detectedLayout] ?? LAYOUT_SCRIMS["hero-full-bleed"];
   const scrimLayer = `<div style="position:absolute;${scrimCss};z-index:1;pointer-events:none"></div>`;
 
   // Caller can pin the logo corner (logo_position / logo_strategy) — overrides the layout's
@@ -2090,13 +2118,15 @@ function buildCompositionHtml(
     ? `<div style="position:absolute;${layout.block}display:flex;flex-direction:column;align-items:${alignItems};z-index:25;">${headlineEl}${subEl}${ctaEl}</div>`
     : "";
 
+  // If Gemini already built the overlay HTML (logo + scrim + text block), inject it
+  // directly. Otherwise fall back to the template-built logo/scrim/text.
+  const overlayContent = overlayHtml ?? `${scrimLayer}\n  ${logoLayer}\n  ${textBlock}`;
+
   return `<!-- BANNER_START -->
 <div class="ad-banner" data-platform="${platform}" data-format="${formatName}" style="position:relative;width:${w}px;height:${h}px;overflow:hidden;font-family:${fontFamily};container-type:size">
   ${fontImport}
   ${bgLayer}
-  ${scrimLayer}
-  ${logoLayer}
-  ${textBlock}
+  ${overlayContent}
 </div>
 <!-- BANNER_END -->`;
 }
@@ -2990,7 +3020,7 @@ serve(async (req: Request) => {
       let banners: Awaited<ReturnType<typeof runWithConcurrency>>;
 
       if (isAbVisual) {
-        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string; dynamicLayout?: LayoutPosition | null }>();
+        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string; overlayHtml?: string | null }>();
         const uniqueVariantRatios = [...new Map(
           imageTasks.map((task) => {
             const aspectRatio = imageAspectRatioForFormat(task.format);
@@ -3014,10 +3044,10 @@ serve(async (req: Request) => {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          const dynamicLayoutForVariant = gen?.url
-            ? await analyzeBackgroundForTextPlacement(gen.url, apiKey, { jobId }).catch(() => null)
+          const overlayHtmlForVariant = gen?.url
+            ? await buildOverlayHtmlFromGemini(gen.url, campaignData, task.format, cssVars, apiKey, gen?.rec ?? undefined, { jobId }).catch(() => null)
             : null;
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, dynamicLayout: dynamicLayoutForVariant });
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, overlayHtml: overlayHtmlForVariant });
         }
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -3030,7 +3060,7 @@ serve(async (req: Request) => {
 
           const bannerHtml = buildCompositionHtml(
             bg.url, campaignData, format, taskBrandSpec, cssVars, fontUrl,
-            layoutHint, true, bg.rec, bg.dynamicLayout, // bg.rec = model text-size hint; dynamicLayout = AI-picked placement
+            layoutHint, true, bg.rec, bg.overlayHtml, // bg.rec = model text-size hint; overlayHtml = Gemini-placed overlay
           );
           const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
           return {
@@ -3051,7 +3081,7 @@ serve(async (req: Request) => {
         // DIFFERENT layout (square / story / landscape look distinct). The chosen layout is
         // STORED per ratio so the HTML overlay reuses the exact same one the background
         // reserved space for — text and background never disagree.
-        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string; dynamicLayout?: LayoutPosition | null }>();
+        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string; overlayHtml?: string | null }>();
         const uniqueRatios = [...new Set(imageTasks.map((task) => imageAspectRatioForFormat(task.format)))];
         for (const aspectRatio of uniqueRatios) {
           const task = imageTasks.find((candidate) => imageAspectRatioForFormat(candidate.format) === aspectRatio)!;
@@ -3070,10 +3100,10 @@ serve(async (req: Request) => {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          const dynamicLayoutForRatio = gen?.url
-            ? await analyzeBackgroundForTextPlacement(gen.url, apiKey, { jobId }).catch(() => null)
+          const overlayHtmlForRatio = gen?.url
+            ? await buildOverlayHtmlFromGemini(gen.url, campaignData, task.format, cssVars, apiKey, gen?.rec ?? undefined, { jobId }).catch(() => null)
             : null;
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, dynamicLayout: dynamicLayoutForRatio });
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, overlayHtml: overlayHtmlForRatio });
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -3086,7 +3116,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, format);
 
           const bannerHtml = buildCompositionHtml(
-            bg.url, campaignData, format, taskBrandSpec, cssVars, fontUrl, layoutHint, true, bg.rec, bg.dynamicLayout,
+            bg.url, campaignData, format, taskBrandSpec, cssVars, fontUrl, layoutHint, true, bg.rec, bg.overlayHtml,
           );
           const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
           return {
@@ -3097,7 +3127,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, dynamicLayout: bg.dynamicLayout ?? null, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, overlayFromGemini: Boolean(bg.overlayHtml), aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(composeFns, 4);
