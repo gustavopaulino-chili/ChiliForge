@@ -860,7 +860,8 @@ if (!function_exists('buildCompanyDocument')) {
 
         // Brand visual identity from Instagram profile analysis — the most important signal
         // for compose mode background generation. Stored verbatim from the scraper output.
-        $brandVisualGuidelines = $str($fd['brandVisualGuidelines'] ?? '');
+        // brandVisualBrief = gerado pelo modo brand_visual (company-assets); brandVisualGuidelines = campo legado.
+        $brandVisualGuidelines = $str($fd['brandVisualBrief'] ?? $fd['brandVisualGuidelines'] ?? '');
         if ($brandVisualGuidelines !== '') {
             $doc .= "## Brand Visual Identity — Instagram Profile Analysis\n";
             $doc .= "COMPOSE BACKGROUND DIRECTIVE: The following visual identity was extracted from this brand's own Instagram profile. ";
