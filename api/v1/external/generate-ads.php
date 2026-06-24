@@ -1081,18 +1081,6 @@ try {
         if (!empty($assetUrlMap)) {
             $companyFormData  = ext_rewrite_payload_asset_urls($companyFormData, $assetUrlMap);
             $campaignFormData = ext_rewrite_payload_asset_urls($campaignFormData, $assetUrlMap);
-            // composeCompanyRefs must stay ABSOLUTE: the rewrite above turns mirrored refs into
-            // root-relative /projects/... which the image edge (Deno) cannot fetch (it only keeps
-            // http(s) URLs). Re-absolutize using the request host so the edge fetches the local copy.
-            if (!empty($campaignFormData['composeCompanyRefs']) && is_array($campaignFormData['composeCompanyRefs'])) {
-                $absBase = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '');
-                $campaignFormData['composeCompanyRefs'] = array_values(array_filter(array_map(function ($u) use ($absBase) {
-                    $u = trim((string)$u);
-                    if ($u === '' || preg_match('~^https?://~i', $u)) return $u;
-                    if ($u[0] === '/' && $absBase !== '') return $absBase . $u;
-                    return $u;
-                }, $campaignFormData['composeCompanyRefs']), 'strlen'));
-            }
             agents_reconnect_mysqli_if_needed($conn);
             $updatedCompanyFormDataJson = json_encode($companyFormData, JSON_UNESCAPED_UNICODE);
             if ($updatedCompanyFormDataJson) {
@@ -1106,6 +1094,18 @@ try {
                 if ($updAssetsCamp) { $updAssetsCamp->bind_param('si', $updatedCampaignFormDataJson, $campaignId); $updAssetsCamp->execute(); $updAssetsCamp->close(); }
             }
         }
+    }
+    // composeCompanyRefs must be absolute for the image edge (Deno only fetches http(s) URLs).
+    // Brand posts stored as root-relative /projects/... by company-assets — absolutize always,
+    // regardless of whether external assets were mirrored this request.
+    if (!empty($campaignFormData['composeCompanyRefs']) && is_array($campaignFormData['composeCompanyRefs'])) {
+        $absBase = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '');
+        $campaignFormData['composeCompanyRefs'] = array_values(array_filter(array_map(function ($u) use ($absBase) {
+            $u = trim((string)$u);
+            if ($u === '' || preg_match('~^https?://~i', $u)) return $u;
+            if ($u[0] === '/' && $absBase !== '') return $absBase . $u;
+            return $u;
+        }, $campaignFormData['composeCompanyRefs']), 'strlen'));
     }
 
     // ── 8. Global stores + agent config ─────────────────────────────────

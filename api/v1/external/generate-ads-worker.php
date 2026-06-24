@@ -370,24 +370,13 @@ try {
     $assetUrlsToMirror = is_array($campaignMetadata['external_asset_urls_to_mirror'] ?? null)
         ? ext_collect_asset_urls_from_payload($campaignMetadata['external_asset_urls_to_mirror'])
         : [];
+    $pubBase = rtrim((string)($campaignMetadata['public_base'] ?? ''), '/');
     if (!empty($assetUrlsToMirror) && $companyRelPath !== '') {
         $mirrorResult = ext_mirror_api_assets_to_company($assetUrlsToMirror, $companyRelPath);
         $assetUrlMap  = is_array($mirrorResult['map'] ?? null) ? $mirrorResult['map'] : [];
         if (!empty($assetUrlMap)) {
             $companyFormData  = ext_rewrite_payload_asset_urls($companyFormData, $assetUrlMap);
             $campaignFormData = ext_rewrite_payload_asset_urls($campaignFormData, $assetUrlMap);
-            // composeCompanyRefs must be ABSOLUTE for the image edge (Deno) to fetch — the
-            // rewrite turns them into root-relative /projects/... which the edge's http-only
-            // filter drops. Re-absolutize with the public_base the endpoint stored (CLI worker
-            // has no $_SERVER).
-            $pubBase = rtrim((string)($campaignMetadata['public_base'] ?? ''), '/');
-            if ($pubBase !== '' && !empty($campaignFormData['composeCompanyRefs']) && is_array($campaignFormData['composeCompanyRefs'])) {
-                $campaignFormData['composeCompanyRefs'] = array_values(array_filter(array_map(function ($u) use ($pubBase) {
-                    $u = trim((string)$u);
-                    if ($u === '' || preg_match('~^https?://~i', $u)) return $u;
-                    return ($u[0] === '/') ? $pubBase . $u : $u;
-                }, $campaignFormData['composeCompanyRefs']), 'strlen'));
-            }
             agents_reconnect_mysqli_if_needed($conn);
             $updatedCFJson = json_encode($companyFormData, JSON_UNESCAPED_UNICODE);
             if ($updatedCFJson) {
@@ -401,6 +390,16 @@ try {
                 if ($u2) { $u2->bind_param('si', $updatedCampJson, $campaignId); $u2->execute(); $u2->close(); }
             }
         }
+    }
+    // composeCompanyRefs must be absolute for the image edge — brand posts are stored as
+    // root-relative /projects/... by company-assets. Absolutize always, even when no
+    // external assets were mirrored this request (CLI worker has no $_SERVER, uses pubBase from metadata).
+    if ($pubBase !== '' && !empty($campaignFormData['composeCompanyRefs']) && is_array($campaignFormData['composeCompanyRefs'])) {
+        $campaignFormData['composeCompanyRefs'] = array_values(array_filter(array_map(function ($u) use ($pubBase) {
+            $u = trim((string)$u);
+            if ($u === '' || preg_match('~^https?://~i', $u)) return $u;
+            return ($u[0] === '/') ? $pubBase . $u : $u;
+        }, $campaignFormData['composeCompanyRefs']), 'strlen'));
     }
 
     // ── 8. Global stores + agent config ──────────────────────────────────
