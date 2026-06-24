@@ -376,6 +376,9 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
         'textColor'           => 'textColor',
         'headingFont'         => 'headingFont',
         'bodyFont'            => 'bodyFont',
+        // Brief de identidade visual extraído dos posts do Instagram via company-assets.php.
+        // Lido pelo compose mode diretamente de campaignData (não passa pelo store).
+        'brandVisualBrief'    => 'brandVisualBrief',
     ];
     foreach ($brandBridge as $campKey => $compKey) {
         if (trim((string)($campaignData[$campKey] ?? '')) === '' && trim((string)($companyData[$compKey] ?? '')) !== '') {
