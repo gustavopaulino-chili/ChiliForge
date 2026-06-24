@@ -1792,8 +1792,10 @@ function buildBackgroundPrompt(
   const safeFacts = scrubBgPromptText(campaignFactsImg);
 
   return [
-    "You are generating ONLY the visual BACKGROUND of an ad.",
-    "Afterwards the system places the brand logo, headline, body copy and CTA on top automatically — so your image must contain NONE of those, and you must NEVER draw words like 'overlay', 'HTML', 'text', 'layer', or any system/UI label.",
+    "███ THIS IS AN AD BACKGROUND LAYER — NOT A FINISHED AD ███",
+    "Your ONLY job is to produce the BACKGROUND IMAGE of a digital advertisement. The system will composite the brand logo, headline, body copy, and CTA button on top of your image in a separate layer — automatically. You do NOT draw those elements.",
+    "Think of yourself as an art director painting the backdrop on a canvas before a photographer places the product and copywriter adds the text. Your canvas must be beautiful, rich, and on-brand — but it is NOT the finished ad.",
+    "Critically: the text and logo WILL appear on top of your image. Your background must make them POP, not compete with them. A background that looks stunning as a standalone image but buries overlaid white text is a FAILED background.",
     bgSource === "shapes"
       ? "Your job is purely the visual backdrop: brand colors, gradients, geometric shapes, textures, atmospheric elements (NO photography)."
       : "Your job is purely the visual backdrop: colors, textures, gradients, shapes, product/scene photography, atmospheric elements.",
@@ -1835,15 +1837,11 @@ function buildBackgroundPrompt(
     "• Light: light leaks, glow, rim light, soft vignettes, color wash — give the scene mood.",
     "Be generous and expressive: a rich, busy, beautifully-composed canvas reads as premium. Empty/flat backgrounds read as cheap and unfinished.",
     "",
-    "████ SPACE RULE — KEEP TEXT LEGIBLE, NOT EMPTY ████",
-    `Where the text and logo will land, you do NOT have to leave it blank — keep the design flowing there, but tune that zone so overlaid text stays legible: ${spaceGuide}`,
-    "Make the text zone CONTRAST-FRIENDLY (a calmer value range, soft blur, gentle darkening, or low-contrast pattern) — decorative detail is welcome there as long as it won't fight white text on top. Busy focal subjects and hard high-contrast edges go AWAY from that zone, not the design itself.",
-    (() => {
-      const pos = LAYOUT_POSITIONS[layout];
-      return pos
-        ? `PRECISE OVERLAY ZONES (CSS coords on the final canvas — keep these rectangles contrast-friendly for overlaid text; the overlay drops the logo and the WHOLE text block here): logo[${pos.logo}] text-block[${pos.block}]. The headline, body copy and CTA stack TOGETHER as one block inside that rectangle — keep the SHARPEST focal subject and harshest contrast away from it (soft design detail there is fine).`
-        : "";
-    })(),
+    "████ TEXT-SAFE ZONES — CRITICAL FOR AD LEGIBILITY ████",
+    `The overlay system will place the logo and text block at these exact CSS positions on the canvas: logo[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).logo}] text-block[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).block}].`,
+    `In those zones: ${spaceGuide}`,
+    "These zones MUST have low contrast, calm tones, or gentle blur so white text is instantly readable on top. No sharp edges, no busy textures, no dark+light alternation in those areas. Pretend someone will place white text directly on your image there — if they can't read it easily, your background fails its primary purpose.",
+    "The zones do NOT need to be blank or empty — subtle texture, soft gradients, gentle design detail are all fine. But the strongest focal subjects, sharpest product photography, and highest-contrast visual elements must live OUTSIDE those zones.",
     "",
     colorLine,
     safeSpec
