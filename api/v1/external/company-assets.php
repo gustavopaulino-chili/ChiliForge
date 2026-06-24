@@ -326,7 +326,8 @@ try {
                 $brandBriefResult = $newBrief;
             } else {
                 $briefEmptyReason = trim((string)($bvRes['reason'] ?? '')) ?: 'empty_response';
-                error_log('[company-assets] brand_visual returned empty brief, reason=' . $briefEmptyReason);
+                $briefWarning     = trim((string)($bvRes['gemini_error'] ?? '')) ?: null;
+                error_log('[company-assets] brand_visual returned empty brief, reason=' . $briefEmptyReason . ($briefWarning ? ', gemini_error=' . $briefWarning : ''));
             }
         } catch (Throwable $bvErr) {
             $briefEdgeCalled = true;

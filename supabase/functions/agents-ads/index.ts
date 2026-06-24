@@ -2424,8 +2424,9 @@ serve(async (req: Request) => {
         );
         brandBrief = String(brandVis.text || "").trim().slice(0, 2000);
       } catch (e) {
-        console.error(`[brand_visual]${jobId ? ` job=${jobId}` : ""} brand identity Gemini error: ${e instanceof Error ? e.message : String(e)}`);
-        return new Response(JSON.stringify({ brief: "", reason: "gemini_error" }), {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        console.error(`[brand_visual]${jobId ? ` job=${jobId}` : ""} brand identity Gemini error: ${errMsg}`);
+        return new Response(JSON.stringify({ brief: "", reason: "gemini_error", gemini_error: errMsg.slice(0, 300) }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
