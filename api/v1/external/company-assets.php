@@ -278,6 +278,8 @@ try {
     // leaves the previously stored brief in place.
     $brandBriefResult = null;
     $briefWarning     = null;
+    $briefEdgeCalled  = false; // true when the edge was invoked (even if brief came back empty)
+    $briefEmptyReason = null;  // reason code returned by edge when brief is empty
     if (!empty($allBrandPosts) && $geminiApiKey !== '') {
         try {
             // Send up to 10 brand posts + up to 6 competitor posts to the edge function.
@@ -288,6 +290,7 @@ try {
                 'competitorImageUrls' => array_slice($allCompPosts, -6),
             ];
             $bvRes = agents_call_edge_function('agents-ads', $briefPayload, $geminiApiKey);
+            $briefEdgeCalled = true;
             $newBrief = trim((string)($bvRes['brief'] ?? ''));
             if ($newBrief !== '') {
                 $formData['brandVisualBrief']     = $newBrief;
@@ -297,8 +300,12 @@ try {
                     $ub2->bind_param('si', $fj2, $companyId); $ub2->execute(); $ub2->close();
                 }
                 $brandBriefResult = $newBrief;
+            } else {
+                $briefEmptyReason = trim((string)($bvRes['reason'] ?? '')) ?: 'empty_response';
+                error_log('[company-assets] brand_visual returned empty brief, reason=' . $briefEmptyReason);
             }
         } catch (Throwable $bvErr) {
+            $briefEdgeCalled = true;
             $briefWarning = $bvErr->getMessage();
             error_log('[company-assets] brand_visual failed (non-fatal): ' . $bvErr->getMessage());
         }
@@ -327,7 +334,16 @@ try {
         'competitor_posts_stored'  => count($allCompPosts),
         'competitor_posts_added'   => count($newCompUrls),
         'brand_visual_brief'       => $brandBriefResult !== null ? substr($brandBriefResult, 0, 200) . '...' : null,
-        'brand_visual_status'      => $brandBriefResult !== null ? 'generated' : ($briefWarning !== null ? 'failed' : (isset($formData['brandVisualBrief']) ? 'cached' : 'not_requested')),
+        'brand_visual_status'      => $brandBriefResult !== null
+                                        ? 'generated'
+                                        : ($briefWarning !== null
+                                            ? 'failed'
+                                            : ($briefEdgeCalled
+                                                ? 'empty_response'  // edge called but brief came back empty
+                                                : (isset($formData['brandVisualBrief'])
+                                                    ? 'cached'
+                                                    : 'not_requested'))),
+        'brief_empty_reason'       => $briefEmptyReason,
         'skipped'                  => $skipped,
         'brief_warning'            => $briefWarning,
         'store_warning'            => $storeWarning,

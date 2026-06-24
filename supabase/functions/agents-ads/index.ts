@@ -2042,10 +2042,18 @@ function guessMimeType(url: string): string {
 
 async function fetchImageAsBase64(url: string): Promise<{ mimeType: string; data: string } | null> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!res.ok) return null;
+    // 25s — brand_posts come from our own CDN (mirrored by PHP) so network is fast,
+    // but images can be large; 10s caused silent failures on all 4 posts at once.
+    const res = await fetch(url, { signal: AbortSignal.timeout(25000) });
+    if (!res.ok) {
+      console.warn(`[fetchImageAsBase64] HTTP ${res.status} for ${url}`);
+      return null;
+    }
     const mime = res.headers.get("content-type")?.split(";")[0].trim() ?? "image/jpeg";
-    if (!mime.startsWith("image/") || mime === "image/svg+xml") return null;
+    if (!mime.startsWith("image/") || mime === "image/svg+xml") {
+      console.warn(`[fetchImageAsBase64] non-image content-type="${mime}" for ${url}`);
+      return null;
+    }
     const buf = await res.arrayBuffer();
     const bytes = new Uint8Array(buf);
     const CHUNK = 8192;
@@ -2054,7 +2062,8 @@ async function fetchImageAsBase64(url: string): Promise<{ mimeType: string; data
       bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
     }
     return { mimeType: mime, data: btoa(bin) };
-  } catch {
+  } catch (e) {
+    console.warn(`[fetchImageAsBase64] fetch error for ${url}: ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
 }
@@ -2364,7 +2373,8 @@ serve(async (req: Request) => {
       ).filter((u): u is string => typeof u === "string" && u.startsWith("http")).slice(0, 6);
 
       if (!brandUrls.length) {
-        return new Response(JSON.stringify({ brief: "" }), {
+        console.warn(`[brand_visual]${jobId ? ` job=${jobId}` : ""} no brand URLs provided`);
+        return new Response(JSON.stringify({ brief: "", reason: "no_brand_urls" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -2380,7 +2390,8 @@ serve(async (req: Request) => {
       const brandRefs = fetchedBrand.filter((r): r is ReferenceImage => r !== null);
 
       if (!brandRefs.length) {
-        return new Response(JSON.stringify({ brief: "" }), {
+        console.warn(`[brand_visual]${jobId ? ` job=${jobId}` : ""} all ${brandUrls.length} brand image fetches failed (timeout/non-image/404)`);
+        return new Response(JSON.stringify({ brief: "", reason: "brand_refs_unfetchable" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -2404,12 +2415,27 @@ serve(async (req: Request) => {
         "Return ONLY the brand identity brief — no preamble, no section headers, no bullet points, no markdown, no hex codes.",
       ].join("\n");
 
-      const brandVis = await callGemini(
-        BRAND_IDENTITY_SYSTEM,
-        `Analyze these ${brandRefs.length} brand posts and write the complete visual identity brief.`,
-        "gemini-2.5-flash", 0.4, 1200, visKey, undefined, brandRefs, { jobId },
-      );
-      const brandBrief = String(brandVis.text || "").trim().slice(0, 2000);
+      let brandBrief = "";
+      try {
+        const brandVis = await generateWithRetry(
+          BRAND_IDENTITY_SYSTEM,
+          `Analyze these ${brandRefs.length} brand posts and write the complete visual identity brief.`,
+          "gemini-2.5-flash", 0.4, 1200, visKey, undefined, brandRefs, { jobId },
+        );
+        brandBrief = String(brandVis.text || "").trim().slice(0, 2000);
+      } catch (e) {
+        console.error(`[brand_visual]${jobId ? ` job=${jobId}` : ""} brand identity Gemini error: ${e instanceof Error ? e.message : String(e)}`);
+        return new Response(JSON.stringify({ brief: "", reason: "gemini_error" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (!brandBrief) {
+        console.warn(`[brand_visual]${jobId ? ` job=${jobId}` : ""} Gemini returned empty brief after ${brandRefs.length} brand images`);
+        return new Response(JSON.stringify({ brief: "", reason: "gemini_empty" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       // ── Phase 2: competitor layout patterns (if provided) ──────────────────
       let competitorSection = "";
