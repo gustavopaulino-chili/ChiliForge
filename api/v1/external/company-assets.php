@@ -308,6 +308,17 @@ try {
             if ($newBrief !== '') {
                 $formData['brandVisualBrief']     = $newBrief;
                 $formData['brandVisualBriefHash'] = 'instagram-profile'; // sentinel → worker won't regenerate
+
+                // Merge extracted hex palette into brand fields (only non-empty values).
+                // Only fills fields the caller hasn't already set — existing explicit values win.
+                $palette = is_array($bvRes['palette'] ?? null) ? $bvRes['palette'] : [];
+                foreach (['primaryColor', 'secondaryColor', 'accentColor', 'backgroundColor', 'textColor'] as $colorKey) {
+                    $hex = trim((string)($palette[$colorKey] ?? ''));
+                    if ($hex !== '' && preg_match('/^#[0-9a-fA-F]{3,8}$/', $hex) && empty($formData[$colorKey])) {
+                        $formData[$colorKey] = $hex;
+                    }
+                }
+
                 $fj2 = json_encode($formData, JSON_UNESCAPED_UNICODE);
                 if ($fj2 && ($ub2 = $conn->prepare("UPDATE projects SET company_form_data = ? WHERE id = ?"))) {
                     $ub2->bind_param('si', $fj2, $companyId); $ub2->execute(); $ub2->close();

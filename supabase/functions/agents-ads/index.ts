@@ -2437,6 +2437,44 @@ serve(async (req: Request) => {
         });
       }
 
+      // ── Phase 1b: extract color palette as usable hex values ─────────────
+      // Separate call so the prose brief stays clean and PHP gets machine-readable colors
+      // to store as primaryColor/secondaryColor/accentColor/backgroundColor/textColor.
+      let colorPalette: Record<string, string> = {};
+      try {
+        const COLOR_EXTRACTION_SYSTEM = [
+          "You are a color extraction specialist. Analyze these brand Instagram posts and identify the exact brand color palette.",
+          "Return ONLY a valid JSON object with exactly these 5 keys (lowercase hex values, no explanation, no markdown):",
+          '{"primary":"#hex","secondary":"#hex","accent":"#hex","background":"#hex","text":"#hex"}',
+          "primary: the most dominant brand color (used in main elements, CTA buttons, or hero backgrounds)",
+          "secondary: the second brand color (supporting elements, gradients, or alternate sections)",
+          "accent: the highlight/pop color used sparingly for contrast or calls to action",
+          "background: the most common background color of the posts (white, black, or a specific brand color)",
+          "text: the primary text/headline color (white, black, or a dark/light brand tone)",
+          "If a color is ambiguous, make an educated best guess. Always return all 5 keys. Return ONLY the JSON object.",
+        ].join("\n");
+
+        const colorRes = await callGemini(
+          COLOR_EXTRACTION_SYSTEM,
+          `Extract the 5-color brand palette from these ${brandRefs.length} Instagram posts. Return only the JSON object.`,
+          "gemini-2.5-flash", 0.1, 150, visKey, undefined, brandRefs, { jobId },
+        );
+        const colorText = String(colorRes.text || "").trim();
+        const jsonMatch = colorText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const isHex = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-fA-F]{3,8}$/.test(v.trim());
+          if (isHex(parsed.primary))    colorPalette.primaryColor    = parsed.primary.trim();
+          if (isHex(parsed.secondary))  colorPalette.secondaryColor  = parsed.secondary.trim();
+          if (isHex(parsed.accent))     colorPalette.accentColor     = parsed.accent.trim();
+          if (isHex(parsed.background)) colorPalette.backgroundColor = parsed.background.trim();
+          if (isHex(parsed.text))       colorPalette.textColor       = parsed.text.trim();
+        }
+        console.log(`[brand_visual]${jobId ? ` job=${jobId}` : ""} palette extracted: ${JSON.stringify(colorPalette)}`);
+      } catch (e) {
+        console.warn(`[brand_visual]${jobId ? ` job=${jobId}` : ""} color extraction failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
+      }
+
       // ── Phase 2: competitor layout patterns (if provided) ──────────────────
       let competitorSection = "";
       if (competitorUrls.length > 0) {
@@ -2471,8 +2509,8 @@ serve(async (req: Request) => {
       }
 
       const brief = (brandBrief + competitorSection).trim();
-      console.log(`[brand_visual]${jobId ? ` job=${jobId}` : ""} brandRefs=${brandRefs.length} competitorUrls=${competitorUrls.length} briefLen=${brief.length}`);
-      return new Response(JSON.stringify({ brief }), {
+      console.log(`[brand_visual]${jobId ? ` job=${jobId}` : ""} brandRefs=${brandRefs.length} competitorUrls=${competitorUrls.length} briefLen=${brief.length} paletteKeys=${Object.keys(colorPalette).length}`);
+      return new Response(JSON.stringify({ brief, palette: colorPalette }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
