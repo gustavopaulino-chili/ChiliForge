@@ -393,6 +393,59 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
             if ($tag === 'div') {
                 $text = trim(preg_replace('/\s+/', ' ', $node->textContent));
                 if ($text === '') continue;
+
+                // Flex column container: headline + sub + CTA are children, not siblings.
+                // Collect each child separately so they render with their own size/color/gap.
+                if (stripos($st['display'] ?? '', 'flex') !== false) {
+                    $cLeft      = extgd_pct($st['left']   ?? null, $W);
+                    $cRight     = extgd_pct($st['right']  ?? null, $W);
+                    $cTop       = extgd_pct($st['top']    ?? null, $H);
+                    $cBottom    = extgd_pct($st['bottom'] ?? null, $H);
+                    $cIsBottom  = ($cBottom !== null);
+                    $cAlignItems = strtolower($st['align-items'] ?? 'flex-start');
+                    $cTranslateY = isset($st['transform']) && stripos($st['transform'], 'translatey(-50%)') !== false;
+                    $gKey = spl_object_id($node);
+                    foreach (iterator_to_array($node->childNodes) as $child) {
+                        if (!($child instanceof DOMElement)) continue;
+                        $cSt  = extgd_parse_style($child->getAttribute('style'));
+                        $cTxt = trim(preg_replace('/\s+/', ' ', $child->textContent));
+                        if ($cTxt === '') continue;
+                        $cMarginPx = 0;
+                        if (preg_match('/([\d.]+)cqh/', $cSt['margin-top'] ?? '', $mm)) {
+                            $cMarginPx = (float)$mm[1] / 100 * $H;
+                        }
+                        $cWeight = (int)($cSt['font-weight'] ?? 400);
+                        $cFontPx = extgd_font_px($cSt['font-size'] ?? null, $W, $H);
+                        $cLineH  = max(1.12, (float)($cSt['line-height'] ?? 1.2));
+                        $cIsBtn  = isset($cSt['background'])
+                            && stripos($cSt['background'], 'transparent') === false
+                            && stripos($cSt['background'], 'rgba(0,0,0') === false
+                            && stripos($cSt['background'], 'rgba(0, 0, 0') === false;
+                        $textEls[] = [
+                            'text'         => $cTxt,
+                            'font'         => (extgd_font($cWeight) ?: $fontReg),
+                            'col'          => extgd_color($cSt['color'] ?? '#ffffff', [255, 255, 255, 0]),
+                            'align'        => strtolower($cSt['text-align'] ?? ($cAlignItems === 'center' ? 'center' : 'left')),
+                            'left'         => $cLeft,
+                            'right'        => $cRight,
+                            'top'          => $cIsBottom ? null : ($cTop ?? 0),
+                            'bottom'       => $cIsBottom ? $cBottom : null,
+                            'center'       => $cAlignItems === 'center',
+                            'baseFontPx'   => $cFontPx,
+                            'lineH'        => $cLineH,
+                            'hasBtn'       => $cIsBtn,
+                            'btnBg'        => $cIsBtn ? extgd_color($cSt['background'], [255, 255, 255, 0]) : null,
+                            'marginTop'    => $cMarginPx,
+                            'flexGroupKey' => $gKey,
+                            'flexBottom'   => $cIsBottom,
+                            'flexTop'      => $cTop,
+                            'flexBottom_v' => $cBottom,
+                            'translateY'   => $cTranslateY,
+                        ];
+                    }
+                    continue;
+                }
+
                 $weight = (int)($st['font-weight'] ?? 400);
                 $lineHraw = (float)($st['line-height'] ?? 1.2);
                 $baseFontPx = extgd_font_px($st['font-size'] ?? null, $W, $H);
@@ -413,6 +466,52 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                     'btnBg'      => isset($st['background']) ? extgd_color($st['background'], [255, 255, 255, 0]) : null,
                 ];
                 continue;
+            }
+        }
+
+        // ── Pre-process flex groups: assign real Y positions by stacking children ──
+        // Children collected from flex containers don't have individual absolute positions —
+        // their Y derives from the container anchor + cumulative heights + margin-tops.
+        $flexGroupKeys = [];
+        foreach ($textEls as $k => $el) {
+            if (!isset($el['flexGroupKey'])) continue;
+            $flexGroupKeys[$el['flexGroupKey']][] = $k;
+        }
+        foreach ($flexGroupKeys as $indices) {
+            $first   = $textEls[$indices[0]];
+            $isBot   = !empty($first['flexBottom']);
+            $cLeft   = $first['left'] ?? ($W * 0.05);
+            $cRight  = $first['right'];
+            $blockW  = ($cRight !== null) ? max(40.0, $W - $cRight - $cLeft) : ($W - $cLeft - $W * 0.05);
+            // Estimate pixel height of each child (text wrap height or button height).
+            $heights = [];
+            foreach ($indices as $k) {
+                $el = $textEls[$k];
+                if ($el['hasBtn']) {
+                    $heights[$k] = $el['baseFontPx'] * 2.2;
+                } else {
+                    $lines = extgd_wrap_lines($el['text'], $el['font'], $el['baseFontPx'], $blockW);
+                    $heights[$k] = max(1, count($lines)) * $el['baseFontPx'] * $el['lineH'];
+                }
+            }
+            $totalH = array_sum($heights);
+            foreach ($indices as $i => $k) {
+                if ($i > 0) $totalH += $textEls[$k]['marginTop'];
+            }
+            if ($isBot) {
+                $anchorY = ($first['flexBottom_v'] !== null) ? ($H - $first['flexBottom_v']) : ($H * 0.93);
+                $y = $anchorY - $totalH;
+            } elseif (!empty($first['translateY'])) {
+                $anchorY = $first['flexTop'] ?? ($H * 0.5);
+                $y = $anchorY - $totalH / 2;
+            } else {
+                $y = $first['flexTop'] ?? ($H * 0.1);
+            }
+            foreach ($indices as $i => $k) {
+                if ($i > 0) $y += $textEls[$k]['marginTop'];
+                $textEls[$k]['top']    = max(0.0, $y);
+                $textEls[$k]['bottom'] = null;
+                $y += $heights[$k];
             }
         }
 
