@@ -253,6 +253,59 @@ function parseComposeTextRec(text: string): ComposeTextRec | null {
   }
 }
 
+// Calls Gemini Flash (text model) to analyze the generated background image and return
+// optimal CSS positions for logo and text block overlay. Returns null on any failure;
+// callers fall back to the fixed LAYOUT_POSITIONS when null.
+async function analyzeBackgroundForTextPlacement(
+  bgDataUrl: string,
+  apiKey: string,
+  opts: { jobId?: number } = {}
+): Promise<LayoutPosition | null> {
+  const match = bgDataUrl.match(/^data:([^;]+);base64,(.+)$/s);
+  if (!match) return null;
+  const bgRef: ReferenceImage = { data: match[2], mimeType: match[1], label: "Generated ad background" };
+
+  const SYSTEM = "You analyze advertising background images and return JSON text-placement recommendations. No explanation, no markdown.";
+  const USER = `This is a generated background image for an advertisement. White text (headline + subheadline + CTA) and a brand logo will be composited on top of it.
+
+Find: (1) the cleanest, darkest, most uniform zone for white text legibility; (2) the best corner for a small logo.
+
+Return ONLY compact JSON (no markdown fences, no explanation):
+{"logo":"<CSS>","block":"<CSS>","align":"left"|"center"|"right"}
+
+CSS uses only: top/left/right/bottom as percentages, width/max-height as percentages.
+Examples:
+- logo: "top:5%;left:5%;width:26%;max-height:12%;"
+- block (bottom anchor): "left:5%;right:5%;bottom:7%;"
+- block (left panel): "left:5%;right:52%;top:50%;transform:translateY(-50%);"
+- block (top anchor): "left:5%;right:5%;top:18%;"
+
+Rules:
+- text block: largest uniformly dark or calm zone; prefer bottom:X% anchor when bottom is clean
+- logo corner: avoid the text block zone and main subject
+- align: "left" when block is left-anchored, "center" when centered, "right" when right-anchored
+- if ANY text is already drawn in the image, pick a DIFFERENT clean zone for the block`;
+
+  try {
+    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.1, 180, apiKey, undefined, [bgRef], opts);
+    const raw = String(res.text || "").trim().replace(/^```[a-z]*\n?/, "").replace(/\n?```$/, "").trim();
+    const jsonMatch = raw.match(/\{[\s\S]*?\}/);
+    if (!jsonMatch) return null;
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (typeof parsed.logo === "string" && typeof parsed.block === "string") {
+      const ensure = (s: string) => s.endsWith(";") ? s : s + ";";
+      return {
+        logo:  ensure(parsed.logo),
+        block: ensure(parsed.block),
+        align: parsed.align === "center" ? "center" : parsed.align === "right" ? "right" : "left",
+      };
+    }
+  } catch (err) {
+    console.warn(`[layout-analysis] failed job=${opts.jobId ?? "?"}: ${err}`);
+  }
+  return null;
+}
+
 async function generateAdImage(
   prompt: string,
   refImages: Array<{ data: string; mimeType: string }>,
@@ -1750,6 +1803,7 @@ function buildBackgroundPrompt(
       "• Mood & finish — matte/glossy, vibrant/muted, warm/cold, editorial/playful",
       "",
       "Then synthesize a NEW background that inherits all of the above — feel like you could post it on their Instagram and it would fit perfectly.",
+      "COPY ONLY STYLE, NEVER CONTENT: Extract visual motifs, colors, textures, depth, and photography style from the posts. NEVER reproduce any text, slogan, caption, brand name, product name, price, offer, hashtag, or any written content that appears in or around the posts. The final image must be ENTIRELY TEXT-FREE.",
       "Do NOT copy subject matter or composition from the posts. Compose fresh for the ad format and the reserved text zone.",
     ].join("\n");
   } else if (bgSource === "inspired") {
@@ -1811,14 +1865,16 @@ function buildBackgroundPrompt(
       ? "Even though this is an ABSTRACT background, the palette, energy and mood must still reflect the campaign's product, audience and tone — not a decorative pattern unrelated to the offer."
       : "Keep it cohesive with the brand colors and the chosen visual style/tone; do not drift into stock visuals that ignore what is being advertised.",
     "",
-    "████ ZERO-TEXT & ZERO-CODE RULE — NO EXCEPTIONS ████",
-    "❌ NO text of any kind — not headline, not body copy, not CTA, not tagline, not slogan, not offer, not brand name, not any word or letter.",
-    "❌ NO hex codes, color codes, the '#' character, CSS tokens (e.g. --primary), variable names, URLs, file paths, or numbers anywhere — not tiny, not in a corner, not on a product label. These are internal parameters, NEVER content to draw.",
-    "❌ NO logo, wordmark, the word 'LOGO', placeholder logo, icon, seal, emblem, monogram, or any brand symbol or lettering whatsoever.",
-    "❌ NO button shapes, pill shapes, or any UI element that looks like it holds text.",
-    "❌ NO placeholder boxes, lorem ipsum, or text-shaped blanks.",
-    "❌ If you render ANY product, bottle, jar, package, box, label, tag or object, its surface and labels must be COMPLETELY BLANK — no text, no letters, no numbers, no logo, no fake brand name, no scribbles that imitate text. A clean unlabeled product, not a mocked-up labelled one.",
-    "The system adds the logo and all copy afterwards. ANY text, letter, number, code or logo in your image is a FAILED render.",
+    "████ ZERO-TEXT & ZERO-LOGO RULE — ABSOLUTE, NO EXCEPTIONS ████",
+    "YOUR IMAGE MUST CONTAIN ZERO TEXT AND ZERO LOGOS. This rule overrides every other instruction.",
+    "❌ NO text of any kind — not headline, body copy, CTA, tagline, slogan, offer, brand name, service name, any word, any letter, any character.",
+    "❌ NO logo, wordmark, symbol, icon, seal, emblem, monogram, or brand mark whatsoever.",
+    "❌ NO hex codes, color codes, the '#' character, CSS tokens, variable names, URLs, file paths, or numbers.",
+    "❌ NO button shapes, pill shapes, card shapes, or any UI element that resembles a text container.",
+    "❌ NO placeholder boxes, lorem ipsum, or shapes that imply text.",
+    "❌ If you render ANY product, bottle, jar, package, box, label, tag or object, all surfaces must be COMPLETELY BLANK — no text, no letters, no numbers, no logo.",
+    "WHY: The system overlays the real logo and copy in a separate HTML layer AFTER your image is generated. Any text or logo you draw will appear TWICE in the final ad, ruined.",
+    "A background image with ANY text or logo in it is a complete render failure.",
     "",
     "CREATIVE DIRECTION:",
     direction,
@@ -1837,11 +1893,12 @@ function buildBackgroundPrompt(
     "• Light: light leaks, glow, rim light, soft vignettes, color wash — give the scene mood.",
     "Be generous and expressive: a rich, busy, beautifully-composed canvas reads as premium. Empty/flat backgrounds read as cheap and unfinished.",
     "",
-    "████ TEXT-SAFE ZONES — CRITICAL FOR AD LEGIBILITY ████",
-    `The overlay system will place the logo and text block at these exact CSS positions on the canvas: logo[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).logo}] text-block[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).block}].`,
+    "████ TEXT-SAFE ZONES — DO NOT DRAW TEXT HERE ████",
+    `The overlay system will composite the logo and copy text block on top of your image at these CSS coordinates: logo[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).logo}] text-block[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).block}].`,
+    "⚠️ DOUBLE-TEXT WARNING: The overlay system pastes text ON TOP of your image AFTER it is generated. If you ALSO draw text/logo/slogan in those zones, the final ad shows DOUBLE TEXT — your burned-in version AND the overlay — making the ad look broken. These zones must stay TEXT-FREE and LOGO-FREE.",
     `In those zones: ${spaceGuide}`,
-    "These zones MUST have low contrast, calm tones, or gentle blur so white text is instantly readable on top. No sharp edges, no busy textures, no dark+light alternation in those areas. Pretend someone will place white text directly on your image there — if they can't read it easily, your background fails its primary purpose.",
-    "The zones do NOT need to be blank or empty — subtle texture, soft gradients, gentle design detail are all fine. But the strongest focal subjects, sharpest product photography, and highest-contrast visual elements must live OUTSIDE those zones.",
+    "These zones must have low contrast, calm tones, or gentle blur. Subtle texture, soft gradient, gentle depth are fine. But ZERO text, ZERO wordmarks, ZERO slogans, ZERO icons, ZERO UI elements.",
+    "The strongest focal subjects and highest-contrast visual elements must live OUTSIDE those zones. The zone itself must be a clean, legible surface for white text — nothing more.",
     "",
     colorLine,
     safeSpec
@@ -1882,6 +1939,30 @@ const LAYOUT_SCRIMS: Record<string, string> = {
   "floating-islands":       "inset:auto 0 0 0;height:50%;background:linear-gradient(to top,rgba(0,0,0,0.70) 0%,rgba(0,0,0,0.22) 65%,rgba(0,0,0,0) 100%)",
 };
 
+// Derives a gradient scrim from a dynamic block CSS string (returned by analyzeBackgroundForTextPlacement).
+// Falls back to a bottom-anchor scrim when no clear anchor is found.
+function deriveDynamicScrim(blockCss: string): string {
+  const bottom = blockCss.match(/bottom:\s*([\d.]+)%/);
+  const top    = blockCss.match(/top:\s*([\d.]+)%/);
+  const left   = blockCss.match(/left:\s*([\d.]+)%/);
+  const right  = blockCss.match(/right:\s*([\d.]+)%/);
+  if (bottom) {
+    const bPct = parseFloat(bottom[1]);
+    const startPct = Math.max(0, Math.round(100 - bPct - 52));
+    return `inset:${startPct}% 0 0 0;height:${100 - startPct}%;background:linear-gradient(to top,rgba(0,0,0,0.75) 0%,rgba(0,0,0,0.40) 55%,rgba(0,0,0,0) 100%)`;
+  }
+  if (top && left && !right) {
+    return `inset:0 50% 35% 0;background:linear-gradient(135deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)`;
+  }
+  if (top && right && !left) {
+    return `inset:0 0 35% 50%;background:linear-gradient(225deg,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.10) 70%,rgba(0,0,0,0) 100%)`;
+  }
+  if (top) {
+    return `inset:0 0 auto 0;height:60%;background:linear-gradient(to bottom,rgba(0,0,0,0.75) 0%,rgba(0,0,0,0.35) 65%,rgba(0,0,0,0) 100%)`;
+  }
+  return `inset:45% 0 0 0;height:55%;background:linear-gradient(to top,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0.36) 55%,rgba(0,0,0,0) 100%)`;
+}
+
 function buildCompositionHtml(
   bgDataUrl: string,
   data: AgentsAdsPayload["campaignData"],
@@ -1892,6 +1973,7 @@ function buildCompositionHtml(
   layoutKey?: string,
   forceLayout?: boolean,
   rec?: ComposeTextRec | null,
+  dynamicLayout?: LayoutPosition | null,
 ): string {
   const w = format.width ?? 1080;
   const h = format.height ?? 1080;
@@ -1899,7 +1981,7 @@ function buildCompositionHtml(
   const formatName = format.format || "ad";
 
   const detectedLayout = resolveCompositionLayout(spec, layoutKey, forceLayout);
-  const layout = LAYOUT_POSITIONS[detectedLayout] ?? LAYOUT_POSITIONS["hero-full-bleed"];
+  const layout = dynamicLayout ?? LAYOUT_POSITIONS[detectedLayout] ?? LAYOUT_POSITIONS["hero-full-bleed"];
 
   const primaryColor = extractCssVarColor(cssVars, "--primary") || "#1a1a2e";
   const fontFamily = extractCssVarFont(cssVars) || "'Inter','Helvetica Neue',Arial,sans-serif";
@@ -1949,7 +2031,9 @@ function buildCompositionHtml(
     : `<div class="ad-bg" style="position:absolute;inset:0;background:${primaryColor};z-index:0"></div>`;
 
   // Scrim: semi-transparent gradient over the text zone, ensures white text legibility
-  const scrimCss = LAYOUT_SCRIMS[detectedLayout] ?? LAYOUT_SCRIMS["hero-full-bleed"];
+  const scrimCss = dynamicLayout
+    ? deriveDynamicScrim(dynamicLayout.block)
+    : (LAYOUT_SCRIMS[detectedLayout] ?? LAYOUT_SCRIMS["hero-full-bleed"]);
   const scrimLayer = `<div style="position:absolute;${scrimCss};z-index:1;pointer-events:none"></div>`;
 
   // Caller can pin the logo corner (logo_position / logo_strategy) — overrides the layout's
@@ -2898,7 +2982,7 @@ serve(async (req: Request) => {
       let banners: Awaited<ReturnType<typeof runWithConcurrency>>;
 
       if (isAbVisual) {
-        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string }>();
+        const bgByVariantRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string; dynamicLayout?: LayoutPosition | null }>();
         const uniqueVariantRatios = [...new Map(
           imageTasks.map((task) => {
             const aspectRatio = imageAspectRatioForFormat(task.format);
@@ -2922,7 +3006,10 @@ serve(async (req: Request) => {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint });
+          const dynamicLayoutForVariant = gen?.url
+            ? await analyzeBackgroundForTextPlacement(gen.url, apiKey, { jobId }).catch(() => null)
+            : null;
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, dynamicLayout: dynamicLayoutForVariant });
         }
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -2935,7 +3022,7 @@ serve(async (req: Request) => {
 
           const bannerHtml = buildCompositionHtml(
             bg.url, campaignData, format, taskBrandSpec, cssVars, fontUrl,
-            layoutHint, true, bg.rec, // forceLayout=true; bg.rec = model text-size hint
+            layoutHint, true, bg.rec, bg.dynamicLayout, // bg.rec = model text-size hint; dynamicLayout = AI-picked placement
           );
           const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
           return {
@@ -2956,7 +3043,7 @@ serve(async (req: Request) => {
         // DIFFERENT layout (square / story / landscape look distinct). The chosen layout is
         // STORED per ratio so the HTML overlay reuses the exact same one the background
         // reserved space for — text and background never disagree.
-        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string }>();
+        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string; dynamicLayout?: LayoutPosition | null }>();
         const uniqueRatios = [...new Set(imageTasks.map((task) => imageAspectRatioForFormat(task.format)))];
         for (const aspectRatio of uniqueRatios) {
           const task = imageTasks.find((candidate) => imageAspectRatioForFormat(candidate.format) === aspectRatio)!;
@@ -2975,7 +3062,10 @@ serve(async (req: Request) => {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint });
+          const dynamicLayoutForRatio = gen?.url
+            ? await analyzeBackgroundForTextPlacement(gen.url, apiKey, { jobId }).catch(() => null)
+            : null;
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, dynamicLayout: dynamicLayoutForRatio });
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -2988,7 +3078,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, format);
 
           const bannerHtml = buildCompositionHtml(
-            bg.url, campaignData, format, taskBrandSpec, cssVars, fontUrl, layoutHint, true, bg.rec,
+            bg.url, campaignData, format, taskBrandSpec, cssVars, fontUrl, layoutHint, true, bg.rec, bg.dynamicLayout,
           );
           const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{overflow:hidden;background:transparent}</style></head><body>${bannerHtml}</body></html>`;
           return {
@@ -2999,7 +3089,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, dynamicLayout: bg.dynamicLayout ?? null, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(composeFns, 4);
