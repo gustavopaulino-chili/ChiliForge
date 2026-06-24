@@ -2595,18 +2595,16 @@ serve(async (req: Request) => {
       );
     }
 
-    // Company store (brand visual brief + guidelines) is required for ALL modes including compose.
-    // Compose does not query the global HTML-examples store (avoids homogenizing creatives),
-    // but it does need the company store to have been synced so brandVisualBrief reaches campaignData.
-    if (!companyStoreName?.trim()) {
-      return new Response(
-        JSON.stringify({ error: "companyStoreName is required. Call company-assets first to sync the company store." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    // Global ads store (HTML examples/guidelines) is only required for HTML modes.
+    // HTML modes need both stores. Compose uses brandVisualBrief from campaignData directly —
+    // store is optional for compose (falls back to brief-only when company-assets wasn't called yet).
     if (mode !== "compose") {
+      if (!companyStoreName?.trim()) {
+        return new Response(
+          JSON.stringify({ error: "companyStoreName is required. Sync the company store before generation." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       if (!globalStoreName?.trim()) {
         return new Response(
           JSON.stringify({ error: "globalStoreName is required. Upload the global ads store first in the admin panel." }),
