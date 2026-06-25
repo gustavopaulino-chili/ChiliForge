@@ -3055,13 +3055,18 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
           const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt);
-          const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
-            // ONE attempt with a generous timeout. The image model is slow (~40-90s) and
-            // its first request often lags; a SECOND attempt pushed the edge call past the
-            // Supabase wall-clock (~150s) → HTTP 546 WORKER_RESOURCE_LIMIT, which is why the
-            // larger 9:16 (story) batch always died. A single ~105s wait fits the budget and
-            // gives the model time to respond in one shot.
+          // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
+          // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
+          // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
+          let gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
+          }).catch(async (err) => {
+            if (/returned 5\d\d.*INTERNAL|returned 500/i.test(String(err))) {
+              console.warn(`[compose-ab] Gemini 500 → retry once job=${jobId ?? "?"}`);
+              await new Promise((r) => setTimeout(r, 4000));
+              return generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc });
+            }
+            throw err;
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           const overlayHtmlForVariant = gen?.url
@@ -3111,13 +3116,18 @@ serve(async (req: Request) => {
           const layoutHint = userLayout ?? LAYOUT_KEYS[(taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[(taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
           const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt);
+          // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
+          // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
+          // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
           const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
-            // ONE attempt with a generous timeout. The image model is slow (~40-90s) and
-            // its first request often lags; a SECOND attempt pushed the edge call past the
-            // Supabase wall-clock (~150s) → HTTP 546 WORKER_RESOURCE_LIMIT, which is why the
-            // larger 9:16 (story) batch always died. A single ~105s wait fits the budget and
-            // gives the model time to respond in one shot.
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
+          }).catch(async (err) => {
+            if (/returned 5\d\d.*INTERNAL|returned 500/i.test(String(err))) {
+              console.warn(`[compose] Gemini 500 → retry once job=${jobId ?? "?"}`);
+              await new Promise((r) => setTimeout(r, 4000));
+              return generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc });
+            }
+            throw err;
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           const overlayHtmlForRatio = gen?.url
