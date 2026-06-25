@@ -413,7 +413,7 @@ const CALM_ZONE_TO_LAYOUT: Record<string, string> = {
 async function pickCalmTextZone(
   bgUrl: string,
   apiKey: string,
-  opts: { jobId?: number } = {},
+  opts: { jobId?: number; costAcc?: { usd: number; images: number; jobId?: string } } = {},
 ): Promise<string | null> {
   let bgRef: ReferenceImage;
   try {
@@ -439,7 +439,9 @@ async function pickCalmTextZone(
     "Pick the region with the most breathing room for text. Answer with EXACTLY ONE word, lowercase, no punctuation: top, bottom, left, right, or center.",
   ].join("\n");
   try {
-    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0, 20, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 15000 });
+    // Gemini 3 Pro decides placement — best vision/reasoning for finding the calm zone. thinkingLevel
+    // "low" keeps it cheap/fast for a one-word answer; maxTokens leaves room for the minimal thinking.
+    const res = await callGemini(SYSTEM, USER, "gemini-3-pro-preview", 0, 512, apiKey, undefined, [bgRef], { ...opts, thinkingLevel: "low", timeoutMs: 25000 });
     const word = String(res.text || "").toLowerCase().match(/top|bottom|left|right|center/)?.[0];
     const layout = word ? (CALM_ZONE_TO_LAYOUT[word] ?? null) : null;
     if (layout) console.log(`[calm-zone] job=${opts.jobId ?? "?"} → ${word} (${layout})`);
@@ -519,11 +521,13 @@ async function generateAdImage(
           const url = data ? extractImageDataUrl(data) : null;
           if (url) {
             try {
-              const inTok = Number(u.promptTokenCount ?? u.prompt_token_count ?? 0);
-              const inUsd = (inTok / 1_000_000) * pricingFor(model).in;
-              const total = inUsd + IMAGE_PRICE_PER_IMAGE;
+              const inTok  = Number(u.promptTokenCount ?? u.prompt_token_count ?? 0);
+              const outTok = Number(u.candidatesTokenCount ?? u.candidates_token_count ?? 0);
+              const inUsd  = (inTok / 1_000_000) * pricingFor(model).in;
+              const imgUsd = (outTok / 1_000_000) * imageOutPricePer1M(model);
+              const total  = inUsd + imgUsd;
               const job = opts.costAcc?.jobId ? ` job=${opts.costAcc.jobId}` : "";
-              console.log(`[cost-estimate]${job} IMAGE model=${model} in=${inTok}tok($${inUsd.toFixed(5)}) image=1($${IMAGE_PRICE_PER_IMAGE.toFixed(3)}) ~= $${total.toFixed(5)}`);
+              console.log(`[cost-estimate]${job} IMAGE model=${model} in=${inTok}tok($${inUsd.toFixed(5)}) image=${outTok}tok($${imgUsd.toFixed(5)}) ~= $${total.toFixed(5)}`);
               if (opts.costAcc) { opts.costAcc.usd += total; opts.costAcc.images += 1; }
             } catch (_) { /* logging must never break generation */ }
             return { url, rec: parseComposeTextRec(extractTextFromGeminiPayload(data)) };
@@ -2321,6 +2325,7 @@ type GeminiCallOptions = {
   responseSchema?: Record<string, unknown>;
   jobId?: string; // tags cost/token logs so one generation can be summed in Supabase logs
   timeoutMs?: number; // override the default 130s fetch timeout
+  costAcc?: { usd: number; images: number; jobId?: string }; // accumulate this call's $ into the per-request total
 };
 
 type GenerateOptions = GeminiCallOptions & {
@@ -2398,9 +2403,24 @@ const GEMINI_PRICING: Record<string, { in: number; out: number }> = {
   "gemini-2.5-pro":          { in: 1.25, out: 10.00 },
   "gemini-3.5-flash":        { in: 1.50, out: 9.00 },
   "gemini-3-flash-preview":  { in: 0.50, out: 3.00 },
-  "gemini-2.5-flash-image":  { in: 0.30, out: 0.00 }, // output billed per image, not per token
+  "gemini-3-pro-preview":    { in: 2.00, out: 12.00 },
+  "gemini-2.5-flash-image":  { in: 0.30, out: 0.00 }, // image output billed per token, see below
+  "gemini-3-pro-image":      { in: 2.00, out: 0.00 }, // image output billed per token, see below
+  "gemini-3.1-flash-image":  { in: 0.30, out: 0.00 }, // image output billed per token, see below
 };
-const IMAGE_PRICE_PER_IMAGE = 0.039; // gemini-2.5-flash-image, 1 image (~1290 tok)
+// Image OUTPUT price per 1M tokens, per model — image models bill the generated image as output
+// tokens at a model-specific rate (≈ flat-per-image once you know the token count). Adaptive so
+// the cost log reflects the model actually used instead of a hardcoded flash price.
+const GEMINI_IMAGE_OUT_PER_1M: Record<string, number> = {
+  "gemini-2.5-flash-image": 30,   // ≈ $0.039 / 1290 tok
+  "gemini-3-pro-image":     120,  // ≈ $0.13–0.16 / image (≤2K)
+  "gemini-3.1-flash-image": 30,   // flash tier (estimate; update when Google publishes)
+};
+function imageOutPricePer1M(model: string): number {
+  if (GEMINI_IMAGE_OUT_PER_1M[model] !== undefined) return GEMINI_IMAGE_OUT_PER_1M[model];
+  const k = Object.keys(GEMINI_IMAGE_OUT_PER_1M).find((key) => model.startsWith(key));
+  return k ? GEMINI_IMAGE_OUT_PER_1M[k] : 30; // safe default = flash-image rate
+}
 
 function pricingFor(model: string): { in: number; out: number } {
   if (GEMINI_PRICING[model]) return GEMINI_PRICING[model];
@@ -2409,15 +2429,20 @@ function pricingFor(model: string): { in: number; out: number } {
 }
 
 // Logs an estimated USD cost line for a text/plan generation. Server-side only.
-function logCostEstimate(model: string, promptTokens: number, outputTokens: number, label = "", jobId = ""): void {
+function logCostEstimate(model: string, promptTokens: number, outputTokens: number, label = "", jobId = ""): number {
   try {
     const p = pricingFor(model);
     const inUsd = (promptTokens / 1_000_000) * p.in;
-    const outUsd = (outputTokens / 1_000_000) * p.out;
+    // Image models bill output as image tokens at a model-specific rate (p.out is 0 for them).
+    const isImage = /image/i.test(model);
+    const outUsd = isImage
+      ? (outputTokens / 1_000_000) * imageOutPricePer1M(model)
+      : (outputTokens / 1_000_000) * p.out;
     const total = inUsd + outUsd;
     const job = jobId ? ` job=${jobId}` : "";
     console.log(`[cost-estimate]${job}${label ? ` ${label}` : ""} model=${model} in=${promptTokens}tok($${inUsd.toFixed(5)}) out=${outputTokens}tok($${outUsd.toFixed(5)}) ~= $${total.toFixed(5)}`);
-  } catch (_) { /* logging must never break generation */ }
+    return total;
+  } catch (_) { /* logging must never break generation */ return 0; }
 }
 
 async function callGemini(
@@ -2507,7 +2532,8 @@ async function callGemini(
     const outTok = Number(u.candidatesTokenCount ?? u.candidates_token_count ?? 0);
     const jobId = options?.jobId ?? "";
     console.log(`[token-usage]${jobId ? ` job=${jobId}` : ""} model=${model} stores=${fileSearchStores?.length ?? 0}(${(fileSearchStores ?? []).join(",")}) refImgs=${referenceImages?.length ?? 0} prompt=${u.promptTokenCount ?? u.prompt_token_count ?? "?"} candidates=${u.candidatesTokenCount ?? u.candidates_token_count ?? "?"} toolUse=${u.toolUsePromptTokenCount ?? u.tool_use_prompt_token_count ?? 0} total=${u.totalTokenCount ?? u.total_token_count ?? "?"}`);
-    logCostEstimate(model, promptTok, outTok, "", jobId);
+    const callUsd = logCostEstimate(model, promptTok, outTok, "", jobId);
+    if (options?.costAcc) options.costAcc.usd += callUsd; // fold every Gemini call into the per-request total
   } catch (_) { /* logging must never break generation */ }
   const text = data?.candidates?.[0]?.content?.parts
     ?.filter((p: any) => typeof p.text === "string")
@@ -2532,7 +2558,7 @@ async function generateWithRetry(
   const chain = [preferredModel, ...chainBase.filter((m) => m !== preferredModel)];
   let lastError: Error | null = null;
 
-  const geminiOpts = { thinkingLevel: options?.thinkingLevel, responseMimeType: options?.responseMimeType, responseSchema: options?.responseSchema, jobId: options?.jobId };
+  const geminiOpts = { thinkingLevel: options?.thinkingLevel, responseMimeType: options?.responseMimeType, responseSchema: options?.responseSchema, jobId: options?.jobId, costAcc: options?.costAcc };
 
   for (const model of chain) {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -3065,7 +3091,7 @@ serve(async (req: Request) => {
             apiKey,
             composeStores,
             undefined,
-            { jobId },
+            { jobId, costAcc },
           );
           if (brandQuery.text?.trim()) visualBrief = brandQuery.text.trim();
         } catch (_) { /* non-fatal — fall through with existing brief */ }
@@ -3174,7 +3200,7 @@ serve(async (req: Request) => {
           // put the text there (the image model routinely ignores the reserved zone). Falls back to
           // the rotated layout if the check fails.
           const bgForZone = bgHosted || gen?.url || "";
-          const calmLayout = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId }) : null;
+          const calmLayout = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
           bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: null });
         }
 
@@ -3236,7 +3262,7 @@ serve(async (req: Request) => {
           // Content-aware placement (see A/B path above): place text where the background is
           // actually calmest; fall back to the rotated layout if the check fails.
           const bgForZone = bgHosted || gen?.url || "";
-          const calmLayout = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId }) : null;
+          const calmLayout = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
           bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: null });
         }
 
