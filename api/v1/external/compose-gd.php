@@ -64,29 +64,43 @@ if (!function_exists('extgd_fetch_google_font')) {
         $cached  = $fontDir . $slug . '-' . $wName . '.ttf';
         if (is_file($cached)) return $cached;
         $failTag = $cached . '.fail';
-        if (is_file($failTag) && (time() - filemtime($failTag)) < 3600) return ''; // 1h cooldown
+        if (is_file($failTag) && (time() - filemtime($failTag)) < 600) return ''; // 10min cooldown
 
         $oldUa  = 'Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)';
-        $cssUrl = 'https://fonts.googleapis.com/css2?family=' . rawurlencode($family) . ':wght@400;700;900&display=swap';
+        // Request only the specific weight — Google returns a single @font-face block for old UAs
+        $cssUrl = 'https://fonts.googleapis.com/css2?family=' . rawurlencode($family) . ':wght@' . $weight . '&display=swap';
         $css    = extgd_http_get($cssUrl, $oldUa);
-        if (!$css) { @file_put_contents($failTag, '1'); return ''; }
-
-        // Match each @font-face block to find TTF URL closest to the requested weight
-        preg_match_all(
-            '/font-weight\s*:\s*(\d+)\s*;(?:[^}]*?)src\s*:[^;]*url\(([^)]+\.ttf[^)]*)\)/si',
-            $css, $m, PREG_SET_ORDER
-        );
-        if (!$m) {
-            // Simpler fallback: any .ttf src line
-            if (!preg_match('/url\(([^)]+\.ttf)\)/i', $css, $fm)) { @file_put_contents($failTag, '1'); return ''; }
-            $ttfUrl = trim($fm[1]);
-        } else {
-            usort($m, static fn($a, $b) => abs((int)$a[1] - $weight) <=> abs((int)$b[1] - $weight));
-            $ttfUrl = trim($m[0][2]);
+        if (!$css) {
+            error_log("[extgd_font] Google Fonts CSS fetch failed for family=$family weight=$weight url=$cssUrl");
+            @file_put_contents($failTag, '1'); return '';
         }
 
-        $ttf = extgd_http_get(trim($ttfUrl, "' \""), $oldUa);
-        if (!$ttf || strlen($ttf) < 2000) { @file_put_contents($failTag, '1'); return ''; }
+        // Google returns dynamic URLs (no .ttf in path) for old UAs — match any src URL in @font-face
+        preg_match_all('/@font-face\s*\{([^}]+)\}/si', $css, $blocks);
+        $fontEntries = [];
+        foreach ($blocks[1] as $block) {
+            if (preg_match('/font-weight\s*:\s*(\d+)/i', $block, $wm)
+             && preg_match('/src\s*:[^;]*url\(\'?([^\'\)\s]+)\'?\)/i', $block, $um)) {
+                $fontEntries[] = [(int)$wm[1], trim($um[1], "' \"")];
+            }
+        }
+        if (!$fontEntries) {
+            // Fallback: any url() in the CSS
+            if (!preg_match('/url\(\'?([^\'\)\s]+)\'?\)/i', $css, $fm)) {
+                error_log("[extgd_font] No src URL found in CSS for family=$family weight=$weight");
+                @file_put_contents($failTag, '1'); return '';
+            }
+            $ttfUrl = trim($fm[1], "' \"");
+        } else {
+            usort($fontEntries, static fn($a, $b) => abs($a[0] - $weight) <=> abs($b[0] - $weight));
+            $ttfUrl = $fontEntries[0][1];
+        }
+
+        $ttf = extgd_http_get($ttfUrl, $oldUa);
+        if (!$ttf || strlen($ttf) < 2000) {
+            error_log("[extgd_font] TTF download failed for family=$family weight=$weight url=$ttfUrl size=" . strlen((string)$ttf));
+            @file_put_contents($failTag, '1'); return '';
+        }
 
         if (!is_dir($fontDir)) @mkdir($fontDir, 0775, true);
         @file_put_contents($cached, $ttf);

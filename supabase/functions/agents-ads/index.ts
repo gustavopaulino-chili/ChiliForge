@@ -267,9 +267,23 @@ async function buildOverlayHtmlFromGemini(
   rec?: ComposeTextRec | null,
   opts: { jobId?: number } = {}
 ): Promise<string | null> {
-  const match = bgDataUrl.match(/^data:([^;]+);base64,(.+)$/s);
-  if (!match) return null;
-  const bgRef: ReferenceImage = { data: match[2], mimeType: match[1], label: "Ad background" };
+  // Accept either a base64 data URL or a public HTTPS URL (e.g. Supabase Storage).
+  // Using the already-uploaded HTTPS URL is preferred — avoids sending megabytes of base64.
+  let bgRef: ReferenceImage;
+  if (bgDataUrl.startsWith("https://") || bgDataUrl.startsWith("http://")) {
+    try {
+      const imgRes = await fetch(bgDataUrl, { signal: AbortSignal.timeout(12000) });
+      if (!imgRes.ok) { console.warn(`[overlay-html] bg fetch failed ${imgRes.status}`); return null; }
+      const buf = await imgRes.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const mime = (imgRes.headers.get("content-type") || "image/png").split(";")[0];
+      bgRef = { data: b64, mimeType: mime, label: "Ad background" };
+    } catch (err) { console.warn(`[overlay-html] bg fetch error: ${err}`); return null; }
+  } else {
+    const match = bgDataUrl.match(/^data:([^;]+);base64,(.+)$/s);
+    if (!match) return null;
+    bgRef = { data: match[2], mimeType: match[1], label: "Ad background" };
+  }
 
   const W = format.width ?? 1080;
   const H = format.height ?? 1080;
@@ -318,14 +332,16 @@ async function buildOverlayHtmlFromGemini(
     "TEXT CONTENT — use EXACTLY as given, no changes:",
     textLines,
     "",
-    "YOUR ROLE: creative advertising designer. Make this ad look great.",
-    "1. Identify the BEST zone for text on this background — where white text is most legible AND most visually compelling (look for calm/uniform areas, lower contrast, aesthetic empty space).",
-    "2. Design a scrim (dark gradient) that covers the text zone, flowing INTO it:",
-    "   • Text at bottom → 'to top' gradient | Text at top → 'to bottom' | Left panel → 'to right' | Right panel → 'to left'",
-    "3. Size fonts for maximum impact. Choose the LARGEST size that fits well:",
-    "   • Headline: 5–8cqw | Subheadline: 2.5–4cqw",
-    "   • You MAY add <br> in the headline text to split it across 2 lines for better composition",
-    "4. Choose alignment (left/center/right) for best visual balance with this background.",
+    "YOUR ROLE: expert social media ad designer. Full creative freedom — make this ad look outstanding.",
+    "1. Study the background deeply: find where there is calm/dark/low-contrast space — that is your text zone.",
+    "   • This is a social media post (square or vertical). Text can go bottom, top, left panel, right panel, or center — pick what makes this specific background look best.",
+    "   • Don't default to bottom every time. If the calm area is on top or side, use it.",
+    "2. Scrim: cover the text zone with a dark gradient that flows TOWARD the text (not away):",
+    "   • Text at bottom → gradient 'to top' | Top → 'to bottom' | Left panel → 'to right' | Right → 'to left' | Center → radial",
+    "3. Typography — go BOLD and impactful:",
+    "   • Headline: 5.5–8cqw. You MAY split across 2 lines with <br> for rhythm.",
+    "   • Subheadline: 2.5–4cqw. CTA slightly smaller or as a button.",
+    "4. Alignment: left, center, or right — whichever creates the best visual tension with this specific background.",
     `5. ${ctaSpec}`,
     "",
     "TECHNICAL RULES (do not violate):",
@@ -2010,6 +2026,7 @@ function buildBackgroundPrompt(
     bgSource === "shapes"
       ? "OUTPUT: Pure abstract visual — brand colors, gradients, geometric shapes, textures. NO photography. Zero text. Zero UI elements."
       : "OUTPUT: Pure visual — brand colors, gradients, textures, product/scene photography. Zero text. Zero UI elements.",
+    "⛔ FINAL CHECK BEFORE OUTPUT: Does your image contain any letter, word, number, logo, icon, slogan, or UI element? If YES — remove it. The overlay layer will add all of that. Any text or logo in your image = immediate render failure.",
   ].filter(Boolean).join("\n");
 }
 
@@ -3082,8 +3099,10 @@ serve(async (req: Request) => {
             throw err;
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          const overlayHtmlForVariant = gen?.url
-            ? await buildOverlayHtmlFromGemini(gen.url, campaignData, task.format, cssVars, apiKey, gen?.rec ?? undefined, { jobId }).catch(() => null)
+          // Prefer bgHosted URL over raw data URL: smaller payload, faster Gemini Flash call
+          const bgForOverlay = bgHosted || gen?.url || null;
+          const overlayHtmlForVariant = bgForOverlay
+            ? await buildOverlayHtmlFromGemini(bgForOverlay, campaignData, task.format, cssVars, apiKey, gen?.rec ?? undefined, { jobId }).catch(() => null)
             : null;
           bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, overlayHtml: overlayHtmlForVariant });
         }
@@ -3143,8 +3162,9 @@ serve(async (req: Request) => {
             throw err;
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          const overlayHtmlForRatio = gen?.url
-            ? await buildOverlayHtmlFromGemini(gen.url, campaignData, task.format, cssVars, apiKey, gen?.rec ?? undefined, { jobId }).catch(() => null)
+          const bgForOverlay = bgHosted || gen?.url || null;
+          const overlayHtmlForRatio = bgForOverlay
+            ? await buildOverlayHtmlFromGemini(bgForOverlay, campaignData, task.format, cssVars, apiKey, gen?.rec ?? undefined, { jobId }).catch(() => null)
             : null;
           bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, overlayHtml: overlayHtmlForRatio });
         }
