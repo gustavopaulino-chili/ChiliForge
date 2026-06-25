@@ -198,6 +198,16 @@ try {
         if (!is_safe_asset_content_type($type)) return ['skip' => $input, 'reason' => 'not a supported image'];
         $ext = extract_extension_from_url('x', $type);
         if ($ext === 'bin' || $ext === '') return ['skip' => $input, 'reason' => 'unknown image type'];
+        // Idempotent storage: if a same-slot file with identical content already exists, reuse it
+        // instead of spawning a new numbered file. Re-sending the same logo every call used to bump
+        // the stored URL to logo-2/logo-3/… — and a number whose file later went missing rendered
+        // as a broken image. Dedup by content hash keeps the URL stable on the first written file.
+        $wantHash = md5($bytes);
+        foreach ((@glob($assetsDir . DIRECTORY_SEPARATOR . $slot . '-*.*') ?: []) as $existing) {
+            if (@md5_file($existing) === $wantHash) {
+                return ['url' => $publicBase . 'assets/' . rawurlencode(basename($existing))];
+            }
+        }
         $name = $slot . '-' . $idx . '.' . $ext;
         $i = $idx;
         while (file_exists($assetsDir . DIRECTORY_SEPARATOR . $name)) { $i++; $name = $slot . '-' . $i . '.' . $ext; }

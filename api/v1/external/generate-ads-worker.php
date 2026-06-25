@@ -203,6 +203,65 @@ if (!function_exists('ext_mirror_api_assets_to_company')) {
     }
 }
 
+if (!function_exists('ext_repair_logo_url')) {
+    /**
+     * Guarantee the company logo URL passed to the compose <img> points to a file that actually
+     * exists on disk, returned as an absolute, fetchable URL. A stale company_form_data.logoUrl —
+     * e.g. /projects/<slug>/assets/logo-2.png whose numbered file was never persisted (only
+     * logo-1.png exists) — would otherwise render as a broken image and silently drop the brand.
+     * If the exact file is missing but the same assets dir holds other logo-*.* files, the newest
+     * sibling is substituted. Returns '' when nothing usable exists on disk, so the compose layer
+     * falls back to brand-name text instead of emitting a broken <img>.
+     *
+     * data: URIs and true external URLs (anything not under our /projects/ mirror) pass through
+     * untouched — only our own mirrored assets are disk-verifiable.
+     */
+    function ext_repair_logo_url(string $logoUrl, string $pubBase): string {
+        $logoUrl = trim($logoUrl);
+        if ($logoUrl === '' || preg_match('~^data:~i', $logoUrl)) return $logoUrl;
+
+        // Extract the path component whether the URL is absolute (https://host/projects/...) or
+        // root-relative (/projects/...).
+        $path = $logoUrl;
+        if (preg_match('~^https?://~i', $logoUrl)) {
+            $p = parse_url($logoUrl, PHP_URL_PATH);
+            $path = is_string($p) ? $p : '';
+        }
+        // Only our mirrored /projects/... assets are disk-verifiable; leave true externals alone.
+        if (!preg_match('#/projects/(.+)$#', $path, $mm) || !function_exists('resolve_sites_base_path')) {
+            return $logoUrl;
+        }
+
+        $relAfter = rawurldecode($mm[1]);                       // <slug>/assets/logo-2.png
+        $base     = rtrim(resolve_sites_base_path(), "/\\");    // ...public_html/projects
+        $diskPath = $base . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relAfter);
+
+        // Re-absolutize a path relative to the projects dir using the request's public base.
+        $abs = function (string $relAfterProjects) use ($pubBase): string {
+            $urlPath = '/projects/' . ltrim($relAfterProjects, '/');
+            return $pubBase !== '' ? $pubBase . $urlPath : $urlPath;
+        };
+
+        if (is_file($diskPath)) return $abs($relAfter);
+
+        // File missing → substitute the newest sibling logo in the same assets dir.
+        $dir    = dirname($diskPath);
+        $relDir = dirname($relAfter);                           // <slug>/assets
+        if (is_dir($dir)) {
+            $cands = @glob($dir . DIRECTORY_SEPARATOR . 'logo*.{png,jpg,jpeg,webp,gif,svg}', GLOB_BRACE);
+            if (empty($cands)) $cands = @glob($dir . DIRECTORY_SEPARATOR . 'logo*.*') ?: [];
+            if (!empty($cands)) {
+                usort($cands, fn($a, $b) => @filemtime($b) <=> @filemtime($a));
+                $picked = basename($cands[0]);
+                error_log('[generate-ads-worker] logo missing (' . basename($diskPath) . ') → substituting existing ' . $picked);
+                return $abs(($relDir !== '.' ? $relDir . '/' : '') . $picked);
+            }
+        }
+        error_log('[generate-ads-worker] logo missing and no sibling logo in ' . $dir . ' → dropping logoUrl (brand-name text fallback)');
+        return '';
+    }
+}
+
 if (!function_exists('ext_extract_banners_from_html')) {
     function ext_extract_banners_from_html(string $html, array $formats): array {
         if (trim($html) === '') return [];
@@ -400,6 +459,29 @@ try {
             if ($u === '' || preg_match('~^https?://~i', $u)) return $u;
             return ($u[0] === '/') ? $pubBase . $u : $u;
         }, $campaignFormData['composeCompanyRefs']), 'strlen'));
+    }
+
+    // Repair a stale/missing company logo URL so the compose <img> resolves to a real, fetchable
+    // file. The numbered logo-N.png the URL points at is sometimes never persisted (only logo-1.png
+    // exists), which rendered as a broken image and silently dropped the brand. Substitute an
+    // existing sibling logo or drop the URL (→ brand-name text) rather than emit a broken <img>.
+    $origLogo = trim((string)($campaignFormData['logoUrl'] ?? ''));
+    if ($origLogo !== '') {
+        $fixedLogo = ext_repair_logo_url($origLogo, $pubBase);
+        if ($fixedLogo !== $origLogo) {
+            $campaignFormData['logoUrl'] = $fixedLogo;
+            // Heal the stored company logo too so future jobs start from the good URL.
+            if (trim((string)($companyFormData['logoUrl'] ?? '')) === $origLogo) {
+                $companyFormData['logoUrl'] = $fixedLogo;
+                if (isset($companyFormData['images']['logo'])) $companyFormData['images']['logo'] = $fixedLogo;
+                agents_reconnect_mysqli_if_needed($conn);
+                $healJson = json_encode($companyFormData, JSON_UNESCAPED_UNICODE);
+                if ($healJson) {
+                    $uh = $conn->prepare("UPDATE projects SET company_form_data = ? WHERE id = ?");
+                    if ($uh) { $uh->bind_param('si', $healJson, $companyId); $uh->execute(); $uh->close(); }
+                }
+            }
+        }
     }
 
     // ── 8. Global stores + agent config ──────────────────────────────────

@@ -75,6 +75,27 @@ if (!function_exists('extgd_fetch_google_font')) {
         $failTag = $cached . '.fail';
         if (is_file($failTag) && (time() - filemtime($failTag)) < 600) return ''; // 10min cooldown
 
+        // ── Preferred source: Fontsource static TTF (jsDelivr) ──────────────────
+        // Google's css2 CDN serves VARIABLE-font blobs that GD/FreeType cannot render — even with
+        // an old UA it returns an undocumented wrapper (magic 0xBC1E0200), and the raw variable TTF
+        // (Raleway[wght].ttf) segfaults PHP. Fontsource ships per-weight STATIC .ttf instances
+        // (magic 0x00010000) that GD reads fine, for any family. Try the EXACT requested weight only
+        // — a missing weight falls through to Google's closest-weight matching below, and the
+        // override fill-in step backfills it from the nearest weight we did get.
+        if (!is_dir($fontDir)) @mkdir($fontDir, 0775, true);
+        $fsUrl = 'https://cdn.jsdelivr.net/fontsource/fonts/' . $slug . '@latest/latin-' . $weight . '-normal.ttf';
+        $fs    = extgd_http_get($fsUrl, 'ChiliForge-Compositor/1.0');
+        if ($fs && strlen($fs) > 2000) {
+            $fsMagic = substr(bin2hex(substr($fs, 0, 4)), 0, 8);
+            if (preg_match('/^(0001|7472|4f54|7479)/i', $fsMagic)) {
+                @file_put_contents($cached, $fs);
+                @unlink($failTag);
+                if (is_file($cached)) return $cached;
+            } else {
+                error_log("[extgd_font] Fontsource returned unreadable format family=$family weight=$weight magic=$fsMagic — trying Google");
+            }
+        }
+
         $oldUa  = 'Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)';
         // Request only the specific weight — Google returns a single @font-face block for old UAs
         $cssUrl = 'https://fonts.googleapis.com/css2?family=' . rawurlencode($family) . ':wght@' . $weight . '&display=swap';

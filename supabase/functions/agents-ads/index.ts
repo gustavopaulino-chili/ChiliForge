@@ -1956,7 +1956,22 @@ function buildBackgroundPrompt(
     ? `BRAND PALETTE (use these as the color mood ONLY — never write any color name, code, hex or # as text): ${paletteNames.join(", ")}.`
     : "";
   const safeSpec = scrubBgPromptText(spec);
-  const safeFacts = scrubBgPromptText(campaignFactsImg);
+  // Background-only: drop the verbatim COPY lines (headline, subheadline, CTA, offer, brand and
+  // product/service names) from the campaign facts before they reach the image model. These short,
+  // quotable phrases are exactly what the model is most tempted to burn into the background as
+  // literal text (e.g. rendering the service name as a heading) — and the overlay layer renders
+  // all of them on top afterwards anyway, so the background never needs them. The mood-bearing
+  // lines (industry, business description, objective, audience, tone, personality, colors) stay.
+  const stripBgCopyLines = (facts: string): string =>
+    String(facts || "")
+      .split("\n")
+      .filter((ln) => {
+        const t = ln.trim();
+        if (/^EXACT COPY/i.test(t)) return false;
+        return !/^(Campaign|Brand|Product\/Service|Value prop|CTA|Offer|Price|Discount|Guarantee|Scarcity|headline|subheadline|cta)\s*:/i.test(t);
+      })
+      .join("\n");
+  const safeFacts = scrubBgPromptText(stripBgCopyLines(campaignFactsImg));
 
   return [
     "███ THIS IS AN AD BACKGROUND LAYER — NOT A FINISHED AD ███",
