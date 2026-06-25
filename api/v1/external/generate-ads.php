@@ -234,18 +234,7 @@ function ext_map_campaign(array $cam, array $formats): array {
         'desires'               => $str('desires'),
         'urgencyLevel'          => $str('urgency_level'),
         'creativeStrategy'      => $str('creative_strategy'),
-        // Product/hero image. Also accepts reference_images[0] (the caller's product/person cutout)
-        // so it is composited as the AD'S HERO instead of the image model inventing a subject.
-        'productImageUrl'       => $first(['product_image_url', 'product_image', 'image_url', 'creative_image_url'])
-            ?: (function () use ($cam): string {
-                foreach (['reference_images', 'reference_image_urls', 'ref_images', 'referenceImages'] as $k) {
-                    if (!empty($cam[$k]) && is_array($cam[$k])) {
-                        $v = trim((string)($cam[$k][0] ?? ''));
-                        if ($v !== '' && preg_match('~^https?://~i', $v)) return $v;
-                    }
-                }
-                return trim((string)($cam['reference_image'] ?? ''));
-            })(),
+        'productImageUrl'       => $first(['product_image_url', 'product_image', 'image_url', 'creative_image_url']),
         'backgroundImageUrl'    => $first(['background_image_url', 'background_image', 'hero_image_url']),
         // Creative reference image for this specific generation. Sent to the image model with
         // full creative freedom — Gemini decides how to use it (composition, mood, texture, etc.).
@@ -348,8 +337,7 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
     $addRef($allRefs, $companyData['referenceImages'] ?? []);                      // company.reference_images
     $addRef($allRefs, ($images['productImages'] ?? []));                            // company.product_images
     $addRef($allRefs, $images['hero'] ?? '');                                       // company.hero_image_url
-    // NOTE: productImageUrl is intentionally NOT a background reference — it is the ad's HERO and is
-    // composited on top (exact pixels, e.g. a person cutout), never redrawn by the image model.
+    $addRef($allRefs, $campaignData['productImageUrl'] ?? '');                      // campaign.product_image_url
     $addRef($allRefs, $campaignData['backgroundImageUrl'] ?? '');                   // campaign.background_image_url
     // Brand posts (Instagram) mirrored via company-assets — stored as root-relative /projects/...
     // Added directly (not via $addRef) because $addRef filters non-http. The absolutize step

@@ -1722,9 +1722,6 @@ const LAYOUT_POSITIONS: Record<string, LayoutPosition> = {
   },
 };
 
-// Where the HERO product/person image is composited — on the side OPPOSITE the text block, anchored
-// to the bottom edge (natural for a person/product cutout). Used to position the overlay <img> and to
-// tell the background generator which zone to keep clean.
 function detectCompositionLayout(spec: string): string {
   const s = spec.toLowerCase();
   if (s.includes("diagonal-split") || s.includes("diagonal split")) return "diagonal-split";
@@ -2037,10 +2034,13 @@ function buildBackgroundPrompt(
     sourceBlock,
     "",
     briefBlock,
-    "████ CAMPAIGN RELEVANCE — MAKE IT SPECIFIC, NOT RANDOM ████",
-    "The backdrop MUST visually evoke THIS specific campaign — never a generic, arbitrary scene.",
-    "Derive the setting, props, materials, color mood, lighting and atmosphere from the product/service, industry, audience, offer and tone described in the CAMPAIGN CONTEXT below.",
-    "It should be immediately plausible as the backdrop for what is being advertised (e.g. a fitness offer → energetic motion/gym/outdoor textures; a law firm → refined corporate materials; a dessert brand → warm, appetizing tones).",
+    "████ CAMPAIGN RELEVANCE — DEPICT THE ACTUAL SERVICE, NOT RANDOM PROPS ████",
+    "The scene MUST make it instantly obvious WHAT IS BEING SOLD — show the real subject of THIS specific product/service, not a vaguely-related mood.",
+    "Read the Product/Service in the CAMPAIGN CONTEXT and depict ITS actual subject:",
+    "• Social-media management / content marketing → screens showing a social feed, post grid, engagement metrics, follower growth charts, a content calendar, a phone with notifications/likes. NOT cameras, microphones, podcasts or generic photo gear.",
+    "• A food offer → the food. A fitness offer → training/motion. A law firm → refined corporate materials. A software tool → its UI/dashboard.",
+    "⛔ Do NOT drift to loosely-related or tangential props (e.g. cameras/microphones/podcast gear for a DIGITAL social-media service). If the service is digital, show screens/apps/data — the digital work itself.",
+    "It should read as 'this is exactly what they do', immediately and unambiguously.",
     bgSource === "shapes"
       ? "Even though this is an ABSTRACT background, the palette, energy and mood must still reflect the campaign's product, audience and tone — not a decorative pattern unrelated to the offer."
       : "Keep it cohesive with the brand colors and the chosen visual style/tone; do not drift into stock visuals that ignore what is being advertised.",
@@ -2243,8 +2243,6 @@ function buildCompositionHtml(
 
   // Logo is always placed by TypeScript (never delegated to Gemini — too unreliable).
   // If Gemini built the scrim + text block, use that; otherwise use the template versions.
-  // The hero product/person is NOT composited here — it is integrated INTO the AI background
-  // (sent to the image model as a hero reference) so lighting/shadows blend naturally.
   const overlayContent = overlayHtml
     ? `${logoLayer}\n  ${overlayHtml}`
     : `${scrimLayer}\n  ${logoLayer}\n  ${textBlock}`;
@@ -2910,7 +2908,7 @@ serve(async (req: Request) => {
     // Logo is never fetched as base64 — it goes into the HTML as <img src="url">.
     // Only product and background images are references for the generation model.
     const imageSpecs = [
-      { url: productUrl, label: "HERO IMAGE — integrate this EXACT subject (product or person) naturally INTO the generated scene as the main focus. Keep their real appearance and (for a person) their face unchanged; blend lighting, shadow and perspective so it looks like one cohesive photo, NOT a pasted cutout. Do not crop out or replace it." },
+      { url: productUrl, label: "Product / Hero Image — render as <img> in the product layer (z-index:10)" },
       { url: bgUrl,      label: "Background Image — render as full-bleed <img> with object-fit:cover in the background layer (z-index:0)" },
     ].filter((s): s is { url: string; label: string } => typeof s.url === "string" && s.url.startsWith("http"));
     // Only the pixel-drawing models (image / compose-background) actually need the
@@ -3123,10 +3121,10 @@ serve(async (req: Request) => {
 
       if (!usesRefs) {
         bgRefImages = [];
-      } else if (refImagesForGen.length > 0 && companyRefImages.length > 0) {
-        // Brand post images + a generation HERO reference (product/person): ALWAYS reserve the last
-        // slot for the hero so it is never crowded out by brand posts (which would make the model
-        // ignore the product/person and invent a generic scene). Cap brand posts at 2.
+      } else if (briefDriven && refImagesForGen.length > 0 && companyRefImages.length > 0) {
+        // Brand brief + brand post images + generation-specific reference:
+        // Reserve the last slot for the generation image so the model can distinguish roles.
+        // Cap brand posts at 2 so there is always room for the generation ref.
         const brandSlice = companyRefImages.slice(0, 2);
         const genSlice = refImagesForGen.slice(0, 1);
         bgRefImages = [...brandSlice, ...genSlice];
@@ -3144,7 +3142,7 @@ serve(async (req: Request) => {
       // true to the brand's design language from the posts.
       const visualBriefForPrompt = (brandRefCountInBg > 0 && genRefCountInBg > 0)
         ? (visualBrief ? visualBrief + "\n\n" : "") +
-          `IMAGE ROLES: The first ${brandRefCountInBg} image(s) are brand Instagram posts — study their visual motifs, color palette, depth treatment, layering, and recurring design devices for STYLE ONLY (never copy their text, logo or people). The LAST image is the HERO of this ad — you MUST place it as the main, prominent subject, integrated naturally into the brand-styled scene with matching lighting, shadow and perspective so it looks like one cohesive photo (not a pasted cutout). If it is a person, keep their exact face and appearance unchanged and make them the focal point. Do NOT omit it and do NOT replace it with a generic stand-in subject.`
+          `IMAGE ROLES: The first ${brandRefCountInBg} image(s) are brand Instagram posts — study their visual motifs, color palette, depth treatment, layering, and recurring design devices. These define the aesthetic universe for this ad. The last image is the creative reference for this specific campaign: incorporate it as you see fit — as the hero product, a background subject, a scene anchor, or a compositional element — while staying firmly within the brand's visual world.`
         : visualBrief;
 
       // brandSpec: use creativePlan if provided (e.g. from external API worker),
