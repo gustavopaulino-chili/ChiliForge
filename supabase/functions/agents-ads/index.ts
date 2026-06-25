@@ -395,6 +395,61 @@ async function buildOverlayHtmlFromGemini(
   }
 }
 
+// Maps a calm-region word → a composition layout whose text block sits in that region.
+const CALM_ZONE_TO_LAYOUT: Record<string, string> = {
+  bottom: "hero-full-bleed",       // full-width band along the bottom
+  top:    "bold-headline-first",   // full-width band along the top
+  left:   "left-panel-right-image",// left panel, vertically centered
+  right:  "top-right-editorial",   // right side
+  center: "centered-minimal",      // centered
+};
+
+// Content-aware text placement: ask the model where the GENERATED background is actually
+// calmest, then place the text there. This replaces "pre-assign a zone and hope the image
+// model complies" — the image model routinely ignored the reserved zone, so text landed on
+// busy areas. A one-word classification is far more reliable than generating the full overlay
+// HTML (which failed validation ~100% of the time). Returns a LAYOUT_KEY, or null on failure
+// (caller falls back to the rotated layout).
+async function pickCalmTextZone(
+  bgUrl: string,
+  apiKey: string,
+  opts: { jobId?: number } = {},
+): Promise<string | null> {
+  let bgRef: ReferenceImage;
+  try {
+    if (/^https?:\/\//.test(bgUrl)) {
+      const r = await fetch(bgUrl, { signal: AbortSignal.timeout(12000) });
+      if (!r.ok) return null;
+      const buf = await r.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const mime = (r.headers.get("content-type") || "image/png").split(";")[0];
+      bgRef = { data: b64, mimeType: mime, label: "Ad background" };
+    } else {
+      const m = bgUrl.match(/^data:([^;]+);base64,(.+)$/s);
+      if (!m) return null;
+      bgRef = { data: m[2], mimeType: m[1], label: "Ad background" };
+    }
+  } catch { return null; }
+
+  const SYSTEM = "You analyze advertising background images to find the best place to overlay text.";
+  const USER = [
+    "The attached image is an ad BACKGROUND. A white headline + subheadline + CTA will be composited ON TOP of it afterwards.",
+    "Find the ONE region that is the EMPTIEST and FLATTEST — a plain wall, shadow, sky, blur or solid color field with the LOWEST detail and NO important content.",
+    "HARD RULE: never choose a region occupied by the main subject, a laptop, phone, screen, monitor, person, product, plant, or dense graphics/charts/icons. If one large area is dark/flat/empty while the rest is busy, choose that empty area — even if it is a whole side.",
+    "Pick the region with the most breathing room for text. Answer with EXACTLY ONE word, lowercase, no punctuation: top, bottom, left, right, or center.",
+  ].join("\n");
+  try {
+    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0, 20, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 15000 });
+    const word = String(res.text || "").toLowerCase().match(/top|bottom|left|right|center/)?.[0];
+    const layout = word ? (CALM_ZONE_TO_LAYOUT[word] ?? null) : null;
+    if (layout) console.log(`[calm-zone] job=${opts.jobId ?? "?"} → ${word} (${layout})`);
+    return layout;
+  } catch (err) {
+    console.warn(`[calm-zone] failed job=${opts.jobId ?? "?"}: ${err}`);
+    return null;
+  }
+}
+
 async function generateAdImage(
   prompt: string,
   refImages: Array<{ data: string; mimeType: string }>,
@@ -3115,12 +3170,12 @@ serve(async (req: Request) => {
             throw err;
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          // Prefer bgHosted URL over raw data URL: smaller payload, faster Gemini Flash call
-          // Gemini-HTML overlay placement disabled: it failed validation ~100% of the time and
-          // silently fell back to the template, costing a ~25s Gemini call per ad for nothing.
-          // The rotated template layout (varied per job) places text reliably and stays aligned
-          // with the zone the background reserved.
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, overlayHtml: null });
+          // Content-aware placement: detect where the GENERATED background is actually calmest and
+          // put the text there (the image model routinely ignores the reserved zone). Falls back to
+          // the rotated layout if the check fails.
+          const bgForZone = bgHosted || gen?.url || "";
+          const calmLayout = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId }) : null;
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: null });
         }
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -3178,9 +3233,11 @@ serve(async (req: Request) => {
             throw err;
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          // Gemini-HTML overlay placement disabled (see note in the A/B path above): ~100% fallback,
-          // pure latency/cost. The rotated template layout places text reliably and stays aligned.
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, overlayHtml: null });
+          // Content-aware placement (see A/B path above): place text where the background is
+          // actually calmest; fall back to the rotated layout if the check fails.
+          const bgForZone = bgHosted || gen?.url || "";
+          const calmLayout = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId }) : null;
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: null });
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
