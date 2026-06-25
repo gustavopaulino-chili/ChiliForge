@@ -316,7 +316,7 @@ async function buildOverlayHtmlFromGemini(
   ].filter(Boolean).join("\n");
 
   const ctaSpec = isSocial
-    ? (ctaRaw ? `CTA: plain text "#ffffff", ~2.5cqw, 90% opacity, append " ↓" arrow after text` : "No CTA")
+    ? (ctaRaw ? `CTA: plain text "#ffffff", ~2.5cqw, 90% opacity (no arrow or icon — the render font lacks those glyphs)` : "No CTA")
     : (ctaRaw ? `CTA: inline-block button — background:${btnBg};color:${btnColor};border-radius:0.4cqw;padding:0.5cqh 1.2cqw` : "No CTA");
 
   const SYSTEM = [
@@ -336,6 +336,8 @@ async function buildOverlayHtmlFromGemini(
     "1. Study the background deeply: find where there is calm/dark/low-contrast space — that is your text zone.",
     "   • This is a social media post (square or vertical). Text can go bottom, top, left panel, right panel, or center — pick what makes this specific background look best.",
     "   • Don't default to bottom every time. If the calm area is on top or side, use it.",
+    "   • The background was generated with ONE generous calm area reserved for text — locate that area and place the text block there, so text and background agree.",
+    "   • Keep comfortable margins (≥6% from every edge) and generous spacing between elements — never cram the text against an edge or pack it tightly. Let it breathe.",
     "2. Scrim: cover the text zone with a dark gradient that flows TOWARD the text (not away):",
     "   • Text at bottom → gradient 'to top' | Top → 'to bottom' | Left panel → 'to right' | Right → 'to left' | Center → radial",
     "3. Typography — go BOLD and impactful:",
@@ -1832,10 +1834,8 @@ function buildBackgroundPrompt(
   // zero-text rule. Long prompts here cause the model to prioritize text over visuals and
   // produce generic AI-looking output instead of following the reference.
   if (bgSource === "reference" && hasRefImages) {
-    const pos = LAYOUT_POSITIONS[layout];
-    const overlayLine = pos
-      ? `OVERLAY ZONES (keep contrast-friendly — soft, not empty): logo[${pos.logo}] text-block[${pos.block}].`
-      : `TEXT ZONE: ${spaceGuide}`;
+    const pos = LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"];
+    const overlayLine = `RESERVE TEXT SPACE (composited on top later — keep it calm and contrast-friendly, NOT empty): logo[${pos.logo}] text-block[${pos.block}]. That area must stay TEXT-FREE and LOGO-FREE — draw no words, wordmarks, icons or UI there.`;
     return [
       "TASK: The image(s) attached are the visual reference. Recreate their aesthetic as a background for an advertising creative — same style, composition, lighting, color temperature, texture, and photographic quality.",
       "Adapt framing to fit the target aspect ratio. Do NOT invent a new scene. Stay in the exact visual world shown.",
@@ -1847,7 +1847,6 @@ function buildBackgroundPrompt(
       "• Reframe/extend to fit the aspect ratio while keeping the visual energy of the original.",
       "",
       overlayLine,
-      spaceGuide,
       "",
       "ZERO-TEXT & ZERO-CODE RULE — NO EXCEPTIONS:",
       "❌ No text, letters, numbers, hex codes, URLs, or any alphanumeric character anywhere in the image.",
@@ -1901,6 +1900,7 @@ function buildBackgroundPrompt(
       "",
       "DO NOT TAKE FROM THE REFERENCES:",
       "• Their subject matter, objects, scenes, vehicles, people or props — each post's topic belongs to THAT post, never to this ad.",
+      "• ⛔ THE BRAND LOGO / WORDMARK. The reference posts contain the brand's logo — that is NOT a design element for you to reproduce. NEVER draw, redraw, trace, recreate or place the logo, wordmark, brand name or any version of it anywhere in the image (not on the wall, not on a screen, not floating, not as a watermark). The real logo is composited separately on top afterwards. Any logo you draw makes it appear TWICE and ruins the ad. Treat the logo as something to OMIT entirely.",
       "",
       "THE SUBJECT OF THIS AD COMES FROM THE CAMPAIGN — NOT THE REFERENCES:",
       "• Build ONE clear hero subject that visually represents THIS campaign's product/service and topic (see CAMPAIGN CONTEXT below), rendered in the brand's color/lighting/photographic style.",
@@ -1991,6 +1991,7 @@ function buildBackgroundPrompt(
     "❌ NO button shapes, pill shapes, card shapes, or any UI element that resembles a text container.",
     "❌ NO placeholder boxes, lorem ipsum, or shapes that imply text.",
     "❌ If you render ANY product, bottle, jar, package, box, label, tag or object, all surfaces must be COMPLETELY BLANK — no text, no letters, no numbers, no logo.",
+    "❌ Any SCREEN, monitor, laptop, phone, tablet or dashboard must show ONLY abstract charts, graphs or color shapes — NEVER a brand logo, app name, headline, readable label or any wordmark on the screen.",
     "WHY: The system overlays the real logo and copy in a separate HTML layer AFTER your image is generated. Any text or logo you draw will appear TWICE in the final ad, ruined.",
     "A background image with ANY text or logo in it is a complete render failure.",
     "",
@@ -2012,12 +2013,12 @@ function buildBackgroundPrompt(
     "• Depth comes from a real subject sitting in clean space — not from piling on decorative elements or layers.",
     "WITHIN the text zone: keep it calm, clean and low-contrast so the white overlay text stays perfectly legible. OUTSIDE it: the hero subject, sharp and well-lit, against simple, uncluttered surroundings.",
     "",
-    "████ TEXT-SAFE ZONES — DO NOT DRAW TEXT HERE ████",
-    `The overlay system will composite the logo and copy text block on top of your image at these CSS coordinates: logo[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).logo}] text-block[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).block}].`,
-    "⚠️ DOUBLE-TEXT WARNING: The overlay system pastes text ON TOP of your image AFTER it is generated. If you ALSO draw text/logo/slogan in those zones, the final ad shows DOUBLE TEXT — your burned-in version AND the overlay — making the ad look broken. These zones must stay TEXT-FREE and LOGO-FREE.",
-    `In those zones: ${spaceGuide}`,
-    "These zones must have low contrast, calm tones, or gentle blur. Subtle texture, soft gradient, gentle depth are fine. But ZERO text, ZERO wordmarks, ZERO slogans, ZERO icons, ZERO UI elements.",
-    "The strongest focal subjects and highest-contrast visual elements must live OUTSIDE those zones. The zone itself must be a clean, legible surface for white text — nothing more.",
+    "████ TEXT-SAFE ZONE — KEEP IT CLEAN, DRAW NOTHING HERE ████",
+    `The logo and copy are composited ON TOP afterwards in a separate layer, at these CSS coordinates: logo[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).logo}] text-block[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).block}]. You do NOT draw them.`,
+    "⚠️ DOUBLE-TEXT/LOGO WARNING: If you draw ANY text, slogan, wordmark, logo or UI inside those zones, the final ad shows it TWICE and looks broken. Those zones MUST stay completely TEXT-FREE and LOGO-FREE.",
+    `In the text-block zone: ${spaceGuide}`,
+    "Keep that zone low-contrast and calm — subtle texture, soft gradient or gentle depth only. ZERO text, ZERO numbers, ZERO wordmarks, ZERO slogans, ZERO icons, ZERO UI, ZERO logos.",
+    "Place the strongest focal subject and highest-contrast elements OUTSIDE those zones; the zone itself is just a clean surface for white text.",
     "",
     colorLine,
     safeSpec
@@ -3093,8 +3094,10 @@ serve(async (req: Request) => {
 
         for (const { task, aspectRatio } of uniqueVariantRatios) {
           const taskIndex = imageTasks.indexOf(task);
-          const layoutHint = userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length];
-          const visualDirection = BACKGROUND_DIRECTIONS[taskIndex % BACKGROUND_DIRECTIONS.length];
+          // Seed the layout by jobId so the text zone VARIES across ads (bottom/top/side/center)
+          // instead of always landing on LAYOUT_KEYS[0]=hero-full-bleed for every single-format job.
+          const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex) % LAYOUT_KEYS.length];
+          const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
           const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt);
@@ -3113,18 +3116,18 @@ serve(async (req: Request) => {
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           // Prefer bgHosted URL over raw data URL: smaller payload, faster Gemini Flash call
-          const bgForOverlay = bgHosted || gen?.url || null;
-          const overlayHtmlForVariant = bgForOverlay
-            ? await buildOverlayHtmlFromGemini(bgForOverlay, campaignData, task.format, cssVars, apiKey, gen?.rec ?? undefined, { jobId }).catch(() => null)
-            : null;
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, overlayHtml: overlayHtmlForVariant });
+          // Gemini-HTML overlay placement disabled: it failed validation ~100% of the time and
+          // silently fell back to the template, costing a ~25s Gemini call per ad for nothing.
+          // The rotated template layout (varied per job) places text reliably and stays aligned
+          // with the zone the background reserved.
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, overlayHtml: null });
         }
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
           const aspectRatio = imageAspectRatioForFormat(format);
           const taskBrandSpec = specForFormat(brandSpec, format);
-          const bg = bgByVariantRatio.get(`${task.variantIndex}:${aspectRatio}`) ?? { url: "", rec: null, prompt: "", refCount: 0, layout: userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length] };
+          const bg = bgByVariantRatio.get(`${task.variantIndex}:${aspectRatio}`) ?? { url: "", rec: null, prompt: "", refCount: 0, layout: userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex) % LAYOUT_KEYS.length] };
           // Reuse the exact layout the variant's background reserved space for.
           const layoutHint = bg.layout;
 
@@ -3158,8 +3161,8 @@ serve(async (req: Request) => {
           const ratioIndex = uniqueRatios.indexOf(aspectRatio);
           const taskIndex = imageTasks.indexOf(task);
           const taskBrandSpec = specForFormat(brandSpec, task.format);
-          const layoutHint = userLayout ?? LAYOUT_KEYS[(taskIndex + ratioIndex) % LAYOUT_KEYS.length];
-          const visualDirection = BACKGROUND_DIRECTIONS[(taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
+          const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
+          const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
           const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
@@ -3175,17 +3178,15 @@ serve(async (req: Request) => {
             throw err;
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          const bgForOverlay = bgHosted || gen?.url || null;
-          const overlayHtmlForRatio = bgForOverlay
-            ? await buildOverlayHtmlFromGemini(bgForOverlay, campaignData, task.format, cssVars, apiKey, gen?.rec ?? undefined, { jobId }).catch(() => null)
-            : null;
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, overlayHtml: overlayHtmlForRatio });
+          // Gemini-HTML overlay placement disabled (see note in the A/B path above): ~100% fallback,
+          // pure latency/cost. The rotated template layout places text reliably and stays aligned.
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, overlayHtml: null });
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
           const { format, variantLabel } = task;
           const aspectRatio = imageAspectRatioForFormat(format);
-          const bg = bgByRatio.get(aspectRatio) ?? { url: "", rec: null, prompt: "", refCount: 0, layout: userLayout ?? LAYOUT_KEYS[taskIndex % LAYOUT_KEYS.length] };
+          const bg = bgByRatio.get(aspectRatio) ?? { url: "", rec: null, prompt: "", refCount: 0, layout: userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex) % LAYOUT_KEYS.length] };
           // Use the EXACT layout the background reserved space for (forced), so the text
           // block lands on the calm zone the image model left for it.
           const layoutHint = bg.layout;
