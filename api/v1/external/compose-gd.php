@@ -62,7 +62,16 @@ if (!function_exists('extgd_fetch_google_font')) {
         $wName   = $weight >= 800 ? 'extrabold' : ($weight >= 600 ? 'bold' : 'regular');
         $fontDir = __DIR__ . '/fonts/';
         $cached  = $fontDir . $slug . '-' . $wName . '.ttf';
-        if (is_file($cached)) return $cached;
+        if (is_file($cached)) {
+            // Validate: must have a recognisable font magic (TTF/OTF). Google's dynamic CDN
+            // sometimes returns binary blobs in an undocumented format (e.g. 0xBC1E0200) that
+            // GD/FreeType cannot render. Reject them so the system-font fallback kicks in.
+            $hdr = @file_get_contents($cached, false, null, 0, 4);
+            $magic = $hdr !== false ? substr(bin2hex($hdr), 0, 8) : '';
+            if (preg_match('/^(0001|7472|4f54|7479)/i', $magic)) return $cached;
+            // Bad format — don't return; fall through to re-download attempt
+            error_log("[extgd_font] Cached font has unreadable format family=$family weight=$weight magic=$magic — will retry download");
+        }
         $failTag = $cached . '.fail';
         if (is_file($failTag) && (time() - filemtime($failTag)) < 600) return ''; // 10min cooldown
 
@@ -99,6 +108,12 @@ if (!function_exists('extgd_fetch_google_font')) {
         $ttf = extgd_http_get($ttfUrl, $oldUa);
         if (!$ttf || strlen($ttf) < 2000) {
             error_log("[extgd_font] TTF download failed for family=$family weight=$weight url=$ttfUrl size=" . strlen((string)$ttf));
+            @file_put_contents($failTag, '1'); return '';
+        }
+        // Validate magic before caching — reject binary blobs that GD can't render
+        $dlMagic = substr(bin2hex(substr($ttf, 0, 4)), 0, 8);
+        if (!preg_match('/^(0001|7472|4f54|7479)/i', $dlMagic)) {
+            error_log("[extgd_font] Downloaded font has unreadable format family=$family weight=$weight magic=$dlMagic url=$ttfUrl — skip cache");
             @file_put_contents($failTag, '1'); return '';
         }
 
@@ -183,6 +198,19 @@ if (!function_exists('extgd_fetch_bytes')) {
             if (function_exists('resolve_sites_base_path') && preg_match('#^/projects/(.+)$#', $src, $mm)) {
                 $p = resolve_sites_base_path() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, rawurldecode($mm[1]));
                 if (is_file($p)) { $b = @file_get_contents($p); return $b === false ? '' : $b; }
+            }
+            // Fallback: fetch via HTTP using the server's own public hostname — handles CLI worker
+            // context where DOCUMENT_ROOT is empty and resolve_sites_base_path() is unavailable.
+            $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '';
+            if ($host === '') {
+                // CLI worker: derive hostname from file path (e.g. .../domains/testforge.chili.pa/public_html/...)
+                if (preg_match('#/domains/([^/]+)/public_html/#', __FILE__, $hm)) $host = $hm[1];
+            }
+            if ($host !== '') {
+                $absUrl = 'https://' . $host . $src;
+                $ctx2 = stream_context_create(['http' => ['timeout' => 10], 'ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
+                $b = @file_get_contents($absUrl, false, $ctx2);
+                if ($b !== false && $b !== '') return $b;
             }
         }
         if (is_file($src)) { $b = @file_get_contents($src); return $b === false ? '' : $b; }
