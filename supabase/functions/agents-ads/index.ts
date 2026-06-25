@@ -1818,11 +1818,6 @@ function buildBackgroundPrompt(
       `FORMAT: ${format.width}×${format.height}px | Aspect ratio: ${aspectRatio}`,
       "",
       "OUTPUT: Pure visual background — text-free, logo-free, UI-free.",
-      "",
-      "████ TEXT-OVERLAY RECOMMENDATION — RESPONSE TEXT ONLY, NEVER DRAWN IN THE IMAGE ████",
-      "In your RESPONSE (as a short text note, not painted into the image), add exactly one line:",
-      'CF_TEXT_REC: {"headlineScale": <number 0.7-1.4>, "align": "left"|"center"|"right"}',
-      "headlineScale = how large the headline can be given the clean/calm space you actually left (1.0 = default; >1.0 if you left generous empty space, <1.0 if the calm area is tight). align = the best horizontal alignment for the overlay text in its zone. This only tunes the separate HTML overlay — the image itself must still contain ZERO text/letters.",
     ].filter(Boolean).join("\n");
   }
 
@@ -1992,11 +1987,6 @@ function buildBackgroundPrompt(
     bgSource === "shapes"
       ? "OUTPUT: Pure abstract visual — brand colors, gradients, geometric shapes, textures. NO photography. Zero text. Zero UI elements."
       : "OUTPUT: Pure visual — brand colors, gradients, textures, product/scene photography. Zero text. Zero UI elements.",
-    "",
-    "████ TEXT-OVERLAY RECOMMENDATION — RESPONSE TEXT ONLY, NEVER DRAWN IN THE IMAGE ████",
-    "In your RESPONSE (as a short text note, not painted into the image), add exactly one line:",
-    'CF_TEXT_REC: {"headlineScale": <number 0.7-1.4>, "align": "left"|"center"|"right"}',
-    "headlineScale = how large the headline can be given the clean/calm space you actually left (1.0 = default; >1.0 if you left generous empty space, <1.0 if the calm area is tight). align = the best horizontal alignment for the overlay text in its zone. This only tunes the separate HTML overlay — the image itself must still contain ZERO text/letters.",
   ].filter(Boolean).join("\n");
 }
 
