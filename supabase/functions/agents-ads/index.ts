@@ -1493,13 +1493,13 @@ const LAYOUT_KEYS = [
   "floating-islands",
 ] as const;
 const BACKGROUND_DIRECTIONS = [
-  "cinematic close-up crop with shallow depth, layered foreground/background, dynamic diagonal motion",
-  "editorial product scene with unexpected angle, dramatic side lighting, tactile materials, premium shadows",
-  "abstract brand world with oversized shapes, depth gradients, texture, and one strong focal path",
-  "lifestyle environment detail shot, off-center subject, natural negative space, atmospheric color wash",
-  "macro texture and product-inspired forms, asymmetric composition, high-end studio lighting",
-  "bold graphic composition with large scale contrast, motion blur accents, and a clear visual rhythm",
-  "immersive scene with foreground framing, background depth, and brand-color light leaks",
+  "single hero subject in sharp focus on a clean backdrop, generous negative space, soft natural shadow",
+  "editorial product scene, one clear subject off-center, gentle side lighting, simple uncluttered surroundings",
+  "minimal brand-color backdrop with one strong focal element and a lot of calm empty space",
+  "lifestyle detail shot, subject crisp and well-lit, natural negative space, understated tones",
+  "macro product-inspired form, crisp focus on the subject, asymmetric composition, clean studio lighting",
+  "bold simple composition, one large clear subject against a plain brand-color field, uncluttered",
+  "subject with shallow depth-of-field falling off behind it only, clean foreground, calm background",
 ] as const;
 
 // Extract the first font family name from a Google Fonts URL.
@@ -1885,39 +1885,29 @@ function buildBackgroundPrompt(
     ].join("\n");
   } else if (bgSource === "company" && hasRefImages) {
     sourceBlock = [
-      "████ BACKGROUND SOURCE: COMPANY BRAND POSTS — MASTER THEIR AD-MAKING CRAFT ████",
-      "The attached image(s) are this brand's own Instagram/social posts. Study them carefully — they reveal HOW this brand makes ads.",
+      "████ BACKGROUND SOURCE: COMPANY BRAND POSTS — STYLE REFERENCE ONLY ████",
+      "The attached image(s) are this brand's own social posts. Use them ONLY to learn the brand's DESIGN STYLE. They are a style guide, NOT a source of subject matter.",
       "",
-      "YOUR GOAL: The new ad background must feel like it was made by their own design team — it passes the 'same feed' test (place it next to their posts and it belongs), but it is clearly a NEW, original creation for this specific campaign.",
+      "KEEP THE BRAND IDENTITY (this is what makes the ad feel like theirs):",
+      "• Color palette and grading, lighting mood, contrast level",
+      "• Photographic / rendering treatment — how subjects are captured or rendered (photoreal, 3D, flat, cutout, etc.)",
+      "• Composition language, use of negative space, and overall premium finish",
+      "• Their signature brand devices (e.g. a brand-color panel/diagonal field, or a characteristic motif) — these SHOULD appear so the ad is recognizably theirs.",
       "",
-      "━━━ STEP 1: SEPARATE DESIGN SIGNATURE FROM SUBJECT MATTER ━━━",
+      "BUT APPLY IT WITH RESTRAINT — CLEAN, NOT CLUTTERED:",
+      "• Pick only ONE or TWO brand devices for THIS ad — never stack them all (color panel + dot grid + particles + confetti + badges + glow at once). That over-decorated pile-up is exactly what to avoid.",
+      "• If a post uses scattered dots/particles/sparkles/halftone, reproduce AT MOST one of them, subtly, in a small area — never a busy field covering the canvas.",
+      "• Keep generous clean, calm space. The goal is clean AND on-brand: a few brand cues done well, not zero brand cues and not a crowded collage.",
       "",
-      "A) UNIVERSAL DESIGN SIGNATURE — elements that appear across ALL or MOST posts regardless of the topic.",
-      "   These are the brand's visual fingerprint. YOU MUST reproduce them in every new ad:",
-      "   • Recurring decorative motifs: dot grids, scattered particles, geometric overlays, bokeh, light leaks, confetti, grain, botanical shapes, halftone, line patterns — whatever repeats across posts",
-      "   • Background field: how they fill the non-subject area (solid color, gradient, photograph, textured pattern, dark field with glow)",
-      "   • Depth & layering technique: foreground blur? translucent overlay shapes? flat? 3D-separated layers?",
-      "   • Subject rendering method: silhouette? flat icon? photorealistic product shot? line drawing? 3D render? cutout?",
-      "   • Atmosphere and light quality: the consistent lighting mood across all posts",
+      "DO NOT TAKE FROM THE REFERENCES:",
+      "• Their subject matter, objects, scenes, vehicles, people or props — each post's topic belongs to THAT post, never to this ad.",
       "",
-      "B) SUBJECT-SPECIFIC ELEMENTS — what each individual post is about (THESE CHANGE):",
-      "   • The actual object, person, vehicle, food item, or scene being featured",
-      "   • Product-specific props, settings, and environment",
+      "THE SUBJECT OF THIS AD COMES FROM THE CAMPAIGN — NOT THE REFERENCES:",
+      "• Build ONE clear hero subject that visually represents THIS campaign's product/service and topic (see CAMPAIGN CONTEXT below), rendered in the brand's color/lighting/photographic style.",
+      "• Example: the brand's posts are about cars but this campaign is social-media management → show a relevant content/social scene (e.g. a laptop with an analytics dashboard, a tidy content workspace) in the brand's style — NOT a car.",
+      "• The subject must be relevant and in sharp focus; the brand style only dictates HOW it looks, not WHAT it is.",
       "",
-      "━━━ STEP 2: APPLY THE CRAFT TO THE NEW AD ━━━",
-      "1. Reproduce ALL Category A elements (design signature) faithfully in the new background.",
-      "   If they use dot grids → use dot grids. If they use silhouettes → use silhouettes. If they overlay translucent shapes → overlay them. HIGH fidelity here.",
-      "2. For the main subject: APPLY THE SAME RENDERING METHOD (from Category A) but TO THE CURRENT AD'S TOPIC (from CAMPAIGN CONTEXT below).",
-      "   — Brand posts use car silhouettes + the new ad is about tires → render a TIRE SILHOUETTE in the same silhouette style",
-      "   — Brand posts use food photography + the new ad is a burger offer → shoot the BURGER in the same photographic treatment",
-      "   — Brand posts use geometric 3D renders + the new ad is about software → create a SCREEN/UI in the same 3D render style",
-      "   The rendering method is constant; only the subject adapts to the campaign topic.",
-      "3. Compose fresh — invent a new layout for this format. Do NOT copy any post's exact crop, framing, or composition.",
-      "",
-      "❌ NEVER copy text, slogans, captions, brand names, or any written content from the posts.",
-      "❌ NEVER reproduce the SAME subject as any post — adapt it to the current campaign topic.",
-      "✅ DO reproduce the visual devices, motifs, and rendering methods as closely and richly as possible.",
-      "The image must be ENTIRELY TEXT-FREE and ENTIRELY LOGO-FREE.",
+      "Compose fresh for this format. The image must be ENTIRELY TEXT-FREE and ENTIRELY LOGO-FREE.",
     ].join("\n");
   } else if (bgSource === "inspired") {
     sourceBlock = [
@@ -2013,13 +2003,14 @@ function buildBackgroundPrompt(
         ? "Be bold and original — invent a distinctive composition that fits the campaign; avoid generic stock looks."
         : "Do not repeat the same asset placement unless the format absolutely requires it. Reinterpret the reference assets as a brand world, not a template.",
     "",
-    "████ DESIGN ENERGY — THIS IS A DESIGNED AD, NOT A FLAT PHOTO ████",
-    "Real brand ads are layered and full of crafted design devices. Make this look art-directed, with depth and personality. Pull from (only what fits the brand):",
-    "• Depth & layering: foreground elements with soft blur, mid-ground subject, atmospheric background — overlapping translucent shapes, drop shadows, parallax-style separation so it feels 3D, not flat.",
-    "• Texture & grain: subtle film grain, paper/fabric/concrete texture, noise, gradient mesh — never a dead flat fill.",
-    "• Brand motifs & accents: scattered dots/bokeh/particles, confetti, geometric accents, sparkles, halftone, organic blobs, lines and arcs in the brand colors — the little decorative touches that give a brand its signature feel.",
-    "• Light: light leaks, glow, rim light, soft vignettes, color wash — give the scene mood.",
-    "Be generous and expressive OUTSIDE the text zone: depth, layers, textures, atmosphere, brand motifs — make those visual areas rich, premium, and art-directed. WITHIN the text zone: calm, low-contrast, soft — that breathing room is what makes the white headline legible and the overall ad look polished.",
+    "████ ART DIRECTION — CLEAN, FOCUSED, PREMIUM ████",
+    "Design a restrained, premium ad background built around ONE clear hero subject in sharp focus. Think modern brand campaign — calm, confident, lots of breathing room. LESS IS MORE.",
+    "• Focal subject: a single, clearly defined hero subject (product, object, or scene) that is SHARP and IN FOCUS. Do NOT blur the entire image — shallow depth-of-field is allowed ONLY as a soft falloff directly behind the in-focus subject. A fully blurred, nothing-in-focus image is a FAILED background.",
+    "• Restraint — don't pile on decoration: at most ONE subtle brand accent motif (e.g. a small dot cluster OR a single brand-color shape), never a busy field of scattered dots, particles, confetti, sparkles, stars, halftone, floating icons or badges all at once. A brand-color panel/diagonal field MAY be used as a single device, but it must NOT cut through or obscure the logo or the headline/CTA text. Stacking many of these reads as cluttered and amateur.",
+    "• Color: use the brand color as a tasteful ACCENT and overall mood — NOT a heavy single-color wash or tint flooding the whole frame. Keep the subject's natural colors and realistic lighting. Never lay a translucent colored sheet over the entire image.",
+    "• Texture & light: subtle and tasteful only — a gentle gradient or soft natural light, optional fine grain. NO light leaks, lens flares, glow overload, or heavy vignettes.",
+    "• Depth comes from a real subject sitting in clean space — not from piling on decorative elements or layers.",
+    "WITHIN the text zone: keep it calm, clean and low-contrast so the white overlay text stays perfectly legible. OUTSIDE it: the hero subject, sharp and well-lit, against simple, uncluttered surroundings.",
     "",
     "████ TEXT-SAFE ZONES — DO NOT DRAW TEXT HERE ████",
     `The overlay system will composite the logo and copy text block on top of your image at these CSS coordinates: logo[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).logo}] text-block[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).block}].`,
@@ -2086,8 +2077,15 @@ function buildCompositionHtml(
   const primaryColor = extractCssVarColor(cssVars, "--primary") || "#1a1a2e";
   const fontFamily = extractCssVarFont(cssVars) || "'Inter','Helvetica Neue',Arial,sans-serif";
 
-  const headline = String(data.mainHeadline || "").trim();
-  const sub = String(data.subheadline || data.offer || "").trim();
+  // Strip glyphs the GD compositor's TTFs (Raleway/OpenSans, latin subset) cannot render —
+  // arrows, dingbats, stars, geometric shapes, emoji. They otherwise paint as a □ tofu box.
+  const stripUnsupportedGlyphs = (s: string): string =>
+    String(s || "")
+      .replace(/[\u{2190}-\u{2BFF}\u{1F000}-\u{1FAFF}\u{FE0F}]/gu, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  const headline = stripUnsupportedGlyphs(String(data.mainHeadline || ""));
+  const sub = stripUnsupportedGlyphs(String(data.subheadline || data.offer || ""));
   const logoUrl = String(data.logoUrl || "").trim();
 
   // RESOLUTION-INDEPENDENT typography: font sizes are expressed in container-query
@@ -2162,12 +2160,12 @@ function buildCompositionHtml(
 
   // CTA — social formats get organic text gesture, display formats get a button.
   // It is the last child of the block; a slightly larger top margin separates it.
-  const ctaRaw = String(data.ctaText || "").trim();
+  const ctaRaw = stripUnsupportedGlyphs(String(data.ctaText || ""));
   const isSocialFmt = isSocialFormat(format);
   let ctaEl = "";
   if (ctaRaw) {
     if (isSocialFmt) {
-      ctaEl = `<div style="margin-top:2.6cqh;font-family:${fontFamily};font-size:${ctaFs};font-weight:600;color:${textColor};text-shadow:${textShadow};white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`;
+      ctaEl = `<div style="margin-top:2.6cqh;font-family:${fontFamily};font-size:${ctaFs};font-weight:600;color:${textColor};text-shadow:${textShadow};white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw}</div>`;
     } else {
       const isDark = contrastTextColor(primaryColor).color === "#ffffff";
       const btnBg    = isDark ? "rgba(255,255,255,0.95)" : "rgba(20,20,20,0.88)";
@@ -2995,7 +2993,7 @@ serve(async (req: Request) => {
               "Query the company store and extract TWO distinct sections:",
               "",
               "SECTION 1 — BRAND VISUAL DNA (from the brand's own Instagram profile analysis):",
-              "Extract every specific visual device described: background motifs (circles, dots, geometric shapes, textures, patterns), layering and depth treatment (transparent overlays, stacked elements), photography style (product placement, cropping, depth of field, color grading), lighting approach, recurring design elements that make this brand visually recognizable. Be specific and concrete — not generic ('uses gradient') but precise ('warm peach-to-coral gradient with soft grain texture, product centered bottom-right, circular motif in top-left').",
+              "Extract the brand's CORE visual style in terms of: color palette and grading, lighting approach, photography and subject treatment (how products/subjects are framed, cropped, lit, and where they sit), composition and use of negative space, and overall mood. Favor clean, focused, premium descriptions. Do NOT instruct adding decorative clutter — no 'scattered dots/confetti/sparkles/badges/many geometric shapes/diagonal strips'; keep it restrained and uncluttered. Be specific and concrete about color and lighting (e.g. 'warm peach-to-coral palette, soft daylight, single product centered with generous negative space'), not generic ('uses gradient').",
               "",
               "SECTION 2 — LAYOUT INSPIRATION (from competitor examples, if present in the store):",
               "Extract only composition and layout patterns: subject placement, visual hierarchy structure, text-zone positioning, use of negative space. NEVER extract competitor colors, fonts, brand elements, or visual style.",
