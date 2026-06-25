@@ -3197,12 +3197,11 @@ serve(async (req: Request) => {
             throw err;
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          // Content-aware placement: detect where the GENERATED background is actually calmest and
-          // put the text there (the image model routinely ignores the reserved zone). Falls back to
-          // the rotated layout if the check fails.
-          const bgForZone = bgHosted || gen?.url || "";
-          const calmLayout = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: null });
+          // SAME-ZONE GUARANTEE: text + scrim use the EXACT rotated layout the background was told to
+          // keep clean, so they always land on the reserved zone. A post-hoc classifier was placing
+          // text on a DIFFERENT zone than the one reserved before generation → text fell outside the
+          // reserved area. One decision (the per-job rotation) now governs background, scrim and text.
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, overlayHtml: null });
         }
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -3260,11 +3259,10 @@ serve(async (req: Request) => {
             throw err;
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          // Content-aware placement (see A/B path above): place text where the background is
-          // actually calmest; fall back to the rotated layout if the check fails.
-          const bgForZone = bgHosted || gen?.url || "";
-          const calmLayout = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: null });
+          // SAME-ZONE GUARANTEE (see A/B path above): text + scrim use the exact rotated layout the
+          // background reserved, so they always land on the reserved zone instead of a post-hoc
+          // classifier's different pick.
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: layoutHint, overlayHtml: null });
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
