@@ -181,7 +181,6 @@ function ext_map_company(array $c): array {
         'targetAudience'      => $str('target_audience'),
         'valueProposition'    => $str('value_proposition'),
         'logoUrl'             => $logo,
-        'fontUrl'             => $str('font_url'),
         'primaryColor'        => $str('primary_color'),
         'secondaryColor'      => $str('secondary_color'),
         'accentColor'         => $str('accent_color'),
