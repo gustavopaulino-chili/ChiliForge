@@ -1725,23 +1725,6 @@ const LAYOUT_POSITIONS: Record<string, LayoutPosition> = {
 // Where the HERO product/person image is composited — on the side OPPOSITE the text block, anchored
 // to the bottom edge (natural for a person/product cutout). Used to position the overlay <img> and to
 // tell the background generator which zone to keep clean.
-// Uses width + max-height + side anchors (the props the GD compositor understands; it ignores a
-// bare `height` and CSS transforms). Centered cases use left + width instead of translateX.
-const PRODUCT_POSITIONS: Record<string, string> = {
-  "diagonal-split":         "right:3%;bottom:3%;width:42%;max-height:84%;",   // text left
-  "hero-full-bleed":        "right:4%;bottom:3%;width:40%;max-height:70%;",   // text bottom
-  "top-image-bottom-text":  "left:27%;top:3%;width:46%;max-height:48%;",      // text bottom
-  "left-panel-right-image": "right:2%;bottom:2%;width:46%;max-height:90%;",   // text left
-  "centered-minimal":       "right:3%;bottom:3%;width:40%;max-height:70%;",   // text center
-  "bold-headline-first":    "right:4%;bottom:3%;width:42%;max-height:62%;",   // text top
-  "frame-product":          "left:25%;bottom:2%;width:50%;max-height:64%;",   // text bottom
-  "top-left-editorial":     "right:3%;bottom:3%;width:44%;max-height:80%;",   // text top-left
-  "top-right-editorial":    "left:3%;bottom:3%;width:44%;max-height:80%;",    // text top-right
-  "bottom-right-editorial": "left:3%;top:6%;width:44%;max-height:78%;",       // text bottom-right
-  "vertical-story-stack":   "right:2%;bottom:2%;width:46%;max-height:88%;",   // text left
-  "floating-islands":       "right:4%;bottom:3%;width:40%;max-height:70%;",   // text bottom
-};
-
 function detectCompositionLayout(spec: string): string {
   const s = spec.toLowerCase();
   if (s.includes("diagonal-split") || s.includes("diagonal split")) return "diagonal-split";
@@ -1901,31 +1884,10 @@ function buildBackgroundPrompt(
   bgSource: string = "shapes",
   hasRefImages: boolean = false,
   visualBrief: string = "",
-  productOverlay: boolean = false,
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
   const direction = visualDirection || BACKGROUND_DIRECTIONS[0];
-
-  // ── PRODUCT-OVERLAY PATH: the caller supplied a real product/person image that will be
-  // composited on top as the hero. So the image model must NOT invent its own subject — it
-  // produces ONLY a clean brand backdrop (color panel + dot/line motifs), keeping the text zone
-  // and the product zone calm. This kills the repeated AI-invented laptop AND the burned-in text.
-  if (productOverlay) {
-    const palette = [...new Set((spec.match(/#[0-9a-f]{6}\b/gi) || []).slice(0, 4).map(describeHexColor).filter(Boolean))];
-    const colorLineP = palette.length
-      ? `BRAND PALETTE (these are the dominant colors — never write any color name, code or # as text): ${palette.join(", ")}.`
-      : "";
-    return [
-      "TASK: Produce ONLY a clean BRAND BACKDROP for an advertisement — NOT a scene with a subject. A real product/person photo and the headline text are composited ON TOP of it afterwards.",
-      "Fill the canvas with the brand's visual identity: a brand-color field or diagonal panel, a smooth gradient, soft texture, and the brand's signature dot grids and line motifs as tasteful decoration concentrated toward the EDGES and CORNERS. Premium, clean, unmistakably on-brand.",
-      colorLineP,
-      "Leave the CENTER and one SIDE calm and low-contrast (soft, uncluttered) so the overlaid text and product image stay readable — keep the busy decoration away from those calm areas.",
-      "⛔ Do NOT draw any person, face, product, laptop, phone, device, object, furniture, scene or photograph. NO subject of any kind — ONLY the brand-colored decorative backdrop. A real hero image is added on top.",
-      "⛔ ZERO text of any kind: no letters, words, numbers, labels, captions, coordinates, measurements, CSS, logos, wordmarks, UI or icons — nothing readable anywhere in the image.",
-      `FORMAT: ${format.width}×${format.height}px | Aspect ratio: ${aspectRatio}`,
-    ].filter(Boolean).join("\n");
-  }
 
   // ── SHORT PATH: reference mode with actual reference images ─────────────
   // When the caller sent reference images to match, the model needs a SHORT focused prompt —
@@ -2279,22 +2241,13 @@ function buildCompositionHtml(
     ? `<div style="position:absolute;${layout.block}display:flex;flex-direction:column;align-items:${alignItems};z-index:25;">${headlineEl}${subEl}${ctaEl}</div>`
     : "";
 
-  // ── HERO PRODUCT / PERSON ─────────────────────────────────────────────────
-  // A caller-supplied product/person image (e.g. reference_images[0], a transparent cutout) is
-  // composited as the hero on the side OPPOSITE the text, anchored to the bottom edge — exact
-  // pixels, never redrawn by the model (critical for a real person's face). Sits above the
-  // background, below the text/logo.
-  const productUrl = String((data as any).productImageUrl || "").trim();
-  const productCss = PRODUCT_POSITIONS[detectedLayout] ?? PRODUCT_POSITIONS["hero-full-bleed"];
-  const productLayer = productUrl
-    ? `<img src="${productUrl}" style="position:absolute;${productCss}object-fit:contain;z-index:10" alt="" />`
-    : "";
-
   // Logo is always placed by TypeScript (never delegated to Gemini — too unreliable).
   // If Gemini built the scrim + text block, use that; otherwise use the template versions.
+  // The hero product/person is NOT composited here — it is integrated INTO the AI background
+  // (sent to the image model as a hero reference) so lighting/shadows blend naturally.
   const overlayContent = overlayHtml
-    ? `${productLayer}\n  ${logoLayer}\n  ${overlayHtml}`
-    : `${scrimLayer}\n  ${productLayer}\n  ${logoLayer}\n  ${textBlock}`;
+    ? `${logoLayer}\n  ${overlayHtml}`
+    : `${scrimLayer}\n  ${logoLayer}\n  ${textBlock}`;
 
   return `<!-- BANNER_START -->
 <div class="ad-banner" data-platform="${platform}" data-format="${formatName}" style="position:relative;width:${w}px;height:${h}px;overflow:hidden;font-family:${fontFamily};container-type:size">
@@ -2957,7 +2910,7 @@ serve(async (req: Request) => {
     // Logo is never fetched as base64 — it goes into the HTML as <img src="url">.
     // Only product and background images are references for the generation model.
     const imageSpecs = [
-      { url: productUrl, label: "Product / Hero Image — render as <img> in the product layer (z-index:10)" },
+      { url: productUrl, label: "HERO IMAGE — integrate this EXACT subject (product or person) naturally INTO the generated scene as the main focus. Keep their real appearance and (for a person) their face unchanged; blend lighting, shadow and perspective so it looks like one cohesive photo, NOT a pasted cutout. Do not crop out or replace it." },
       { url: bgUrl,      label: "Background Image — render as full-bleed <img> with object-fit:cover in the background layer (z-index:0)" },
     ].filter((s): s is { url: string; label: string } => typeof s.url === "string" && s.url.startsWith("http"));
     // Only the pixel-drawing models (image / compose-background) actually need the
@@ -3170,10 +3123,10 @@ serve(async (req: Request) => {
 
       if (!usesRefs) {
         bgRefImages = [];
-      } else if (briefDriven && refImagesForGen.length > 0 && companyRefImages.length > 0) {
-        // Brand brief + brand post images + generation-specific reference:
-        // Reserve the last slot for the generation image so the model can distinguish roles.
-        // Cap brand posts at 2 so there is always room for the generation ref.
+      } else if (refImagesForGen.length > 0 && companyRefImages.length > 0) {
+        // Brand post images + a generation HERO reference (product/person): ALWAYS reserve the last
+        // slot for the hero so it is never crowded out by brand posts (which would make the model
+        // ignore the product/person and invent a generic scene). Cap brand posts at 2.
         const brandSlice = companyRefImages.slice(0, 2);
         const genSlice = refImagesForGen.slice(0, 1);
         bgRefImages = [...brandSlice, ...genSlice];
@@ -3191,7 +3144,7 @@ serve(async (req: Request) => {
       // true to the brand's design language from the posts.
       const visualBriefForPrompt = (brandRefCountInBg > 0 && genRefCountInBg > 0)
         ? (visualBrief ? visualBrief + "\n\n" : "") +
-          `IMAGE ROLES: The first ${brandRefCountInBg} image(s) are brand Instagram posts — study their visual motifs, color palette, depth treatment, layering, and recurring design devices. These define the aesthetic universe for this ad. The last image is the creative reference for this specific campaign: incorporate it as you see fit — as the hero product, a background subject, a scene anchor, or a compositional element — while staying firmly within the brand's visual world.`
+          `IMAGE ROLES: The first ${brandRefCountInBg} image(s) are brand Instagram posts — study their visual motifs, color palette, depth treatment, layering, and recurring design devices for STYLE ONLY (never copy their text, logo or people). The LAST image is the HERO of this ad — you MUST place it as the main, prominent subject, integrated naturally into the brand-styled scene with matching lighting, shadow and perspective so it looks like one cohesive photo (not a pasted cutout). If it is a person, keep their exact face and appearance unchanged and make them the focal point. Do NOT omit it and do NOT replace it with a generic stand-in subject.`
         : visualBrief;
 
       // brandSpec: use creativePlan if provided (e.g. from external API worker),
@@ -3234,7 +3187,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, Boolean((campaignData as any).productImageUrl));
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -3297,7 +3250,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, Boolean((campaignData as any).productImageUrl));
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
