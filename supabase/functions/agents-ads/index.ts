@@ -301,10 +301,12 @@ async function buildOverlayHtmlFromGemini(
   const subEl = sub
     ? `<div style="margin-top:1.6cqh;font-family:${fontFamily};font-size:${subFs};font-weight:400;color:rgba(255,255,255,0.90);line-height:1.34;text-align:TEXT_ALIGN;text-shadow:${ts};overflow-wrap:break-word;">${sub}</div>`
     : "";
+  // align-self removed from CTA — it inherits the parent flex container's align-items,
+  // and having ALIGN_SELF twice caused Gemini to fill only one instance → validation failed.
   const ctaEl = ctaRaw
     ? (isSocial
         ? `<div style="margin-top:2.6cqh;font-family:${fontFamily};font-size:${ctaFs};font-weight:600;color:#ffffff;text-shadow:${ts};white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`
-        : `<div style="margin-top:2.8cqh;align-self:ALIGN_SELF;display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.42em 0.90em;border-radius:0.38em;box-shadow:0 4px 18px rgba(0,0,0,0.22);white-space:nowrap;">${ctaRaw}</div>`)
+        : `<div style="margin-top:2.8cqh;display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.42em 0.90em;border-radius:0.38em;box-shadow:0 4px 18px rgba(0,0,0,0.22);white-space:nowrap;">${ctaRaw}</div>`)
     : "";
   const blockEl = (headlineEl || subEl || ctaEl)
     ? `<div style="position:absolute;BLOCK_POS_CSS;display:flex;flex-direction:column;align-items:ALIGN_SELF;z-index:25;">${headlineEl}${subEl}${ctaEl}</div>`
@@ -341,8 +343,9 @@ Return ONLY the completed HTML elements above.`;
       console.warn(`[overlay-html] unfilled placeholders job=${opts.jobId ?? "?"}`);
       return null;
     }
-    // Must contain at least the scrim div (z-index:1) — always present
-    if (!raw.includes("z-index:1")) {
+    // Must contain at least the scrim div (z-index:1) — always present.
+    // Accept both "z-index:1" and "z-index: 1" (Gemini sometimes adds a space).
+    if (!/z-index\s*:\s*1\b/.test(raw)) {
       console.warn(`[overlay-html] missing scrim job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
       return null;
     }
@@ -1965,7 +1968,7 @@ function buildBackgroundPrompt(
     "• Texture & grain: subtle film grain, paper/fabric/concrete texture, noise, gradient mesh — never a dead flat fill.",
     "• Brand motifs & accents: scattered dots/bokeh/particles, confetti, geometric accents, sparkles, halftone, organic blobs, lines and arcs in the brand colors — the little decorative touches that give a brand its signature feel.",
     "• Light: light leaks, glow, rim light, soft vignettes, color wash — give the scene mood.",
-    "Be generous and expressive: a rich, busy, beautifully-composed canvas reads as premium. Empty/flat backgrounds read as cheap and unfinished.",
+    "Be generous and expressive OUTSIDE the text zone: depth, layers, textures, atmosphere, brand motifs — make those visual areas rich, premium, and art-directed. WITHIN the text zone: calm, low-contrast, soft — that breathing room is what makes the white headline legible and the overall ad look polished.",
     "",
     "████ TEXT-SAFE ZONES — DO NOT DRAW TEXT HERE ████",
     `The overlay system will composite the logo and copy text block on top of your image at these CSS coordinates: logo[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).logo}] text-block[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).block}].`,

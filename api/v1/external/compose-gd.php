@@ -14,10 +14,99 @@
  *     $fmt ['width','height'] — fallback dimensions if the HTML omits them.
  */
 
+if (!function_exists('extgd_font_override_store')) {
+    // Stores a custom font family (downloaded from Google Fonts) for the current request.
+    // Call with an array to set; call with no args to read.
+    function extgd_font_override_store(array $paths = null): array {
+        static $store = [];
+        if ($paths !== null) $store = $paths;
+        return $store;
+    }
+}
+
+if (!function_exists('extgd_http_get')) {
+    // Simple HTTP GET helper: tries cURL first (more reliable on restricted servers), then
+    // falls back to file_get_contents. Used for Google Fonts CSS + TTF downloads.
+    function extgd_http_get(string $url, string $ua = 'ChiliForge/1.0'): string {
+        if (function_exists('curl_init')) {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS      => 5,
+                CURLOPT_TIMEOUT        => 20,
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_USERAGENT      => $ua,
+            ]);
+            $b = curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($b !== false && $b !== '' && $code >= 200 && $code < 300) return (string)$b;
+        }
+        $ctx = stream_context_create([
+            'http' => ['timeout' => 20, 'follow_location' => 1, 'user_agent' => $ua],
+            'ssl'  => ['verify_peer' => false, 'verify_peer_name' => false],
+        ]);
+        $b = @file_get_contents($url, false, $ctx);
+        return $b === false ? '' : $b;
+    }
+}
+
+if (!function_exists('extgd_fetch_google_font')) {
+    // Download a Google Font as TTF and cache it in fonts/. Returns the local path or ''.
+    // Uses an old User-Agent so Google returns TTF links instead of WOFF2.
+    function extgd_fetch_google_font(string $family, int $weight): string {
+        if ($family === '') return '';
+        $slug    = preg_replace('/[^a-z0-9]+/', '-', strtolower(trim($family)));
+        $wName   = $weight >= 800 ? 'extrabold' : ($weight >= 600 ? 'bold' : 'regular');
+        $fontDir = __DIR__ . '/fonts/';
+        $cached  = $fontDir . $slug . '-' . $wName . '.ttf';
+        if (is_file($cached)) return $cached;
+        $failTag = $cached . '.fail';
+        if (is_file($failTag) && (time() - filemtime($failTag)) < 3600) return ''; // 1h cooldown
+
+        $oldUa  = 'Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)';
+        $cssUrl = 'https://fonts.googleapis.com/css2?family=' . rawurlencode($family) . ':wght@400;700;900&display=swap';
+        $css    = extgd_http_get($cssUrl, $oldUa);
+        if (!$css) { @file_put_contents($failTag, '1'); return ''; }
+
+        // Match each @font-face block to find TTF URL closest to the requested weight
+        preg_match_all(
+            '/font-weight\s*:\s*(\d+)\s*;(?:[^}]*?)src\s*:[^;]*url\(([^)]+\.ttf[^)]*)\)/si',
+            $css, $m, PREG_SET_ORDER
+        );
+        if (!$m) {
+            // Simpler fallback: any .ttf src line
+            if (!preg_match('/url\(([^)]+\.ttf)\)/i', $css, $fm)) { @file_put_contents($failTag, '1'); return ''; }
+            $ttfUrl = trim($fm[1]);
+        } else {
+            usort($m, static fn($a, $b) => abs((int)$a[1] - $weight) <=> abs((int)$b[1] - $weight));
+            $ttfUrl = trim($m[0][2]);
+        }
+
+        $ttf = extgd_http_get(trim($ttfUrl, "' \""), $oldUa);
+        if (!$ttf || strlen($ttf) < 2000) { @file_put_contents($failTag, '1'); return ''; }
+
+        if (!is_dir($fontDir)) @mkdir($fontDir, 0775, true);
+        @file_put_contents($cached, $ttf);
+        @unlink($failTag);
+        return is_file($cached) ? $cached : '';
+    }
+}
+
 if (!function_exists('extgd_font')) {
-    // Pick the bundled font closest to the requested CSS font-weight, then fall back to
-    // system sans. 900/800 → ExtraBold, 600-700 → Bold, else Regular.
+    // Pick the bundled/downloaded font closest to the requested CSS font-weight.
+    // Custom font override (set by extgd_font_override_store) takes priority.
+    // Falls back to OpenSans bundles, then system fonts.
     function extgd_font(int $weight = 400): string {
+        // Custom Google Font override for this request
+        $ov = extgd_font_override_store();
+        if (!empty($ov)) {
+            $tier = $weight >= 800 ? 900 : ($weight >= 600 ? 700 : 400);
+            if (!empty($ov[$tier])) return $ov[$tier];
+            foreach ([900, 700, 400] as $w) if (!empty($ov[$w])) return $ov[$w];
+        }
         $tier = $weight >= 800 ? 'x' : ($weight >= 600 ? 'b' : 'r');
         $bundles = [
             'x' => ['OpenSans-ExtraBold.ttf', 'OpenSans-Bold.ttf'],
@@ -49,9 +138,27 @@ if (!function_exists('extgd_fetch_bytes')) {
                 $d = download_remote_asset($src);
                 if (is_array($d) && isset($d['body']) && $d['body'] !== '') return (string)$d['body'];
             }
+            // Try file_get_contents first, fall back to cURL (handles servers with allow_url_fopen=off)
             $ctx = stream_context_create(['http' => ['timeout' => 25, 'follow_location' => 1], 'ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
             $b = @file_get_contents($src, false, $ctx);
-            return $b === false ? '' : $b;
+            if ($b !== false && $b !== '') return $b;
+            if (function_exists('curl_init')) {
+                $ch = curl_init($src);
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_MAXREDIRS      => 5,
+                    CURLOPT_TIMEOUT        => 25,
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_SSL_VERIFYHOST => false,
+                    CURLOPT_USERAGENT      => 'ChiliForge-Compositor/1.0',
+                ]);
+                $b = curl_exec($ch);
+                $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+                if ($b !== false && $b !== '' && $code >= 200 && $code < 300) return (string)$b;
+            }
+            return '';
         }
         // Root-relative public URL (e.g. /projects/.../logo.png, after the API mirrors a logo
         // locally) → resolve to the actual file on disk. In the CLI worker $_SERVER's
@@ -293,6 +400,35 @@ if (!function_exists('extgd_draw_scrim')) {
 if (!function_exists('extgd_compose_html_to_jpeg')) {
     function extgd_compose_html_to_jpeg(string $bannerHtml, array $fmt, string $outJpgPath): bool {
         if (!extension_loaded('gd')) throw new RuntimeException('GD extension not available.');
+
+        // ── Custom Google Font download ────────────────────────────────────────
+        // Parse the @import URL from the HTML to find the requested font family,
+        // download its TTF weights from Google Fonts, and register them as override
+        // so extgd_font() returns them instead of the bundled OpenSans.
+        extgd_font_override_store([]); // clear any previous request's override
+        if (preg_match('/fonts\.googleapis\.com\/css2?\?family=([A-Za-z0-9%+\- ]+)/i', $bannerHtml, $fm)) {
+            $rawFamily = preg_replace('/[:&].+/', '', $fm[1]); // strip :wght... and &display=...
+            $family    = str_replace('+', ' ', rawurldecode(trim($rawFamily)));
+            if ($family !== '' && stripos($family, 'opensans') === false && stripos($family, 'open-sans') === false) {
+                $override = [];
+                foreach ([400, 700, 900] as $w) {
+                    $path = extgd_fetch_google_font($family, $w);
+                    if ($path !== '') $override[$w] = $path;
+                }
+                if (!empty($override)) {
+                    // Fill in missing weights with closest available
+                    foreach ([400, 700, 900] as $w) {
+                        if (!isset($override[$w])) {
+                            $best = ''; $bd = PHP_INT_MAX;
+                            foreach ($override as $ew => $ep) { if (abs($ew - $w) < $bd) { $bd = abs($ew - $w); $best = $ep; } }
+                            if ($best !== '') $override[$w] = $best;
+                        }
+                    }
+                    extgd_font_override_store($override);
+                }
+            }
+        }
+
         $fontReg = extgd_font(400);
         if ($fontReg === '') throw new RuntimeException('No TTF/OTF font available for GD.');
 
