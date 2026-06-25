@@ -7,6 +7,7 @@
  *   phone,
  *   company?,
  *   logo_url?,
+ *   font_url?,                 — Google Fonts CSS URL (e.g. https://fonts.googleapis.com/css2?family=Poppins:wght@400;700;900)
  *   reference_images?[],      — generic reference images (legacy)
  *   brand_posts?[],           — Instagram posts from the brand's own profile (up to 12)
  *   competitor_posts?[],      — Instagram posts from a competitor's profile (up to 8)
@@ -84,7 +85,8 @@ if ($phone === '') caa_fail(400, 'phone is required (company identifier).', 'mis
 $company = is_array($body['company'] ?? null) ? $body['company'] : [];
 $refInputs = [];
 if (is_array($body['reference_images'] ?? null)) $refInputs = $body['reference_images'];
-$logoInput = trim((string)($body['logo_url'] ?? ($company['logo_url'] ?? ($company['logo'] ?? ''))));
+$logoInput    = trim((string)($body['logo_url'] ?? ($company['logo_url'] ?? ($company['logo'] ?? ''))));
+$fontUrlInput = trim((string)($body['font_url'] ?? ($company['font_url'] ?? '')));
 
 // Instagram post images — processed separately from generic reference_images.
 // brand_posts: scraped from the brand's OWN Instagram profile. Gemini analyzes them
@@ -216,6 +218,11 @@ try {
         } elseif (isset($r['skip'])) {
             $skipped[] = ['type' => 'logo', 'reason' => $r['reason']];
         }
+    }
+
+    // ── Font URL (optional Google Fonts or custom CDN) ───────────────────────
+    if ($fontUrlInput !== '') {
+        $formData['fontUrl'] = $fontUrlInput;
     }
 
     // ── Reference images (legacy / generic) ──────────────────────────────────
@@ -351,6 +358,7 @@ try {
         'company_id'               => $companyId,
         'store_name'               => (string)$storeName,
         'logo_url'                 => $logoUrl ?: ($formData['logoUrl'] ?? ''),
+        'font_url'                 => $formData['fontUrl'] ?? '',
         'reference_images'         => $allRefs,
         'reference_count'          => count($allRefs),
         'added'                    => count($newRefs),

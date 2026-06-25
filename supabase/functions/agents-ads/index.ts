@@ -286,17 +286,14 @@ async function buildOverlayHtmlFromGemini(
   const headlineFs   = `calc(min(7cqh,6.2cqw)*${(sizeScale * hlLenScale).toFixed(3)})`;
   const subFs        = `calc(min(7cqh,6.2cqw)*${(sizeScale * 0.46 * subLenScale).toFixed(3)})`;
   const ctaFs        = `calc(min(4.4cqh,4.1cqw)*${Math.min(1.2, sizeScale).toFixed(3)})`;
-  const logoFs       = `calc(min(7cqh,6.2cqw)*${(sizeScale * 0.46).toFixed(3)})`;
   const isDark       = contrastTextColor(primaryColor).color === "#ffffff";
   const btnBg        = isDark ? "rgba(255,255,255,0.95)" : "rgba(20,20,20,0.88)";
   const btnColor     = isDark ? "#111111" : "#ffffff";
   const ts           = "0 2px 12px rgba(0,0,0,0.70),0 1px 3px rgba(0,0,0,0.50)";
   const isSocial     = isSocialFormat(format);
 
-  // Elements with UPPERCASE placeholders that Gemini must fill with real CSS values.
-  const logoEl = logoUrl
-    ? `<img src="${logoUrl}" style="position:absolute;LOGO_POS_CSS;object-fit:contain;z-index:20" alt="logo" />`
-    : (brandName ? `<div style="position:absolute;LOGO_POS_CSS;font-family:${fontFamily};font-size:${logoFs};font-weight:700;color:#ffffff;z-index:20;white-space:nowrap;text-shadow:${ts}">${brandName}</div>` : "");
+  // Gemini only handles scrim + text block — logo is always added by TypeScript
+  // (reliable, never dropped by the model).
   const scrimEl = `<div style="position:absolute;SCRIM_CSS;z-index:1;pointer-events:none"></div>`;
   const headlineEl = headline
     ? `<div style="font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:#ffffff;line-height:1.12;text-align:TEXT_ALIGN;text-shadow:${ts};overflow-wrap:break-word;">${headline}</div>`
@@ -314,25 +311,22 @@ async function buildOverlayHtmlFromGemini(
     : "";
 
   const SYSTEM = "You are an HTML/CSS ad layout specialist. You analyze advertising background images and return completed HTML overlay fragments. Return ONLY the HTML — no explanation, no markdown fences.";
-  const USER = `This background image (${W}×${H}px) needs a text/logo overlay composited on top. Analyze it and fill in the CSS position placeholders.
+  const USER = `This background image (${W}×${H}px) needs a text overlay composited on top. Analyze it and fill in the 3 CSS position placeholders.
 
 PLACEHOLDERS TO FILL:
-• LOGO_POS_CSS → position + size CSS for logo (e.g.: "top:5%;left:5%;width:26%;max-height:12%;")
-• SCRIM_CSS → position + gradient CSS covering the text zone (e.g.: "inset:45% 0 0 0;height:55%;background:linear-gradient(to top,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0) 100%)")
+• SCRIM_CSS → absolute position + gradient covering the text zone (e.g.: "inset:45% 0 0 0;height:55%;background:linear-gradient(to top,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0) 100%)")
 • BLOCK_POS_CSS → absolute anchor for the text block (e.g.: "left:5%;right:5%;bottom:7%;" or "left:5%;right:52%;top:50%;transform:translateY(-50%);")
 • TEXT_ALIGN → "left", "center", or "right" matching block side
-• ALIGN_SELF → "flex-start" (left), "center", or "flex-end" (right)
+• ALIGN_SELF → "flex-start" (left block), "center", or "flex-end" (right block)
 
 PLACEMENT RULES:
-1. Text block → darkest, most uniform zone; white text must be instantly legible
-2. Logo corner → clean space opposite or away from text block
-3. Scrim gradient → direction must face INTO the text zone (bottom zone → "to top"; top zone → "to bottom"; left panel → "to right"; right panel → "to left")
-4. TEXT_ALIGN and ALIGN_SELF must match the block's horizontal position
-5. Use % only (no px for positions/sizes)
-6. If any text was already drawn inside the image, place the block in a DIFFERENT clean zone
+1. Text block → darkest, most uniform zone where white text is instantly legible
+2. Scrim gradient → direction must face INTO the text zone ("to top" if bottom, "to bottom" if top, "to right" if left panel, "to left" if right panel)
+3. TEXT_ALIGN and ALIGN_SELF must match the block's horizontal position
+4. Use % only (no px for positions/sizes)
+5. If any text was already drawn inside the image, place the block in a DIFFERENT clean zone
 
-ELEMENTS (replace all UPPERCASE placeholders with real CSS, keep everything else unchanged):
-${logoEl || "<!-- no logo -->"}
+ELEMENTS (fill the UPPERCASE placeholders, keep everything else unchanged):
 ${scrimEl}
 ${blockEl || "<!-- no text content -->"}
 
@@ -343,13 +337,13 @@ Return ONLY the completed HTML elements above.`;
     const raw = String(res.text || "").trim()
       .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
     // Reject if Gemini left any placeholder unfilled
-    if (/LOGO_POS_CSS|SCRIM_CSS|BLOCK_POS_CSS|TEXT_ALIGN|ALIGN_SELF/.test(raw)) {
+    if (/SCRIM_CSS|BLOCK_POS_CSS|TEXT_ALIGN|ALIGN_SELF/.test(raw)) {
       console.warn(`[overlay-html] unfilled placeholders job=${opts.jobId ?? "?"}`);
       return null;
     }
-    // Must contain at least the scrim div (always present)
-    if (!raw.includes("z-index:1") && !raw.includes("z-index:25")) {
-      console.warn(`[overlay-html] unexpected output job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
+    // Must contain at least the scrim div (z-index:1) — always present
+    if (!raw.includes("z-index:1")) {
+      console.warn(`[overlay-html] missing scrim job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
       return null;
     }
     console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${raw.length}`);
@@ -1469,13 +1463,25 @@ const BACKGROUND_DIRECTIONS = [
   "immersive scene with foreground framing, background depth, and brand-color light leaks",
 ] as const;
 
+// Extract the first font family name from a Google Fonts URL.
+// e.g. "https://fonts.googleapis.com/css2?family=Poppins:wght@400;700" → "Poppins"
+function extractFontFamilyFromUrl(url: string): string | null {
+  try {
+    const m = url.match(/[?&]family=([^:&+%]+(?:[+%20][^:&+%]*)*)/i);
+    if (!m) return null;
+    return decodeURIComponent(m[1]).replace(/\+/g, " ").trim();
+  } catch { return null; }
+}
+
 function buildComposeCssVars(data: AgentsAdsPayload["campaignData"]): string {
   const parts: string[] = [];
   if (data.primaryColor) parts.push(`--primary:${data.primaryColor}`);
   const secondary = data.secondaryColor || data.accentColor;
   if (secondary) parts.push(`--secondary:${secondary}`);
   if (data.accentColor) parts.push(`--accent:${data.accentColor}`);
-  const font = data.customHeadingFontName || data.headingFont;
+  const fontUrlDirect = String((data as any).fontUrl || "").trim();
+  const font = data.customHeadingFontName || data.headingFont
+    || (fontUrlDirect ? extractFontFamilyFromUrl(fontUrlDirect) : null);
   if (font) parts.push(`--font-headline:'${font}',sans-serif`);
   return parts.join(";");
 }
@@ -1491,10 +1497,10 @@ function buildComposeBrandSpec(data: AgentsAdsPayload["campaignData"]): string {
   if (data.brandKeywords)    styleParts.push(String(data.brandKeywords).split(/[,;]/)[0]?.trim() || "");
   const visual = styleParts.filter(Boolean).join(", ").slice(0, 120);
 
+  const fontUrlDirect = String((data as any).fontUrl || "").trim();
   const font = data.customHeadingFontName || data.headingFont;
-  const fontUrl = font
-    ? `https://fonts.googleapis.com/css2?family=${encodeURIComponent(String(font)).replace(/%20/g, "+")}:wght@400;700;900&display=swap`
-    : "";
+  const fontUrl = fontUrlDirect
+    || (font ? `https://fonts.googleapis.com/css2?family=${encodeURIComponent(String(font)).replace(/%20/g, "+")}:wght@400;700;900&display=swap` : "");
 
   return [
     cssVars ? `BRAND_CSS_VARS: ${cssVars}` : "",
@@ -1845,27 +1851,38 @@ function buildBackgroundPrompt(
     ].join("\n");
   } else if (bgSource === "company" && hasRefImages) {
     sourceBlock = [
-      "████ BACKGROUND SOURCE: COMPANY BRAND POSTS — ABSORB DNA, DO NOT COPY ████",
-      "The attached image(s) are this brand's existing Instagram posts. They show what the brand's visual world looks and feels like.",
+      "████ BACKGROUND SOURCE: COMPANY BRAND POSTS — MASTER THEIR AD-MAKING CRAFT ████",
+      "The attached image(s) are this brand's own Instagram/social posts. Study them carefully — they reveal HOW this brand makes ads.",
       "",
-      "YOUR GOAL — FEED CAMOUFLAGE: Create an ad background so visually consistent with these posts that it blends naturally into this brand's Instagram feed. A viewer scrolling past should instantly feel it belongs to the same brand — not because it copies any post, but because it breathes the same visual air.",
+      "YOUR GOAL: The new ad background must feel like it was made by their own design team — it passes the 'same feed' test (place it next to their posts and it belongs), but it is clearly a NEW, original creation for this specific campaign.",
       "",
-      "STEP 1 — EXTRACT the brand's visual DNA from the posts (these are the things to REUSE):",
-      "• Color palette: exact hues and how they are paired (warm coral over white? dark field with electric accents? earthy neutrals?)",
-      "• Background treatment: photography, flat color, gradient, textured overlay — what is their default?",
-      "• Design devices: recurring motifs — bokeh, scattered dots, geometric accents, grain, blobs, light leaks, confetti, botanical shapes, duotone washes",
-      "• Depth & layering: foreground blur? overlapping translucent shapes? flat vs. 3D separation?",
-      "• Mood & finish: matte/glossy, vibrant/muted, warm/cold, editorial/playful",
-      "• Light quality: soft diffuse? dramatic rim? golden hour? studio white?",
+      "━━━ STEP 1: SEPARATE DESIGN SIGNATURE FROM SUBJECT MATTER ━━━",
       "",
-      "STEP 2 — SYNTHESIZE a BRAND-NEW image using only the above DNA (these are the things to NEVER copy):",
-      "❌ Do NOT reproduce any post's layout, crop, or compositional structure — your image must look different from every individual post.",
-      "❌ Do NOT copy the subject matter (if a post shows a person at a desk, don't show a person at a desk — find a different scene that shares the mood).",
-      "❌ Do NOT copy any text, slogan, caption, brand name, offer, hashtag, or written content from the posts.",
-      "❌ Do NOT take a post and crop/reframe/recolor it — that is a copy, not a new creation.",
+      "A) UNIVERSAL DESIGN SIGNATURE — elements that appear across ALL or MOST posts regardless of the topic.",
+      "   These are the brand's visual fingerprint. YOU MUST reproduce them in every new ad:",
+      "   • Recurring decorative motifs: dot grids, scattered particles, geometric overlays, bokeh, light leaks, confetti, grain, botanical shapes, halftone, line patterns — whatever repeats across posts",
+      "   • Background field: how they fill the non-subject area (solid color, gradient, photograph, textured pattern, dark field with glow)",
+      "   • Depth & layering technique: foreground blur? translucent overlay shapes? flat? 3D-separated layers?",
+      "   • Subject rendering method: silhouette? flat icon? photorealistic product shot? line drawing? 3D render? cutout?",
+      "   • Atmosphere and light quality: the consistent lighting mood across all posts",
       "",
-      "✅ DO invent an original scene, texture, or composition that uses the same colors, depth style, motifs, and atmosphere — something that could live on the same feed but has never appeared there before.",
-      "✅ The final ad should pass the 'same feed' test: place it next to the brand posts, and it belongs — but zoom in and it is clearly a new, original image.",
+      "B) SUBJECT-SPECIFIC ELEMENTS — what each individual post is about (THESE CHANGE):",
+      "   • The actual object, person, vehicle, food item, or scene being featured",
+      "   • Product-specific props, settings, and environment",
+      "",
+      "━━━ STEP 2: APPLY THE CRAFT TO THE NEW AD ━━━",
+      "1. Reproduce ALL Category A elements (design signature) faithfully in the new background.",
+      "   If they use dot grids → use dot grids. If they use silhouettes → use silhouettes. If they overlay translucent shapes → overlay them. HIGH fidelity here.",
+      "2. For the main subject: APPLY THE SAME RENDERING METHOD (from Category A) but TO THE CURRENT AD'S TOPIC (from CAMPAIGN CONTEXT below).",
+      "   — Brand posts use car silhouettes + the new ad is about tires → render a TIRE SILHOUETTE in the same silhouette style",
+      "   — Brand posts use food photography + the new ad is a burger offer → shoot the BURGER in the same photographic treatment",
+      "   — Brand posts use geometric 3D renders + the new ad is about software → create a SCREEN/UI in the same 3D render style",
+      "   The rendering method is constant; only the subject adapts to the campaign topic.",
+      "3. Compose fresh — invent a new layout for this format. Do NOT copy any post's exact crop, framing, or composition.",
+      "",
+      "❌ NEVER copy text, slogans, captions, brand names, or any written content from the posts.",
+      "❌ NEVER reproduce the SAME subject as any post — adapt it to the current campaign topic.",
+      "✅ DO reproduce the visual devices, motifs, and rendering methods as closely and richly as possible.",
       "The image must be ENTIRELY TEXT-FREE and ENTIRELY LOGO-FREE.",
     ].join("\n");
   } else if (bgSource === "inspired") {
@@ -2118,9 +2135,11 @@ function buildCompositionHtml(
     ? `<div style="position:absolute;${layout.block}display:flex;flex-direction:column;align-items:${alignItems};z-index:25;">${headlineEl}${subEl}${ctaEl}</div>`
     : "";
 
-  // If Gemini already built the overlay HTML (logo + scrim + text block), inject it
-  // directly. Otherwise fall back to the template-built logo/scrim/text.
-  const overlayContent = overlayHtml ?? `${scrimLayer}\n  ${logoLayer}\n  ${textBlock}`;
+  // Logo is always placed by TypeScript (never delegated to Gemini — too unreliable).
+  // If Gemini built the scrim + text block, use that; otherwise use the template versions.
+  const overlayContent = overlayHtml
+    ? `${logoLayer}\n  ${overlayHtml}`
+    : `${scrimLayer}\n  ${logoLayer}\n  ${textBlock}`;
 
   return `<!-- BANNER_START -->
 <div class="ad-banner" data-platform="${platform}" data-format="${formatName}" style="position:relative;width:${w}px;height:${h}px;overflow:hidden;font-family:${fontFamily};container-type:size">
