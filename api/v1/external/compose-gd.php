@@ -255,30 +255,58 @@ if (!defined('EXTGD_TEXT_SCALE')) {
 }
 
 if (!function_exists('extgd_font_px')) {
-    /** calc(min(Acqh, Bcqw) * N) → px relative to the banner box; or Npx. */
+    /** Resolve a CSS font-size value to pixels relative to the banner box.
+     *  Supports: calc(min(Acqh,Bcqw)*N) — TypeScript-generated format
+     *            Ncqw / Ncqh — Gemini-generated creative format
+     *            Npx — absolute pixels */
     function extgd_font_px(?string $fs, int $W, int $H): float {
         $fs = (string)$fs;
         if (preg_match('/min\(\s*([\d.]+)cqh\s*,\s*([\d.]+)cqw\s*\)\s*\*\s*([\d.]+)/i', $fs, $m)) {
             return min((float)$m[1] / 100 * $H, (float)$m[2] / 100 * $W) * (float)$m[3] * EXTGD_TEXT_SCALE;
         }
+        // Plain container-query units (Gemini creative HTML)
+        if (preg_match('/([\d.]+)\s*cqw/i', $fs, $m)) return (float)$m[1] / 100 * $W * EXTGD_TEXT_SCALE;
+        if (preg_match('/([\d.]+)\s*cqh/i', $fs, $m)) return (float)$m[1] / 100 * $H * EXTGD_TEXT_SCALE;
         if (preg_match('/([\d.]+)px/', $fs, $m)) return (float)$m[1] * EXTGD_TEXT_SCALE;
         return max(14, $H * 0.05) * EXTGD_TEXT_SCALE;
     }
 }
 
-if (!function_exists('extgd_wrap_lines')) {
-    function extgd_wrap_lines(string $text, string $font, float $size, float $maxW): array {
-        $text = trim(preg_replace('/\s+/', ' ', $text));
-        if ($text === '') return [];
-        $lines = []; $cur = '';
-        foreach (explode(' ', $text) as $w) {
-            $try = $cur === '' ? $w : $cur . ' ' . $w;
-            $bb = imagettfbbox($size, 0, $font, $try);
-            if (abs($bb[2] - $bb[0]) <= $maxW || $cur === '') { $cur = $try; }
-            else { $lines[] = $cur; $cur = $w; }
+if (!function_exists('extgd_inner_text')) {
+    /** Extract text from a DOMElement, converting <br> to \n so line breaks survive into GD. */
+    function extgd_inner_text(DOMElement $el): string {
+        $parts = [];
+        foreach ($el->childNodes as $n) {
+            if ($n instanceof DOMText) {
+                $parts[] = $n->textContent;
+            } elseif ($n instanceof DOMElement) {
+                $parts[] = (strtolower($n->tagName) === 'br') ? "\n" : extgd_inner_text($n);
+            }
         }
-        if ($cur !== '') $lines[] = $cur;
-        return $lines;
+        return implode('', $parts);
+    }
+}
+
+if (!function_exists('extgd_wrap_lines')) {
+    /** Word-wrap text to fit $maxW px. Respects \n as hard line breaks (from HTML <br> tags). */
+    function extgd_wrap_lines(string $text, string $font, float $size, float $maxW): array {
+        if ($text === '') return [];
+        $lines = [];
+        // Split on hard breaks first, then word-wrap each segment
+        foreach (explode("\n", $text) as $seg) {
+            $seg = trim(preg_replace('/\s+/', ' ', $seg));
+            if ($seg === '') { $lines[] = ''; continue; }
+            $cur = '';
+            foreach (explode(' ', $seg) as $w) {
+                if ($w === '') continue;
+                $try = $cur === '' ? $w : $cur . ' ' . $w;
+                $bb  = imagettfbbox($size, 0, $font, $try);
+                if (abs($bb[2] - $bb[0]) <= $maxW || $cur === '') { $cur = $try; }
+                else { $lines[] = $cur; $cur = $w; }
+            }
+            if ($cur !== '') $lines[] = $cur;
+        }
+        return $lines ?: [''];
     }
 }
 
@@ -488,8 +516,10 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                 imagefilledrectangle($canvas, 0, 0, $W, $H, imagecolorallocate($canvas, $c[0], $c[1], $c[2]));
                 continue;
             }
-            // ── Scrim (z-index:1, gradient, empty) ──
-            if ($tag === 'div' && (($st['z-index'] ?? '') === '1') && $node->textContent === '') {
+            // ── Scrim (z-index:1 or z-index: 1, gradient, empty) ──
+            // Accept both "z-index:1" and "z-index: 1" (Gemini sometimes adds a space).
+            $zIdx = trim($st['z-index'] ?? '');
+            if ($tag === 'div' && $zIdx === '1' && trim($node->textContent) === '') {
                 extgd_draw_scrim($canvas, $st, $W, $H);
                 continue;
             }
@@ -527,7 +557,8 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
             }
             // ── Text / CTA div → COLLECT for the second (auto-fit) pass ──
             if ($tag === 'div') {
-                $text = trim(preg_replace('/\s+/', ' ', $node->textContent));
+                $rawText = extgd_inner_text($node);
+                $text    = trim(implode("\n", array_map(static fn($s) => trim(preg_replace('/\s+/', ' ', $s)), explode("\n", $rawText))));
                 if ($text === '') continue;
 
                 // Flex column container: headline + sub + CTA are children, not siblings.
@@ -541,15 +572,33 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                     $cAlignItems = strtolower($st['align-items'] ?? 'flex-start');
                     $cTranslateY = isset($st['transform']) && stripos($st['transform'], 'translatey(-50%)') !== false;
                     $gKey = spl_object_id($node);
+                    // Parse container-level gap (Gemini prefers gap over margin-top on children)
+                    $containerGapPx = 0.0;
+                    if (isset($st['gap'])) {
+                        $gapVal = $st['gap'];
+                        if      (preg_match('/([\d.]+)\s*cqh/i', $gapVal, $gg)) $containerGapPx = (float)$gg[1] / 100 * $H;
+                        elseif  (preg_match('/([\d.]+)\s*cqw/i', $gapVal, $gg)) $containerGapPx = (float)$gg[1] / 100 * $W;
+                        elseif  (preg_match('/([\d.]+)%/',        $gapVal, $gg)) $containerGapPx = (float)$gg[1] / 100 * $H;
+                        elseif  (preg_match('/([\d.]+)px/',       $gapVal, $gg)) $containerGapPx = (float)$gg[1];
+                    }
+                    $childIdx = 0;
                     foreach (iterator_to_array($node->childNodes) as $child) {
                         if (!($child instanceof DOMElement)) continue;
                         $cSt  = extgd_parse_style($child->getAttribute('style'));
-                        $cTxt = trim(preg_replace('/\s+/', ' ', $child->textContent));
+                        // Preserve <br> as \n so extgd_wrap_lines honours hard line breaks
+                        $rawTxt = extgd_inner_text($child);
+                        $cTxt  = trim(implode("\n", array_map(static fn($s) => trim(preg_replace('/\s+/', ' ', $s)), explode("\n", $rawTxt))));
                         if ($cTxt === '') continue;
-                        $cMarginPx = 0;
-                        if (preg_match('/([\d.]+)cqh/', $cSt['margin-top'] ?? '', $mm)) {
-                            $cMarginPx = (float)$mm[1] / 100 * $H;
+                        // Spacing: explicit margin-top on child > container gap (skip for first child)
+                        $cMarginPx = 0.0;
+                        if ($childIdx > 0) {
+                            if      (preg_match('/([\d.]+)\s*cqh/i', $cSt['margin-top'] ?? '', $mm)) $cMarginPx = (float)$mm[1] / 100 * $H;
+                            elseif  (preg_match('/([\d.]+)\s*cqw/i', $cSt['margin-top'] ?? '', $mm)) $cMarginPx = (float)$mm[1] / 100 * $W;
+                            elseif  (preg_match('/([\d.]+)%/',        $cSt['margin-top'] ?? '', $mm)) $cMarginPx = (float)$mm[1] / 100 * $H;
+                            elseif  (preg_match('/([\d.]+)px/',       $cSt['margin-top'] ?? '', $mm)) $cMarginPx = (float)$mm[1];
+                            else    $cMarginPx = $containerGapPx;
                         }
+                        $childIdx++;
                         $cWeight = (int)($cSt['font-weight'] ?? 400);
                         $cFontPx = extgd_font_px($cSt['font-size'] ?? null, $W, $H);
                         $cLineH  = max(1.12, (float)($cSt['line-height'] ?? 1.2));

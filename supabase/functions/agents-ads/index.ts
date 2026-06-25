@@ -254,9 +254,10 @@ function parseComposeTextRec(text: string): ComposeTextRec | null {
 }
 
 // Calls Gemini Flash (text model) with the generated background image.
-// Receives pre-built HTML elements with UPPERCASE placeholders; Gemini fills in
-// the position/alignment CSS and returns the completed HTML overlay fragment.
-// Returns null on any failure — callers fall back to buildCompositionHtml template.
+// Gemini receives the background image and builds the COMPLETE HTML overlay from scratch.
+// It has full creative freedom: choose placement, font sizes, line breaks, alignment.
+// The returned HTML is authoritative — GD renders it exactly (pixel-faithful translation).
+// Returns null on failure — callers fall back to the static TypeScript template.
 async function buildOverlayHtmlFromGemini(
   bgDataUrl: string,
   data: AgentsAdsPayload["campaignData"],
@@ -275,82 +276,101 @@ async function buildOverlayHtmlFromGemini(
   const headline = String(data.mainHeadline || "").trim();
   const sub      = String(data.subheadline || (data as any).offer || "").trim();
   const ctaRaw   = String((data as any).ctaText || "").trim();
-  const logoUrl  = String((data as any).logoUrl || "").trim();
-  const brandName = String(data.brandName || "").trim();
   const primaryColor = extractCssVarColor(cssVars, "--primary") || "#1a1a2e";
   const fontFamily   = extractCssVarFont(cssVars) || "'Inter','Helvetica Neue',Arial,sans-serif";
-
-  const sizeScale    = Math.min(1.4, Math.max(0.7, Number(rec?.headlineScale) || 1));
-  const hlLenScale   = headline.length <= 22 ? 1 : headline.length <= 38 ? 0.86 : headline.length <= 55 ? 0.75 : 0.66;
-  const subLenScale  = sub.length <= 45 ? 1 : sub.length <= 75 ? 0.88 : 0.78;
-  const headlineFs   = `calc(min(7cqh,6.2cqw)*${(sizeScale * hlLenScale).toFixed(3)})`;
-  const subFs        = `calc(min(7cqh,6.2cqw)*${(sizeScale * 0.46 * subLenScale).toFixed(3)})`;
-  const ctaFs        = `calc(min(4.4cqh,4.1cqw)*${Math.min(1.2, sizeScale).toFixed(3)})`;
+  // Derive Google Fonts URL so GD can download the TTF for the overlay render.
+  const _fontUrlDirect = String((data as any).fontUrl || "").trim();
+  const _fontName = data.customHeadingFontName || data.headingFont
+    || (_fontUrlDirect ? extractFontFamilyFromUrl(_fontUrlDirect) : null)
+    || fontFamily.match(/['"]([^'"]+)['"]/)?.[1]?.trim() || null;
+  const _systemFonts = /^(inter|helvetica|arial|georgia|times|verdana|trebuchet|tahoma|courier|impact)$/i;
+  const fontImportUrl = _fontUrlDirect
+    || (_fontName && !_systemFonts.test(_fontName)
+      ? `https://fonts.googleapis.com/css2?family=${encodeURIComponent(_fontName).replace(/%20/g, "+")}:wght@400;700;900&display=swap`
+      : "");
   const isDark       = contrastTextColor(primaryColor).color === "#ffffff";
-  const btnBg        = isDark ? "rgba(255,255,255,0.95)" : "rgba(20,20,20,0.88)";
+  const btnBg        = isDark ? "rgba(255,255,255,0.95)" : primaryColor;
   const btnColor     = isDark ? "#111111" : "#ffffff";
-  const ts           = "0 2px 12px rgba(0,0,0,0.70),0 1px 3px rgba(0,0,0,0.50)";
   const isSocial     = isSocialFormat(format);
 
-  // Gemini only handles scrim + text block — logo is always added by TypeScript
-  // (reliable, never dropped by the model).
-  const scrimEl = `<div style="position:absolute;SCRIM_CSS;z-index:1;pointer-events:none"></div>`;
-  const headlineEl = headline
-    ? `<div style="font-family:${fontFamily};font-size:${headlineFs};font-weight:900;color:#ffffff;line-height:1.12;text-align:TEXT_ALIGN;text-shadow:${ts};overflow-wrap:break-word;">${headline}</div>`
-    : "";
-  const subEl = sub
-    ? `<div style="margin-top:1.6cqh;font-family:${fontFamily};font-size:${subFs};font-weight:400;color:rgba(255,255,255,0.90);line-height:1.34;text-align:TEXT_ALIGN;text-shadow:${ts};overflow-wrap:break-word;">${sub}</div>`
-    : "";
-  // align-self removed from CTA — it inherits the parent flex container's align-items,
-  // and having ALIGN_SELF twice caused Gemini to fill only one instance → validation failed.
-  const ctaEl = ctaRaw
-    ? (isSocial
-        ? `<div style="margin-top:2.6cqh;font-family:${fontFamily};font-size:${ctaFs};font-weight:600;color:#ffffff;text-shadow:${ts};white-space:nowrap;letter-spacing:0.3px;opacity:0.93;">${ctaRaw} ↓</div>`
-        : `<div style="margin-top:2.8cqh;display:inline-block;background:${btnBg};color:${btnColor};font-family:${fontFamily};font-size:${ctaFs};font-weight:700;padding:0.42em 0.90em;border-radius:0.38em;box-shadow:0 4px 18px rgba(0,0,0,0.22);white-space:nowrap;">${ctaRaw}</div>`)
-    : "";
-  const blockEl = (headlineEl || subEl || ctaEl)
-    ? `<div style="position:absolute;BLOCK_POS_CSS;display:flex;flex-direction:column;align-items:ALIGN_SELF;z-index:25;">${headlineEl}${subEl}${ctaEl}</div>`
-    : "";
+  if (!headline && !sub) return null;
 
-  const SYSTEM = "You are an HTML/CSS ad layout specialist. You analyze advertising background images and return completed HTML overlay fragments. Return ONLY the HTML — no explanation, no markdown fences.";
-  const USER = `This background image (${W}×${H}px) needs a text overlay composited on top. Analyze it and fill in the 3 CSS position placeholders.
+  const textLines = [
+    headline ? `• Headline: "${headline}"` : "",
+    sub ? `• Subheadline: "${sub}"` : "",
+    ctaRaw ? `• CTA: "${ctaRaw}"` : "",
+  ].filter(Boolean).join("\n");
 
-PLACEHOLDERS TO FILL:
-• SCRIM_CSS → absolute position + gradient covering the text zone (e.g.: "inset:45% 0 0 0;height:55%;background:linear-gradient(to top,rgba(0,0,0,0.72) 0%,rgba(0,0,0,0) 100%)")
-• BLOCK_POS_CSS → absolute anchor for the text block (e.g.: "left:5%;right:5%;bottom:7%;" or "left:5%;right:52%;top:50%;transform:translateY(-50%);")
-• TEXT_ALIGN → "left", "center", or "right" matching block side
-• ALIGN_SELF → "flex-start" (left block), "center", or "flex-end" (right block)
+  const ctaSpec = isSocial
+    ? (ctaRaw ? `CTA: plain text "#ffffff", ~2.5cqw, 90% opacity, append " ↓" arrow after text` : "No CTA")
+    : (ctaRaw ? `CTA: inline-block button — background:${btnBg};color:${btnColor};border-radius:0.4cqw;padding:0.5cqh 1.2cqw` : "No CTA");
 
-PLACEMENT RULES:
-1. Text block → darkest, most uniform zone where white text is instantly legible
-2. Scrim gradient → direction must face INTO the text zone ("to top" if bottom, "to bottom" if top, "to right" if left panel, "to left" if right panel)
-3. TEXT_ALIGN and ALIGN_SELF must match the block's horizontal position
-4. Use % only (no px for positions/sizes)
-5. If any text was already drawn inside the image, place the block in a DIFFERENT clean zone
+  const SYSTEM = [
+    "You are an expert HTML/CSS advertising compositor.",
+    "You receive a background image and output the complete HTML text overlay to be placed ON TOP of it.",
+    "Return ONLY raw HTML — no markdown fences, no explanation, no wrapper element.",
+  ].join(" ");
 
-ELEMENTS (fill the UPPERCASE placeholders, keep everything else unchanged):
-${scrimEl}
-${blockEl || "<!-- no text content -->"}
-
-Return ONLY the completed HTML elements above.`;
+  const USER = [
+    `BACKGROUND: The attached image is a ${W}×${H}px advertising background. Study it carefully.`,
+    `You will design and return the HTML overlay that renders ON TOP of this image.`,
+    "",
+    "TEXT CONTENT — use EXACTLY as given, no changes:",
+    textLines,
+    "",
+    "YOUR ROLE: creative advertising designer. Make this ad look great.",
+    "1. Identify the BEST zone for text on this background — where white text is most legible AND most visually compelling (look for calm/uniform areas, lower contrast, aesthetic empty space).",
+    "2. Design a scrim (dark gradient) that covers the text zone, flowing INTO it:",
+    "   • Text at bottom → 'to top' gradient | Text at top → 'to bottom' | Left panel → 'to right' | Right panel → 'to left'",
+    "3. Size fonts for maximum impact. Choose the LARGEST size that fits well:",
+    "   • Headline: 5–8cqw | Subheadline: 2.5–4cqw",
+    "   • You MAY add <br> in the headline text to split it across 2 lines for better composition",
+    "4. Choose alignment (left/center/right) for best visual balance with this background.",
+    `5. ${ctaSpec}`,
+    "",
+    "TECHNICAL RULES (do not violate):",
+    `• Parent container has container-type:size → 1cqw = ${(W / 100).toFixed(1)}px | 1cqh = ${(H / 100).toFixed(1)}px`,
+    "• Positions: % only (no px for top/left/right/bottom). Font sizes: cqw or cqh only.",
+    `• Font: ${fontFamily}`,
+    "• Text: color:#ffffff | text-shadow:0 2px 10px rgba(0,0,0,0.65),0 1px 3px rgba(0,0,0,0.45)",
+    "• Scrim: position:absolute; z-index:1; pointer-events:none",
+    "• Text block: position:absolute; display:flex; flex-direction:column; z-index:25",
+    "• Use gap:[N]cqh on the flex block for spacing between elements (not margin-top on children)",
+    "",
+    "RETURN exactly 2 elements, nothing else:",
+    "<div style=\"position:absolute;[scrim zone];background:[dark gradient into text zone];z-index:1;pointer-events:none\"></div>",
+    "<div style=\"position:absolute;[% position];display:flex;flex-direction:column;align-items:[flex-start|center|flex-end];gap:[N]cqh;z-index:25\">",
+    "  [headline child with exact text]",
+    "  [subheadline child if present]",
+    "  [cta child if present]",
+    "</div>",
+  ].join("\n");
 
   try {
-    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.1, 700, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 22000 });
+    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.3, 1100, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 25000 });
     const raw = String(res.text || "").trim()
       .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
-    // Reject if Gemini left any placeholder unfilled
-    if (/SCRIM_CSS|BLOCK_POS_CSS|TEXT_ALIGN|ALIGN_SELF/.test(raw)) {
-      console.warn(`[overlay-html] unfilled placeholders job=${opts.jobId ?? "?"}`);
-      return null;
-    }
-    // Must contain at least the scrim div (z-index:1) — always present.
-    // Accept both "z-index:1" and "z-index: 1" (Gemini sometimes adds a space).
+
+    if (!raw) { console.warn(`[overlay-html] empty response job=${opts.jobId ?? "?"}`); return null; }
+
+    // Must have a scrim (z-index:1) and a text block (z-index:2x)
     if (!/z-index\s*:\s*1\b/.test(raw)) {
       console.warn(`[overlay-html] missing scrim job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
       return null;
     }
-    console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${raw.length}`);
-    return raw;
+    if (!/z-index\s*:\s*2\d/.test(raw)) {
+      console.warn(`[overlay-html] missing text block job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
+      return null;
+    }
+    // Headline text must appear in the output (Gemini sometimes paraphrases — reject that)
+    const hlCheck = headline.slice(0, Math.min(15, headline.length));
+    if (hlCheck && !raw.includes(hlCheck)) {
+      console.warn(`[overlay-html] headline text missing job=${opts.jobId ?? "?"}`);
+      return null;
+    }
+    console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${raw.length} font=${_fontName ?? "none"}`);
+    const styleTag = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
+    return styleTag + raw;
   } catch (err) {
     console.warn(`[overlay-html] failed job=${opts.jobId ?? "?"}: ${err}`);
     return null;
