@@ -2406,15 +2406,16 @@ const GEMINI_PRICING: Record<string, { in: number; out: number }> = {
   "gemini-3-pro-preview":    { in: 2.00, out: 12.00 },
   "gemini-2.5-flash-image":  { in: 0.30, out: 0.00 }, // image output billed per token, see below
   "gemini-3-pro-image":      { in: 2.00, out: 0.00 }, // image output billed per token, see below
-  "gemini-3.1-flash-image":  { in: 0.30, out: 0.00 }, // image output billed per token, see below
+  "gemini-3.1-flash-image":  { in: 0.50, out: 0.00 }, // image output billed per token, see below
 };
 // Image OUTPUT price per 1M tokens, per model — image models bill the generated image as output
 // tokens at a model-specific rate (≈ flat-per-image once you know the token count). Adaptive so
 // the cost log reflects the model actually used instead of a hardcoded flash price.
+// Confirmed against https://ai.google.dev/gemini-api/docs/pricing (standard paid tier).
 const GEMINI_IMAGE_OUT_PER_1M: Record<string, number> = {
-  "gemini-2.5-flash-image": 30,   // ≈ $0.039 / 1290 tok
-  "gemini-3-pro-image":     120,  // ≈ $0.13–0.16 / image (≤2K)
-  "gemini-3.1-flash-image": 30,   // flash tier (estimate; update when Google publishes)
+  "gemini-2.5-flash-image": 30,   // ≈ $0.039 / image
+  "gemini-3-pro-image":     120,  // ≈ $0.134 / image (≤2K)
+  "gemini-3.1-flash-image": 60,   // ≈ $0.067 (1K) / $0.101 (2K) per image — NOT a cheap flash tier
 };
 function imageOutPricePer1M(model: string): number {
   if (GEMINI_IMAGE_OUT_PER_1M[model] !== undefined) return GEMINI_IMAGE_OUT_PER_1M[model];
