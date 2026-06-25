@@ -333,7 +333,7 @@ ${blockEl || "<!-- no text content -->"}
 Return ONLY the completed HTML elements above.`;
 
   try {
-    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.1, 700, apiKey, undefined, [bgRef], opts);
+    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.1, 700, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 22000 });
     const raw = String(res.text || "").trim()
       .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
     // Reject if Gemini left any placeholder unfilled
@@ -2221,6 +2221,7 @@ type GeminiCallOptions = {
   responseMimeType?: string;
   responseSchema?: Record<string, unknown>;
   jobId?: string; // tags cost/token logs so one generation can be summed in Supabase logs
+  timeoutMs?: number; // override the default 130s fetch timeout
 };
 
 type GenerateOptions = GeminiCallOptions & {
@@ -2386,7 +2387,7 @@ async function callGemini(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(130000),
+    signal: AbortSignal.timeout(options?.timeoutMs ?? 130000),
   });
 
   if (!res.ok) {
