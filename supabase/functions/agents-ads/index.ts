@@ -2108,11 +2108,11 @@ function buildBackgroundPrompt(
   const productMoodHint = rawProduct
     ? [
         `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: The campaign is about "${scrubBgPromptText(rawProduct)}".`,
-        "STEP 1 — Translate the product/service into a concrete, unmistakable visual:",
-        "• If it is a PHYSICAL PRODUCT (object, food, device, book, clothing, etc.): depict the product itself as the hero — large, dramatic, in the brand's lighting and colors.",
-        "• If it is a SERVICE or DIGITAL PRODUCT: do NOT show screens with generic charts or dashboards. Instead, depict the CLIENT'S TRANSFORMATION — the tangible outcome or experience the client gains after using the service. Ask: 'what does the client's life or business look like AFTER this service works?' — and render THAT moment. The outcome scene must be specific to what this service actually delivers, instantly recognizable as belonging to this exact campaign.",
-        "⛔ Generic tech scenes (laptop on desk, tablet with charts, smartphone floating in air) are FORBIDDEN for services — they say nothing about the specific outcome. The scene must be unmistakably about THIS campaign's result.",
-        "STEP 2 — Make it the DOMINANT VISUAL HERO: the translated subject must fill at least 50–60% of the frame, dramatically lit, in the brand's color palette. Not a prop in a corner.",
+        "VISUAL BRIEF — what to photograph/illustrate:",
+        "• Physical product (object, food, device, clothing, book…): the product itself, large and dramatic, shot in the brand's colors and lighting.",
+        "• Service or digital offering: do NOT render a laptop/tablet with generic charts — that is a failed interpretation. Instead, paint the SCENE of SUCCESS — the world as it looks the moment this service delivers its promise. What are people doing? What do they feel? What is visibly different? Make that moment the hero.",
+        "⛔ A generic 'tech desk' or floating device is always wrong for a service. The scene must be unmistakably about what THIS campaign delivers.",
+        "• Whichever you choose: the hero subject fills ≥50% of the frame, dramatically lit, in the brand's palette.",
         "• Depict it in THIS BRAND'S visual language: premium lighting, dramatic contrast, brand color palette as the backdrop. Not a neutral white-studio stock photo.",
         "• The background should feel like a professional art-directed shot made FOR THIS BRAND — the product/outcome rendered in their signature style (color, depth, mood, texture).",
         "⛔ Do NOT render the product name or any text anywhere in the image.",
