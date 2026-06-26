@@ -384,10 +384,6 @@ async function buildOverlayHtmlFromGemini(
     || (_fontName && !_systemFonts.test(_fontName)
       ? `https://fonts.googleapis.com/css2?family=${encodeURIComponent(_fontName).replace(/%20/g, "+")}:wght@400;700;900&display=swap`
       : "");
-  const isDark       = contrastTextColor(primaryColor).color === "#ffffff";
-  const btnBg        = isDark ? "rgba(255,255,255,0.95)" : primaryColor;
-  const btnColor     = isDark ? "#111111" : "#ffffff";
-  const isSocial     = isSocialFormat(format);
 
   if (!headline && !sub) return null;
 
@@ -397,9 +393,18 @@ async function buildOverlayHtmlFromGemini(
     ctaRaw ? `• CTA: "${ctaRaw}"` : "",
   ].filter(Boolean).join("\n");
 
-  const ctaSpec = isSocial
-    ? (ctaRaw ? `CTA: plain text "#ffffff", ~2.5cqw, 90% opacity (no arrow or icon — the render font lacks those glyphs)` : "No CTA")
-    : (ctaRaw ? `CTA: inline-block button — background:${btnBg};color:${btnColor};border-radius:0.4cqw;padding:0.5cqh 1.2cqw` : "No CTA");
+  // A real browser renders the HTML, so the CTA is no longer limited to a flat GD-safe band.
+  // Offer a menu of premium treatments and let the model pick the one that fits THIS comp —
+  // variety across ads is the goal, not one fixed look. Arrows render fine in Chrome.
+  const ctaMenu = ctaRaw
+    ? [
+        `CTA — "${ctaRaw}" — this is the single most clickable element; make it pop. Pick ONE treatment that best fits THIS composition (vary it across ads — do NOT always choose the same one):`,
+        `   ‣ GLASS PILL — display:inline-flex; align-items:center; gap:0.8cqw; background:rgba(255,255,255,0.14); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,0.40); border-radius:999px; padding:1.3cqh 3.2cqw; color:#ffffff; font-weight:700; box-shadow:0 6px 24px rgba(0,0,0,0.30); end with a small trailing arrow span "→".`,
+        `   ‣ GRADIENT BUTTON — background:linear-gradient(135deg, ACCENT, DARKER); color:#ffffff; border-radius:1.4cqw; padding:1.4cqh 3.4cqw; font-weight:800; letter-spacing:0.02em; box-shadow:0 8px 30px rgba(0,0,0,0.30) plus a soft glow tinted with the brand colour. Replace ACCENT/DARKER with the actual brand hex you sample from the image (e.g. #e63946 and a darker variant).`,
+        `   ‣ ORGANIC ACTION (no box, native-social feel) — bold #ffffff text with a trailing "→", and directly under it a short underline bar: a child div with height:0.45cqh, width a bit under the text width, background set to the brand accent hex, border-radius:999px, margin-top:0.8cqh.`,
+        `   Always use the REAL brand hex you sample for accents — never a bracket placeholder. The arrow glyph "→" is safe (a browser renders it).`,
+      ].join("\n")
+    : "No CTA";
 
   const SYSTEM = [
     "You are an expert HTML/CSS advertising compositor.",
@@ -443,12 +448,12 @@ async function buildOverlayHtmlFromGemini(
     "3. OPTION A — SPLIT LAYOUT (hero in center/middle, calm space above AND below):",
     "   • GROUP 1: position:absolute; display:flex; flex-direction:column; z-index:25 — anchored in the UPPER calm zone → contains HEADLINE ONLY.",
     "   • GROUP 2: position:absolute; display:flex; flex-direction:column; gap:2.5cqh; z-index:25 — anchored in the LOWER calm zone → contains SUBHEADLINE as first child, then CTA as second child.",
-    "   • CTA child in GROUP 2: background:[brand accent color from the image]; color:#ffffff; border-radius:1.5cqw; padding:1.2cqh 3cqw; font-size:2.2cqw; font-weight:700; align-self:flex-start.",
+    `   • CTA child in GROUP 2: align-self:flex-start; font-size:2.2cqw — style it using ONE treatment from the CTA menu below (glass pill / gradient button / organic action), NOT a flat rectangle.`,
     "   • Both groups: left:6%; right:6%; keep ≥6% margin from all edges.",
     "",
     "   OPTION B — SINGLE ZONE (calm space concentrated in one area):",
     "   • ONE flex div (z-index:25): position:absolute; display:flex; flex-direction:column; gap:≥3cqh — contains headline and subheadline.",
-    `   • CTA: SEPARATE absolute element (z-index:26). ${ctaSpec} Gap ≥8cqh below the subheadline.`,
+    `   • CTA: SEPARATE absolute element (z-index:26), styled with ONE treatment from the CTA menu below. Gap ≥8cqh below the subheadline.`,
     "",
     "4. Headline typography:",
     "   • font-size:5.5–8cqw; font-weight:900.",
@@ -458,7 +463,11 @@ async function buildOverlayHtmlFromGemini(
     "",
     "5. Subheadline: font-size:2.5–4cqw; font-weight:400. Placed in GROUP 2 (OPTION A) or inside the single flex block (OPTION B).",
     "",
+    "6. " + ctaMenu,
+    "",
     "RENDERER CAPABILITY: a real headless Chrome rasterizes your HTML — you have the FULL modern CSS toolkit. Use it tastefully for a premium look: linear/radial/conic gradients, backdrop-filter:blur() for a frosted-glass scrim panel, box-shadow, border-radius, letter-spacing, text-transform, transform, and web-font @import all render faithfully. A subtle frosted-glass or gradient scrim behind the text reads far more premium than a flat dark band — prefer it. (Do NOT, however, change the z-index structure rules below — the compositor keys on them.)",
+    "",
+    "CREATIVE POLISH (optional, tasteful — use what elevates THIS comp, never all at once): an EYEBROW/kicker line above the headline (small ~1.8cqw, uppercase, letter-spacing:0.25em, brand-accent colour) adds editorial structure; a thin accent underline bar under the headline or under the accent word ties it to the brand; gentle letter-spacing on the headline reads more premium. Keep it minimal and legible — polish supports the copy, it never crowds it.",
     "",
     "TECHNICAL RULES (do not violate):",
     "• Do NOT output any bracket-notation placeholders [like this] as text content inside any HTML element. Every element must contain only real copy text or real HTML children — never a placeholder annotation.",
@@ -483,7 +492,7 @@ async function buildOverlayHtmlFromGemini(
     "</div>",
     "<div style=\"position:absolute;bottom:7%;left:6%;right:6%;display:flex;flex-direction:column;gap:2.5cqh;z-index:25\">",
     "  <div style=\"font-size:3cqw;font-weight:400;color:#ffffff;...\">Subheadline text</div>",
-    ctaRaw ? "  <div style=\"background:#e63946;color:#ffffff;border-radius:1.5cqw;padding:1.2cqh 3cqw;font-size:2.2cqw;font-weight:700;align-self:flex-start\">CTA Text</div>" : "",
+    ctaRaw ? "  <div style=\"align-self:flex-start;display:inline-flex;align-items:center;gap:0.8cqw;background:rgba(255,255,255,0.14);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.4);border-radius:999px;padding:1.3cqh 3.2cqw;font-size:2.2cqw;font-weight:700;color:#ffffff;box-shadow:0 6px 24px rgba(0,0,0,0.30)\">CTA Text <span style=\"font-size:2.4cqw\">→</span></div>" : "",
     "</div>",
   ].filter(Boolean).join("\n");
 
