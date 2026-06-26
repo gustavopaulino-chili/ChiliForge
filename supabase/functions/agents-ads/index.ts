@@ -347,23 +347,24 @@ async function buildOverlayHtmlFromGemini(
   cssVars: string,
   apiKey: string,
   rec?: ComposeTextRec | null,
-  opts: { jobId?: number; costAcc?: { usd: number }; calmZone?: string | null } = {}
+  opts: { jobId?: number; costAcc?: { usd: number }; calmZone?: string | null; diag?: { reason?: string } } = {}
 ): Promise<string | null> {
+  const setDiag = (r: string) => { if (opts.diag) opts.diag.reason = r; };
   // Accept either a base64 data URL or a public HTTPS URL (e.g. Supabase Storage).
   // Using the already-uploaded HTTPS URL is preferred — avoids sending megabytes of base64.
   let bgRef: ReferenceImage;
   if (bgDataUrl.startsWith("https://") || bgDataUrl.startsWith("http://")) {
     try {
       const imgRes = await fetch(bgDataUrl, { signal: AbortSignal.timeout(12000) });
-      if (!imgRes.ok) { console.warn(`[overlay-html] bg fetch failed ${imgRes.status}`); return null; }
+      if (!imgRes.ok) { console.warn(`[overlay-html] bg fetch failed ${imgRes.status}`); setDiag(`bg-fetch-${imgRes.status}`); return null; }
       const buf = await imgRes.arrayBuffer();
       const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
       const mime = (imgRes.headers.get("content-type") || "image/png").split(";")[0];
       bgRef = { data: b64, mimeType: mime, label: "Ad background" };
-    } catch (err) { console.warn(`[overlay-html] bg fetch error: ${err}`); return null; }
+    } catch (err) { console.warn(`[overlay-html] bg fetch error: ${err}`); setDiag(`bg-fetch-err:${String(err).slice(0, 50)}`); return null; }
   } else {
     const match = bgDataUrl.match(/^data:([^;]+);base64,(.+)$/s);
-    if (!match) return null;
+    if (!match) { setDiag("bg-parse"); return null; }
     bgRef = { data: match[2], mimeType: match[1], label: "Ad background" };
   }
 
@@ -385,7 +386,7 @@ async function buildOverlayHtmlFromGemini(
       ? `https://fonts.googleapis.com/css2?family=${encodeURIComponent(_fontName).replace(/%20/g, "+")}:wght@400;700;900&display=swap`
       : "");
 
-  if (!headline && !sub) return null;
+  if (!headline && !sub) { setDiag("no-text"); return null; }
 
   const textLines = [
     headline ? `• Headline: "${headline}"` : "",
@@ -497,57 +498,61 @@ async function buildOverlayHtmlFromGemini(
   ].filter(Boolean).join("\n");
 
   try {
-    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.3, 1400, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 25000 });
+    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.3, 2600, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 25000 });
     const raw = String(res.text || "").trim()
       .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
 
-    if (!raw) { console.warn(`[overlay-html] empty response job=${opts.jobId ?? "?"}`); return null; }
+    if (!raw) { console.warn(`[overlay-html] empty response job=${opts.jobId ?? "?"}`); setDiag("empty"); return null; }
 
     // Must have a scrim (z-index:1) and a text block (z-index:2x)
     if (!/z-index\s*:\s*1\b/.test(raw)) {
       console.warn(`[overlay-html] missing scrim job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
-      return null;
+      setDiag("no-scrim"); return null;
     }
     if (!/z-index\s*:\s*2\d/.test(raw)) {
       console.warn(`[overlay-html] missing text block job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
-      return null;
+      setDiag("no-textblock"); return null;
     }
     // Reject if Gemini echoed bracket placeholders as literal text content (e.g. >[left:5%]<)
     if (/>[^<]*\[[^\]]{3,}\][^<]*</.test(raw)) {
       console.warn(`[overlay-html] bracket placeholder in output job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
-      return null;
+      setDiag("bracket"); return null;
     }
-    // Headline text must appear in the output verbatim — reject paraphrases.
-    // Check first 80% of the headline (up to 60 chars) so minor punctuation changes don't reject.
+    // Headline text must appear in the output — reject paraphrases. The prompt ASKS the model
+    // to insert a <br> (and an accent <span>) inside the headline, so a raw .includes() of the
+    // contiguous headline would false-fail on essentially every multi-word headline and fall
+    // back to the template. Compare against a TAG-STRIPPED, whitespace-normalized copy instead.
+    const stripTags = (s: string): string =>
+      s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ").trim();
     const hlCheckLen = Math.min(60, Math.max(10, Math.floor(headline.length * 0.8)));
-    const hlCheck = headline.slice(0, hlCheckLen);
-    if (hlCheck && !raw.includes(hlCheck)) {
+    const hlCheck = stripTags(headline.slice(0, hlCheckLen));
+    if (hlCheck && !stripTags(raw).includes(hlCheck)) {
       console.warn(`[overlay-html] headline paraphrased job=${opts.jobId ?? "?"} expected="${hlCheck}"`);
-      return null;
+      setDiag(`headline:${hlCheck.slice(0, 24)}`); return null;
     }
     // Autocrítica: Flash reviews its own output against the background image — retry once if poor.
     if (CRITIQUE_OVERLAY && (bgDataUrl.startsWith("http://") || bgDataUrl.startsWith("https://"))) {
       const ok = await critiqueOverlayHtml(bgDataUrl, raw, apiKey, opts);
       if (!ok) {
         // Re-run the Gemini call once with a hint to improve placement
-        const res2 = await callGemini(SYSTEM, USER + "\n\nIMPORTANT: Your previous layout had a visual problem (text over busy area, or CTA hidden). Regenerate with better placement.", "gemini-2.5-flash", 0.4, 1400, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 25000 }).catch(() => null);
+        const res2 = await callGemini(SYSTEM, USER + "\n\nIMPORTANT: Your previous layout had a visual problem (text over busy area, or CTA hidden). Regenerate with better placement.", "gemini-2.5-flash", 0.4, 2600, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 25000 }).catch(() => null);
         if (res2?.text) {
           const raw2 = String(res2.text).trim()
             .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
-          if (raw2 && /z-index\s*:\s*1\b/.test(raw2) && /z-index\s*:\s*2\d/.test(raw2) && raw2.includes(hlCheck || "")) {
+          if (raw2 && /z-index\s*:\s*1\b/.test(raw2) && /z-index\s*:\s*2\d/.test(raw2) && stripTags(raw2).includes(hlCheck || "")) {
             console.log(`[overlay-critique] retry accepted job=${opts.jobId ?? "?"}`);
             const styleTag2 = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-            return styleTag2 + raw2;
+            setDiag("ok-retry"); return styleTag2 + raw2;
           }
         }
       }
     }
     console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${raw.length} font=${_fontName ?? "none"}`);
     const styleTag = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-    return styleTag + raw;
+    setDiag("ok"); return styleTag + raw;
   } catch (err) {
     console.warn(`[overlay-html] failed job=${opts.jobId ?? "?"}: ${err}`);
-    return null;
+    setDiag(`exception:${String(err).slice(0, 80)}`); return null;
   }
 }
 
@@ -3440,7 +3445,7 @@ serve(async (req: Request) => {
         // DIFFERENT layout (square / story / landscape look distinct). The chosen layout is
         // STORED per ratio so the HTML overlay reuses the exact same one the background
         // reserved space for — text and background never disagree.
-        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string; overlayHtml?: string | null }>();
+        const bgByRatio = new Map<string, { url: string; rec: ComposeTextRec | null; prompt?: string; refCount?: number; layout: string; overlayHtml?: string | null; overlayDiag?: string }>();
         const uniqueRatios = [...new Set(imageTasks.map((task) => imageAspectRatioForFormat(task.format)))];
         for (const aspectRatio of uniqueRatios) {
           const task = imageTasks.find((candidate) => imageAspectRatioForFormat(candidate.format) === aspectRatio)!;
@@ -3494,10 +3499,11 @@ serve(async (req: Request) => {
           // +1 Gemini round-trip of latency; buys far more accurate text placement.
           // overlayHtml from Gemini is authoritative when available; TypeScript template is the fallback.
           const calm = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
+          const overlayDiag: { reason?: string } = {};
           const geminiOverlay = bgForZone
-            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null })
+            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, diag: overlayDiag })
             : null;
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay });
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay, overlayDiag: overlayDiag.reason });
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -3521,7 +3527,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, overlayFromGemini: Boolean(bg.overlayHtml), aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, overlayFromGemini: Boolean(bg.overlayHtml), overlayDiag: bg.overlayDiag ?? null, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(composeFns, 4);
