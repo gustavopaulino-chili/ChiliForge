@@ -341,17 +341,20 @@ async function buildOverlayHtmlFromGemini(
     "",
     "YOUR ROLE: expert social media ad designer. Full creative freedom — make this ad look outstanding.",
     "1. Study the background deeply: find where there is calm/dark/low-contrast space — that is your text zone.",
-    "   • This is a social media post (square or vertical). Text can go bottom, top, left panel, right panel, or center — pick what makes this specific background look best.",
+    "   • Text can go bottom, top, left panel, right panel, or center — pick what makes this specific background look best.",
     "   • Don't default to bottom every time. If the calm area is on top or side, use it.",
-    "   • The background was generated with ONE generous calm area reserved for text — locate that area and place the text block there, so text and background agree.",
-    "   • Keep comfortable margins (≥6% from every edge) and generous spacing between elements — never cram the text against an edge or pack it tightly. Let it breathe.",
+    "   • The background reserved ONE generous calm area — locate it and place the text block there.",
+    "   • Keep comfortable margins (≥6% from every edge). Let the layout breathe.",
     "2. Scrim: cover the text zone with a dark gradient that flows TOWARD the text (not away):",
-    "   • Text at bottom → gradient 'to top' | Top → 'to bottom' | Left panel → 'to right' | Right → 'to left' | Center → radial",
-    "3. Typography — go BOLD and impactful:",
-    "   • Headline: 5.5–8cqw. You MAY split across 2 lines with <br> for rhythm.",
-    "   • Subheadline: 2.5–4cqw. CTA slightly smaller or as a button.",
-    "4. Alignment: left, center, or right — whichever creates the best visual tension with this specific background.",
-    `5. ${ctaSpec}`,
+    "   • Text at bottom → 'to top' | Top → 'to bottom' | Left panel → 'to right' | Right → 'to left' | Center → radial",
+    "3. Headline + Subheadline — one flex block, placed where the background is calm:",
+    "   • Headline: 5.5–8cqw, font-weight:900. MAY split across 2 lines with <br> for rhythm.",
+    "   • Subheadline: 2.5–4cqw, font-weight:400. Gap between headline and sub: at least 3cqh.",
+    "   • Alignment: left, center, or right — whichever fits the background best.",
+    "4. CTA — SEPARATE element, independently anchored. Do NOT put the CTA inside the text flex block.",
+    "   • Anchor it to a DIFFERENT zone than the headline block: if headline is in the upper/middle area, place CTA near the bottom; if headline is at bottom, place CTA inside the same zone but with a large gap (≥8cqh) between subheadline and CTA.",
+    "   • The CTA must have clear visual separation from the text block — it should feel like a distinct call-to-action, not a third line of copy.",
+    `   • ${ctaSpec}`,
     "",
     "TECHNICAL RULES (do not violate):",
     `• Parent container has container-type:size → 1cqw = ${(W / 100).toFixed(1)}px | 1cqh = ${(H / 100).toFixed(1)}px`,
@@ -360,19 +363,19 @@ async function buildOverlayHtmlFromGemini(
     "• Text: color:#ffffff | text-shadow:0 2px 10px rgba(0,0,0,0.65),0 1px 3px rgba(0,0,0,0.45)",
     "• Scrim: position:absolute; z-index:1; pointer-events:none",
     "• Logo img: position:absolute; object-fit:contain; z-index:20",
-    "• Text block: position:absolute; display:flex; flex-direction:column; z-index:25",
-    "• Use gap:[N]cqh on the flex block for spacing between elements (not margin-top on children)",
+    "• Text block (headline+sub only): position:absolute; display:flex; flex-direction:column; z-index:25; gap:≥3cqh",
+    "• CTA div: position:absolute; z-index:26 — standalone, NOT a child of the text block",
     "",
     logoUrl
-      ? "RETURN exactly 3 elements in this order: scrim div, logo img, text block div."
-      : "RETURN exactly 2 elements in this order: scrim div, text block div.",
-    "<div style=\"position:absolute;[scrim zone];background:[dark gradient into text zone];z-index:1;pointer-events:none\"></div>",
-    logoUrl ? `<img src="${logoUrl}" style="position:absolute;[corner position];width:[20–32]%;max-height:14%;object-fit:contain;z-index:20" alt="logo" />` : "",
-    "<div style=\"position:absolute;[% position];display:flex;flex-direction:column;align-items:[flex-start|center|flex-end];gap:[N]cqh;z-index:25\">",
-    "  [headline child with exact text]",
-    "  [subheadline child if present]",
-    "  [cta child if present]",
+      ? "RETURN exactly 4 elements in this order: scrim div, logo img, text block div (headline+sub), CTA div."
+      : "RETURN exactly 3 elements in this order: scrim div, text block div (headline+sub), CTA div.",
+    "<div style=\"position:absolute;[scrim zone];background:[dark gradient];z-index:1;pointer-events:none\"></div>",
+    logoUrl ? `<img src="${logoUrl}" style="position:absolute;[corner];width:[20–32]%;max-height:14%;object-fit:contain;z-index:20" alt="logo" />` : "",
+    "<div style=\"position:absolute;[% position];display:flex;flex-direction:column;align-items:[start|center|end];gap:[≥3]cqh;z-index:25\">",
+    "  [headline div]",
+    "  [subheadline div if present]",
     "</div>",
+    ctaRaw ? "<div style=\"position:absolute;[different anchor, e.g. bottom:8%;left/right:%];z-index:26;[cta styling]\">[CTA text]</div>" : "",
   ].filter(Boolean).join("\n");
 
   try {
@@ -3216,12 +3219,12 @@ serve(async (req: Request) => {
             throw err;
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          // Content-aware placement: detect where the GENERATED background is actually calmest and
-          // put the text there (the image model routinely ignores the reserved zone). Falls back to
-          // the rotated layout if the check fails.
           const bgForZone = bgHosted || gen?.url || "";
-          const calmLayout = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: null });
+          const [calmLayout, geminiOverlay] = await Promise.all([
+            bgForZone ? pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : Promise.resolve(null),
+            bgForZone ? buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId }) : Promise.resolve(null),
+          ]);
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: geminiOverlay });
         }
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -3279,11 +3282,14 @@ serve(async (req: Request) => {
             throw err;
           });
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
-          // Content-aware placement (see A/B path above): place text where the background is
-          // actually calmest; fall back to the rotated layout if the check fails.
           const bgForZone = bgHosted || gen?.url || "";
-          const calmLayout = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: null });
+          // Run calm-zone detection and Gemini overlay generation in parallel — both need the hosted BG.
+          // overlayHtml from Gemini is authoritative when available; TypeScript template is the fallback.
+          const [calmLayout, geminiOverlay] = await Promise.all([
+            bgForZone ? pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : Promise.resolve(null),
+            bgForZone ? buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId }) : Promise.resolve(null),
+          ]);
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: geminiOverlay });
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
