@@ -325,12 +325,19 @@ async function buildOverlayHtmlFromGemini(
     "Return ONLY raw HTML — no markdown fences, no explanation, no wrapper element.",
   ].join(" ");
 
+  const logoUrl = String(data.logoUrl || "").trim();
+  const logoLine = logoUrl
+    ? `LOGO: place <img src="${logoUrl}"> — choose the corner/position that best suits this layout. Size: width between 20%–32%, max-height 14%; adjust smaller or larger to fit the composition. Use object-fit:contain. z-index:20. The logo image is IMMUTABLE — render it exactly as-is, never redraw, recolor or alter it.`
+    : "";
+
   const USER = [
     `BACKGROUND: The attached image is a ${W}×${H}px advertising background. Study it carefully.`,
     `You will design and return the HTML overlay that renders ON TOP of this image.`,
     "",
     "TEXT CONTENT — use EXACTLY as given, no changes:",
     textLines,
+    "",
+    logoLine,
     "",
     "YOUR ROLE: expert social media ad designer. Full creative freedom — make this ad look outstanding.",
     "1. Study the background deeply: find where there is calm/dark/low-contrast space — that is your text zone.",
@@ -348,24 +355,28 @@ async function buildOverlayHtmlFromGemini(
     "",
     "TECHNICAL RULES (do not violate):",
     `• Parent container has container-type:size → 1cqw = ${(W / 100).toFixed(1)}px | 1cqh = ${(H / 100).toFixed(1)}px`,
-    "• Positions: % only (no px for top/left/right/bottom). Font sizes: cqw or cqh only.",
+    "• Positions: % only (no px for top/left/right/bottom). Font sizes: cqw or cqh only. Logo width/max-height: % only.",
     `• Font: ${fontFamily}`,
     "• Text: color:#ffffff | text-shadow:0 2px 10px rgba(0,0,0,0.65),0 1px 3px rgba(0,0,0,0.45)",
     "• Scrim: position:absolute; z-index:1; pointer-events:none",
+    "• Logo img: position:absolute; object-fit:contain; z-index:20",
     "• Text block: position:absolute; display:flex; flex-direction:column; z-index:25",
     "• Use gap:[N]cqh on the flex block for spacing between elements (not margin-top on children)",
     "",
-    "RETURN exactly 2 elements, nothing else:",
+    logoUrl
+      ? "RETURN exactly 3 elements in this order: scrim div, logo img, text block div."
+      : "RETURN exactly 2 elements in this order: scrim div, text block div.",
     "<div style=\"position:absolute;[scrim zone];background:[dark gradient into text zone];z-index:1;pointer-events:none\"></div>",
+    logoUrl ? `<img src="${logoUrl}" style="position:absolute;[corner position];width:[20–32]%;max-height:14%;object-fit:contain;z-index:20" alt="logo" />` : "",
     "<div style=\"position:absolute;[% position];display:flex;flex-direction:column;align-items:[flex-start|center|flex-end];gap:[N]cqh;z-index:25\">",
     "  [headline child with exact text]",
     "  [subheadline child if present]",
     "  [cta child if present]",
     "</div>",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   try {
-    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.3, 1100, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 25000 });
+    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.3, 1400, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 25000 });
     const raw = String(res.text || "").trim()
       .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
 
@@ -2246,10 +2257,10 @@ function buildCompositionHtml(
     ? `<div style="position:absolute;${layout.block}display:flex;flex-direction:column;align-items:${alignItems};z-index:25;">${headlineEl}${subEl}${ctaEl}</div>`
     : "";
 
-  // Logo is always placed by TypeScript (never delegated to Gemini — too unreliable).
-  // If Gemini built the scrim + text block, use that; otherwise use the template versions.
+  // When Gemini built the overlay, it already placed the logo at its own size/position.
+  // TypeScript only injects logoLayer in the fallback template path.
   const overlayContent = overlayHtml
-    ? `${logoLayer}\n  ${overlayHtml}`
+    ? overlayHtml
     : `${scrimLayer}\n  ${logoLayer}\n  ${textBlock}`;
 
   return `<!-- BANNER_START -->
