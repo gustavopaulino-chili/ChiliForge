@@ -345,7 +345,7 @@ async function buildOverlayHtmlFromGemini(
     "   • Don't default to bottom every time. If the calm area is on top or side, use it.",
     "   • The background reserved ONE generous calm area — locate it and place the text block there.",
     "   • Keep comfortable margins (≥6% from every edge). Let the layout breathe.",
-    "   • WIDTH RULE: The text block must always span at least 80% of the banner width. Even in side-panel layouts, use left:5% right:5% (or equivalent) so text fills the full width — not left:50% right:5% (that creates a tiny cramped column). The text occupies the FULL width; the background image provides the visual split, not CSS clipping.",
+     "   • WIDTH RULE — NON-NEGOTIABLE: The text block ALWAYS spans the FULL banner width: left:5% right:5% (or wider). NEVER write left:40%, left:50% or any value that pushes text into only one half. It does not matter what the background looks like — do NOT constrain text to a side column. The text must be full-width always.",
     "2. Scrim: a LIGHT dark gradient over the text zone — enough to read white text, but NOT a heavy black wash.",
     "   • Use rgba(0,0,0,0.45) at most at the darkest point. Prefer 0.30–0.40. The background image must still be visible through the scrim.",
     "   • Direction: Text at bottom → 'to top' | Top → 'to bottom' | Left panel → 'to right' | Right → 'to left' | Center → radial",
@@ -415,7 +415,7 @@ async function buildOverlayHtmlFromGemini(
 const CALM_ZONE_TO_LAYOUT: Record<string, string> = {
   bottom: "hero-full-bleed",       // full-width band along the bottom
   top:    "bold-headline-first",   // full-width band along the top
-  left:   "left-panel-right-image",// left panel, vertically centered
+  left:   "hero-full-bleed",       // side-panel layouts banned — fall back to full-bleed
   right:  "top-right-editorial",   // right side
   center: "centered-minimal",      // centered
 };
@@ -1042,7 +1042,7 @@ CTA: [shape, bg-color hex, text-color hex, border-radius, anchor position — NO
 Mood: [2-3 adjectives describing the overall visual feel]
 Anti-clone: [how this format's composition differs from ALL other formats in this batch]
 
-LAYOUT FREEDOM: Choose varied text locations. Do not put every headline/subheadline/CTA in the same area. Prefer the strongest layout from: hero-full-bleed, diagonal-split, top-image-bottom-text, left-panel-right-image, centered-minimal, bold-headline-first, frame-product, top-left-editorial, top-right-editorial, bottom-right-editorial, vertical-story-stack, floating-islands. The Layout line should include one of these keys.
+LAYOUT FREEDOM: Choose varied text locations. Do not put every headline/subheadline/CTA in the same area. Prefer the strongest layout from: hero-full-bleed, top-image-bottom-text, centered-minimal, bold-headline-first, frame-product, top-left-editorial, top-right-editorial, bottom-right-editorial, vertical-story-stack, floating-islands. The Layout line should include one of these keys. DO NOT use diagonal-split or left-panel-right-image — those layouts are banned.
 SOCIAL CTA RULE: For social/story/reels/feed/post formats, CTA must be organic text placement only. Never specify a button, pill, rectangle, or clickable UI shape.
 
 ⚠️ COPY RESTRICTION: Do NOT write any headline text, CTA button words, body copy, or subheadline content in any spec field. Describe VISUAL DESIGN PARAMETERS ONLY. The actual copy is locked externally.
@@ -1096,10 +1096,8 @@ function buildInterpretImagePrompt(campaignFacts: string, formats: AdFormat[], f
 }
 
 const COMPOSITION_POOL = [
-  "diagonal-split: clip-path:polygon(0 0,62% 0,42% 100%,0 100%) dark overlay on left, product right",
   "hero-full-bleed: product as full background, gradient overlay bottom 50%, text+CTA stacked bottom",
   "top-image-bottom-text: product image top 55% height, brand color panel bottom 45% with text+CTA",
-  "left-panel-right-image: solid brand panel left 42%, product image right 58%, logo+text in panel",
   "centered-minimal: product center, headline above, CTA below, geometric accent shape behind product",
   "bold-headline-first: oversized headline top 40%, product mid 40%, CTA bottom 20%, minimal bg",
   "frame-product: product centered with geometric frame/border accent, brand color corners, text at edges",
@@ -1557,9 +1555,7 @@ async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, limit: numb
 
 const LAYOUT_KEYS = [
   "hero-full-bleed",
-  "diagonal-split",
   "top-image-bottom-text",
-  "left-panel-right-image",
   "centered-minimal",
   "bold-headline-first",
   "frame-product",
@@ -2035,11 +2031,18 @@ function buildBackgroundPrompt(
   const stripBgCopyLines = (facts: string): string =>
     String(facts || "")
       .split("\n")
-      .filter((ln) => {
+      .map((ln) => {
         const t = ln.trim();
-        if (/^EXACT COPY/i.test(t)) return false;
-        return !/^(Campaign|Brand|Product\/Service|Value prop|CTA|Offer|Price|Discount|Guarantee|Scarcity|headline|subheadline|cta)\s*:/i.test(t);
+        if (/^EXACT COPY/i.test(t)) return null;
+        // Product/Service is kept but reframed as a visual subject so the model knows WHAT to
+        // depict without receiving a verbatim copy line it might burn into the image as text.
+        if (/^Product\/Service\s*:/i.test(t)) {
+          return t.replace(/^Product\/Service\s*:/i, "Visual subject of this ad (do NOT render this as text — use it to choose what to DEPICT visually):");
+        }
+        if (/^(Campaign|Brand|Value prop|CTA|Offer|Price|Discount|Guarantee|Scarcity|headline|subheadline|cta)\s*:/i.test(t)) return null;
+        return ln;
       })
+      .filter((ln): ln is string => ln !== null)
       .join("\n");
   const safeFacts = scrubBgPromptText(stripBgCopyLines(campaignFactsImg));
 
@@ -2055,13 +2058,10 @@ function buildBackgroundPrompt(
     sourceBlock,
     "",
     briefBlock,
-    "████ CAMPAIGN RELEVANCE — DEPICT THE ACTUAL SERVICE, NOT RANDOM PROPS ████",
-    "The scene MUST make it instantly obvious WHAT IS BEING SOLD — show the real subject of THIS specific product/service, not a vaguely-related mood.",
-    "Read the Product/Service in the CAMPAIGN CONTEXT and depict ITS actual subject:",
-    "• Social-media management / content marketing → screens showing a social feed, post grid, engagement metrics, follower growth charts, a content calendar, a phone with notifications/likes. NOT cameras, microphones, podcasts or generic photo gear.",
-    "• A food offer → the food. A fitness offer → training/motion. A law firm → refined corporate materials. A software tool → its UI/dashboard.",
-    "⛔ Do NOT drift to loosely-related or tangential props (e.g. cameras/microphones/podcast gear for a DIGITAL social-media service). If the service is digital, show screens/apps/data — the digital work itself.",
-    "It should read as 'this is exactly what they do', immediately and unambiguously.",
+    "████ CAMPAIGN RELEVANCE — VISUAL SUBJECT DRIVES THE SCENE ████",
+    "The 'Visual subject' field above tells you WHAT this specific campaign is about. Build your scene around THAT subject — not around a generic industry archetype.",
+    "⛔ Do NOT default to a generic visual that could fit any campaign in this industry. Each campaign has its own specific topic — read it and pick imagery that makes THAT topic instantly recognizable.",
+    "It should read as 'this is exactly what THIS campaign is about', immediately and unambiguously.",
     bgSource === "shapes"
       ? "Even though this is an ABSTRACT background, the palette, energy and mood must still reflect the campaign's product, audience and tone — not a decorative pattern unrelated to the offer."
       : "Keep it cohesive with the brand colors and the chosen visual style/tone; do not drift into stock visuals that ignore what is being advertised.",
