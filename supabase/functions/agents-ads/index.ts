@@ -271,6 +271,12 @@ function parseComposeTextRec(text: string): ComposeTextRec | null {
 const VALIDATE_BACKGROUND = true;  // background text detection + retry
 const CRITIQUE_OVERLAY    = true;  // Flash self-reviews its overlay and retries once if poor
 
+// Appended to the bg prompt when a regeneration is triggered because the first attempt leaked
+// text. The #1 source of leaked text is the model COPYING copy/captions from the attached brand
+// posts — so the reminder calls that out explicitly.
+const NO_TEXT_RETRY_REMINDER =
+  "\n\n⛔⛔ RETRY REASON — TEXT LEAK: your previous attempt rendered VISIBLE TEXT/LETTERS/WORDS into the image. This is a hard failure. The attached brand/reference images CONTAIN text, captions, headlines and wordmarks — you MUST NOT copy, trace, paraphrase or invent ANY of it. Output a background with ABSOLUTELY ZERO letters, words, numbers, captions, slogans, logos or wordmarks anywhere — not on walls, screens, props, clothing, signage or as decoration. Every surface stays completely blank. Keep ONLY the visual subject and the brand colours/lighting.";
+
 /**
  * Asks Gemini Flash to check whether a generated background image contains any visible text or
  * logos. Returns true if text/logo found (image should be rejected/retried), false otherwise.
@@ -446,7 +452,7 @@ async function buildOverlayHtmlFromGemini(
     `You will design and return the HTML overlay that renders ON TOP of this image.`,
     "",
     calmZoneLine,
-    "TEXT CONTENT — use EXACTLY as given, no changes:",
+    "TEXT CONTENT — ⛔ COPY THIS TEXT VERBATIM, WORD-FOR-WORD. Do NOT rewrite, rephrase, translate, shorten, expand, or 'improve' the headline, subheadline or CTA. Use the EXACT characters given (you may only add a <br> line break and wrap ONE word in an accent <span> — never change the words themselves):",
     textLines,
     "",
     logoLine,
@@ -523,17 +529,25 @@ async function buildOverlayHtmlFromGemini(
       console.warn(`[overlay-html] bracket placeholder in output job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
       setDiag("bracket"); return null;
     }
-    // Headline text must appear in the output — reject paraphrases. The prompt ASKS the model
-    // to insert a <br> (and an accent <span>) inside the headline, so a raw .includes() of the
-    // contiguous headline would false-fail on essentially every multi-word headline and fall
-    // back to the template. Compare against a TAG-STRIPPED, whitespace-normalized copy instead.
+    // Headline must appear in the output — reject only a FULL rewrite, not a light edit. A
+    // contiguous substring match was far too brittle: the prompt asks the model to insert <br>
+    // and an accent <span> into the headline, and the model also reorders/adds a word, so the
+    // exact string rarely survives and the overlay always fell back to the template. Instead,
+    // require that ≥65% of the headline's significant words (len ≥3) appear anywhere in the
+    // tag-stripped output — robust to <br>/<span>/word inserts, still catches a real paraphrase.
     const stripTags = (s: string): string =>
-      s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ").trim();
-    const hlCheckLen = Math.min(60, Math.max(10, Math.floor(headline.length * 0.8)));
-    const hlCheck = stripTags(headline.slice(0, hlCheckLen));
-    if (hlCheck && !stripTags(raw).includes(hlCheck)) {
-      console.warn(`[overlay-html] headline paraphrased job=${opts.jobId ?? "?"} expected="${hlCheck}"`);
-      setDiag(`headline:${hlCheck.slice(0, 24)}`); return null;
+      s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ").trim().toLowerCase();
+    const hlWords = headline.toLowerCase().split(/\s+/).filter((w) => w.replace(/[^\p{L}\p{N}]/gu, "").length >= 3);
+    const headlinePresent = (h: string): boolean => {
+      if (hlWords.length < 3) return true; // too short to judge — accept
+      const low = stripTags(h);
+      const hits = hlWords.filter((w) => low.includes(w.replace(/[^\p{L}\p{N}]/gu, ""))).length;
+      return hits / hlWords.length >= 0.65;
+    };
+    if (!headlinePresent(raw)) {
+      console.warn(`[overlay-html] headline rewritten job=${opts.jobId ?? "?"} expected≈"${headline.slice(0, 30)}"`);
+      const textOnly = stripTags(raw).replace(/https?:\/\/[^\s"')]+/g, " ").replace(/\s+/g, " ").trim();
+      setDiag(`hl-rw|raw:${raw.length}|strip:${stripTags(raw).length}|txt:${textOnly.slice(0, 100)}`); return null;
     }
     // Legibility scrim: a real browser renders everything, so DON'T reject an overlay that lacks
     // the exact z-index:1 scrim (the model now often uses a glass/blur panel instead). Just inject
@@ -552,7 +566,7 @@ async function buildOverlayHtmlFromGemini(
         if (res2?.text) {
           const raw2 = String(res2.text).trim()
             .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
-          if (raw2 && stripTags(raw2).includes(hlCheck || "")) {
+          if (raw2 && headlinePresent(raw2)) {
             console.log(`[overlay-critique] retry accepted job=${opts.jobId ?? "?"}`);
             const styleTag2 = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
             setDiag("ok-retry"); return styleTag2 + ensureScrim(raw2);
@@ -2174,14 +2188,15 @@ function buildBackgroundPrompt(
   // guidance — the FIRST attached image is the hero subject and must visibly appear in the ad.
   if (heroRef && hasRefImages) {
     sourceBlock = [
-      "████ BACKGROUND SOURCE: HERO REFERENCE — FEATURE THIS IMAGE ████",
-      "The FIRST attached image is the HERO of this ad. The user chose it on purpose and wants it CLEARLY PRESENT in the final creative — this is NOT mere style inspiration.",
-      "• FEATURE the subject of that first image prominently (the person/product/scene shown in it). Preserve their identity, appearance, pose energy and key features — keep them recognizably the same.",
-      "• Place that hero subject as the main focal element, filling a large part of the frame, sharp and well-lit.",
-      "• Re-light and color-grade the scene so it sits inside THIS brand's palette and mood (brand colors dominate the surroundings), but do NOT change who/what the hero is.",
-      "• Any OTHER attached images are brand STYLE references only — borrow their look, never their subjects.",
-      "• Still NO text, NO logos, NO wordmarks anywhere (those are composited on top later). If the reference image contains text/logo, omit it — keep only the subject.",
-      "• Recompose for this aspect ratio and leave the reserved text-safe zone calm and uncluttered.",
+      "████ BACKGROUND SOURCE: HERO REFERENCE — FEATURE THIS PERSON IN A UGC SCENE ████",
+      "The FIRST attached image is the HERO of this ad — a real person the user chose on purpose. They MUST appear, recognizably, in the final creative. This is NOT style inspiration.",
+      "• PRESERVE THEIR IDENTITY: same face, hair, beard, skin tone, body and overall look as the reference. It must clearly read as the SAME person. Do not swap them for a different model.",
+      "• DO NOT paste them as a flat studio cut-out on a plain colour field. Instead, place them inside an AUTHENTIC, DYNAMIC UGC 'SCENE OF SUCCESS' with natural candid energy, real depth and foreground/background layers — like a great UGC ad, not a corporate headshot.",
+      "• ⭐ THE UGC SCENE MUST BE ABOUT THE PRODUCT/CAMPAIGN (see CAMPAIGN CONTEXT) — not a generic lifestyle shot. Show this person actually living the campaign's promise: doing/using/benefiting from what is being advertised, in the exact context of the offer. The moment must instantly read as 'this is about THAT product'. Example: for a TikTok ads service → the person filming/going viral/celebrating content results on their phone; for a fitness product → using it mid-workout. The product/service or its outcome is visibly the point of the scene.",
+      "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
+      "• The person fills a large part of the frame, sharp and well-lit, as the unmistakable focal point; the scene supports them.",
+      "• Any OTHER attached images are brand STYLE references only — borrow their look/lighting/palette, NEVER their subjects and NEVER their text.",
+      "• Recompose for this aspect ratio and keep the reserved text-safe zone calm and uncluttered.",
     ].join("\n");
   }
 
@@ -2270,6 +2285,7 @@ function buildBackgroundPrompt(
     "❌ NO hex codes, color codes, the '#' character, CSS tokens, variable names, URLs, file paths, or numbers.",
     "❌ NO button shapes, pill shapes, card shapes, or any UI element that resembles a text container.",
     "❌ NO placeholder boxes, lorem ipsum, or shapes that imply text.",
+    "❌ THE ATTACHED REFERENCE/BRAND IMAGES CONTAIN TEXT (captions, headlines, slogans, wordmarks). You MUST NOT reproduce, trace, paraphrase or 'echo' ANY of their text — not even garbled/fake lookalike lettering. Treat every word in the reference images as if it were invisible. Copy their STYLE and colours only, never their words.",
     "❌ If you render ANY product, package, container, label, tag or object, ALL SURFACES MUST BE COMPLETELY BLANK — no text, no letters, no numbers, no logo, no title. Any printed surface with ANY text is a complete render failure.",
     "❌ Any SCREEN, monitor, laptop, phone or tablet visible in the image must show NO text, labels, font names, UI captions, app names, or ANY readable annotation — no matter how small. The screen content can be abstract shapes, solid colors, blurred bokeh, or nothing at all.",
     "⛔ CRITICAL — THE TEXT ZONE / RESERVED PANEL MUST ALSO BE TEXT-FREE: When you create a dark panel, diagonal cutout, gradient band, or any calm area reserved for overlay text, that area must be COMPLETELY EMPTY of any letters, words, or characters — including layout annotations like 'text-safe', 'calm zone', 'generous', or any descriptor of the zone itself. Do NOT write a preview headline, placeholder copy, category name, product name, or ANY text inside that zone. The zone is a clean color/gradient surface ONLY.",
@@ -3512,20 +3528,24 @@ serve(async (req: Request) => {
             const hasText = await backgroundHasText(gen.url, apiKey, { jobId, costAcc });
             if (hasText) {
               console.warn(`[bg-validate] retrying background generation job=${jobId ?? "?"}`);
-              const retry = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
+              const retry = await generateAdImage(bgPrompt + NO_TEXT_RETRY_REMINDER, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
               if (retry) {
                 gen = retry;
                 const retryHasText = await backgroundHasText(retry.url, apiKey, { jobId, costAcc });
-                if (retryHasText) {
-                  // Both photographic attempts leaked readable text. Last resort: an ABSTRACT
-                  // shapes background (no photography, no objects, no screens) essentially cannot
-                  // contain legible text — forced text-free. Costs one extra image gen on this
-                  // rare double-failure path; far better than shipping a banner with garbled text.
+                if (retryHasText && !heroRef) {
+                  // Both photographic attempts leaked text AND there is no hero subject to protect.
+                  // Last resort: an ABSTRACT shapes background (no photography/objects/screens)
+                  // essentially cannot contain legible text — forced text-free. One extra gen.
                   console.warn(`[bg-validate] retry also has text → shapes fallback job=${jobId ?? "?"}`);
                   const shapesPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), "shapes", false, visualBriefForPrompt);
                   const shapes = await generateAdImage(shapesPrompt, [], apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
                   if (shapes) { gen = shapes; console.log(`[bg-validate] shapes fallback ok job=${jobId ?? "?"}`); }
                   else console.warn(`[bg-validate] shapes fallback failed, keeping texty bg job=${jobId ?? "?"}`);
+                } else if (retryHasText) {
+                  // Hero mode: shapes would erase the hero subject (the whole point of the ad).
+                  // Keep the retry — it was regenerated with the strong anti-text reminder, so it
+                  // is the cleanest hero-preserving option available.
+                  console.warn(`[bg-validate] retry still has text but heroRef → keeping retry job=${jobId ?? "?"}`);
                 } else console.log(`[bg-validate] retry clean job=${jobId ?? "?"}`);
               } else console.warn(`[bg-validate] retry failed, using original job=${jobId ?? "?"}`);
             }
