@@ -2075,6 +2075,7 @@ function buildBackgroundPrompt(
     "❌ NO placeholder boxes, lorem ipsum, or shapes that imply text.",
     "❌ If you render ANY product, bottle, jar, package, box, label, tag or object, all surfaces must be COMPLETELY BLANK — no text, no letters, no numbers, no logo.",
     "❌ Any SCREEN, monitor, laptop, phone, tablet or dashboard must show ONLY abstract charts, graphs or color shapes — NEVER a brand logo, app name, headline, readable label or any wordmark on the screen.",
+    "⛔ CRITICAL — THE TEXT ZONE / RESERVED PANEL MUST ALSO BE TEXT-FREE: When you create a dark panel, diagonal cutout, gradient band, or any calm area reserved for the overlay text, that area must be COMPLETELY EMPTY of any letters, words, or characters. Do NOT write a preview headline, placeholder copy, category name, product name, or any text inside that zone — not even lightly. The zone is a clean color/gradient surface ONLY. The real copy is added on top by a separate system.",
     "WHY: The system overlays the real logo and copy in a separate HTML layer AFTER your image is generated. Any text or logo you draw will appear TWICE in the final ad, ruined.",
     "A background image with ANY text or logo in it is a complete render failure.",
     "",
