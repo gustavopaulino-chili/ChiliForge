@@ -454,10 +454,12 @@ async function buildOverlayHtmlFromGemini(
       console.warn(`[overlay-html] bracket placeholder in output job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
       return null;
     }
-    // Headline text must appear in the output (Gemini sometimes paraphrases — reject that)
-    const hlCheck = headline.slice(0, Math.min(15, headline.length));
+    // Headline text must appear in the output verbatim — reject paraphrases.
+    // Check first 80% of the headline (up to 60 chars) so minor punctuation changes don't reject.
+    const hlCheckLen = Math.min(60, Math.max(10, Math.floor(headline.length * 0.8)));
+    const hlCheck = headline.slice(0, hlCheckLen);
     if (hlCheck && !raw.includes(hlCheck)) {
-      console.warn(`[overlay-html] headline text missing job=${opts.jobId ?? "?"}`);
+      console.warn(`[overlay-html] headline paraphrased job=${opts.jobId ?? "?"} expected="${hlCheck}"`);
       return null;
     }
     console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${raw.length} font=${_fontName ?? "none"}`);
@@ -2106,11 +2108,13 @@ function buildBackgroundPrompt(
   const productMoodHint = rawProduct
     ? [
         `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: The campaign is about "${scrubBgPromptText(rawProduct)}".`,
-        "The product/service must be the DOMINANT VISUAL HERO of this image — not a prop in a generic scene, not a small element in the corner.",
-        "• Render it as the PRIMARY subject: large, centered or dynamically positioned, filling at least 50–60% of the frame.",
+        "STEP 1 — Translate the product/service into a concrete, unmistakable visual:",
+        "• If it is a PHYSICAL PRODUCT (object, food, device, book, clothing, etc.): depict the product itself as the hero — large, dramatic, in the brand's lighting and colors.",
+        "• If it is a SERVICE or DIGITAL PRODUCT: do NOT show screens with generic charts or dashboards. Instead, depict the CLIENT'S TRANSFORMATION — the tangible outcome or experience the client gains after using the service. Ask: 'what does the client's life or business look like AFTER this service works?' — and render THAT moment. The outcome scene must be specific to what this service actually delivers, instantly recognizable as belonging to this exact campaign.",
+        "⛔ Generic tech scenes (laptop on desk, tablet with charts, smartphone floating in air) are FORBIDDEN for services — they say nothing about the specific outcome. The scene must be unmistakably about THIS campaign's result.",
+        "STEP 2 — Make it the DOMINANT VISUAL HERO: the translated subject must fill at least 50–60% of the frame, dramatically lit, in the brand's color palette. Not a prop in a corner.",
         "• Depict it in THIS BRAND'S visual language: premium lighting, dramatic contrast, brand color palette as the backdrop. Not a neutral white-studio stock photo.",
-        "• The background should feel like a professional art-directed shot made FOR THIS BRAND — the product rendered in their signature style (color, depth, mood, texture).",
-        "• Think: how would a top advertising photographer shoot THIS product for THIS brand? That is your reference.",
+        "• The background should feel like a professional art-directed shot made FOR THIS BRAND — the product/outcome rendered in their signature style (color, depth, mood, texture).",
         "⛔ Do NOT render the product name or any text anywhere in the image.",
       ].join(" ")
     : "";
@@ -2147,8 +2151,9 @@ function buildBackgroundPrompt(
     "❌ NO button shapes, pill shapes, card shapes, or any UI element that resembles a text container.",
     "❌ NO placeholder boxes, lorem ipsum, or shapes that imply text.",
     "❌ If you render ANY product, bottle, jar, package, box, BOOK, MAGAZINE, NOTEBOOK, label, tag or object, ALL SURFACES MUST BE COMPLETELY BLANK — no text, no letters, no numbers, no logo, no title, no author name. A book cover/spine/bottle label/product surface with ANY text is a complete render failure.",
-    "❌ Any SCREEN, monitor, laptop, phone, tablet or dashboard must show ONLY abstract charts, graphs or color shapes — NEVER a brand logo, app name, headline, readable label or any wordmark on the screen.",
-    "⛔ CRITICAL — THE TEXT ZONE / RESERVED PANEL MUST ALSO BE TEXT-FREE: When you create a dark panel, diagonal cutout, gradient band, or any calm area reserved for the overlay text, that area must be COMPLETELY EMPTY of any letters, words, or characters. Do NOT write a preview headline, placeholder copy, category name, product name, or any text inside that zone — not even lightly. The zone is a clean color/gradient surface ONLY. The real copy is added on top by a separate system.",
+    "❌ Any SCREEN, monitor, laptop, phone, tablet or dashboard must show ONLY simple abstract bar/line charts or solid color geometric shapes — NO text, labels, font names, color swatch names, UI captions, app names, or ANY readable annotation anywhere on the screen, no matter how small.",
+    "⛔ CRITICAL — THE TEXT ZONE / RESERVED PANEL MUST ALSO BE TEXT-FREE: When you create a dark panel, diagonal cutout, gradient band, or any calm area reserved for overlay text, that area must be COMPLETELY EMPTY of any letters, words, or characters — including layout annotations like 'text-safe', 'calm zone', 'generous', or any descriptor of the zone itself. Do NOT write a preview headline, placeholder copy, category name, product name, or ANY text inside that zone. The zone is a clean color/gradient surface ONLY.",
+    "⛔ DO NOT annotate your own composition choices as text in the image. Never write phrases like 'text area', 'text-safe', 'calm zone', 'headline here', 'generous calm', or any meta-description of the layout. These are internal design decisions — they must NEVER appear as pixels in the image.",
     "WHY: The system overlays the real logo and copy in a separate HTML layer AFTER your image is generated. Any text or logo you draw will appear TWICE in the final ad, ruined.",
     "A background image with ANY text or logo in it is a complete render failure.",
     "",
