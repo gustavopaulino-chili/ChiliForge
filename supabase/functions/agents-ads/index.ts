@@ -287,7 +287,7 @@ async function backgroundHasText(
     );
     const answer = String(result?.text || "").trim().toLowerCase();
     const found = answer.startsWith("yes");
-    if (found) console.warn(`[bg-validate] text/logo detected → will retry job=${opts.jobId ?? "?"}`);
+    console.log(`[bg-validate] job=${opts.jobId ?? "?"} result=${found ? "FAIL (text/logo found → retry)" : "PASS (clean)"}`);
     return found;
   } catch (err) {
     console.warn(`[bg-validate] validation error (skipping) job=${opts.jobId ?? "?"}: ${err}`);
@@ -3272,8 +3272,10 @@ serve(async (req: Request) => {
           if (VALIDATE_BACKGROUND && gen?.url) {
             const hasText = await backgroundHasText(gen.url, apiKey, { jobId, costAcc });
             if (hasText) {
+              console.warn(`[bg-validate] retrying background generation job=${jobId ?? "?"}`);
               const retry = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
-              if (retry) gen = retry;
+              if (retry) { gen = retry; console.log(`[bg-validate] retry succeeded job=${jobId ?? "?"}`); }
+              else console.warn(`[bg-validate] retry failed, using original job=${jobId ?? "?"}`);
             }
           }
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
@@ -3343,8 +3345,10 @@ serve(async (req: Request) => {
           if (VALIDATE_BACKGROUND && gen?.url) {
             const hasText = await backgroundHasText(gen.url, apiKey, { jobId, costAcc });
             if (hasText) {
+              console.warn(`[bg-validate] retrying background generation job=${jobId ?? "?"}`);
               const retry = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
-              if (retry) gen = retry;
+              if (retry) { gen = retry; console.log(`[bg-validate] retry succeeded job=${jobId ?? "?"}`); }
+              else console.warn(`[bg-validate] retry failed, using original job=${jobId ?? "?"}`);
             }
           }
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
@@ -3384,7 +3388,7 @@ serve(async (req: Request) => {
         });
         banners = await runWithConcurrency(composeFns, 4);
       }
-      console.log(`[cost-total]${jobId ? ` job=${jobId}` : ""} mode=compose batch=${(payload as any).batchIndex ?? "?"} images=${costAcc.images} banners=${Array.isArray(banners) ? banners.length : 0} ~= $${costAcc.usd.toFixed(5)}`);
+      console.log(`[cost-total]${jobId ? ` job=${jobId}` : ""} mode=compose batch=${(payload as any).batchIndex ?? "?"} images=${costAcc.images} banners=${Array.isArray(banners) ? banners.length : 0} bg_validate=${VALIDATE_BACKGROUND ? "on" : "off"} ~= $${costAcc.usd.toFixed(5)} USD`);
       return new Response(JSON.stringify({ mode: "compose", banners }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
