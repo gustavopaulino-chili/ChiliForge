@@ -364,6 +364,11 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
         }
     }
     $campaignData['composeBackgroundSource'] = $bgSourceRaw;
+    // When the caller explicitly sent a reference image (campaign.reference_image), they want
+    // THAT image FEATURED in the ad — not merely used as loose style inspiration. Flag it so the
+    // image engine treats the first reference as the HERO subject to reproduce prominently,
+    // overriding the default "creative freedom / don't copy the reference" guidance.
+    if ($genRefUrl !== '') $campaignData['composeHeroRef'] = true;
 
     // Bridge the company's brand identity into campaignData. The COMPOSE engine reads
     // brand fields (colors, fonts, voice, personality, keywords, category, description,

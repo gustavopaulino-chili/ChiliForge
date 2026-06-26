@@ -82,6 +82,20 @@ type AgentsAdsPayload = {
 const env = (globalThis as any).Deno?.env;
 const PLAN_MODEL_CHAIN   = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
 const RENDER_MODEL_CHAIN = ["gemini-2.5-flash"];
+
+// Encode bytes → base64 in 32KB chunks. `btoa(String.fromCharCode(...new Uint8Array(buf)))`
+// spreads every byte as a function argument, so a few-hundred-KB image overflows the call
+// stack ("Maximum call stack size exceeded") — which silently killed the overlay/calm-zone
+// image calls and forced the template fallback on every run. Chunking keeps the arg count safe.
+function bytesToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const CHUNK = 0x8000; // 32768 bytes per chunk
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
 const MODEL_CHAIN        = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
 
 const COPY_SYSTEM_PROMPT = `You are an expert direct-response ad copywriter. Generate concise, conversion-focused copy based on campaign data. Output ONLY valid JSON matching the schema.
@@ -271,7 +285,7 @@ async function backgroundHasText(
     const res = await fetch(imageUrl, { signal: AbortSignal.timeout(12000) });
     if (!res.ok) return false;
     const buf = await res.arrayBuffer();
-    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    const b64 = bytesToBase64(buf);
     const mime = (res.headers.get("content-type") || "image/jpeg").split(";")[0];
     const result = await callGemini(
       "You are an image quality validator for advertising backgrounds.",
@@ -307,7 +321,7 @@ async function critiqueOverlayHtml(
     const res = await fetch(bgUrl, { signal: AbortSignal.timeout(12000) });
     if (!res.ok) return true;
     const buf = await res.arrayBuffer();
-    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    const b64 = bytesToBase64(buf);
     const mime = (res.headers.get("content-type") || "image/jpeg").split(";")[0];
     const result = await callGemini(
       "You are an advertising quality reviewer. Be strict.",
@@ -358,7 +372,7 @@ async function buildOverlayHtmlFromGemini(
       const imgRes = await fetch(bgDataUrl, { signal: AbortSignal.timeout(12000) });
       if (!imgRes.ok) { console.warn(`[overlay-html] bg fetch failed ${imgRes.status}`); setDiag(`bg-fetch-${imgRes.status}`); return null; }
       const buf = await imgRes.arrayBuffer();
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const b64 = bytesToBase64(buf);
       const mime = (imgRes.headers.get("content-type") || "image/png").split(";")[0];
       bgRef = { data: b64, mimeType: mime, label: "Ad background" };
     } catch (err) { console.warn(`[overlay-html] bg fetch error: ${err}`); setDiag(`bg-fetch-err:${String(err).slice(0, 50)}`); return null; }
@@ -504,15 +518,6 @@ async function buildOverlayHtmlFromGemini(
 
     if (!raw) { console.warn(`[overlay-html] empty response job=${opts.jobId ?? "?"}`); setDiag("empty"); return null; }
 
-    // Must have a scrim (z-index:1) and a text block (z-index:2x)
-    if (!/z-index\s*:\s*1\b/.test(raw)) {
-      console.warn(`[overlay-html] missing scrim job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
-      setDiag("no-scrim"); return null;
-    }
-    if (!/z-index\s*:\s*2\d/.test(raw)) {
-      console.warn(`[overlay-html] missing text block job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
-      setDiag("no-textblock"); return null;
-    }
     // Reject if Gemini echoed bracket placeholders as literal text content (e.g. >[left:5%]<)
     if (/>[^<]*\[[^\]]{3,}\][^<]*</.test(raw)) {
       console.warn(`[overlay-html] bracket placeholder in output job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
@@ -530,26 +535,34 @@ async function buildOverlayHtmlFromGemini(
       console.warn(`[overlay-html] headline paraphrased job=${opts.jobId ?? "?"} expected="${hlCheck}"`);
       setDiag(`headline:${hlCheck.slice(0, 24)}`); return null;
     }
+    // Legibility scrim: a real browser renders everything, so DON'T reject an overlay that lacks
+    // the exact z-index:1 scrim (the model now often uses a glass/blur panel instead). Just inject
+    // a default gradient scrim when none is present — guarantees legible white text either way.
+    const ensureScrim = (h: string): string =>
+      /z-index\s*:\s*1\b/.test(h)
+        ? h
+        : `<div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.52) 0%,rgba(0,0,0,0.18) 45%,rgba(0,0,0,0) 75%);z-index:1;pointer-events:none"></div>\n` + h;
+    let html = ensureScrim(raw);
     // Autocrítica: Flash reviews its own output against the background image — retry once if poor.
     if (CRITIQUE_OVERLAY && (bgDataUrl.startsWith("http://") || bgDataUrl.startsWith("https://"))) {
-      const ok = await critiqueOverlayHtml(bgDataUrl, raw, apiKey, opts);
+      const ok = await critiqueOverlayHtml(bgDataUrl, html, apiKey, opts);
       if (!ok) {
         // Re-run the Gemini call once with a hint to improve placement
         const res2 = await callGemini(SYSTEM, USER + "\n\nIMPORTANT: Your previous layout had a visual problem (text over busy area, or CTA hidden). Regenerate with better placement.", "gemini-2.5-flash", 0.4, 2600, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 25000 }).catch(() => null);
         if (res2?.text) {
           const raw2 = String(res2.text).trim()
             .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
-          if (raw2 && /z-index\s*:\s*1\b/.test(raw2) && /z-index\s*:\s*2\d/.test(raw2) && stripTags(raw2).includes(hlCheck || "")) {
+          if (raw2 && stripTags(raw2).includes(hlCheck || "")) {
             console.log(`[overlay-critique] retry accepted job=${opts.jobId ?? "?"}`);
             const styleTag2 = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-            setDiag("ok-retry"); return styleTag2 + raw2;
+            setDiag("ok-retry"); return styleTag2 + ensureScrim(raw2);
           }
         }
       }
     }
-    console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${raw.length} font=${_fontName ?? "none"}`);
+    console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${html.length} font=${_fontName ?? "none"}`);
     const styleTag = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-    setDiag("ok"); return styleTag + raw;
+    setDiag("ok"); return styleTag + html;
   } catch (err) {
     console.warn(`[overlay-html] failed job=${opts.jobId ?? "?"}: ${err}`);
     setDiag(`exception:${String(err).slice(0, 80)}`); return null;
@@ -582,7 +595,7 @@ async function pickCalmTextZone(
       const r = await fetch(bgUrl, { signal: AbortSignal.timeout(12000) });
       if (!r.ok) return null;
       const buf = await r.arrayBuffer();
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const b64 = bytesToBase64(buf);
       const mime = (r.headers.get("content-type") || "image/png").split(";")[0];
       bgRef = { data: b64, mimeType: mime, label: "Ad background" };
     } else {
@@ -2038,6 +2051,7 @@ function buildBackgroundPrompt(
   bgSource: string = "shapes",
   hasRefImages: boolean = false,
   visualBrief: string = "",
+  heroRef: boolean = false,
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
@@ -2155,6 +2169,22 @@ function buildBackgroundPrompt(
     ].join("\n");
   }
 
+  // HERO REFERENCE OVERRIDE: the caller explicitly sent a reference image they want FEATURED
+  // (composeHeroRef). This replaces the default "style only / creative freedom / don't copy"
+  // guidance — the FIRST attached image is the hero subject and must visibly appear in the ad.
+  if (heroRef && hasRefImages) {
+    sourceBlock = [
+      "████ BACKGROUND SOURCE: HERO REFERENCE — FEATURE THIS IMAGE ████",
+      "The FIRST attached image is the HERO of this ad. The user chose it on purpose and wants it CLEARLY PRESENT in the final creative — this is NOT mere style inspiration.",
+      "• FEATURE the subject of that first image prominently (the person/product/scene shown in it). Preserve their identity, appearance, pose energy and key features — keep them recognizably the same.",
+      "• Place that hero subject as the main focal element, filling a large part of the frame, sharp and well-lit.",
+      "• Re-light and color-grade the scene so it sits inside THIS brand's palette and mood (brand colors dominate the surroundings), but do NOT change who/what the hero is.",
+      "• Any OTHER attached images are brand STYLE references only — borrow their look, never their subjects.",
+      "• Still NO text, NO logos, NO wordmarks anywhere (those are composited on top later). If the reference image contains text/logo, omit it — keep only the subject.",
+      "• Recompose for this aspect ratio and leave the reserved text-safe zone calm and uncluttered.",
+    ].join("\n");
+  }
+
   // Convey the brand palette as color NAMES (never raw hex) and scrub every code/URL/CSS
   // token from the spec + facts so nothing can be copied verbatim into the image as text.
   // The FIRST hex in the spec is the brand's primary color — it must DOMINATE the background as the
@@ -2190,7 +2220,11 @@ function buildBackgroundPrompt(
   const safeFacts = scrubBgPromptText(stripBgCopyLines(campaignFactsImg));
   // Extract product name before stripping so it can drive visual mood without being in facts.
   const rawProduct = (campaignFactsImg.match(/^Product\/Service:\s*(.+)$/mi) ?? [])[1]?.trim() ?? "";
-  const productMoodHint = rawProduct
+  const productMoodHint = heroRef
+    // Hero-reference mode: the attached image IS the hero. Don't push a competing "scene of
+    // success" idea — defer to the BACKGROUND SOURCE hero block, just lock the brand palette.
+    ? `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: the hero of this ad is the SUBJECT of the FIRST attached reference image (see BACKGROUND SOURCE above). Feature that exact subject prominently and faithfully; re-light and color-grade the scene into the brand's palette, but never swap the hero for a generic stock scene. Do NOT render any product name or text in the image.`
+    : rawProduct
     ? [
         `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: The campaign is about "${scrubBgPromptText(rawProduct)}".`,
         "VISUAL BRIEF — what to photograph/illustrate:",
@@ -3226,6 +3260,10 @@ serve(async (req: Request) => {
       //  company  : derive the background from the company's own images
       //  creative : full freedom — the model invents the best backdrop
       const explicitBgSource = String((campaignData as any).composeBackgroundSource || "").toLowerCase();
+      // Caller explicitly sent a reference image to FEATURE (composeHeroRef from PHP). This makes
+      // buildBackgroundPrompt reproduce the first reference's subject as the hero, overriding the
+      // default style-only/creative-freedom treatment regardless of the resolved bgSource.
+      const heroRef = Boolean((campaignData as any).composeHeroRef);
       // composeCompanyRefs: brand reference images uploaded by the caller (style examples).
       // When present without an explicit bgSource, treat as "company" so the model studies them.
       const hasCompanyRefs = Array.isArray((campaignData as any).composeCompanyRefs) &&
@@ -3291,7 +3329,7 @@ serve(async (req: Request) => {
       // in composeCompanyRefs. ONLY fetch+decode them for the sources that actually consume
       // them ('reference'/'company'/'inspired') — 'shapes'/'creative' discard refs, so we skip
       // the work entirely (no wasted base64). Bounded count + image-model-only bytes (never to a text model).
-      const usesRefs = bgSource === "reference" || bgSource === "company" || bgSource === "inspired";
+      const usesRefs = bgSource === "reference" || bgSource === "company" || bgSource === "inspired" || heroRef;
       const companyRefUrls = usesRefs && Array.isArray((campaignData as any).composeCompanyRefs)
         ? ((campaignData as any).composeCompanyRefs as unknown[])
             .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
@@ -3371,7 +3409,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -3454,7 +3492,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
