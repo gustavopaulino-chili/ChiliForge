@@ -327,7 +327,7 @@ async function buildOverlayHtmlFromGemini(
 
   const logoUrl = String(data.logoUrl || "").trim();
   const logoLine = logoUrl
-    ? `LOGO: place <img src="${logoUrl}"> — choose the corner/position that best suits this layout. Size: width between 20%–32%, max-height 14%; adjust smaller or larger to fit the composition. Use object-fit:contain. z-index:20. The logo image is IMMUTABLE — render it exactly as-is, never redraw, recolor or alter it.`
+    ? `LOGO: place <img src="${logoUrl}"> — choose the corner/position that best suits this layout. Size: width between 20%–32%, max-height 14%; adjust smaller or larger to fit the composition. Use object-fit:contain. z-index:20. The logo image is IMMUTABLE — render it exactly as-is, never redraw, recolor or alter it. ⛔ Do NOT write the brand name as text anywhere in the HTML — the img tag is the complete brand identifier. No text div, no span, no caption with the brand name.`
     : "";
 
   const USER = [
@@ -345,7 +345,7 @@ async function buildOverlayHtmlFromGemini(
     "   • Don't default to bottom every time. If the calm area is on top or side, use it.",
     "   • The background reserved ONE generous calm area — locate it and place the text block there.",
     "   • Keep comfortable margins (≥6% from every edge). Let the layout breathe.",
-     "   • WIDTH RULE — NON-NEGOTIABLE: The text block ALWAYS spans the FULL banner width: left:5% right:5% (or wider). NEVER write left:40%, left:50% or any value that pushes text into only one half. It does not matter what the background looks like — do NOT constrain text to a side column. The text must be full-width always.",
+    "   • WIDTH RULE — NON-NEGOTIABLE: The text block must stretch across the full horizontal extent of the banner with only small margins on each side (≥5% inset from each edge). Start close to the left edge, end close to the right edge. Never confine the text to only one half of the banner — no matter what the background looks like.",
     "2. Scrim: a LIGHT dark gradient over the text zone — enough to read white text, but NOT a heavy black wash.",
     "   • Use rgba(0,0,0,0.45) at most at the darkest point. Prefer 0.30–0.40. The background image must still be visible through the scrim.",
     "   • Direction: Text at bottom → 'to top' | Top → 'to bottom' | Left panel → 'to right' | Right → 'to left' | Center → radial",
@@ -359,6 +359,7 @@ async function buildOverlayHtmlFromGemini(
     `   • ${ctaSpec}`,
     "",
     "TECHNICAL RULES (do not violate):",
+    "• Do NOT output any bracket-notation placeholders [like this] as text content inside any HTML element. Every element must contain only real copy text or real HTML children — never a placeholder annotation.",
     `• Parent container has container-type:size → 1cqw = ${(W / 100).toFixed(1)}px | 1cqh = ${(H / 100).toFixed(1)}px`,
     "• Positions: % only (no px for top/left/right/bottom). Font sizes: cqw or cqh only. Logo width/max-height: % only.",
     `• Font: ${fontFamily}`,
@@ -2034,11 +2035,10 @@ function buildBackgroundPrompt(
       .map((ln) => {
         const t = ln.trim();
         if (/^EXACT COPY/i.test(t)) return null;
-        // Product/Service is kept but reframed as a visual subject so the model knows WHAT to
-        // depict without receiving a verbatim copy line it might burn into the image as text.
-        if (/^Product\/Service\s*:/i.test(t)) {
-          return t.replace(/^Product\/Service\s*:/i, "Visual subject of this ad (do NOT render this as text — use it to choose what to DEPICT visually):");
-        }
+        // Product/Service is stripped: the name is a verbatim copywriting phrase the image
+        // model will literally render as text in the background (tested: passing it as
+        // "campaign concept" caused the model to write the product name in the image).
+        if (/^Product\/Service\s*:/i.test(t)) return null;
         if (/^(Campaign|Brand|Value prop|CTA|Offer|Price|Discount|Guarantee|Scarcity|headline|subheadline|cta)\s*:/i.test(t)) return null;
         return ln;
       })
@@ -2058,6 +2058,8 @@ function buildBackgroundPrompt(
     sourceBlock,
     "",
     briefBlock,
+    "⛔ TEMPLATE PROHIBITION: The background MUST look like a professional art-directed photograph, illustration, or 3D render — NEVER like a CSS template or HTML layout. Do NOT create flat rectangular color panels side by side with hard edges (e.g. a solid beige block on the left + a solid red block on the right). Use soft gradients, light falloff, depth, blur, and organic composition. Hard geometric color divisions make the background look fake and broken.",
+    "",
     "████ CAMPAIGN RELEVANCE — VISUAL SUBJECT DRIVES THE SCENE ████",
     "The 'Visual subject' field above tells you WHAT this specific campaign is about. Build your scene around THAT subject — not around a generic industry archetype.",
     "⛔ Do NOT default to a generic visual that could fit any campaign in this industry. Each campaign has its own specific topic — read it and pick imagery that makes THAT topic instantly recognizable.",
