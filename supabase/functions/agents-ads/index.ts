@@ -2077,9 +2077,8 @@ function buildBackgroundPrompt(
       .map((ln) => {
         const t = ln.trim();
         if (/^EXACT COPY/i.test(t)) return null;
-        // Product/Service is stripped: the name is a verbatim copywriting phrase the image
-        // model will literally render as text in the background (tested: passing it as
-        // "campaign concept" caused the model to write the product name in the image).
+        // Product/Service is stripped from facts to avoid verbatim text rendering.
+        // It is re-injected separately as a "visual mood" hint (see productMoodHint below).
         if (/^Product\/Service\s*:/i.test(t)) return null;
         if (/^(Campaign|Brand|Value prop|CTA|Offer|Price|Discount|Guarantee|Scarcity|headline|subheadline|cta)\s*:/i.test(t)) return null;
         return ln;
@@ -2087,6 +2086,11 @@ function buildBackgroundPrompt(
       .filter((ln): ln is string => ln !== null)
       .join("\n");
   const safeFacts = scrubBgPromptText(stripBgCopyLines(campaignFactsImg));
+  // Extract product name before stripping so it can drive visual mood without being in facts.
+  const rawProduct = (campaignFactsImg.match(/^Product\/Service:\s*(.+)$/mi) ?? [])[1]?.trim() ?? "";
+  const productMoodHint = rawProduct
+    ? `VISUAL MOOD: The campaign is about "${scrubBgPromptText(rawProduct)}". Use this to choose the right SCENE, ENVIRONMENT and ATMOSPHERE — what kind of world, lighting and objects evoke this topic? Let it guide the emotional feel of the image. ⛔ Do NOT render this as text or a label anywhere in the image.`
+    : "";
 
   return [
     "███ THIS IS AN AD BACKGROUND LAYER — NOT A FINISHED AD ███",
@@ -2101,6 +2105,8 @@ function buildBackgroundPrompt(
     "",
     briefBlock,
     "⛔ TEMPLATE PROHIBITION: The background MUST look like a professional art-directed photograph, illustration, or 3D render — NEVER like a CSS template or HTML layout. Do NOT create flat rectangular color panels side by side with hard edges (e.g. a solid beige block on the left + a solid red block on the right). Use soft gradients, light falloff, depth, blur, and organic composition. Hard geometric color divisions make the background look fake and broken.",
+    "",
+    productMoodHint,
     "",
     "████ CAMPAIGN RELEVANCE — VISUAL SUBJECT DRIVES THE SCENE ████",
     "The 'Visual subject' field above tells you WHAT this specific campaign is about. Build your scene around THAT subject — not around a generic industry archetype.",
