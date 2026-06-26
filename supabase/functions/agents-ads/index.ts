@@ -458,6 +458,8 @@ async function buildOverlayHtmlFromGemini(
     "",
     "5. Subheadline: font-size:2.5–4cqw; font-weight:400. Placed in GROUP 2 (OPTION A) or inside the single flex block (OPTION B).",
     "",
+    "RENDERER CAPABILITY: a real headless Chrome rasterizes your HTML — you have the FULL modern CSS toolkit. Use it tastefully for a premium look: linear/radial/conic gradients, backdrop-filter:blur() for a frosted-glass scrim panel, box-shadow, border-radius, letter-spacing, text-transform, transform, and web-font @import all render faithfully. A subtle frosted-glass or gradient scrim behind the text reads far more premium than a flat dark band — prefer it. (Do NOT, however, change the z-index structure rules below — the compositor keys on them.)",
+    "",
     "TECHNICAL RULES (do not violate):",
     "• Do NOT output any bracket-notation placeholders [like this] as text content inside any HTML element. Every element must contain only real copy text or real HTML children — never a placeholder annotation.",
     "• For the span accent color: write the ACTUAL hex value (e.g. color:#e63946) — never write 'color:[brand color]' or any bracket form.",
@@ -2178,9 +2180,10 @@ function buildBackgroundPrompt(
     ? [
         `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: The campaign is about "${scrubBgPromptText(rawProduct)}".`,
         "VISUAL BRIEF — what to photograph/illustrate:",
-        "• Physical product (object, food, device, clothing, book…): the product itself, large and dramatic, shot in the brand's colors and lighting.",
-        "• Service or digital offering: do NOT render a laptop/tablet with generic charts — that is a failed interpretation. Instead, paint the SCENE of SUCCESS — the world as it looks the moment this service delivers its promise. What are people doing? What do they feel? What is visibly different? Make that moment the hero.",
-        "⛔ A generic 'tech desk' or floating device is always wrong for a service. The scene must be unmistakably about what THIS campaign delivers.",
+        "• Tangible physical product (object you can hold: food, cosmetics, clothing, bottle, packaging, equipment, toy, furniture…): the product itself, large and dramatic, shot in the brand's colors and lighting.",
+        "• Digital product, software, platform, SaaS, app, API, documentation, guide, tool, course, ebook: treat it as a SERVICE — never as a physical object you can hold or stack on a desk. Show the SCENE OF SUCCESS instead: the PEOPLE and the moment when this delivers its promise. (Naming a paper object here tends to summon it — so do not picture one at all; picture the outcome.)",
+        "• Service or activity (marketing, education, coaching, consulting, events, finance, healthcare…): paint the SCENE OF SUCCESS — the world as it looks the moment this service delivers its promise. What are people doing? What do they feel? What is visibly different? Make that moment the hero.",
+        "⛔ A generic 'tech desk', floating device, or stock photo office is always wrong for a service. The scene must be unmistakably about what THIS campaign delivers.",
         "• Whichever you choose: the hero subject fills ≥50% of the frame, dramatically lit, in the brand's palette.",
         "• BRAND IDENTITY IS NON-NEGOTIABLE: even in an action scene or photographic composition, the brand's color palette must dominate — use it as the background lighting, color grade, or backdrop. The brand's visual identity elements (textures, patterns, signature colors from the brand facts) must be present. A scene shot in neutral/white/random colors is a brand failure.",
         "• The background should feel like a professional art-directed shot made FOR THIS BRAND — their signature style must be unmistakably present.",
@@ -2219,7 +2222,7 @@ function buildBackgroundPrompt(
     "❌ NO hex codes, color codes, the '#' character, CSS tokens, variable names, URLs, file paths, or numbers.",
     "❌ NO button shapes, pill shapes, card shapes, or any UI element that resembles a text container.",
     "❌ NO placeholder boxes, lorem ipsum, or shapes that imply text.",
-    "❌ If you render ANY product, bottle, jar, package, box, BOOK, MAGAZINE, NOTEBOOK, label, tag or object, ALL SURFACES MUST BE COMPLETELY BLANK — no text, no letters, no numbers, no logo, no title, no author name. A book cover/spine/bottle label/product surface with ANY text is a complete render failure.",
+    "❌ If you render ANY product, package, container, label, tag or object, ALL SURFACES MUST BE COMPLETELY BLANK — no text, no letters, no numbers, no logo, no title. Any printed surface with ANY text is a complete render failure.",
     "❌ Any SCREEN, monitor, laptop, phone or tablet visible in the image must show NO text, labels, font names, UI captions, app names, or ANY readable annotation — no matter how small. The screen content can be abstract shapes, solid colors, blurred bokeh, or nothing at all.",
     "⛔ CRITICAL — THE TEXT ZONE / RESERVED PANEL MUST ALSO BE TEXT-FREE: When you create a dark panel, diagonal cutout, gradient band, or any calm area reserved for overlay text, that area must be COMPLETELY EMPTY of any letters, words, or characters — including layout annotations like 'text-safe', 'calm zone', 'generous', or any descriptor of the zone itself. Do NOT write a preview headline, placeholder copy, category name, product name, or ANY text inside that zone. The zone is a clean color/gradient surface ONLY.",
     "⛔ DO NOT annotate your own composition choices as text in the image. Never write phrases like 'text area', 'text-safe', 'calm zone', 'headline here', 'generous calm', or any meta-description of the layout. These are internal design decisions — they must NEVER appear as pixels in the image.",
@@ -3374,12 +3377,14 @@ serve(async (req: Request) => {
             const hasText = await backgroundHasText(gen.url, apiKey, { jobId, costAcc });
             if (hasText) {
               console.warn(`[bg-validate] retrying background generation job=${jobId ?? "?"}`);
-              const retry = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
+              // Retry with shapes-only prompt so abstract geometry can't reproduce the same text artifacts.
+              const shapesPrompt = bgPrompt + "\n\nCRITICAL OVERRIDE — previous attempt had text burned into the image. THIS RETRY: use ONLY abstract geometric shapes, brand-color gradients, dots, lines, waves, light bokeh — ZERO photography, ZERO realistic objects, ZERO surfaces that could bear text. Purely abstract.";
+              const retry = await generateAdImage(shapesPrompt, [], apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
               if (retry) {
                 gen = retry;
                 const retryHasText = await backgroundHasText(retry.url, apiKey, { jobId, costAcc });
-                if (retryHasText) console.warn(`[bg-validate] retry also has text, using it anyway job=${jobId ?? "?"}`);
-                else console.log(`[bg-validate] retry clean job=${jobId ?? "?"}`);
+                if (retryHasText) console.warn(`[bg-validate] shapes retry also has text, using it anyway job=${jobId ?? "?"}`);
+                else console.log(`[bg-validate] shapes retry clean job=${jobId ?? "?"}`);
               } else console.warn(`[bg-validate] retry failed, using original job=${jobId ?? "?"}`);
             }
           }
@@ -3459,8 +3464,17 @@ serve(async (req: Request) => {
               if (retry) {
                 gen = retry;
                 const retryHasText = await backgroundHasText(retry.url, apiKey, { jobId, costAcc });
-                if (retryHasText) console.warn(`[bg-validate] retry also has text, using it anyway job=${jobId ?? "?"}`);
-                else console.log(`[bg-validate] retry clean job=${jobId ?? "?"}`);
+                if (retryHasText) {
+                  // Both photographic attempts leaked readable text. Last resort: an ABSTRACT
+                  // shapes background (no photography, no objects, no screens) essentially cannot
+                  // contain legible text — forced text-free. Costs one extra image gen on this
+                  // rare double-failure path; far better than shipping a banner with garbled text.
+                  console.warn(`[bg-validate] retry also has text → shapes fallback job=${jobId ?? "?"}`);
+                  const shapesPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), "shapes", false, visualBriefForPrompt);
+                  const shapes = await generateAdImage(shapesPrompt, [], apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
+                  if (shapes) { gen = shapes; console.log(`[bg-validate] shapes fallback ok job=${jobId ?? "?"}`); }
+                  else console.warn(`[bg-validate] shapes fallback failed, keeping texty bg job=${jobId ?? "?"}`);
+                } else console.log(`[bg-validate] retry clean job=${jobId ?? "?"}`);
               } else console.warn(`[bg-validate] retry failed, using original job=${jobId ?? "?"}`);
             }
           }

@@ -20,6 +20,7 @@ include __DIR__ . '/../../db.php';
 include __DIR__ . '/../agents/helpers.php';
 include __DIR__ . '/../../site_helpers.php';
 include __DIR__ . '/../../_render.php';
+include __DIR__ . '/../../_browserless.php';
 include __DIR__ . '/compose-gd.php';
 
 if (!function_exists('ext_escape_attr')) {
@@ -839,14 +840,32 @@ try {
                             $updUrl = $conn->prepare("UPDATE ads_creatives SET public_url = ? WHERE id = ?");
                             if ($updUrl) { $updUrl->bind_param('si', $htmlUrl, $creativeId); $updUrl->execute(); $updUrl->close(); }
                         }
-                        try {
-                            if (extgd_compose_html_to_jpeg($bannerHtml, $fmt, $jpgFilePath)) {
-                                $imageUrl = '/projects/' . $creativeRelPath . '/banner.jpg';
-                            } else {
-                                error_log('[generate-ads-worker] GD compose returned false for creative ' . $creativeId);
+                        // Prefer Browserless (real headless Chrome → full CSS3) when configured;
+                        // fall back to the PHP/GD compositor on any failure so an outage or a
+                        // missing token never breaks generation.
+                        $rendered = false;
+                        if (function_exists('browserless_enabled') && browserless_enabled()) {
+                            try {
+                                if (browserless_render_html_to_jpeg($bannerHtml, $fmtW, $fmtH, $jpgFilePath)) {
+                                    $imageUrl = '/projects/' . $creativeRelPath . '/banner.jpg';
+                                    $rendered = true;
+                                } else {
+                                    error_log('[generate-ads-worker] Browserless render failed for creative ' . $creativeId . ' — falling back to GD');
+                                }
+                            } catch (Throwable $blErr) {
+                                error_log('[generate-ads-worker] Browserless threw for creative ' . $creativeId . ': ' . $blErr->getMessage() . ' — falling back to GD');
                             }
-                        } catch (Throwable $gdErr) {
-                            error_log('[generate-ads-worker] GD compose failed for creative ' . $creativeId . ': ' . $gdErr->getMessage());
+                        }
+                        if (!$rendered) {
+                            try {
+                                if (extgd_compose_html_to_jpeg($bannerHtml, $fmt, $jpgFilePath)) {
+                                    $imageUrl = '/projects/' . $creativeRelPath . '/banner.jpg';
+                                } else {
+                                    error_log('[generate-ads-worker] GD compose returned false for creative ' . $creativeId);
+                                }
+                            } catch (Throwable $gdErr) {
+                                error_log('[generate-ads-worker] GD compose failed for creative ' . $creativeId . ': ' . $gdErr->getMessage());
+                            }
                         }
                     }
 
