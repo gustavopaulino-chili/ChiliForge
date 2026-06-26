@@ -347,7 +347,7 @@ async function buildOverlayHtmlFromGemini(
   cssVars: string,
   apiKey: string,
   rec?: ComposeTextRec | null,
-  opts: { jobId?: number; costAcc?: { usd: number } } = {}
+  opts: { jobId?: number; costAcc?: { usd: number }; calmZone?: string | null } = {}
 ): Promise<string | null> {
   // Accept either a base64 data URL or a public HTTPS URL (e.g. Supabase Storage).
   // Using the already-uploaded HTTPS URL is preferred — avoids sending megabytes of base64.
@@ -412,10 +412,20 @@ async function buildOverlayHtmlFromGemini(
     ? `LOGO: place <img src="${logoUrl}"> — choose the corner/position that best suits this layout. Size: width between 20%–32%, max-height 14%; adjust smaller or larger to fit the composition. Use object-fit:contain. z-index:20. The logo image is IMMUTABLE — render it exactly as-is, never redraw, recolor or alter it. ⛔ Do NOT write the brand name as text anywhere in the HTML — the img tag is the complete brand identifier. No text div, no span, no caption with the brand name.`
     : "";
 
+  // A dedicated vision model (pickCalmTextZone) already inspected THIS exact background and
+  // reported which region is emptiest/flattest. Hand that verdict to the overlay model so it
+  // anchors text on the calm zone instead of guessing — guessing routinely landed text on the
+  // busy hero. Strong steer, not an absolute lock (the model may still split when it makes sense).
+  const calmZone = String(opts.calmZone || "").toLowerCase().trim();
+  const calmZoneLine = calmZone
+    ? `⭐ CALM-ZONE VERDICT: a dedicated vision model analyzed THIS exact background and found the emptiest, most text-safe region is the **${calmZone.toUpperCase()}**. Anchor the main text block in the ${calmZone} region. Only override this if that region is clearly occupied by the visual hero. If you choose OPTION A (split), keep the HEADLINE group in or next to the ${calmZone} region.`
+    : "";
+
   const USER = [
     `BACKGROUND: The attached image is a ${W}×${H}px advertising background. Study it carefully.`,
     `You will design and return the HTML overlay that renders ON TOP of this image.`,
     "",
+    calmZoneLine,
     "TEXT CONTENT — use EXACTLY as given, no changes:",
     textLines,
     "",
@@ -549,7 +559,7 @@ async function pickCalmTextZone(
   bgUrl: string,
   apiKey: string,
   opts: { jobId?: number; costAcc?: { usd: number; images: number; jobId?: string } } = {},
-): Promise<string | null> {
+): Promise<{ zone: string; layout: string } | null> {
   let bgRef: ReferenceImage;
   try {
     if (/^https?:\/\//.test(bgUrl)) {
@@ -579,8 +589,8 @@ async function pickCalmTextZone(
     const res = await callGemini(SYSTEM, USER, "gemini-3-pro-preview", 0, 512, apiKey, undefined, [bgRef], { ...opts, thinkingLevel: "low", timeoutMs: 25000 });
     const word = String(res.text || "").toLowerCase().match(/top|bottom|left|right|center/)?.[0];
     const layout = word ? (CALM_ZONE_TO_LAYOUT[word] ?? null) : null;
-    if (layout) console.log(`[calm-zone] job=${opts.jobId ?? "?"} → ${word} (${layout})`);
-    return layout;
+    if (word && layout) console.log(`[calm-zone] job=${opts.jobId ?? "?"} → ${word} (${layout})`);
+    return word && layout ? { zone: word, layout } : null;
   } catch (err) {
     console.warn(`[calm-zone] failed job=${opts.jobId ?? "?"}: ${err}`);
     return null;
@@ -3375,11 +3385,14 @@ serve(async (req: Request) => {
           }
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           const bgForZone = bgHosted || gen?.url || "";
-          const [calmLayout, geminiOverlay] = await Promise.all([
-            bgForZone ? pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : Promise.resolve(null),
-            bgForZone ? buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc }) : Promise.resolve(null),
-          ]);
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: geminiOverlay });
+          // Sequential, not parallel: detect the calm zone FIRST, then hand it to the overlay
+          // generator so the Flash anchors text on the calm region instead of guessing. Costs
+          // +1 Gemini round-trip of latency; buys far more accurate text placement.
+          const calm = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
+          const geminiOverlay = bgForZone
+            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null })
+            : null;
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay });
         }
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -3453,13 +3466,15 @@ serve(async (req: Request) => {
           }
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           const bgForZone = bgHosted || gen?.url || "";
-          // Run calm-zone detection and Gemini overlay generation in parallel — both need the hosted BG.
+          // Sequential, not parallel: detect the calm zone FIRST, then feed it to the overlay
+          // generator so the Flash anchors text on the calm region instead of guessing. Costs
+          // +1 Gemini round-trip of latency; buys far more accurate text placement.
           // overlayHtml from Gemini is authoritative when available; TypeScript template is the fallback.
-          const [calmLayout, geminiOverlay] = await Promise.all([
-            bgForZone ? pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : Promise.resolve(null),
-            bgForZone ? buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc }) : Promise.resolve(null),
-          ]);
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: geminiOverlay });
+          const calm = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
+          const geminiOverlay = bgForZone
+            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null })
+            : null;
+          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay });
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
