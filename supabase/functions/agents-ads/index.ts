@@ -255,6 +255,46 @@ function parseComposeTextRec(text: string): ComposeTextRec | null {
 
 // Calls Gemini Flash (text model) with the generated background image.
 // Gemini receives the background image and builds the COMPLETE HTML overlay from scratch.
+// Feature flag — set false to skip background text validation and always use the first generated image.
+const VALIDATE_BACKGROUND = true;
+
+/**
+ * Asks Gemini Flash to check whether a generated background image contains any visible text or
+ * logos. Returns true if text/logo found (image should be rejected/retried), false otherwise.
+ * On any error, returns false so the pipeline degrades gracefully.
+ */
+async function backgroundHasText(
+  imageUrl: string,
+  apiKey: string,
+  opts: { jobId?: number; costAcc?: { usd: number } } = {}
+): Promise<boolean> {
+  try {
+    const res = await fetch(imageUrl, { signal: AbortSignal.timeout(12000) });
+    if (!res.ok) return false;
+    const buf = await res.arrayBuffer();
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    const mime = (res.headers.get("content-type") || "image/jpeg").split(";")[0];
+    const result = await callGemini(
+      "You are an image quality validator for advertising backgrounds.",
+      "Does this image contain ANY visible text, letters, numbers, logos, wordmarks, or UI elements with readable labels? Answer with ONLY the single word 'yes' or 'no'.",
+      "gemini-2.5-flash",
+      0.0,
+      10,
+      apiKey,
+      undefined,
+      [{ data: b64, mimeType: mime, label: "Ad background" }],
+      { ...opts, timeoutMs: 15000 }
+    );
+    const answer = String(result?.text || "").trim().toLowerCase();
+    const found = answer.startsWith("yes");
+    if (found) console.warn(`[bg-validate] text/logo detected → will retry job=${opts.jobId ?? "?"}`);
+    return found;
+  } catch (err) {
+    console.warn(`[bg-validate] validation error (skipping) job=${opts.jobId ?? "?"}: ${err}`);
+    return false;
+  }
+}
+
 // It has full creative freedom: choose placement, font sizes, line breaks, alignment.
 // The returned HTML is authoritative — GD renders it exactly (pixel-faithful translation).
 // Returns null on failure — callers fall back to the static TypeScript template.
@@ -395,6 +435,11 @@ async function buildOverlayHtmlFromGemini(
     }
     if (!/z-index\s*:\s*2\d/.test(raw)) {
       console.warn(`[overlay-html] missing text block job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
+      return null;
+    }
+    // Reject if Gemini echoed bracket placeholders as literal text content (e.g. >[left:5%]<)
+    if (/>[^<]*\[[^\]]{3,}\][^<]*</.test(raw)) {
+      console.warn(`[overlay-html] bracket placeholder in output job=${opts.jobId ?? "?"}: ${raw.slice(0, 200)}`);
       return null;
     }
     // Headline text must appear in the output (Gemini sometimes paraphrases — reject that)
@@ -3223,6 +3268,14 @@ serve(async (req: Request) => {
             }
             throw err;
           });
+          // Validate background for text/logos; retry once if detected (VALIDATE_BACKGROUND flag).
+          if (VALIDATE_BACKGROUND && gen?.url) {
+            const hasText = await backgroundHasText(gen.url, apiKey, { jobId, costAcc });
+            if (hasText) {
+              const retry = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
+              if (retry) gen = retry;
+            }
+          }
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           const bgForZone = bgHosted || gen?.url || "";
           const [calmLayout, geminiOverlay] = await Promise.all([
@@ -3276,7 +3329,7 @@ serve(async (req: Request) => {
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
-          const gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
+          let gen = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, {
             maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc,
           }).catch(async (err) => {
             if (/returned 5\d\d.*INTERNAL|returned 500/i.test(String(err))) {
@@ -3286,6 +3339,14 @@ serve(async (req: Request) => {
             }
             throw err;
           });
+          // Validate background for text/logos; retry once if detected (VALIDATE_BACKGROUND flag).
+          if (VALIDATE_BACKGROUND && gen?.url) {
+            const hasText = await backgroundHasText(gen.url, apiKey, { jobId, costAcc });
+            if (hasText) {
+              const retry = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
+              if (retry) gen = retry;
+            }
+          }
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
           const bgForZone = bgHosted || gen?.url || "";
           // Run calm-zone detection and Gemini overlay generation in parallel — both need the hosted BG.
