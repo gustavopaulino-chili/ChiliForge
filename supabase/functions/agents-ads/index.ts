@@ -2000,9 +2000,14 @@ function buildBackgroundPrompt(
 
   // Convey the brand palette as color NAMES (never raw hex) and scrub every code/URL/CSS
   // token from the spec + facts so nothing can be copied verbatim into the image as text.
-  const paletteNames = [...new Set((spec.match(/#[0-9a-f]{6}\b/gi) || []).slice(0, 4).map(describeHexColor).filter(Boolean))];
-  const colorLine = paletteNames.length
-    ? `BRAND PALETTE (use these as the color mood ONLY — never write any color name, code, hex or # as text): ${paletteNames.join(", ")}.`
+  // The FIRST hex in the spec is the brand's primary color — it must DOMINATE the background as the
+  // main brand field. Remaining colors are smaller accents. (Without this the model averaged the
+  // whole palette and muted the brand's signature color toward a dull mix.)
+  const paletteHexes = [...new Set((spec.match(/#[0-9a-f]{6}\b/gi) || []))].slice(0, 4);
+  const primaryName = describeHexColor(paletteHexes[0] || "");
+  const accentNames = [...new Set(paletteHexes.slice(1).map(describeHexColor).filter(Boolean))];
+  const colorLine = primaryName
+    ? `BRAND COLORS — the DOMINANT background color is ${primaryName}: it should fill MOST of the canvas as the main, vivid brand field (do not mute, grey-out or darken it into a dull mix).${accentNames.length ? ` Use ${accentNames.join(", ")} only as smaller accents and contrast.` : ""} Never write any color name, code, hex or # as text.`
     : "";
   const safeSpec = scrubBgPromptText(spec);
   // Background-only: drop the verbatim COPY lines (headline, subheadline, CTA, offer, brand and
