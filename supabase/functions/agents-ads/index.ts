@@ -347,7 +347,7 @@ async function buildOverlayHtmlFromGemini(
   cssVars: string,
   apiKey: string,
   rec?: ComposeTextRec | null,
-  opts: { jobId?: number } = {}
+  opts: { jobId?: number; costAcc?: { usd: number } } = {}
 ): Promise<string | null> {
   // Accept either a base64 data URL or a public HTTPS URL (e.g. Supabase Storage).
   // Using the already-uploaded HTTPS URL is preferred — avoids sending megabytes of base64.
@@ -3377,7 +3377,7 @@ serve(async (req: Request) => {
           const bgForZone = bgHosted || gen?.url || "";
           const [calmLayout, geminiOverlay] = await Promise.all([
             bgForZone ? pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : Promise.resolve(null),
-            bgForZone ? buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId }) : Promise.resolve(null),
+            bgForZone ? buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc }) : Promise.resolve(null),
           ]);
           bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: geminiOverlay });
         }
@@ -3457,7 +3457,7 @@ serve(async (req: Request) => {
           // overlayHtml from Gemini is authoritative when available; TypeScript template is the fallback.
           const [calmLayout, geminiOverlay] = await Promise.all([
             bgForZone ? pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : Promise.resolve(null),
-            bgForZone ? buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId }) : Promise.resolve(null),
+            bgForZone ? buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc }) : Promise.resolve(null),
           ]);
           bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calmLayout ?? layoutHint, overlayHtml: geminiOverlay });
         }
