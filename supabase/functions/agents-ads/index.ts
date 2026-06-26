@@ -253,10 +253,9 @@ function parseComposeTextRec(text: string): ComposeTextRec | null {
   }
 }
 
-// Calls Gemini Flash (text model) with the generated background image.
-// Gemini receives the background image and builds the COMPLETE HTML overlay from scratch.
-// Feature flag — set false to skip background text validation and always use the first generated image.
-const VALIDATE_BACKGROUND = true;
+// Feature flags
+const VALIDATE_BACKGROUND = true;  // background text detection + retry
+const CRITIQUE_OVERLAY    = true;  // Flash self-reviews its overlay and retries once if poor
 
 /**
  * Asks Gemini Flash to check whether a generated background image contains any visible text or
@@ -292,6 +291,49 @@ async function backgroundHasText(
   } catch (err) {
     console.warn(`[bg-validate] validation error (skipping) job=${opts.jobId ?? "?"}: ${err}`);
     return false;
+  }
+}
+
+/** Flash self-reviews its generated overlay HTML against the background image.
+ * Returns true if layout looks good, false if a significant problem was found.
+ * On false the caller should regenerate the overlay once. */
+async function critiqueOverlayHtml(
+  bgUrl: string,
+  html: string,
+  apiKey: string,
+  opts: { jobId?: number; costAcc?: { usd: number } } = {}
+): Promise<boolean> {
+  try {
+    const res = await fetch(bgUrl, { signal: AbortSignal.timeout(12000) });
+    if (!res.ok) return true;
+    const buf = await res.arrayBuffer();
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    const mime = (res.headers.get("content-type") || "image/jpeg").split(";")[0];
+    const result = await callGemini(
+      "You are an advertising quality reviewer. Be strict.",
+      `Review this HTML overlay that will be composited on the background image.
+
+HTML (trimmed):
+${html.slice(0, 2500)}
+
+Check for these problems:
+1. Headline or subheadline text placed over a bright/busy/cluttered area of the background (low contrast, hard to read).
+2. CTA missing, hidden, or positioned off-screen.
+3. Text block so large it covers the product/hero in the image.
+4. Obvious visual imbalance (e.g. all text crammed into one tiny corner, or huge empty space with no text).
+
+Answer ONLY with the single word "ok" (layout works) or "fix" (clear problem found).`,
+      "gemini-2.5-flash", 0.0, 10, apiKey, undefined,
+      [{ data: b64, mimeType: mime, label: "Ad background" }],
+      { ...opts, timeoutMs: 18000 }
+    );
+    const answer = String(result?.text || "").trim().toLowerCase();
+    const needsFix = answer.startsWith("fix");
+    console.log(`[overlay-critique] job=${opts.jobId ?? "?"} ${needsFix ? "FIX → regenerating" : "OK"}`);
+    return !needsFix;
+  } catch (err) {
+    console.warn(`[overlay-critique] error (skipping) job=${opts.jobId ?? "?"}: ${err}`);
+    return true;
   }
 }
 
@@ -461,6 +503,23 @@ async function buildOverlayHtmlFromGemini(
     if (hlCheck && !raw.includes(hlCheck)) {
       console.warn(`[overlay-html] headline paraphrased job=${opts.jobId ?? "?"} expected="${hlCheck}"`);
       return null;
+    }
+    // Autocrítica: Flash reviews its own output against the background image — retry once if poor.
+    if (CRITIQUE_OVERLAY && (bgDataUrl.startsWith("http://") || bgDataUrl.startsWith("https://"))) {
+      const ok = await critiqueOverlayHtml(bgDataUrl, raw, apiKey, opts);
+      if (!ok) {
+        // Re-run the Gemini call once with a hint to improve placement
+        const res2 = await callGemini(SYSTEM, USER + "\n\nIMPORTANT: Your previous layout had a visual problem (text over busy area, or CTA hidden). Regenerate with better placement.", "gemini-2.5-flash", 0.4, 1400, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 25000 }).catch(() => null);
+        if (res2?.text) {
+          const raw2 = String(res2.text).trim()
+            .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
+          if (raw2 && /z-index\s*:\s*1\b/.test(raw2) && /z-index\s*:\s*2\d/.test(raw2) && raw2.includes(hlCheck || "")) {
+            console.log(`[overlay-critique] retry accepted job=${opts.jobId ?? "?"}`);
+            const styleTag2 = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
+            return styleTag2 + raw2;
+          }
+        }
+      }
     }
     console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${raw.length} font=${_fontName ?? "none"}`);
     const styleTag = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
@@ -2113,8 +2172,8 @@ function buildBackgroundPrompt(
         "• Service or digital offering: do NOT render a laptop/tablet with generic charts — that is a failed interpretation. Instead, paint the SCENE of SUCCESS — the world as it looks the moment this service delivers its promise. What are people doing? What do they feel? What is visibly different? Make that moment the hero.",
         "⛔ A generic 'tech desk' or floating device is always wrong for a service. The scene must be unmistakably about what THIS campaign delivers.",
         "• Whichever you choose: the hero subject fills ≥50% of the frame, dramatically lit, in the brand's palette.",
-        "• Depict it in THIS BRAND'S visual language: premium lighting, dramatic contrast, brand color palette as the backdrop. Not a neutral white-studio stock photo.",
-        "• The background should feel like a professional art-directed shot made FOR THIS BRAND — the product/outcome rendered in their signature style (color, depth, mood, texture).",
+        "• BRAND IDENTITY IS NON-NEGOTIABLE: even in an action scene or photographic composition, the brand's color palette must dominate — use it as the background lighting, color grade, or backdrop. The brand's visual identity elements (textures, patterns, signature colors from the brand facts) must be present. A scene shot in neutral/white/random colors is a brand failure.",
+        "• The background should feel like a professional art-directed shot made FOR THIS BRAND — their signature style must be unmistakably present.",
         "⛔ Do NOT render the product name or any text anywhere in the image.",
       ].join(" ")
     : "";
@@ -2151,7 +2210,7 @@ function buildBackgroundPrompt(
     "❌ NO button shapes, pill shapes, card shapes, or any UI element that resembles a text container.",
     "❌ NO placeholder boxes, lorem ipsum, or shapes that imply text.",
     "❌ If you render ANY product, bottle, jar, package, box, BOOK, MAGAZINE, NOTEBOOK, label, tag or object, ALL SURFACES MUST BE COMPLETELY BLANK — no text, no letters, no numbers, no logo, no title, no author name. A book cover/spine/bottle label/product surface with ANY text is a complete render failure.",
-    "❌ Any SCREEN, monitor, laptop, phone, tablet or dashboard must show ONLY simple abstract bar/line charts or solid color geometric shapes — NO text, labels, font names, color swatch names, UI captions, app names, or ANY readable annotation anywhere on the screen, no matter how small.",
+    "❌ Any SCREEN, monitor, laptop, phone or tablet visible in the image must show NO text, labels, font names, UI captions, app names, or ANY readable annotation — no matter how small. The screen content can be abstract shapes, solid colors, blurred bokeh, or nothing at all.",
     "⛔ CRITICAL — THE TEXT ZONE / RESERVED PANEL MUST ALSO BE TEXT-FREE: When you create a dark panel, diagonal cutout, gradient band, or any calm area reserved for overlay text, that area must be COMPLETELY EMPTY of any letters, words, or characters — including layout annotations like 'text-safe', 'calm zone', 'generous', or any descriptor of the zone itself. Do NOT write a preview headline, placeholder copy, category name, product name, or ANY text inside that zone. The zone is a clean color/gradient surface ONLY.",
     "⛔ DO NOT annotate your own composition choices as text in the image. Never write phrases like 'text area', 'text-safe', 'calm zone', 'headline here', 'generous calm', or any meta-description of the layout. These are internal design decisions — they must NEVER appear as pixels in the image.",
     "WHY: The system overlays the real logo and copy in a separate HTML layer AFTER your image is generated. Any text or logo you draw will appear TWICE in the final ad, ruined.",
