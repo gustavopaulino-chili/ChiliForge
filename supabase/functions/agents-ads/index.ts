@@ -276,7 +276,7 @@ async function backgroundHasText(
     const mime = (res.headers.get("content-type") || "image/jpeg").split(";")[0];
     const result = await callGemini(
       "You are an image quality validator for advertising backgrounds.",
-      "Does this image contain ANY visible text, letters, numbers, logos, wordmarks, or UI elements with readable labels? Answer with ONLY the single word 'yes' or 'no'.",
+      "Does this image contain ANY visible text, letters, numbers, logos, wordmarks, or UI elements with readable labels? THIS INCLUDES: text printed on book covers or spines, magazine/newspaper titles, bottle labels, product package text, screen text, price tags, captions, or any words anywhere in the image — even lightly rendered. Answer with ONLY the single word 'yes' or 'no'.",
       "gemini-2.5-flash",
       0.0,
       10,
@@ -380,42 +380,57 @@ async function buildOverlayHtmlFromGemini(
     logoLine,
     "",
     "YOUR ROLE: expert social media ad designer. Full creative freedom — make this ad look outstanding.",
-    "1. ANALYZE the background image before writing any HTML:",
-    "   • Find the calm/dark/low-contrast zone — that is where the text goes. It may be bottom, top, or center.",
-    "   • Choose text placement that uses that zone naturally. Do NOT always default to bottom.",
-    "   • Keep comfortable margins (≥6% from every edge). Text block stretches full width — close to left and right edges.",
-    "2. Scrim: a LIGHT dark gradient over the text zone — enough to read white text, but NOT a heavy black wash.",
-    "   • Use rgba(0,0,0,0.45) at most at the darkest point. Prefer 0.30–0.40. Background must stay visible.",
-    "   • Direction: Text at bottom → 'to top' | Top → 'to bottom' | Center → radial",
-    "3. Text block (ONE flex div containing BOTH headline and subheadline as children):",
-    "   • Headline div: font-size 5.5–8cqw, font-weight:900.",
-    "     LINE BREAK: if headline is longer than 22 chars, add an explicit <br> at the most natural semantic split — after a colon, before a key verb — so both lines have roughly equal visual weight. Never rely on CSS auto-wrap.",
-    "   • Subheadline div: font-size 2.5–4cqw, font-weight:400. Gap from headline: at least 3cqh.",
-    "   • Alignment: left or center depending on background.",
-    "4. CTA — SEPARATE absolute element, NOT inside the text flex block. Gap ≥8cqh below the subheadline.",
-    `   • ${ctaSpec}`,
+    "1. ANALYZE the background image:",
+    "   a. LOCATE THE VISUAL HERO — where is the product/main subject positioned? (top / bottom / left / right / center / center-bottom / etc.)",
+    "   b. Identify all calm/low-contrast zones available for text.",
+    "   c. DECIDE: is there usable calm space BOTH ABOVE AND BELOW the hero → use OPTION A (SPLIT). Otherwise → use OPTION B (SINGLE ZONE).",
+    "",
+    "2. Scrim: a LIGHT dark gradient covering ALL text zone(s). rgba(0,0,0,0.30–0.45) max. Background must remain visible.",
+    "   Direction: zone at bottom → 'to top' | top → 'to bottom' | center → radial. Stretch scrim to cover both zones if OPTION A.",
+    "",
+    "3. OPTION A — SPLIT LAYOUT (hero in center/middle, calm space above AND below):",
+    "   • GROUP 1: position:absolute; display:flex; flex-direction:column; z-index:25 — anchored in the UPPER calm zone → contains HEADLINE ONLY.",
+    "   • GROUP 2: position:absolute; display:flex; flex-direction:column; gap:2.5cqh; z-index:25 — anchored in the LOWER calm zone → contains SUBHEADLINE as first child, then CTA as second child.",
+    "   • CTA child in GROUP 2: background:[brand accent color from the image]; color:#ffffff; border-radius:1.5cqw; padding:1.2cqh 3cqw; font-size:2.2cqw; font-weight:700; align-self:flex-start.",
+    "   • Both groups: left:6%; right:6%; keep ≥6% margin from all edges.",
+    "",
+    "   OPTION B — SINGLE ZONE (calm space concentrated in one area):",
+    "   • ONE flex div (z-index:25): position:absolute; display:flex; flex-direction:column; gap:≥3cqh — contains headline and subheadline.",
+    `   • CTA: SEPARATE absolute element (z-index:26). ${ctaSpec} Gap ≥8cqh below the subheadline.`,
+    "",
+    "4. Headline typography:",
+    "   • font-size:5.5–8cqw; font-weight:900.",
+    "   • LINE BREAK: if headline is longer than 22 chars, add an explicit <br> at the most natural semantic split — after a colon, before a key verb — so both visual lines have roughly equal weight. Never rely on CSS auto-wrap.",
+    "   • ACCENT WORD (optional, 1–2 words max): wrap the single most impactful word in a <span style=\"color:[a vivid color sampled from the brand palette visible in the background image]\">word</span>. Do NOT use a bracket placeholder for the color — use the actual hex value you observe.",
+    "   • text-align: center or left based on composition.",
+    "",
+    "5. Subheadline: font-size:2.5–4cqw; font-weight:400. Placed in GROUP 2 (OPTION A) or inside the single flex block (OPTION B).",
     "",
     "TECHNICAL RULES (do not violate):",
     "• Do NOT output any bracket-notation placeholders [like this] as text content inside any HTML element. Every element must contain only real copy text or real HTML children — never a placeholder annotation.",
+    "• For the span accent color: write the ACTUAL hex value (e.g. color:#e63946) — never write 'color:[brand color]' or any bracket form.",
     `• Parent container has container-type:size → 1cqw = ${(W / 100).toFixed(1)}px | 1cqh = ${(H / 100).toFixed(1)}px`,
     "• Positions: % only (no px for top/left/right/bottom). Font sizes: cqw or cqh only. Logo width/max-height: % only.",
     `• Font: ${fontFamily}`,
     "• Text: color:#ffffff | text-shadow:0 2px 10px rgba(0,0,0,0.65),0 1px 3px rgba(0,0,0,0.45)",
     "• Scrim: position:absolute; z-index:1; pointer-events:none",
     "• Logo img: position:absolute; object-fit:contain; z-index:20",
-    "• Text block (headline+sub only): position:absolute; display:flex; flex-direction:column; z-index:25; gap:≥3cqh",
-    "• CTA div: position:absolute; z-index:26 — standalone, NOT a child of the text block",
+    "• Text groups: position:absolute; display:flex; flex-direction:column; z-index:25",
+    "• OPTION B only — CTA div: position:absolute; z-index:26 — standalone, NOT a child of the text block",
     "",
-    logoUrl
-      ? "RETURN exactly 4 elements in this order: scrim div, logo img, text block div (headline+sub), CTA div."
-      : "RETURN exactly 3 elements in this order: scrim div, text block div (headline+sub), CTA div.",
-    "<div style=\"position:absolute;[scrim zone];background:[dark gradient];z-index:1;pointer-events:none\"></div>",
-    logoUrl ? `<img src="${logoUrl}" style="position:absolute;[corner];width:[20–32]%;max-height:14%;object-fit:contain;z-index:20" alt="logo" />` : "",
-    "<div style=\"position:absolute;[% position];display:flex;flex-direction:column;align-items:[start|center|end];gap:[≥3]cqh;z-index:25\">",
-    "  [headline div]",
-    "  [subheadline div if present]",
+    "RETURN STRUCTURE:",
+    "OPTION A → scrim div" + (logoUrl ? ", logo img," : ",") + " GROUP1 div (headline only), GROUP2 div (sub + CTA child).",
+    "OPTION B → scrim div" + (logoUrl ? ", logo img," : ",") + " text-block div (headline + sub), CTA div.",
+    "Example OPTION A:",
+    "<div style=\"position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(...);z-index:1;pointer-events:none\"></div>",
+    logoUrl ? `<img src="${logoUrl}" style="position:absolute;top:4%;left:5%;width:24%;max-height:12%;object-fit:contain;z-index:20" alt="logo" />` : "",
+    "<div style=\"position:absolute;top:6%;left:6%;right:6%;display:flex;flex-direction:column;z-index:25\">",
+    "  <div style=\"font-size:7cqw;font-weight:900;color:#ffffff;...\">Headline <br> split here</div>",
     "</div>",
-    ctaRaw ? "<div style=\"position:absolute;[different anchor, e.g. bottom:8%;left/right:%];z-index:26;[cta styling]\">[CTA text]</div>" : "",
+    "<div style=\"position:absolute;bottom:7%;left:6%;right:6%;display:flex;flex-direction:column;gap:2.5cqh;z-index:25\">",
+    "  <div style=\"font-size:3cqw;font-weight:400;color:#ffffff;...\">Subheadline text</div>",
+    ctaRaw ? "  <div style=\"background:#e63946;color:#ffffff;border-radius:1.5cqw;padding:1.2cqh 3cqw;font-size:2.2cqw;font-weight:700;align-self:flex-start\">CTA Text</div>" : "",
+    "</div>",
   ].filter(Boolean).join("\n");
 
   try {
@@ -2089,7 +2104,15 @@ function buildBackgroundPrompt(
   // Extract product name before stripping so it can drive visual mood without being in facts.
   const rawProduct = (campaignFactsImg.match(/^Product\/Service:\s*(.+)$/mi) ?? [])[1]?.trim() ?? "";
   const productMoodHint = rawProduct
-    ? `VISUAL MOOD: The campaign is about "${scrubBgPromptText(rawProduct)}". Use this to choose the right SCENE, ENVIRONMENT and ATMOSPHERE — what kind of world, lighting and objects evoke this topic? Let it guide the emotional feel of the image. ⛔ Do NOT render this as text or a label anywhere in the image.`
+    ? [
+        `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: The campaign is about "${scrubBgPromptText(rawProduct)}".`,
+        "The product/service must be the DOMINANT VISUAL HERO of this image — not a prop in a generic scene, not a small element in the corner.",
+        "• Render it as the PRIMARY subject: large, centered or dynamically positioned, filling at least 50–60% of the frame.",
+        "• Depict it in THIS BRAND'S visual language: premium lighting, dramatic contrast, brand color palette as the backdrop. Not a neutral white-studio stock photo.",
+        "• The background should feel like a professional art-directed shot made FOR THIS BRAND — the product rendered in their signature style (color, depth, mood, texture).",
+        "• Think: how would a top advertising photographer shoot THIS product for THIS brand? That is your reference.",
+        "⛔ Do NOT render the product name or any text anywhere in the image.",
+      ].join(" ")
     : "";
 
   return [
@@ -2123,7 +2146,7 @@ function buildBackgroundPrompt(
     "❌ NO hex codes, color codes, the '#' character, CSS tokens, variable names, URLs, file paths, or numbers.",
     "❌ NO button shapes, pill shapes, card shapes, or any UI element that resembles a text container.",
     "❌ NO placeholder boxes, lorem ipsum, or shapes that imply text.",
-    "❌ If you render ANY product, bottle, jar, package, box, label, tag or object, all surfaces must be COMPLETELY BLANK — no text, no letters, no numbers, no logo.",
+    "❌ If you render ANY product, bottle, jar, package, box, BOOK, MAGAZINE, NOTEBOOK, label, tag or object, ALL SURFACES MUST BE COMPLETELY BLANK — no text, no letters, no numbers, no logo, no title, no author name. A book cover/spine/bottle label/product surface with ANY text is a complete render failure.",
     "❌ Any SCREEN, monitor, laptop, phone, tablet or dashboard must show ONLY abstract charts, graphs or color shapes — NEVER a brand logo, app name, headline, readable label or any wordmark on the screen.",
     "⛔ CRITICAL — THE TEXT ZONE / RESERVED PANEL MUST ALSO BE TEXT-FREE: When you create a dark panel, diagonal cutout, gradient band, or any calm area reserved for the overlay text, that area must be COMPLETELY EMPTY of any letters, words, or characters. Do NOT write a preview headline, placeholder copy, category name, product name, or any text inside that zone — not even lightly. The zone is a clean color/gradient surface ONLY. The real copy is added on top by a separate system.",
     "WHY: The system overlays the real logo and copy in a separate HTML layer AFTER your image is generated. Any text or logo you draw will appear TWICE in the final ad, ruined.",
@@ -3272,13 +3295,18 @@ serve(async (req: Request) => {
             throw err;
           });
           // Validate background for text/logos; retry once if detected (VALIDATE_BACKGROUND flag).
+          // Also validates the retry — if both fail, uses whichever was cleaner (the retry).
           if (VALIDATE_BACKGROUND && gen?.url) {
             const hasText = await backgroundHasText(gen.url, apiKey, { jobId, costAcc });
             if (hasText) {
               console.warn(`[bg-validate] retrying background generation job=${jobId ?? "?"}`);
               const retry = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
-              if (retry) { gen = retry; console.log(`[bg-validate] retry succeeded job=${jobId ?? "?"}`); }
-              else console.warn(`[bg-validate] retry failed, using original job=${jobId ?? "?"}`);
+              if (retry) {
+                gen = retry;
+                const retryHasText = await backgroundHasText(retry.url, apiKey, { jobId, costAcc });
+                if (retryHasText) console.warn(`[bg-validate] retry also has text, using it anyway job=${jobId ?? "?"}`);
+                else console.log(`[bg-validate] retry clean job=${jobId ?? "?"}`);
+              } else console.warn(`[bg-validate] retry failed, using original job=${jobId ?? "?"}`);
             }
           }
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
@@ -3345,13 +3373,18 @@ serve(async (req: Request) => {
             throw err;
           });
           // Validate background for text/logos; retry once if detected (VALIDATE_BACKGROUND flag).
+          // Also validates the retry — if both fail, uses whichever was cleaner (the retry).
           if (VALIDATE_BACKGROUND && gen?.url) {
             const hasText = await backgroundHasText(gen.url, apiKey, { jobId, costAcc });
             if (hasText) {
               console.warn(`[bg-validate] retrying background generation job=${jobId ?? "?"}`);
               const retry = await generateAdImage(bgPrompt, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
-              if (retry) { gen = retry; console.log(`[bg-validate] retry succeeded job=${jobId ?? "?"}`); }
-              else console.warn(`[bg-validate] retry failed, using original job=${jobId ?? "?"}`);
+              if (retry) {
+                gen = retry;
+                const retryHasText = await backgroundHasText(retry.url, apiKey, { jobId, costAcc });
+                if (retryHasText) console.warn(`[bg-validate] retry also has text, using it anyway job=${jobId ?? "?"}`);
+                else console.log(`[bg-validate] retry clean job=${jobId ?? "?"}`);
+              } else console.warn(`[bg-validate] retry failed, using original job=${jobId ?? "?"}`);
             }
           }
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";

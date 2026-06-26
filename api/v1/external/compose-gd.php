@@ -350,6 +350,37 @@ if (!function_exists('extgd_inner_text')) {
     }
 }
 
+if (!function_exists('extgd_text_segments')) {
+    /**
+     * Extract text with per-span color overrides from a DOMElement.
+     * Returns: [['text' => string, 'color' => string|null], ...]
+     * where null means "inherit parent color". <br> becomes a "\n" segment.
+     */
+    function extgd_text_segments(DOMElement $el): array {
+        $segs = [];
+        foreach ($el->childNodes as $n) {
+            if ($n instanceof DOMText) {
+                $t = $n->textContent;
+                if ($t !== '') $segs[] = ['text' => $t, 'color' => null];
+            } elseif ($n instanceof DOMElement) {
+                $tag = strtolower($n->tagName);
+                if ($tag === 'br') {
+                    $segs[] = ['text' => "\n", 'color' => null];
+                } elseif ($tag === 'span') {
+                    $sst = extgd_parse_style($n->getAttribute('style'));
+                    $spanColor = $sst['color'] ?? null;
+                    $inner = extgd_inner_text($n); // plain text inside span
+                    if ($inner !== '') $segs[] = ['text' => $inner, 'color' => $spanColor];
+                } else {
+                    // strong, em, b, etc — recurse, inherit color
+                    foreach (extgd_text_segments($n) as $s) $segs[] = $s;
+                }
+            }
+        }
+        return $segs;
+    }
+}
+
 if (!function_exists('extgd_wrap_lines')) {
     /** Word-wrap text to fit $maxW px. Respects \n as hard line breaks (from HTML <br> tags). */
     function extgd_wrap_lines(string $text, string $font, float $size, float $maxW): array {
@@ -648,8 +679,9 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                     foreach (iterator_to_array($node->childNodes) as $child) {
                         if (!($child instanceof DOMElement)) continue;
                         $cSt  = extgd_parse_style($child->getAttribute('style'));
-                        // Preserve <br> as \n so extgd_wrap_lines honours hard line breaks
-                        $rawTxt = extgd_inner_text($child);
+                        // Extract segments (preserves <span> color overrides and <br> as \n)
+                        $rawSegs = extgd_text_segments($child);
+                        $rawTxt  = implode('', array_column($rawSegs, 'text'));
                         $cTxt  = trim(implode("\n", array_map(static fn($s) => trim(preg_replace('/\s+/', ' ', $s)), explode("\n", $rawTxt))));
                         if ($cTxt === '') continue;
                         // Spacing: explicit margin-top on child > container gap (skip for first child)
@@ -669,8 +701,11 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                             && stripos($cSt['background'], 'transparent') === false
                             && stripos($cSt['background'], 'rgba(0,0,0') === false
                             && stripos($cSt['background'], 'rgba(0, 0, 0') === false;
+                        // Keep segments only if at least one has a non-null color override
+                        $hasColoredSegs = !empty(array_filter($rawSegs, static fn($s) => $s['color'] !== null));
                         $textEls[] = [
                             'text'         => $cTxt,
+                            'segments'     => $hasColoredSegs ? $rawSegs : [],
                             'font'         => (extgd_font($cWeight) ?: $fontReg),
                             'col'          => extgd_color($cSt['color'] ?? '#ffffff', [255, 255, 255, 0]),
                             'align'        => strtolower($cSt['text-align'] ?? ($cAlignItems === 'center' ? 'center' : 'left')),
@@ -816,6 +851,7 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                 $y0 = $el['isBottom'] ? (int)round($el['repY'] - $blockH) : (int)round($el['repY']);
                 $shadow = imagecolorallocatealpha($canvas, 0, 0, 0, 45);
                 $fill = imagecolorallocatealpha($canvas, $el['col'][0], $el['col'][1], $el['col'][2], $el['col'][3]);
+                $lineSegs = $el['segments'] ?? [];
                 $cy = $y0;
                 foreach ($lines as $line) {
                     $bb = imagettfbbox($fpx, 0, $font, $line);
@@ -823,8 +859,22 @@ if (!function_exists('extgd_compose_html_to_jpeg')) {
                     if ($el['align'] === 'center')    $lx = $bx + ($bw2 - $lw2) / 2;
                     elseif ($el['align'] === 'right') $lx = $bx + ($bw2 - $lw2);
                     else                              $lx = $bx;
+                    // Base render: shadow + default color
                     imagettftext($canvas, $fpx, 0, (int)$lx + 2, $cy + (int)$asc + 2, $shadow, $font, $line);
                     imagettftext($canvas, $fpx, 0, (int)$lx, $cy + (int)$asc, $fill, $font, $line);
+                    // Overlay colored segments (span overrides) — paint accent words on top
+                    foreach ($lineSegs as $seg) {
+                        if (($seg['color'] ?? null) === null) continue;
+                        $sText = trim(preg_replace('/\s+/', ' ', $seg['text']));
+                        if ($sText === '') continue;
+                        $sPos = mb_strpos($line, $sText, 0, 'UTF-8');
+                        if ($sPos === false) continue;
+                        $prefix = mb_substr($line, 0, $sPos, 'UTF-8');
+                        $prefW = $prefix !== '' ? abs(imagettfbbox($fpx, 0, $font, $prefix)[2] - imagettfbbox($fpx, 0, $font, $prefix)[0]) : 0;
+                        $segC = extgd_color($seg['color'], [$el['col'][0], $el['col'][1], $el['col'][2], $el['col'][3]]);
+                        $segFill = imagecolorallocatealpha($canvas, $segC[0], $segC[1], $segC[2], $segC[3]);
+                        imagettftext($canvas, $fpx, 0, (int)$lx + $prefW, $cy + (int)$asc, $segFill, $font, $sText);
+                    }
                     $cy += $step;
                 }
                 return $y0;
