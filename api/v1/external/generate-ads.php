@@ -258,6 +258,11 @@ function ext_map_campaign(array $cam, array $formats): array {
         // Forces the text/logo layout (and thus where the AI background reserves negative
         // space). Must be a known LAYOUT_KEY in the edge; unknown values fall back to auto.
         'textLayout'            => $first(['text_layout', 'layout', 'logo_position']),
+        // A/B testing — generate N variants of one campaign. ab_test_focus 'visual' gives each
+        // variant its own background + a distinct layout; 'copy'/'cta' vary the wording.
+        'abTestingEnabled'      => ($bool('ab_testing', false) || $bool('ab_testing_enabled', false)),
+        'abVariantCount'        => (int)($cam['ab_variant_count'] ?? $cam['ab_variants'] ?? 0),
+        'abTestFocus'           => $first(['ab_test_focus', 'ab_focus', 'ab_variable']),
         'selectedFormats'       => $formats,
     ], fn($v) => !($v === '' || $v === null || (is_array($v) && empty($v))));
 }
