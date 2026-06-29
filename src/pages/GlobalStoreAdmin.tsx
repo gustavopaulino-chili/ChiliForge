@@ -609,7 +609,11 @@ function ApiDocs() {
     generation_type: "image",
     company_id: 456,
     campaign_id: 789,
-    creative_count: 2,
+    total_batches: 1,
+    completed: 1,
+    failed: 0,
+    error: null,
+    creative_count: 1,
     creatives: [
       {
         id: 1,
@@ -618,11 +622,12 @@ function ApiDocs() {
         label: "Instagram Feed Square",
         width: 1080,
         height: 1080,
-        image_url: `${baseUrl}/projects/velora-skin/serum-glow-launch/1/banner.png`,
+        image_url: `${baseUrl}/projects/velora-skin/serum-glow-launch/1/banner.jpg`,
         html_url: `${baseUrl}/projects/velora-skin/serum-glow-launch/1/index.html`,
+        type: "image/jpeg",
       },
     ],
-    failed_batches: 0,
+    batches: [{ batch_index: 0, status: "completed", label: "Instagram Feed Square", error: null, attempts: 1, saved_count: 1 }],
   }, null, 2);
 
   return (
@@ -666,6 +671,7 @@ function ApiDocs() {
             <div><code className="text-xs bg-muted px-1 rounded">gemini_api_key</code> — obrigatorio; usa a chave e a cota Gemini do usuario da API</div>
             <div><code className="text-xs bg-muted px-1 rounded">generation_type</code> — obrigatorio: <code>html</code> para criativos editaveis ou <code>image</code> para priorizar PNG</div>
             <div><code className="text-xs bg-muted px-1 rounded">force_sync: true</code> — força re-sync da store mesmo que a empresa já exista</div>
+            <div><code className="text-xs bg-muted px-1 rounded">debug: true</code> — cada creative volta com <code>debug</code> (prompt final, refs, layout)</div>
             <div><code className="text-xs bg-muted px-1 rounded">source</code> — identifica o app de origem (ex: "instagram-feed-agency")</div>
             <div><code className="text-xs bg-muted px-1 rounded">request_id</code> — ID idempotência do lado do cliente</div>
           </div>
@@ -752,6 +758,7 @@ function ApiDocs() {
                 ["logo_url",         "url",      "URL do logo (PNG/SVG)"],
                 ["hero_image_url",   "url",      "URL da imagem hero"],
                 ["product_images",   "url[]",    "Array de URLs de produtos"],
+                ["reference_images", "url[]",    "Imagens de estilo da marca (influência estética)"],
                 ["heading_font",     "string",   "Fonte de título (ex: Montserrat)"],
                 ["body_font",        "string",   "Fonte de texto"],
                 ["tone_of_voice",    "string",   "Tom de voz da marca"],
@@ -794,12 +801,17 @@ function ApiDocs() {
                 ["discount",          "string",  "Porcentagem de desconto"],
                 ["guarantee",         "string",  "Garantia (ex: 7 dias)"],
                 ["scarcity",          "string",  "Escassez (ex: Últimas unidades)"],
-                ["cta_text",          "string",  "Texto do botão CTA"],
-                ["main_headline",     "string",  "Headline principal (override da IA)"],
-                ["subheadline",       "string",  "Subheadline (override)"],
-                ["use_ai_copy",       "boolean", "true = IA escreve a copy. false = usa main_headline/subheadline"],
-                ["product_image_url", "url",     "Imagem do produto para a campanha"],
-                ["background_image_url","url",   "Imagem de fundo"],
+                ["cta_text / cta",    "string",  "Texto do CTA — SEMPRE sai verbatim"],
+                ["headline / main_headline", "string", "Headline. Sai VERBATIM (a IA NÃO reescreve) quando enviada — ver Comportamentos"],
+                ["subheadline",       "string",  "Subheadline. Verbatim quando enviada"],
+                ["use_ai_copy",       "boolean", "Padrão false quando há headline (verbatim). true força a IA a reescrever a copy"],
+                ["product_image_url", "url",     "Imagem de um PRODUTO → é DESTACADO na cena (e-reader, tênis, etc.)"],
+                ["reference_image_url","url",    "Imagem de uma PESSOA → vira o HERÓI de uma cena UGC (identidade preservada)"],
+                ["background_image_url","url",   "Imagem de fundo / referência de cena"],
+                ["ab_testing",        "boolean", "Liga A/B testing (gera N variantes numa request)"],
+                ["ab_test_focus",     "string",  "visual | copy | cta — o que varia entre as variantes"],
+                ["ab_variant_count",  "number",  "Nº de variantes (2 ou 3)"],
+                ["compose_background_source", "string", "reference | company | creative | shapes (controle do fundo)"],
                 ["target_audience",   "string",  "Público-alvo (override do perfil da empresa)"],
                 ["pain_points",       "string",  "Dores do público"],
                 ["desires",           "string",  "Desejos do público"],
@@ -816,6 +828,51 @@ function ApiDocs() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      {/* Key behaviors */}
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 text-xs font-mono">INFO</span>
+          Comportamentos-chave (modo image)
+        </h2>
+        <ul className="list-disc pl-5 space-y-1.5 text-sm text-muted-foreground">
+          <li><strong className="text-foreground">Copy verbatim por padrão:</strong> se você enviar <code className="bg-muted px-1 rounded">headline</code> (+ <code className="bg-muted px-1 rounded">subheadline</code>), o texto sai exatamente como mandou. O <code className="bg-muted px-1 rounded">cta</code> é sempre verbatim. Para a IA gerar/reescrever a copy, omita o headline OU envie <code className="bg-muted px-1 rounded">use_ai_copy: true</code>.</li>
+          <li><strong className="text-foreground">product_image_url</strong> → o produto da imagem é destacado na cena (em primeiro plano).</li>
+          <li><strong className="text-foreground">reference_image_url</strong> → o sujeito (pessoa) vira o herói de uma cena UGC sobre o produto, com identidade preservada. Os dois juntos = pessoa + produto na mesma cena.</li>
+          <li><strong className="text-foreground">Cores da marca dominam</strong> (color-lock): a paleta vem de <code className="bg-muted px-1 rounded">primary_color</code> etc.; a cor de uma imagem de produto NÃO sobrescreve a marca.</li>
+          <li><strong className="text-foreground">Fundo sempre sem texto e sem logo</strong>: o logo (imutável) e a copy são compostos por cima em HTML e rasterizados para <code className="bg-muted px-1 rounded">banner.jpg</code>. Posição de texto é automática; o CTA tende ao bottom.</li>
+          <li><strong className="text-foreground">A/B testing</strong>: <code className="bg-muted px-1 rounded">ab_testing:true</code> + <code className="bg-muted px-1 rounded">ab_test_focus:"visual"</code> + <code className="bg-muted px-1 rounded">ab_variant_count:2</code> → variantes do MESMO conceito, mesma copy.</li>
+        </ul>
+      </section>
+
+      {/* Company assets setup endpoint */}
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400 text-xs font-mono">POST</span>
+          Setup da marca (opcional, recomendado)
+        </h2>
+        <CopyBlock code={`${baseUrl}/api/v1/external/company-assets.php`} language="text" />
+        <p className="text-sm text-muted-foreground">
+          Registra/atualiza os assets da marca por <code className="bg-muted px-1 rounded">phone</code> ANTES de gerar.
+          Os <code className="bg-muted px-1 rounded">brand_posts</code> (posts do Instagram da marca) são analisados pela Gemini e viram um
+          brief visual que guia toda geração futura (DNA estético da marca). Chame uma vez por marca; acumula entre chamadas.
+        </p>
+        <CopyBlock code={JSON.stringify({
+          api_key: "cf_sua_chave_chiliforge",
+          gemini_api_key: "AIza_sua_chave_gemini",
+          phone: "+5511999999999",
+          company: { name: "Velora Skin", primary_color: "#2563EB" },
+          logo_url: "https://exemplo.com/logo.png",
+          font_family: "Poppins",
+          brand_posts: ["https://instagram.com/post1.jpg", "https://instagram.com/post2.jpg"],
+          competitor_posts: ["https://instagram.com/competitor1.jpg"],
+          reference_images: ["https://exemplo.com/ref.jpg"],
+        }, null, 2)} />
+        <p className="text-xs text-muted-foreground">
+          Limites: até 12 brand_posts e 8 competitor_posts por chamada. <code className="bg-muted px-1 rounded">gemini_api_key</code> é obrigatória quando há brand_posts/competitor_posts.
+          Resposta: <code className="bg-muted px-1 rounded">{"{ success, company_id, store_name, brand_posts_stored, brand_visual_status, ... }"}</code>.
+        </p>
       </section>
 
       {/* Instagram use case */}
