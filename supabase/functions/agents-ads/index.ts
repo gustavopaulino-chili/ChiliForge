@@ -414,16 +414,16 @@ async function buildOverlayHtmlFromGemini(
     ctaRaw ? `• CTA: "${ctaRaw}"` : "",
   ].filter(Boolean).join("\n");
 
-  // A real browser renders the HTML, so the CTA is no longer limited to a flat GD-safe band.
-  // Offer a menu of premium treatments and let the model pick the one that fits THIS comp —
-  // variety across ads is the goal, not one fixed look. Arrows render fine in Chrome.
+  // CTA: a stylish action line that may sit in a SUBTLE container, but must NOT look like a
+  // tappable app button (no loud glossy pill / heavy-shadow rounded rectangle). Editorial/UGC,
+  // not UI. Keeping it light also avoids the pill colliding with the subheadline.
   const ctaMenu = ctaRaw
     ? [
-        `CTA — "${ctaRaw}" — this is the single most clickable element; make it pop. Pick ONE treatment that best fits THIS composition (vary it across ads — do NOT always choose the same one):`,
-        `   ‣ GLASS PILL — display:inline-flex; align-items:center; gap:0.8cqw; background:rgba(255,255,255,0.14); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,0.40); border-radius:999px; padding:1.3cqh 3.2cqw; color:#ffffff; font-weight:700; box-shadow:0 6px 24px rgba(0,0,0,0.30); end with a small trailing arrow span "→".`,
-        `   ‣ GRADIENT BUTTON — background:linear-gradient(135deg, ACCENT, DARKER); color:#ffffff; border-radius:1.4cqw; padding:1.4cqh 3.4cqw; font-weight:800; letter-spacing:0.02em; box-shadow:0 8px 30px rgba(0,0,0,0.30) plus a soft glow tinted with the brand colour. Replace ACCENT/DARKER with the actual brand hex you sample from the image (e.g. #e63946 and a darker variant).`,
-        `   ‣ ORGANIC ACTION (no box, native-social feel) — bold #ffffff text with a trailing "→", and directly under it a short underline bar: a child div with height:0.45cqh, width a bit under the text width, background set to the brand accent hex, border-radius:999px, margin-top:0.8cqh.`,
-        `   Always use the REAL brand hex you sample for accents — never a bracket placeholder. The arrow glyph "→" is safe (a browser renders it).`,
+        `CTA — "${ctaRaw}" — a clear, stylish action line. It MAY have a subtle container, but it must NOT look like a tappable app button: ⛔ avoid the loud button look — no big glossy filled pill, no heavy drop-shadow, no thick border, no high-contrast rounded rectangle. Aim editorial/UGC, not app UI. Pick what fits THIS comp:`,
+        `   • Bold #ffffff text (font-weight:800, ~3–3.6cqw) ending with a trailing arrow span "→" — clean and confident.`,
+        `   • Optionally a thin accent underline beneath it (child div height:0.4cqh, width just under the text, background = real brand accent hex, border-radius:999px, margin-top:0.8cqh).`,
+        `   • OR a SUBTLE container if it suits the design: a low-opacity tinted/frosted backing (e.g. background:rgba(0,0,0,0.18) or a faint brand tint, slim padding, small border-radius ≤0.8cqw, OR just a short left accent bar) — quiet and editorial, NEVER a glossy pill with a heavy shadow.`,
+        `   Use the real brand hex you sample for accents (never a bracket placeholder). The arrow "→" renders fine in a browser.`,
       ].join("\n")
     : "No CTA";
 
@@ -435,7 +435,7 @@ async function buildOverlayHtmlFromGemini(
 
   const logoUrl = String(data.logoUrl || "").trim();
   const logoLine = logoUrl
-    ? `LOGO: place <img src="${logoUrl}"> — choose the corner/position that best suits this layout. Size: width between 20%–32%, max-height 14%; adjust smaller or larger to fit the composition. Use object-fit:contain. z-index:20. The logo image is IMMUTABLE — render it exactly as-is, never redraw, recolor or alter it. ⛔ Do NOT write the brand name as text anywhere in the HTML — the img tag is the complete brand identifier. No text div, no span, no caption with the brand name.`
+    ? `LOGO — YOU fully art-direct it: place <img src="${logoUrl}"> wherever it best balances THIS specific composition, and size it freely (anywhere from a small ~14% mark to a bold ~38% statement) based on the background and where your text sits. Vary the placement creatively across ads (a top corner, a bottom corner, centred under a top headline, etc.) — do NOT default to the same spot every time. The ONLY hard rule: it must sit in a clean area and NEVER overlap or crowd the headline, subheadline, CTA, or the visual hero's face. ⛔ CRITICAL: the logo and the HEADLINE must NOT share the same horizontal band — if your headline sits across the TOP, put the logo in a BOTTOM corner; if the headline is at the bottom, put the logo at the TOP. They must live in opposite zones so they can never collide. Use position:absolute; object-fit:contain; z-index:20. The logo image is IMMUTABLE — render it exactly as-is, never redraw, recolor or alter it. ⛔ Do NOT write the brand name as text anywhere — the img tag is the complete brand identifier.`
     : "";
 
   // A dedicated vision model (pickCalmTextZone) already inspected THIS exact background and
@@ -469,7 +469,7 @@ async function buildOverlayHtmlFromGemini(
     "3. OPTION A — SPLIT LAYOUT (hero in center/middle, calm space above AND below):",
     "   • GROUP 1: position:absolute; display:flex; flex-direction:column; z-index:25 — anchored in the UPPER calm zone → contains HEADLINE ONLY.",
     "   • GROUP 2: position:absolute; display:flex; flex-direction:column; gap:2.5cqh; z-index:25 — anchored in the LOWER calm zone → contains SUBHEADLINE as first child, then CTA as second child.",
-    `   • CTA child in GROUP 2: align-self:flex-start; font-size:2.2cqw — style it using ONE treatment from the CTA menu below (glass pill / gradient button / organic action), NOT a flat rectangle.`,
+    `   • CTA child in GROUP 2: align-self:flex-start; font-size:3cqw — style it as the CTA defined below (bold text + arrow, optional underline or SUBTLE container). Avoid a loud button/pill look.`,
     "   • Both groups: left:6%; right:6%; keep ≥6% margin from all edges.",
     "",
     "   OPTION B — SINGLE ZONE (calm space concentrated in one area):",
@@ -501,6 +501,7 @@ async function buildOverlayHtmlFromGemini(
     "• Logo img: position:absolute; object-fit:contain; z-index:20",
     "• Text groups: position:absolute; display:flex; flex-direction:column; z-index:25",
     "• OPTION B only — CTA div: position:absolute; z-index:26 — standalone, NOT a child of the text block",
+    "• ⛔ NO OVERLAP — this is critical: the logo, headline, subheadline and CTA must EACH occupy their own clear space with breathing room between them. No element may overlap, touch or sit on top of another, and none may cover the visual hero's face. In OPTION B especially, the standalone CTA must sit in CLEAR space BELOW the subheadline (add enough gap) — never on top of it. If space is tight, shrink fonts or tighten gaps, but never let two elements collide.",
     "",
     "RETURN STRUCTURE:",
     "OPTION A → scrim div" + (logoUrl ? ", logo img," : ",") + " GROUP1 div (headline only), GROUP2 div (sub + CTA child).",
@@ -513,12 +514,12 @@ async function buildOverlayHtmlFromGemini(
     "</div>",
     "<div style=\"position:absolute;bottom:7%;left:6%;right:6%;display:flex;flex-direction:column;gap:2.5cqh;z-index:25\">",
     "  <div style=\"font-size:3cqw;font-weight:400;color:#ffffff;...\">Subheadline text</div>",
-    ctaRaw ? "  <div style=\"align-self:flex-start;display:inline-flex;align-items:center;gap:0.8cqw;background:rgba(255,255,255,0.14);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.4);border-radius:999px;padding:1.3cqh 3.2cqw;font-size:2.2cqw;font-weight:700;color:#ffffff;box-shadow:0 6px 24px rgba(0,0,0,0.30)\">CTA Text <span style=\"font-size:2.4cqw\">→</span></div>" : "",
+    ctaRaw ? "  <div style=\"align-self:flex-start;font-size:3.2cqw;font-weight:800;color:#ffffff;text-shadow:0 2px 10px rgba(0,0,0,0.6)\">CTA Text <span>&#8594;</span><div style=\"height:0.4cqh;width:55%;background:#e63946;border-radius:999px;margin-top:0.8cqh\"></div></div>" : "",
     "</div>",
   ].filter(Boolean).join("\n");
 
   try {
-    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.3, 2600, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 25000 });
+    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.3, 2600, apiKey, undefined, [bgRef], { ...opts, thinkingBudget: 0, timeoutMs: 25000 });
     const raw = String(res.text || "").trim()
       .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
 
@@ -549,6 +550,14 @@ async function buildOverlayHtmlFromGemini(
       const textOnly = stripTags(raw).replace(/https?:\/\/[^\s"')]+/g, " ").replace(/\s+/g, " ").trim();
       setDiag(`hl-rw|raw:${raw.length}|strip:${stripTags(raw).length}|txt:${textOnly.slice(0, 100)}`); return null;
     }
+    // Truncation guard: a cut-off overlay (more <div> than </div>) renders broken (missing
+    // subheadline/CTA). Reject it so the COMPLETE template is used instead of a half overlay.
+    const openDivs = (raw.match(/<div\b/gi) || []).length;
+    const closeDivs = (raw.match(/<\/div>/gi) || []).length;
+    if (openDivs > closeDivs) {
+      console.warn(`[overlay-html] truncated divs=${openDivs}/${closeDivs} job=${opts.jobId ?? "?"}`);
+      setDiag(`truncated:${openDivs}/${closeDivs}`); return null;
+    }
     // Legibility scrim: a real browser renders everything, so DON'T reject an overlay that lacks
     // the exact z-index:1 scrim (the model now often uses a glass/blur panel instead). Just inject
     // a default gradient scrim when none is present — guarantees legible white text either way.
@@ -562,7 +571,7 @@ async function buildOverlayHtmlFromGemini(
       const ok = await critiqueOverlayHtml(bgDataUrl, html, apiKey, opts);
       if (!ok) {
         // Re-run the Gemini call once with a hint to improve placement
-        const res2 = await callGemini(SYSTEM, USER + "\n\nIMPORTANT: Your previous layout had a visual problem (text over busy area, or CTA hidden). Regenerate with better placement.", "gemini-2.5-flash", 0.4, 2600, apiKey, undefined, [bgRef], { ...opts, timeoutMs: 25000 }).catch(() => null);
+        const res2 = await callGemini(SYSTEM, USER + "\n\nIMPORTANT: Your previous layout had a visual problem (text over busy area, or CTA hidden). Regenerate with better placement.", "gemini-2.5-flash", 0.4, 2600, apiKey, undefined, [bgRef], { ...opts, thinkingBudget: 0, timeoutMs: 25000 }).catch(() => null);
         if (res2?.text) {
           const raw2 = String(res2.text).trim()
             .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
@@ -2560,6 +2569,7 @@ async function fetchImageAsBase64(url: string): Promise<{ mimeType: string; data
 
 type GeminiCallOptions = {
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  thinkingBudget?: number; // gemini-2.5: token budget for thinking. 0 disables it (all of maxTokens → output)
   responseMimeType?: string;
   responseSchema?: Record<string, unknown>;
   jobId?: string; // tags cost/token logs so one generation can be summed in Supabase logs
@@ -2729,6 +2739,12 @@ async function callGemini(
   // is not supported for this model"). Only send it to models that support it.
   if (options?.thinkingLevel && /gemini-3/i.test(model)) {
     generationConfig.thinkingConfig = { thinkingLevel: options.thinkingLevel };
+  }
+  // gemini-2.5 has thinking ON by default and those tokens count against maxOutputTokens —
+  // which truncated the overlay HTML mid-element. thinkingBudget:0 disables it so the full
+  // token budget goes to the actual HTML output.
+  if (typeof options?.thinkingBudget === "number" && /gemini-2\.5/i.test(model)) {
+    generationConfig.thinkingConfig = { thinkingBudget: options.thinkingBudget };
   }
   if (options?.responseMimeType) {
     generationConfig.responseMimeType = options.responseMimeType;
