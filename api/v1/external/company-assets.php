@@ -376,7 +376,9 @@ try {
         'brand_posts_added'        => count($newBrandUrls),
         'competitor_posts_stored'  => count($allCompPosts),
         'competitor_posts_added'   => count($newCompUrls),
-        'brand_visual_brief'       => $brandBriefResult !== null ? substr($brandBriefResult, 0, 200) . '...' : null,
+        'brand_visual_brief'       => $brandBriefResult !== null
+                                        ? $brandBriefResult
+                                        : ($formData['brandVisualBrief'] ?? null),
         'brand_visual_status'      => $brandBriefResult !== null
                                         ? 'generated'
                                         : ($briefWarning !== null
