@@ -619,6 +619,17 @@ try {
             'strlen'
         )));
         $campaignFormData['composeCompanyRefs'] = array_slice($mergedRefs, 0, 10);
+        // Re-absolutize: brand posts were just injected as root-relative /projects/... paths, and
+        // the absolutize step earlier ran BEFORE this injection. The image edge (Deno) only fetches
+        // http(s) URLs, so without this the freshly-injected brand posts are silently dropped and
+        // the ad loses its brand design reference.
+        if ($pubBase !== '') {
+            $campaignFormData['composeCompanyRefs'] = array_values(array_filter(array_map(function ($u) use ($pubBase) {
+                $u = trim((string)$u);
+                if ($u === '' || preg_match('~^https?://~i', $u)) return $u;
+                return ($u[0] === '/') ? $pubBase . $u : $u;
+            }, $campaignFormData['composeCompanyRefs']), 'strlen'));
+        }
     }
 
     $composeRefs = is_array($campaignFormData['composeCompanyRefs'] ?? null)

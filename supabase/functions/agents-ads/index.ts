@@ -444,7 +444,7 @@ async function buildOverlayHtmlFromGemini(
   // busy hero. Strong steer, not an absolute lock (the model may still split when it makes sense).
   const calmZone = String(opts.calmZone || "").toLowerCase().trim();
   const calmZoneLine = calmZone
-    ? `⭐ CALM-ZONE VERDICT: a dedicated vision model analyzed THIS exact background and found the emptiest, most text-safe region is the **${calmZone.toUpperCase()}**. Anchor the main text block in the ${calmZone} region. Only override this if that region is clearly occupied by the visual hero. If you choose OPTION A (split), keep the HEADLINE group in or next to the ${calmZone} region.`
+    ? `⭐ TEXT-BLOCK ZONE — NON-NEGOTIABLE: the background was DELIBERATELY built with the ${calmZone.toUpperCase()} region left empty/calm specifically to hold the copy. You MUST place the HEADLINE + SUBHEADLINE + CTA block in the ${calmZone.toUpperCase()} region (anchor it there: ${calmZone === "top" ? "top:5–8%" : calmZone === "bottom" ? "bottom:6–8%" : "vertically centered"}). Do NOT put the main text block anywhere else. The LOGO goes in the OPPOSITE band (${calmZone === "top" ? "a BOTTOM corner" : calmZone === "bottom" ? "a TOP corner" : "a top corner"}) — never let the logo take the ${calmZone} text zone. This placement is fixed; only the styling is yours.`
     : "";
 
   const USER = [
@@ -592,6 +592,21 @@ async function buildOverlayHtmlFromGemini(
   }
 }
 
+// Directly rotated text-zone preference fed to pickCalmTextZone, so text position VARIES across
+// ads instead of collapsing to 'bottom' every time. A direct cycle (not derived from LAYOUT_KEYS)
+// guarantees consecutive jobIds get DIFFERENT zones. Weighted to top/bottom — those stay usable
+// with a centered subject (open space above AND below); 'center' is rarer (subject sits there).
+const TEXT_ZONE_CYCLE = ["bottom", "top", "bottom", "top", "center"] as const;
+
+// The composition layout whose reserved space matches each text zone — so the BACKGROUND opens
+// the same region the text will use (otherwise the subject fills it and calm-zone falls back to
+// 'bottom' every time). Keeps background reserve + calm preference + overlay anchor all aligned.
+const ZONE_TO_LAYOUT_KEY: Record<string, string> = {
+  bottom: "hero-full-bleed",
+  top:    "bold-headline-first",
+  center: "centered-minimal",
+};
+
 // Maps a calm-region word → a composition layout whose text block sits in that region.
 const CALM_ZONE_TO_LAYOUT: Record<string, string> = {
   bottom: "hero-full-bleed",       // full-width band along the bottom
@@ -610,7 +625,7 @@ const CALM_ZONE_TO_LAYOUT: Record<string, string> = {
 async function pickCalmTextZone(
   bgUrl: string,
   apiKey: string,
-  opts: { jobId?: number; costAcc?: { usd: number; images: number; jobId?: string } } = {},
+  opts: { jobId?: number; costAcc?: { usd: number; images: number; jobId?: string }; preferredZone?: string } = {},
 ): Promise<{ zone: string; layout: string } | null> {
   let bgRef: ReferenceImage;
   try {
@@ -628,12 +643,18 @@ async function pickCalmTextZone(
     }
   } catch { return null; }
 
+  const prefZone = String(opts.preferredZone || "").toLowerCase().trim();
   const SYSTEM = "You analyze advertising background images to find the best place to overlay text.";
   const USER = [
     "The attached image is an ad BACKGROUND. A white headline + subheadline + CTA will be composited ON TOP of it afterwards.",
-    "Find the ONE region that is the EMPTIEST and FLATTEST — a plain wall, shadow, sky, blur or solid color field with the LOWEST detail and NO important content.",
-    "HARD RULE: never choose a region occupied by the main subject, a laptop, phone, screen, monitor, person, product, plant, or dense graphics/charts/icons. If one large area is dark/flat/empty while the rest is busy, choose that empty area — even if it is a whole side.",
-    "Pick the region with the most breathing room for text. Answer with EXACTLY ONE word, lowercase, no punctuation: top, bottom, left, right, or center.",
+    "Find a region that is EMPTY and FLAT — a plain wall, shadow, sky, blur or solid color field with low detail and NO important content.",
+    "HARD RULE: never choose a region occupied by the main subject, a laptop, phone, screen, monitor, person, product, plant, or dense graphics/charts/icons.",
+    // Bias toward the layout's intended zone so text position VARIES across ads (instead of
+    // collapsing to 'bottom' every time). Only override when the intended zone is truly busy.
+    prefZone
+      ? `PREFERRED ZONE: this ad's layout intends the text in the ${prefZone.toUpperCase()} region. If the ${prefZone} region is reasonably empty/flat and clear of the main subject, CHOOSE IT — prefer it even if some other area is slightly emptier. Only pick a DIFFERENT region if the ${prefZone} region is clearly covered by the main subject/product/face/screen.`
+      : "If one large area is flat/empty while the rest is busy, choose that empty area — even a whole side.",
+    "Answer with EXACTLY ONE word, lowercase, no punctuation: top, bottom, left, right, or center.",
   ].join("\n");
   try {
     // Gemini 3 Pro decides placement — best vision/reasoning for finding the calm zone. thinkingLevel
@@ -2075,10 +2096,17 @@ function buildBackgroundPrompt(
   hasRefImages: boolean = false,
   visualBrief: string = "",
   heroRef: boolean = false,
+  reserveZone: string = "",
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
   const direction = visualDirection || BACKGROUND_DIRECTIONS[0];
+  // Forceful reserve: keep the rotated text zone deliberately clear so text position can VARY
+  // across ads (the soft space-guidance alone let the model fill every zone → text always bottom).
+  const rz = String(reserveZone || "").toLowerCase().trim();
+  const reserveLine = rz
+    ? `⛔ RESERVED TEXT ZONE — NON-NEGOTIABLE: keep the ${rz.toUpperCase()} ~40% of the image deliberately CALM and low-detail — a clean brand-color field / soft gradient with NO important subject, product, face, object or busy texture there. Push ALL the main subject/product energy into the OPPOSITE area (${rz === "top" ? "lower / center-bottom" : rz === "bottom" ? "upper / center-top" : "framed sides, leaving the middle open"}). This open ${rz} band is where the headline and CTA will be composited, so it MUST stay visually empty.`
+    : "";
 
   // ── SHORT PATH: reference mode with actual reference images ─────────────
   // When the caller sent reference images to match, the model needs a SHORT focused prompt —
@@ -2218,7 +2246,7 @@ function buildBackgroundPrompt(
   const primaryName = describeHexColor(paletteHexes[0] || "");
   const accentNames = [...new Set(paletteHexes.slice(1).map(describeHexColor).filter(Boolean))];
   const colorLine = primaryName
-    ? `BRAND COLORS — the DOMINANT background color is ${primaryName}: it should fill MOST of the canvas as the main, vivid brand field (do not mute, grey-out or darken it into a dull mix).${accentNames.length ? ` Use ${accentNames.join(", ")} only as smaller accents and contrast.` : ""} Never write any color name, code, hex or # as text.`
+    ? `BRAND COLORS — the DOMINANT background color is ${primaryName}: it should fill MOST of the canvas as the main, vivid brand field (do not mute, grey-out or darken it into a dull mix).${accentNames.length ? ` Use ${accentNames.join(", ")} only as smaller accents and contrast.` : ""} ⛔ COLOUR-SOURCE LOCK: the palette comes ONLY from the brand. Any attached product/reference image is used for its SUBJECT and SHAPE, NEVER its colours — if that image has a different colour (e.g. blue), RE-LIGHT and COLOUR-GRADE the entire scene into ${primaryName} and the brand accents regardless. The product may keep its own material, but the surrounding scene, lighting and overall colour grade MUST be unmistakably the brand's, not the reference image's. Never write any color name, code, hex or # as text.`
     : "";
   const safeSpec = scrubBgPromptText(spec);
   // Background-only: drop the verbatim COPY lines (headline, subheadline, CTA, offer, brand and
@@ -2321,6 +2349,7 @@ function buildBackgroundPrompt(
     "WITHIN the text zone: keep it calm, clean and low-contrast so the white overlay text stays perfectly legible. OUTSIDE it: the hero subject, sharp and well-lit, against simple, uncluttered surroundings.",
     "",
     "████ TEXT-SAFE ZONE — KEEP IT CLEAN, DRAW NOTHING HERE ████",
+    reserveLine,
     `The logo and copy are composited ON TOP afterwards in a separate layer, at these CSS coordinates: logo[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).logo}] text-block[${(LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"]).block}]. You do NOT draw them.`,
     "⚠️ DOUBLE-TEXT/LOGO WARNING: If you draw ANY text, slogan, wordmark, logo or UI inside those zones, the final ad shows it TWICE and looks broken. Those zones MUST stay completely TEXT-FREE and LOGO-FREE.",
     `In the text-block zone: ${spaceGuide}`,
@@ -3387,9 +3416,14 @@ serve(async (req: Request) => {
         brandRefCountInBg = brandSlice.length;
         genRefCountInBg = genSlice.length;
       } else {
-        // Standard: brand images + gen assets fill all slots (up to 3 total).
-        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 3);
-        brandRefCountInBg = Math.min(companyRefImages.length, bgRefImages.length);
+        // Standard: ALWAYS reserve the last slot for the generation/product image (the product
+        // the caller sent MUST appear — without reserving it, brand posts fill all 3 and the
+        // product gets sliced off). Cap brand posts at 2 when a gen image exists, else use 3.
+        const brandSlice = companyRefImages.slice(0, refImagesForGen.length > 0 ? 2 : 3);
+        const genSlice = refImagesForGen.slice(0, 1);
+        bgRefImages = [...brandSlice, ...genSlice];
+        brandRefCountInBg = brandSlice.length;
+        genRefCountInBg = genSlice.length;
       }
 
       // When brand posts and the generation reference coexist in bgRefImages, annotate the
@@ -3437,11 +3471,13 @@ serve(async (req: Request) => {
           const taskIndex = imageTasks.indexOf(task);
           // Seed the layout by jobId so the text zone VARIES across ads (bottom/top/side/center)
           // instead of always landing on LAYOUT_KEYS[0]=hero-full-bleed for every single-format job.
-          const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex) % LAYOUT_KEYS.length];
-          const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex) % BACKGROUND_DIRECTIONS.length];
+          const seed = (Number(jobId) || 0) + taskIndex;
+          const textZone = userLayout ? "" : TEXT_ZONE_CYCLE[seed % TEXT_ZONE_CYCLE.length];
+          const layoutHint = userLayout ?? ZONE_TO_LAYOUT_KEY[textZone] ?? "hero-full-bleed";
+          const visualDirection = BACKGROUND_DIRECTIONS[seed % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, textZone);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -3477,7 +3513,7 @@ serve(async (req: Request) => {
           // Sequential, not parallel: detect the calm zone FIRST, then hand it to the overlay
           // generator so the Flash anchors text on the calm region instead of guessing. Costs
           // +1 Gemini round-trip of latency; buys far more accurate text placement.
-          const calm = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
+          const calm = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc, preferredZone: textZone }) : null;
           const geminiOverlay = bgForZone
             ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null })
             : null;
@@ -3522,9 +3558,11 @@ serve(async (req: Request) => {
           const ratioIndex = uniqueRatios.indexOf(aspectRatio);
           const taskIndex = imageTasks.indexOf(task);
           const taskBrandSpec = specForFormat(brandSpec, task.format);
-          const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
-          const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef);
+          const seed = (Number(jobId) || 0) + taskIndex + ratioIndex;
+          const textZone = userLayout ? "" : TEXT_ZONE_CYCLE[seed % TEXT_ZONE_CYCLE.length];
+          const layoutHint = userLayout ?? ZONE_TO_LAYOUT_KEY[textZone] ?? "hero-full-bleed";
+          const visualDirection = BACKGROUND_DIRECTIONS[(seed + ratioIndex * 2) % BACKGROUND_DIRECTIONS.length];
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, textZone);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -3572,7 +3610,7 @@ serve(async (req: Request) => {
           // generator so the Flash anchors text on the calm region instead of guessing. Costs
           // +1 Gemini round-trip of latency; buys far more accurate text placement.
           // overlayHtml from Gemini is authoritative when available; TypeScript template is the fallback.
-          const calm = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
+          const calm = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc, preferredZone: textZone }) : null;
           const overlayDiag: { reason?: string } = {};
           const geminiOverlay = bgForZone
             ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, diag: overlayDiag })
