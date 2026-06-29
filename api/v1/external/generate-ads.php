@@ -226,7 +226,7 @@ function ext_map_campaign(array $cam, array $formats): array {
         'ctaText'               => $first(['cta_text', 'cta', 'button_text']),
         'mainHeadline'          => $first(['main_headline', 'headline', 'title', 'hook']),
         'subheadline'           => $first(['subheadline', 'subtitle', 'supporting_copy']),
-        'useAiCopy'             => $bool('use_ai_copy'),
+        'useAiCopy'             => isset($cam['use_ai_copy']) ? filter_var($cam['use_ai_copy'], FILTER_VALIDATE_BOOLEAN) : null,
         'targetAudience'        => $str('target_audience'),
         'ageRange'              => $str('age_range'),
         'gender'                => $str('gender'),
@@ -284,6 +284,8 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
     }
 
     $offer = trim((string)($campaignData['offer'] ?? ''));
+    // Detect caller-supplied copy BEFORE the fallback defaults below fill the blanks.
+    $callerProvidedHeadline = trim((string)($campaignData['mainHeadline'] ?? '')) !== '';
     if (empty($campaignData['mainHeadline'])) {
         $base = $offer !== '' ? $offer : ($value !== '' ? $value : ($product !== '' ? $product : 'Grow faster with us'));
         $campaignData['mainHeadline'] = mb_substr($base, 0, 72);
@@ -296,6 +298,15 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
     }
     if (empty($campaignData['ctaText'])) {
         $campaignData['ctaText'] = 'Get Started';
+    }
+
+    // Ready-made copy from the caller is used VERBATIM — skip the AI copywriter rewrite, since
+    // the text sent in the payload is already final. A caller can still force a rewrite by
+    // sending campaign.use_ai_copy:true. (useAiCopy is dropped by array_filter when false, so it
+    // is set explicitly here; the worker skips copy-gen only when it sees a literal false.)
+    $aiCopyExplicitTrue = (($campaignData['useAiCopy'] ?? null) === true);
+    if ($callerProvidedHeadline && !$aiCopyExplicitTrue) {
+        $campaignData['useAiCopy'] = false;
     }
 
     $images = is_array($companyData['images'] ?? null) ? $companyData['images'] : [];
