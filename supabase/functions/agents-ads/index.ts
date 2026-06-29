@@ -3447,10 +3447,11 @@ serve(async (req: Request) => {
 
         for (const { task, aspectRatio } of uniqueVariantRatios) {
           const taskIndex = imageTasks.indexOf(task);
-          // Seed the layout by jobId so the text zone VARIES across ads (bottom/top/side/center)
-          // instead of always landing on LAYOUT_KEYS[0]=hero-full-bleed for every single-format job.
-          const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex) % LAYOUT_KEYS.length];
-          const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex) % BACKGROUND_DIRECTIONS.length];
+          // A/B VISUAL: keep the SAME layout + visual direction across ALL variants (seed by jobId
+          // only, NOT taskIndex) so the variants read as variations of ONE concept — only the
+          // model's natural per-render variation differs, not wildly different scenes.
+          const layoutHint = userLayout ?? LAYOUT_KEYS[(Number(jobId) || 0) % LAYOUT_KEYS.length];
+          const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
           const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef);
