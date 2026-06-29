@@ -2075,6 +2075,7 @@ function buildBackgroundPrompt(
   hasRefImages: boolean = false,
   visualBrief: string = "",
   heroRef: boolean = false,
+  productRef: boolean = false,
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
@@ -2248,6 +2249,11 @@ function buildBackgroundPrompt(
     // Hero-reference mode: the attached image IS the hero. Don't push a competing "scene of
     // success" idea — defer to the BACKGROUND SOURCE hero block, just lock the brand palette.
     ? `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: the hero of this ad is the SUBJECT of the FIRST attached reference image (see BACKGROUND SOURCE above). Feature that exact subject prominently and faithfully; re-light and color-grade the scene into the brand's palette, but never swap the hero for a generic stock scene. Do NOT render any product name or text in the image.`
+    : productRef
+    // Product-reference mode: the caller sent a real product image. FEATURE that product as the
+    // visible hero of the scene (this overrides the "ebook/digital → don't render an object"
+    // rule below — when a product photo is provided, the user wants to SEE the product).
+    ? `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: the FIRST attached image is the actual PRODUCT being advertised${rawProduct ? ` ("${scrubBgPromptText(rawProduct)}")` : ""}. FEATURE that exact product as the clear, sharp HERO of the composition — show it prominently (filling a large part of the frame), beautifully lit, unmistakably visible and recognizable as the real product (e.g. an e-reader/tablet/device held in hands or styled on a surface) — NOT merely implied by a person or a vague scene. Build an aspirational lifestyle context around it (hands, desk, soft props), but the PRODUCT itself MUST be the focal point. Re-light and colour-grade everything into the brand's palette. ⛔ Do NOT render any product name, cover text, label or wordmark on the product or anywhere — all surfaces stay blank.`
     : rawProduct
     ? [
         `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: The campaign is about "${scrubBgPromptText(rawProduct)}".`,
@@ -3296,6 +3302,9 @@ serve(async (req: Request) => {
       // buildBackgroundPrompt reproduce the first reference's subject as the hero, overriding the
       // default style-only/creative-freedom treatment regardless of the resolved bgSource.
       const heroRef = Boolean((campaignData as any).composeHeroRef);
+      // Caller sent a real product image (product_image_url) → feature that product in the scene
+      // (don't let the "ebook/digital → don't render an object" rule hide it). Not for hero refs.
+      const hasProductRef = !heroRef && Boolean(String((campaignData as any).productImageUrl || "").trim());
       // composeCompanyRefs: brand reference images uploaded by the caller (style examples).
       // When present without an explicit bgSource, treat as "company" so the model studies them.
       const hasCompanyRefs = Array.isArray((campaignData as any).composeCompanyRefs) &&
@@ -3441,7 +3450,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -3524,7 +3533,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
