@@ -2201,9 +2201,10 @@ function buildBackgroundPrompt(
   // guidance — the FIRST attached image is the hero subject and must visibly appear in the ad.
   if (heroRef && hasRefImages) {
     sourceBlock = [
-      "████ BACKGROUND SOURCE: HERO REFERENCE — FEATURE THIS PERSON IN A UGC SCENE ████",
-      "The FIRST attached image is the HERO of this ad — a real person the user chose on purpose. They MUST appear, recognizably, in the final creative. This is NOT style inspiration.",
-      "• PRESERVE THEIR IDENTITY: same face, hair, beard, skin tone, body and overall look as the reference. It must clearly read as the SAME person. Do not swap them for a different model.",
+      "████ HERO REFERENCE — THIS EXACT PERSON IS THE PROTAGONIST (UGC) ████",
+      "The FIRST attached image is a REAL, SPECIFIC person the user chose on purpose. Treat this image as an IDENTITY LOCK, not style inspiration — they MUST be the star of the final ad.",
+      "⛔ #1 ABSOLUTE RULE — REPRODUCE THIS EXACT FACE: the person in the final ad must be the SAME individual as the reference — identical face shape, facial features, eyes, nose, mouth, skin tone, hair style and colour, and facial hair (beard/moustache). Someone who knows them must recognize them instantly. DO NOT generate a different, 'similar', younger, slimmer or more conventionally attractive person. DO NOT restyle, beautify or age their face. Copy the face from the attached photo faithfully — if the face changes, the ad is REJECTED.",
+      "• You MAY re-pose them, change their clothing's lighting and place them in a new scene, but the FACE and identity stay locked to the reference photo.",
       "• DO NOT paste them as a flat studio cut-out on a plain colour field. Instead, place them inside an AUTHENTIC, DYNAMIC UGC 'SCENE OF SUCCESS' with natural candid energy, real depth and foreground/background layers — like a great UGC ad, not a corporate headshot.",
       "• ⭐ THE UGC SCENE MUST BE ABOUT THE PRODUCT/CAMPAIGN (see CAMPAIGN CONTEXT) — not a generic lifestyle shot. Show this person actually living the campaign's promise: doing/using/benefiting from what is being advertised, in the exact context of the offer. The moment must instantly read as 'this is about THAT product'. Example: for a TikTok ads service → the person filming/going viral/celebrating content results on their phone; for a fitness product → using it mid-workout. The product/service or its outcome is visibly the point of the scene.",
       "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
@@ -2251,7 +2252,7 @@ function buildBackgroundPrompt(
   const productMoodHint = heroRef
     // Hero-reference mode: the attached image IS the hero. Don't push a competing "scene of
     // success" idea — defer to the BACKGROUND SOURCE hero block, just lock the brand palette.
-    ? `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: the hero of this ad is the SUBJECT of the FIRST attached reference image (see BACKGROUND SOURCE above). Feature that exact subject prominently and faithfully; re-light and color-grade the scene into the brand's palette, but never swap the hero for a generic stock scene. Do NOT render any product name or text in the image.`
+    ? `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: the hero of this ad is the EXACT person in the FIRST attached reference image (see BACKGROUND SOURCE above). Reproduce their EXACT face and identity faithfully — same individual, never a different/'similar' person. Feature them prominently; re-light and color-grade the surrounding scene into the brand's palette, but never alter their face or swap them for a generic model or stock scene. Do NOT render any product name or text in the image.`
     : productRef
     // Product-reference mode: the caller sent a real product image. FEATURE that product as the
     // visible hero of the scene (this overrides the "ebook/digital → don't render an object"
@@ -3419,7 +3420,13 @@ serve(async (req: Request) => {
       if (Boolean((campaignData as any).composeHeroRef) && bgRefImages.length > 0) {
         try {
           const cls = await callGemini(
-            "You classify the MAIN SUBJECT of a reference image sent for an advertisement. Answer with EXACTLY one lowercase word: 'person' if a human is the main subject, 'product' if a physical product/object is the main subject, or 'scene' if it is a background/scene/style with no single person or product as the subject.",
+            [
+              "You classify the MAIN SUBJECT of a reference image for an advertisement. Answer with EXACTLY one lowercase word:",
+              "- 'person' — a human being, face or model is the main subject. This INCLUDES an isolated person cut out on a plain white, grey or transparent background (a studio cut-out is still a person).",
+              "- 'product' — a physical product or object (shoe, bottle, book, package, device, food, cosmetic, etc.) is the main subject, with no person.",
+              "- 'scene' — a background, environment, texture or style with no single person or product as the subject.",
+              "RULE: if a human being is clearly present as the subject, ALWAYS answer 'person' (never 'product' or 'scene'), regardless of the background.",
+            ].join("\n"),
             "Classify the main subject of this image: person, product, or scene.",
             "gemini-2.5-flash", 0, 8, apiKey, undefined, [bgRefImages[0]], { jobId, costAcc },
           );
