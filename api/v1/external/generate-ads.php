@@ -346,6 +346,16 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
     // It goes FIRST in composeCompanyRefs (highest visual priority) and triggers 'inspired'
     // bgSource so the model can creatively interpret it rather than copy it verbatim.
     $genRefUrl = trim((string)($campaignData['referenceImageUrl'] ?? ''));
+    // Fallback: when the caller sent reference_images (plural) instead of a single reference_image,
+    // promote the FIRST one to the featured generation reference. This makes the sent image the
+    // ad's PROTAGONIST (the edge then classifies it: person → UGC hero, product → product hero),
+    // instead of being used only as loose style inspiration.
+    if ($genRefUrl === '') {
+        foreach (($companyData['referenceImages'] ?? []) as $r) {
+            $r = trim((string)$r);
+            if ($r !== '' && preg_match('~^https?://~i', $r) && !$isLogo($r)) { $genRefUrl = $r; break; }
+        }
+    }
     $genRefUrl = ($genRefUrl !== '' && preg_match('~^https?://~i', $genRefUrl) && !$isLogo($genRefUrl)) ? $genRefUrl : '';
 
     $allRefs = [];

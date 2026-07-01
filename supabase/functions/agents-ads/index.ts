@@ -3306,10 +3306,10 @@ serve(async (req: Request) => {
       // Caller explicitly sent a reference image to FEATURE (composeHeroRef from PHP). This makes
       // buildBackgroundPrompt reproduce the first reference's subject as the hero, overriding the
       // default style-only/creative-freedom treatment regardless of the resolved bgSource.
-      const heroRef = Boolean((campaignData as any).composeHeroRef);
+      let heroRef = Boolean((campaignData as any).composeHeroRef);
       // Caller sent a real product image (product_image_url) → feature that product in the scene
       // (don't let the "ebook/digital → don't render an object" rule hide it). Not for hero refs.
-      const hasProductRef = !heroRef && Boolean(String((campaignData as any).productImageUrl || "").trim());
+      let hasProductRef = !heroRef && Boolean(String((campaignData as any).productImageUrl || "").trim());
       // composeCompanyRefs: brand reference images uploaded by the caller (style examples).
       // When present without an explicit bgSource, treat as "company" so the model studies them.
       const hasCompanyRefs = Array.isArray((campaignData as any).composeCompanyRefs) &&
@@ -3404,6 +3404,33 @@ serve(async (req: Request) => {
         // Standard: brand images + gen assets fill all slots (up to 3 total).
         bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 3);
         brandRefCountInBg = Math.min(companyRefImages.length, bgRefImages.length);
+      }
+
+      // ── Auto-feature the reference as the ad's PROTAGONIST ──────────────────
+      // When the caller flagged a reference to feature (composeHeroRef), a vision model
+      // classifies the FIRST attached reference so it becomes the STAR of the ad — not mere
+      // background inspiration:
+      //   person  → heroRef  → UGC hero scene featuring that exact person
+      //   product → productRef → that exact product as the sharp hero object
+      //   scene   → neither  → treated as style/scene reference (existing behavior)
+      // The heroRef/productRef prompt blocks already force the scene to stay ON the campaign's
+      // context/theme (person living the offer / product in its aspirational lifestyle), so the
+      // protagonist is featured WITHOUT drifting into a generic unrelated scene.
+      if (Boolean((campaignData as any).composeHeroRef) && bgRefImages.length > 0) {
+        try {
+          const cls = await callGemini(
+            "You classify the MAIN SUBJECT of a reference image sent for an advertisement. Answer with EXACTLY one lowercase word: 'person' if a human is the main subject, 'product' if a physical product/object is the main subject, or 'scene' if it is a background/scene/style with no single person or product as the subject.",
+            "Classify the main subject of this image: person, product, or scene.",
+            "gemini-2.5-flash", 0, 8, apiKey, undefined, [bgRefImages[0]], { jobId, costAcc },
+          );
+          const role = String(cls.text || "").toLowerCase();
+          if (role.includes("person")) { heroRef = true; hasProductRef = false; }
+          else if (role.includes("product")) { heroRef = false; hasProductRef = true; }
+          else { heroRef = false; hasProductRef = false; }
+          console.log(`[compose] featured reference classified job=${jobId ?? "?"} → "${role.trim().slice(0, 16)}" (heroRef=${heroRef} productRef=${hasProductRef})`);
+        } catch (e) {
+          console.warn(`[compose] reference classification failed job=${jobId ?? "?"}: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
 
       // When brand posts and the generation reference coexist in bgRefImages, annotate the
