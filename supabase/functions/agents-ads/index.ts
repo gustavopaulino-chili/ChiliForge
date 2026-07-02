@@ -2961,7 +2961,9 @@ serve(async (req: Request) => {
           `Analyze these ${brandRefs.length} brand posts and write the complete visual identity brief.`,
           "gemini-2.5-flash", 0.4, 1200, visKey, undefined, brandRefs, { jobId },
         );
-        brandBrief = String(brandVis.text || "").trim().slice(0, 2000);
+        // Full brief — no char cap. Length is already bounded by maxOutputTokens (1200)
+        // and the 300-400 word target in the prompt, so the complete brief is returned intact.
+        brandBrief = String(brandVis.text || "").trim();
       } catch (e) {
         const errMsg = e instanceof Error ? e.message : String(e);
         console.error(`[brand_visual]${jobId ? ` job=${jobId}` : ""} brand identity Gemini error: ${errMsg}`);
