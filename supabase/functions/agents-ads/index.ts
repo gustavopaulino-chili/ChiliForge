@@ -277,6 +277,14 @@ const CRITIQUE_OVERLAY    = true;  // Flash self-reviews its overlay and retries
 const NO_TEXT_RETRY_REMINDER =
   "\n\n⛔⛔ RETRY REASON — TEXT LEAK: your previous attempt rendered VISIBLE TEXT/LETTERS/WORDS into the image. This is a hard failure. The attached brand/reference images CONTAIN text, captions, headlines and wordmarks — you MUST NOT copy, trace, paraphrase or invent ANY of it. Output a background with ABSOLUTELY ZERO letters, words, numbers, captions, slogans, logos or wordmarks anywhere — not on walls, screens, props, clothing, signage or as decoration. Every surface stays completely blank. Keep ONLY the visual subject and the brand colours/lighting.";
 
+// Appended to the FIRST-pass bg prompt whenever reference images are attached. Reference/brand
+// posts almost always contain text, captions and logos, and the image model's strongest temptation
+// is to trace them straight into the background — the exact failure we keep seeing. This states the
+// rule up-front (not only on retry), and is worded to be safe even in hero mode (it forbids only
+// text/logos, never the subject itself).
+const REF_TEXT_LEAK_GUARD =
+  "\n\n⛔⛔ THE ATTACHED REFERENCE IMAGES CONTAIN TEXT, CAPTIONS, WORDMARKS AND LOGOS. Do NOT copy, trace, paraphrase or recreate ANY of that text, nor any logo or wordmark, from them. Reproduce the subject/scene and the brand colours only — but every wall, screen, monitor, poster, sign, product label, paper, prop and surface in your output MUST be completely BLANK: zero letters, zero numbers, zero words, zero logos, zero wordmarks. The real logo and all copy are composited in a separate layer afterwards, so ANY text or logo you draw appears twice and ruins the ad. A background with any text or logo is a complete render failure.";
+
 /**
  * Asks Gemini Flash to check whether a generated background image contains any visible text or
  * logos. Returns true if text/logo found (image should be rejected/retried), false otherwise.
@@ -288,21 +296,36 @@ async function backgroundHasText(
   opts: { jobId?: number; costAcc?: { usd: number } } = {}
 ): Promise<boolean> {
   try {
-    const res = await fetch(imageUrl, { signal: AbortSignal.timeout(12000) });
-    if (!res.ok) return false;
+    // Fetch the image, retrying once — a transient fetch failure used to make the whole
+    // check silently pass (return false), letting a texty background through.
+    let res: Response | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        res = await fetch(imageUrl, { signal: AbortSignal.timeout(12000) });
+        if (res.ok) break;
+      } catch (_e) { /* retry */ }
+      res = null;
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 800));
+    }
+    if (!res || !res.ok) {
+      console.warn(`[bg-validate] could not fetch bg for validation (skipping) job=${opts.jobId ?? "?"}`);
+      return false;
+    }
     const buf = await res.arrayBuffer();
     const b64 = bytesToBase64(buf);
     const mime = (res.headers.get("content-type") || "image/jpeg").split(";")[0];
+    // gemini-3-pro-preview (the strong vision model already used for calm-zone placement): far more
+    // reliable at catching burned-in text/logos than 2.5-flash, which missed large obvious wordmarks.
     const result = await callGemini(
-      "You are an image quality validator for advertising backgrounds.",
-      "Does this image contain ANY visible text, letters, numbers, logos, wordmarks, or UI elements with readable labels? THIS INCLUDES: text printed on book covers or spines, magazine/newspaper titles, bottle labels, product package text, screen text, price tags, captions, or any words anywhere in the image — even lightly rendered. Answer with ONLY the single word 'yes' or 'no'.",
-      "gemini-2.5-flash",
+      "You are a strict image quality validator for advertising backgrounds. A background MUST be completely free of any text or logo — the real text and logo are added later in a separate layer.",
+      "Does this image contain ANY visible text, letters, numbers, logos, wordmarks, brand names, or UI elements with readable labels? THIS INCLUDES: a headline or title anywhere, text printed on book covers or spines, magazine/newspaper titles, bottle labels, product package text, screen/monitor text, price tags, captions, signage, or any words or letters anywhere in the image — even lightly rendered or partially cut off. If you are unsure, answer 'yes'. Answer with ONLY the single word 'yes' or 'no'.",
+      "gemini-3-pro-preview",
       0.0,
       10,
       apiKey,
       undefined,
       [{ data: b64, mimeType: mime, label: "Ad background" }],
-      { ...opts, timeoutMs: 15000 }
+      { ...opts, thinkingLevel: "low", timeoutMs: 25000 }
     );
     const answer = String(result?.text || "").trim().toLowerCase();
     const found = answer.startsWith("yes");
@@ -837,10 +860,21 @@ function buildCampaignFactsForCompose(data: AgentsAdsPayload["campaignData"]): s
   const full = buildCampaignFacts(data);
   // In compose mode the logo is NOT passed as a reference image — it is composited in HTML.
   // Product and background images may still be attached as style references.
-  return full.replace(
-    /\nAssets:\n[\s\S]*?(?=\n\n|$)/,
-    "\nAssets: Product and background reference images may be attached. The brand logo is NOT attached — do not attempt to draw it. NEVER render any URL, domain name, or file path as visible text.",
-  );
+  return full
+    .replace(
+      /\nAssets:\n[\s\S]*?(?=\n\n|$)/,
+      "\nAssets: Product and background reference images may be attached. The brand logo is NOT attached — do not attempt to draw it. NEVER render any URL, domain name, or file path as visible text.",
+    )
+    // The shared brand-consistency block tells the model to "use brand name text only" when no
+    // logo asset is provided (correct for the HTML-render path, where the model draws real text).
+    // In COMPOSE that instruction makes the image model DRAW the brand name into the background —
+    // the exact "invented placeholder logo" bug. Compose backgrounds must be text/logo-free; the
+    // real logo + copy are composited in a separate HTML layer afterwards. Neutralise the whole
+    // logo-lock block for compose so it never asks the image model to render a mark or brand text.
+    .replace(
+      /- ABSOLUTE LOGO LOCK:[\s\S]*?(?=- CTA SYSTEM LOCK:)/,
+      "- LOGO & COPY ARE COMPOSITED LATER: The brand logo and ALL text/copy are added in a separate HTML layer AFTER this background image. Do NOT draw the logo, any wordmark, monogram, symbol, seal, or the brand name as text anywhere in this image. Leave the reserved logo and text zones clean, blank and low-contrast — never fill them with an invented logo or brand-name text.\n",
+    );
 }
 
 function buildImageVariantTasks(formats: AdFormat[], data: AgentsAdsPayload["campaignData"]) {
@@ -3456,7 +3490,8 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef)
+            + (bgRefImages.length > 0 ? REF_TEXT_LEAK_GUARD : "");
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -3539,7 +3574,8 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef)
+            + (bgRefImages.length > 0 ? REF_TEXT_LEAK_GUARD : "");
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
