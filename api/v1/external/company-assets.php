@@ -38,6 +38,7 @@ ini_set('memory_limit', '256M');
 include __DIR__ . '/../../db.php';
 include __DIR__ . '/../agents/helpers.php';
 include __DIR__ . '/../../site_helpers.php';
+include __DIR__ . '/company-assets-brief.php';
 
 const CAA_MAX_IMAGES        = 12;   // per request (reference_images)
 const CAA_MAX_BRAND_POSTS   = 12;   // brand_posts per request
@@ -289,29 +290,131 @@ try {
         $u->bind_param('si', $formJson, $companyId); $u->execute(); $u->close();
     }
 
-    // ── Brand visual brief (Gemini analysis of Instagram posts) ──────────────
-    // Run when brand_posts were provided. Uses the ACCUMULATED set of posts (not just new
-    // ones) so the brief always reflects the full brand profile. Non-fatal: a failed call
-    // leaves the previously stored brief in place.
+    // Absolute-URL helper — the edge function only accepts http(s) URLs, so mirrored
+    // root-relative /projects/... assets are absolutized before being sent (or enqueued).
+    $absBase = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http')
+        . '://' . ($_SERVER['HTTP_HOST'] ?? '');
+    $toAbsolute = function (array $urls) use ($absBase): array {
+        return array_values(array_filter(array_map(function ($u) use ($absBase) {
+            $u = trim((string)$u);
+            if ($u === '') return '';
+            if (preg_match('~^https?://~i', $u)) return $u;
+            return $absBase !== '' ? $absBase . $u : $u;
+        }, $urls), 'strlen'));
+    };
+
+    // Did THIS request carry any new content? A bare poll ({api_key, phone}) carries none — in
+    // that case we skip the (upstream, cost-bearing) Gemini store re-sync entirely so the n8n
+    // polling loop stays cheap and instant.
+    $brandFieldsProvided = false;
+    foreach ($fieldMap as $in => $out) {
+        if (trim((string)($company[$in] ?? '')) !== '') { $brandFieldsProvided = true; break; }
+    }
+    $hasNewContent = $logoInput !== '' || $fontFamilyInput !== ''
+        || !empty($refInputs) || !empty($brandPostInputs) || !empty($compPostInputs)
+        || $brandVisualGuidelines !== '' || $competitorExamples !== '' || $brandFieldsProvided;
+
+    // ── Brand visual brief — ASYNC by default ────────────────────────────────
+    // Generating the brief means Gemini vision over up to ~16 Instagram images, which can take
+    // 1–3 min. Doing it inline blocks the caller (n8n) long enough to trip its ~180s execution
+    // ceiling (exactly the onboarding timeout we hit). So when brand_posts + a Gemini key are
+    // present we hand the heavy work to a detached background worker and return immediately with
+    // brand_visual_status:"processing". The caller then polls the cheap re-read ({api_key, phone})
+    // until brand_visual_status becomes "generated"/"cached" (done) or "failed".
+    //
+    // Escape hatch: body.sync:true forces the old inline behaviour (handy for debugging/tests).
+    $wantBrief      = (!empty($allBrandPosts) && $geminiApiKey !== '');
+    $forceSyncBrief = !empty($body['sync']);
+
+    if ($wantBrief && !$forceSyncBrief) {
+        caa_ensure_job_table($conn);
+
+        // Mark the brief in-flight so a concurrent poll returns "processing".
+        $formData['brandVisualStatus']   = 'processing';
+        $formData['brandVisualStatusAt'] = gmdate('c');
+        unset($formData['brandVisualError']);
+        $fjP = json_encode($formData, JSON_UNESCAPED_UNICODE);
+        if ($fjP && ($up = $conn->prepare("UPDATE projects SET company_form_data = ? WHERE id = ?"))) {
+            $up->bind_param('si', $fjP, $companyId); $up->execute(); $up->close();
+        }
+
+        // Persist everything the worker needs: absolute image URLs + the caller's Gemini key.
+        $jobPayload = json_encode([
+            'brandImageUrls'      => $toAbsolute(array_slice($allBrandPosts, -10)),
+            'competitorImageUrls' => $toAbsolute(array_slice($allCompPosts, -6)),
+        ], JSON_UNESCAPED_UNICODE);
+
+        $jobId = 0;
+        if ($ij = $conn->prepare(
+            "INSERT INTO company_asset_jobs (user_id, company_project_id, account_type, gemini_api_key, payload_json, status)
+             VALUES (?, ?, ?, ?, ?, 'processing')"
+        )) {
+            $ij->bind_param('iisss', $userId, $companyId, $accountType, $geminiApiKey, $jobPayload);
+            $ij->execute();
+            $jobId = (int)$conn->insert_id;
+            $ij->close();
+        }
+
+        if ($jobId > 0) {
+            $resp = json_encode([
+                'success'                  => true,
+                'company_id'               => $companyId,
+                'job_id'                   => $jobId,
+                'store_name'               => (string)$storeName,
+                'logo_url'                 => $logoUrl ?: ($formData['logoUrl'] ?? ''),
+                'font_family'              => $formData['headingFont'] ?? '',
+                'reference_images'         => $allRefs,
+                'reference_count'          => count($allRefs),
+                'added'                    => count($newRefs),
+                'brand_posts_stored'       => count($allBrandPosts),
+                'brand_posts_added'        => count($newBrandUrls),
+                'competitor_posts_stored'  => count($allCompPosts),
+                'competitor_posts_added'   => count($newCompUrls),
+                'brand_visual_status'      => 'processing',
+                'brand_visual_brief'       => $formData['brandVisualBrief'] ?? null,
+                'brief_empty_reason'       => null,
+                'brief_warning'            => null,
+                'store_warning'            => null,
+                'skipped'                  => $skipped,
+                // How to collect the result: poll this same endpoint with just {api_key, phone}
+                // until brand_visual_status is "generated"/"cached" (done) or "failed".
+                'poll' => [
+                    'method' => 'POST',
+                    'url'    => rtrim($absBase, '/') . '/api/v1/external/company-assets.php',
+                    'body'   => ['api_key' => '<api_key>', 'phone' => $phone],
+                    'until'  => ['generated', 'cached', 'failed'],
+                ],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+            http_response_code(202);
+            header('Content-Type: application/json');
+            header('Content-Length: ' . strlen($resp));
+            echo $resp;
+
+            // Detach and run the heavy brief job out-of-band (same pattern as generate-ads.php).
+            @ignore_user_abort(true);
+            @set_time_limit(0);
+            if (function_exists('fastcgi_finish_request')) {
+                fastcgi_finish_request();     // PHP-FPM: flush the 202, keep running inline.
+                caa_run_brief_job($conn, $jobId);
+                exit;
+            }
+            while (ob_get_level() > 0) { @ob_end_flush(); }
+            @flush();
+            caa_spawn_worker($jobId);         // LiteSpeed: exec a detached CLI worker.
+            exit;
+        }
+        // Enqueue failed → fall through to inline generation rather than losing the brief.
+        error_log('[company-assets] job insert failed, falling back to inline brief');
+    }
+
+    // ── SYNC path (inline brief when forced / enqueue failed; else cache + store sync) ─
     $brandBriefResult = null;
     $briefWarning     = null;
     $briefEdgeCalled  = false; // true when the edge was invoked (even if brief came back empty)
     $briefEmptyReason = null;  // reason code returned by edge when brief is empty
-    if (!empty($allBrandPosts) && $geminiApiKey !== '') {
+    if ($wantBrief) {
         try {
-            // Mirrored brand post images are stored as root-relative /projects/... URLs.
-            // The edge function only accepts http(s) URLs, so absolutize them here.
-            $absBase = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http')
-                . '://' . ($_SERVER['HTTP_HOST'] ?? '');
-            $toAbsolute = function (array $urls) use ($absBase): array {
-                return array_values(array_filter(array_map(function ($u) use ($absBase) {
-                    $u = trim((string)$u);
-                    if ($u === '') return '';
-                    if (preg_match('~^https?://~i', $u)) return $u;
-                    return $absBase !== '' ? $absBase . $u : $u;
-                }, $urls), 'strlen'));
-            };
-
             // Send up to 10 brand posts + up to 6 competitor posts to the edge function.
             $briefPayload = [
                 'mode'                => 'brand_visual',
@@ -325,6 +428,7 @@ try {
             if ($newBrief !== '') {
                 $formData['brandVisualBrief']     = $newBrief;
                 $formData['brandVisualBriefHash'] = 'instagram-profile'; // sentinel → worker won't regenerate
+                $formData['brandVisualStatus']    = 'ready';
 
                 // Merge extracted hex palette into brand fields (only non-empty values).
                 // Only fills fields the caller hasn't already set — existing explicit values win.
@@ -353,14 +457,22 @@ try {
         }
     }
 
-    // ── Re-sync the Gemini company store (once per call) ──────────────────────
-    $passKey = agents_env_value('GEMINI_API_KEY_PRODUCTION') ?: agents_env_value('GEMINI_API_KEY_TESTING') ?: null;
+    // ── Re-sync the Gemini company store — skip on bare polls (no new content) ─
     $storeWarning = null;
-    try {
-        $storeName = agents_sync_company_store($conn, $companyId, $formData, $accountType, $userId, ($storeName ?: null), $passKey);
-    } catch (Throwable $se) {
-        $storeWarning = $se->getMessage();
-        error_log('[company-assets] store sync failed: ' . $se->getMessage());
+    if ($hasNewContent || empty($storeName)) {
+        $passKey = agents_env_value('GEMINI_API_KEY_PRODUCTION') ?: agents_env_value('GEMINI_API_KEY_TESTING') ?: null;
+        try {
+            $storeName = agents_sync_company_store($conn, $companyId, $formData, $accountType, $userId, ($storeName ?: null), $passKey);
+        } catch (Throwable $se) {
+            $storeWarning = $se->getMessage();
+            error_log('[company-assets] store sync failed: ' . $se->getMessage());
+        }
+    }
+
+    // Surface the async job lifecycle (processing/ready/failed) stored on the company.
+    $bvStatusStored = (string)($formData['brandVisualStatus'] ?? '');
+    if ($briefWarning === null && $bvStatusStored === 'failed') {
+        $briefWarning = trim((string)($formData['brandVisualError'] ?? '')) ?: null;
     }
 
     echo json_encode([
@@ -381,13 +493,15 @@ try {
                                         : ($formData['brandVisualBrief'] ?? null),
         'brand_visual_status'      => $brandBriefResult !== null
                                         ? 'generated'
-                                        : ($briefWarning !== null
-                                            ? 'failed'
-                                            : ($briefEdgeCalled
-                                                ? 'empty_response'  // edge called but brief came back empty
-                                                : (isset($formData['brandVisualBrief'])
-                                                    ? 'cached'
-                                                    : 'not_requested'))),
+                                        : ($bvStatusStored === 'processing'
+                                            ? 'processing'
+                                            : ($briefWarning !== null
+                                                ? 'failed'
+                                                : ($briefEdgeCalled
+                                                    ? 'empty_response'  // edge called but brief came back empty
+                                                    : (isset($formData['brandVisualBrief'])
+                                                        ? 'cached'
+                                                        : 'not_requested')))),
         'brief_empty_reason'       => $briefEmptyReason,
         'skipped'                  => $skipped,
         'brief_warning'            => $briefWarning,
