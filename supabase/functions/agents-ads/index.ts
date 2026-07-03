@@ -3329,6 +3329,17 @@ serve(async (req: Request) => {
       // image model RE-COMPOSE freely (more creative, less "closed") instead of copying pixels —
       // and means we no longer re-send raw base64 on every generation (cheaper tokens).
       let visualBrief = String((campaignData as any).brandVisualBrief || "").trim();
+      // The COMPLETE 300-400 word brief is the company's stored brand KNOWLEDGE, produced by the
+      // company-assets call — it stays full there. But in GENERATION, injecting the whole brief
+      // makes the text description dominate the image prompt and drown out the actual reference
+      // images + brand posts: every ad ends up looking the same and ignoring the refs (the exact
+      // "sem variação / sem influência das refs" regression). Cap the brief to a short digest here
+      // so the reference IMAGES drive the visual — the pre-1e37bc1 / banner261 behaviour. The full
+      // brief on the company store is untouched.
+      const GEN_VISUAL_BRIEF_CAP = 2000; // matches the generation brief length before 1e37bc1
+      if (visualBrief.length > GEN_VISUAL_BRIEF_CAP) {
+        visualBrief = visualBrief.slice(0, GEN_VISUAL_BRIEF_CAP).trim();
+      }
       const briefDriven = visualBrief.length > 0;
 
       // ── Background source (compose) ────────────────────────────────────────
