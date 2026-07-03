@@ -277,6 +277,14 @@ const CRITIQUE_OVERLAY    = true;  // Flash self-reviews its overlay and retries
 const NO_TEXT_RETRY_REMINDER =
   "\n\n⛔⛔ RETRY REASON — TEXT LEAK: your previous attempt rendered VISIBLE TEXT/LETTERS/WORDS into the image. This is a hard failure. The attached brand/reference images CONTAIN text, captions, headlines and wordmarks — you MUST NOT copy, trace, paraphrase or invent ANY of it. Output a background with ABSOLUTELY ZERO letters, words, numbers, captions, slogans, logos or wordmarks anywhere — not on walls, screens, props, clothing, signage or as decoration. Every surface stays completely blank. Keep ONLY the visual subject and the brand colours/lighting.";
 
+// Last-resort reminder for HERO mode when TWO prior attempts both leaked text. Hero mode can't
+// fall back to abstract shapes (would erase the hero subject), so this attempt goes further than
+// NO_TEXT_RETRY_REMINDER: it explicitly bans the devices/screens/signage that keep tempting the
+// model into rendering "content" text (phone/laptop UI mockups, app screens, quote graphics),
+// since the theme itself (viral/social content) biases the model toward drawing that kind of text.
+const HERO_NO_TEXT_RETRY_REMINDER =
+  "\n\n⛔⛔⛔ SECOND TEXT-LEAK RETRY — READ CAREFULLY: your last TWO attempts both rendered visible text into the image. Whatever surface is doing it, remove it. SPECIFICALLY: any phone, tablet, laptop or monitor screen in the scene must show a SOLID BLURRED COLOR or a completely abstract/blurred pattern — never app UI, never icons, never any word, never a simulated social-media interface. Any paper, notebook, whiteboard, poster or sign must be BLANK. Do NOT render any 'quote card', caption graphic, or text-based design element, even faded, ghosted, or semi-transparent — a faint/low-opacity text is STILL a failure. If you are unsure whether something will render as text, remove that object from the scene entirely and keep only the hero subject and the environment.";
+
 // Appended to the FIRST-pass bg prompt whenever reference images are attached. Reference/brand
 // posts almost always contain text, captions and logos, and the image model's strongest temptation
 // is to trace them straight into the background — the exact failure we keep seeing. This states the
@@ -364,6 +372,7 @@ Check for these problems:
 2. CTA missing, hidden, or positioned off-screen.
 3. Text block so large it covers the product/hero in the image.
 4. Obvious visual imbalance (e.g. all text crammed into one tiny corner, or huge empty space with no text).
+5. ⛔ LOGO COLLISION — read the top/left/right/bottom % coordinates of the logo <img> and of EVERY text group in the HTML. If the logo's box overlaps, touches, or shares the same horizontal band (top or bottom region) as the headline group OR the CTA line, that is a FAIL — flag "fix" even if the rest of the layout looks fine.
 
 Answer ONLY with the single word "ok" (layout works) or "fix" (clear problem found).`,
       "gemini-2.5-flash", 0.0, 10, apiKey, undefined,
@@ -597,7 +606,7 @@ async function buildOverlayHtmlFromGemini(
       const ok = await critiqueOverlayHtml(bgDataUrl, html, apiKey, opts);
       if (!ok) {
         // Re-run the Gemini call once with a hint to improve placement
-        const res2 = await callGemini(SYSTEM, USER + "\n\nIMPORTANT: Your previous layout had a visual problem (text over busy area, or CTA hidden). Regenerate with better placement.", "gemini-2.5-flash", 0.4, 2600, apiKey, undefined, [bgRef], { ...opts, thinkingBudget: 0, timeoutMs: 25000 }).catch(() => null);
+        const res2 = await callGemini(SYSTEM, USER + "\n\nIMPORTANT: Your previous layout had a visual problem — text over a busy area, CTA hidden, or the LOGO overlapping/sharing a band with the headline or CTA. Re-check every element's top/left/right/bottom % against every other element before finalizing, then regenerate with corrected placement.", "gemini-2.5-flash", 0.4, 2600, apiKey, undefined, [bgRef], { ...opts, thinkingBudget: 0, timeoutMs: 25000 }).catch(() => null);
         if (res2?.text) {
           const raw2 = String(res2.text).trim()
             .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
@@ -3621,9 +3630,17 @@ serve(async (req: Request) => {
                   else console.warn(`[bg-validate] shapes fallback failed, keeping texty bg job=${jobId ?? "?"}`);
                 } else if (retryHasText) {
                   // Hero mode: shapes would erase the hero subject (the whole point of the ad).
-                  // Keep the retry — it was regenerated with the strong anti-text reminder, so it
-                  // is the cleanest hero-preserving option available.
-                  console.warn(`[bg-validate] retry still has text but heroRef → keeping retry job=${jobId ?? "?"}`);
+                  // Don't give up yet — one more attempt with a stricter reminder that specifically
+                  // targets the devices/screens/signage that keep leaking "content" text, since this
+                  // failure was recurring frequently before this final attempt was added.
+                  console.warn(`[bg-validate] retry still has text, heroRef → final attempt job=${jobId ?? "?"}`);
+                  const finalRetry = await generateAdImage(bgPrompt + HERO_NO_TEXT_RETRY_REMINDER, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
+                  if (finalRetry) {
+                    const finalHasText = await backgroundHasText(finalRetry.url, apiKey, { jobId, costAcc });
+                    gen = finalRetry;
+                    if (finalHasText) console.warn(`[bg-validate] hero final-retry still has text, using best-of-3 anyway job=${jobId ?? "?"}`);
+                    else console.log(`[bg-validate] hero final-retry clean job=${jobId ?? "?"}`);
+                  } else console.warn(`[bg-validate] hero final-retry failed, keeping previous retry job=${jobId ?? "?"}`);
                 } else console.log(`[bg-validate] retry clean job=${jobId ?? "?"}`);
               } else console.warn(`[bg-validate] retry failed, using original job=${jobId ?? "?"}`);
             }
