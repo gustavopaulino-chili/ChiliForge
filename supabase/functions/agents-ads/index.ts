@@ -348,7 +348,7 @@ async function backgroundHasText(
     const validatorKey = env?.get("GEMINI_API_KEY_PRODUCTION") || env?.get("GEMINI_API_KEY_TESTING") || "";
     const keyChain = [...new Set([validatorKey, apiKey].filter((k): k is string => Boolean(k)))];
     const VSYS = "You are a strict image quality validator for advertising backgrounds. A background MUST be completely free of any text or logo — the real text and logo are added later in a separate layer.";
-    const VQ = "Does this image contain ANY visible text, letters, numbers, logos, wordmarks, brand names, or UI elements with readable labels? THIS INCLUDES: a headline or title anywhere, text printed on book covers or spines, magazine/newspaper titles, bottle labels, product package text, screen/monitor text, price tags, captions, signage, or any words or letters anywhere in the image — even lightly rendered or partially cut off. ALSO INCLUDES: any decorative cursive/script squiggle, monogram, emblem, or stylized flourish that reads as a logo or brand mark even though it has no actual legible letters — treat that the same as a real logo. If you are unsure, answer 'yes'. Answer with ONLY the single word 'yes' or 'no'.";
+    const VQ = "Does this image contain ANY visible text, letters, numbers, logos, wordmarks, brand names, or UI elements with readable labels? THIS INCLUDES: a headline or title anywhere, text printed on book covers or spines, magazine/newspaper titles, bottle labels, product package text, screen/monitor text, price tags, captions, signage, or any words or letters anywhere in the image — even lightly rendered or partially cut off. ALSO INCLUDES: any decorative cursive/script squiggle, monogram, emblem, or stylized flourish that reads as a logo or brand mark even though it has no actual legible letters — treat that the same as a real logo. ALSO INCLUDES: a faint, ghosted, low-opacity, blurred, or semi-transparent duplicate/echo of a logo or wordmark anywhere in the image (e.g. behind or near where the real logo will be composited) — treat that the same as a real logo, even if it is barely visible. If you are unsure, answer 'yes'. Answer with ONLY the single word 'yes' or 'no'.";
     let answer = "";
     for (const k of keyChain) {
       try {
@@ -2420,6 +2420,7 @@ function buildBackgroundPrompt(
     "",
     briefBlock,
     "⛔ TEMPLATE PROHIBITION: The background MUST look like a professional art-directed photograph, illustration, or 3D render — NEVER like a CSS template or HTML layout. Do NOT create flat rectangular color panels side by side with hard edges (e.g. a solid beige block on the left + a solid red block on the right). Use soft gradients, light falloff, depth, blur, and organic composition. Hard geometric color divisions make the background look fake and broken.",
+    "⛔ NO FRAMED PHOTO CARD: do NOT render the scene as a smaller photo/rectangle floating with a visible border or margin of solid brand color around all four sides, like a framed picture pasted in the middle of the canvas. The photography/illustration MUST extend edge-to-edge, filling the ENTIRE canvas (full-bleed) — no inset, no card, no padding, no picture-frame look.",
     "",
     productMoodHint,
     "",
