@@ -612,12 +612,22 @@ try {
     if (!empty($storedBrandPosts)) {
         $existingComposeRefs = is_array($campaignFormData['composeCompanyRefs'] ?? null)
             ? $campaignFormData['composeCompanyRefs'] : [];
-        // Brand posts prepended — they take priority as the aesthetic reference.
-        // Generation-specific images (product/bg/hero) follow in the remaining slots.
-        $mergedRefs = array_values(array_unique(array_filter(
-            array_merge(array_slice($storedBrandPosts, -8), $existingComposeRefs),
-            'strlen'
-        )));
+        // Brand posts normally take priority as the aesthetic reference (prepended). BUT when the
+        // caller sent an explicit reference_image_url (composeHeroRef), that image is genRefUrl —
+        // already first in $existingComposeRefs — and it MUST stay first: it's the featured hero
+        // subject, not style inspiration. Prepending up to 8 brand posts ahead of it pushed it past
+        // the edge's slice(0,3) cutoff, so the hero silently became an unrelated stored brand-post
+        // person instead of the reference the caller actually sent.
+        $heroRefActive = !empty($campaignFormData['composeHeroRef']);
+        $mergedRefs = $heroRefActive
+            ? array_values(array_unique(array_filter(
+                array_merge($existingComposeRefs, array_slice($storedBrandPosts, -8)),
+                'strlen'
+            )))
+            : array_values(array_unique(array_filter(
+                array_merge(array_slice($storedBrandPosts, -8), $existingComposeRefs),
+                'strlen'
+            )));
         // Absolutize — brand posts are stored ROOT-RELATIVE (/projects/...). This injection runs
         // AFTER the section-7 absolutization, so without re-absolutizing here the posts stay
         // relative and the edge (which only fetches http(s) URLs) silently DROPS them — only the
