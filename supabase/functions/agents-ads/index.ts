@@ -290,6 +290,12 @@ const HERO_NO_TEXT_RETRY_REMINDER =
 // is to trace them straight into the background — the exact failure we keep seeing. This states the
 // rule up-front (not only on retry), and is worded to be safe even in hero mode (it forbids only
 // text/logos, never the subject itself).
+// THE #1 rule, prepended to EVERY background prompt so the model reads it first. The single most
+// important constraint (a clean, text-free ad background) must never get lost among the creative
+// direction. Short and absolute on purpose.
+const PRIMARY_BG_RULE =
+  "███ RULE #1 — READ THIS FIRST, IT OVERRIDES EVERYTHING BELOW ███\nYou are producing ONLY the BACKGROUND of an advertisement — nothing else. You must NOT draw ANY text, letter, word, number, headline, caption, slogan, price, brand name, wordmark or logo ANYWHERE in the image — ZERO. The real logo and all copy are added by the system in a separate layer ON TOP of your image afterwards. Your whole job is ONE clean, cohesive, on-brand background scene that leaves calm space for that overlay. A background that contains ANY text or logo is a total failure and is discarded.";
+
 const REF_TEXT_LEAK_GUARD =
   "\n\n⛔⛔ THE ATTACHED REFERENCE IMAGES CONTAIN TEXT, CAPTIONS, WORDMARKS AND LOGOS. Do NOT copy, trace, paraphrase or recreate ANY of that text, nor any logo or wordmark, from them. Reproduce the subject/scene and the brand colours only — but every wall, screen, monitor, poster, sign, product label, paper, prop and surface in your output MUST be completely BLANK: zero letters, zero numbers, zero words, zero logos, zero wordmarks, and zero decorative cursive/script flourishes or emblems that merely LOOK like a brand mark even without legible letters. The real logo and all copy are composited in a separate layer afterwards, so ANY text or logo-like graphic you draw appears twice and ruins the ad. A background with any text or logo-like decoration is a complete render failure.";
 
@@ -2188,6 +2194,7 @@ function buildBackgroundPrompt(
     const pos = LAYOUT_POSITIONS[layout] ?? LAYOUT_POSITIONS["hero-full-bleed"];
     const overlayLine = `RESERVE TEXT SPACE (composited on top later — keep it calm and contrast-friendly, NOT empty): logo[${pos.logo}] text-block[${pos.block}]. That area must stay TEXT-FREE and LOGO-FREE — draw no words, wordmarks, icons or UI there.`;
     return [
+      PRIMARY_BG_RULE,
       "TASK: The image(s) attached are the visual reference. Recreate their aesthetic as a background for an advertising creative — same style, composition, lighting, color temperature, texture, and photographic quality.",
       "Adapt framing to fit the target aspect ratio. Do NOT invent a new scene. Stay in the exact visual world shown.",
       "",
@@ -2384,6 +2391,7 @@ function buildBackgroundPrompt(
     : "";
 
   return [
+    PRIMARY_BG_RULE,
     "███ THIS IS AN AD BACKGROUND LAYER — NOT A FINISHED AD ███",
     "Your ONLY job is to produce the BACKGROUND IMAGE of a digital advertisement. The system will composite the brand logo, headline, body copy, and CTA button on top of your image in a separate layer — automatically. You do NOT draw those elements.",
     "Think of yourself as an art director painting the backdrop on a canvas before a photographer places the product and copywriter adds the text. Your canvas must be beautiful, rich, and on-brand — but it is NOT the finished ad.",
@@ -3622,8 +3630,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef, ugcNoRef)
-            + (bgRefImages.length > 0 ? REF_TEXT_LEAK_GUARD : "");
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef, ugcNoRef);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -3706,8 +3713,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef, ugcNoRef)
-            + (bgRefImages.length > 0 ? REF_TEXT_LEAK_GUARD : "");
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef, ugcNoRef);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
