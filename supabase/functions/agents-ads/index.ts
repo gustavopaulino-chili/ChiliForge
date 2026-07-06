@@ -476,16 +476,21 @@ async function buildOverlayHtmlFromGemini(
   const brandAccentHex = String((data as any).accentColor || (data as any).primaryColor || (data as any).secondaryColor || "").trim();
   const accentHexForSpan = /^#[0-9a-f]{3,8}$/i.test(brandAccentHex) ? brandAccentHex : "#ffffff";
 
+  // Style variant, rotated by jobId — see OVERLAY_STYLE_VARIANTS comment. Decorrelated from the
+  // layout-hint rotation (different modulus/seed) so layout structure and text-treatment style
+  // vary independently across a campaign's generation history instead of always pairing up.
+  const styleVariant = OVERLAY_STYLE_VARIANTS[(Number(opts.jobId ?? 0) * 13 + 5) % OVERLAY_STYLE_VARIANTS.length];
+
   // CTA: a stylish action line that may sit in a SUBTLE container, but must NOT look like a
   // tappable app button (no loud glossy pill / heavy-shadow rounded rectangle). Editorial/UGC,
-  // not UI. Keeping it light also avoids the pill colliding with the subheadline.
+  // not UI. The exact treatment is FORCED by styleVariant (not "pick what fits") — that is what
+  // gives each generation a genuinely different look instead of the model defaulting to the
+  // same safe "bold text + underline" recipe every time.
   const ctaMenu = ctaRaw
     ? [
-        `CTA — "${ctaRaw}" — a clear, stylish action line. It MAY have a subtle container, but it must NOT look like a tappable app button: ⛔ avoid the loud button look — no big glossy filled pill, no heavy drop-shadow, no thick border, no high-contrast rounded rectangle. Aim editorial/UGC, not app UI. Pick what fits THIS comp:`,
-        `   • Bold #ffffff text (font-weight:800, ~3–3.6cqw) ending with a trailing arrow span "→" — clean and confident.`,
-        `   • Optionally a thin accent underline beneath it (child div height:0.4cqh, width just under the text, background = real brand accent hex, border-radius:999px, margin-top:0.8cqh).`,
-        `   • OR a SUBTLE container if it suits the design: a low-opacity tinted/frosted backing (e.g. background:rgba(0,0,0,0.18) or a faint brand tint, slim padding, small border-radius ≤0.8cqw, OR just a short left accent bar) — quiet and editorial, NEVER a glossy pill with a heavy shadow.`,
-        `   For any accent colour (underline/tint) use the brand accent hex ${accentHexForSpan} — NEVER a colour sampled from the background image (background colours are often off-brand). The arrow "→" renders fine in a browser.`,
+        `CTA — "${ctaRaw}" — a clear, stylish action line, ⛔ never a tappable-looking app button (no big glossy filled pill, no heavy drop-shadow, no thick border, no high-contrast rounded rectangle). Editorial/UGC, not UI.`,
+        `   USE THIS EXACT TREATMENT FOR THIS AD (style variant "${styleVariant.name}"): ${styleVariant.cta.replace(/ACCENT/g, accentHexForSpan)}`,
+        `   For any accent colour used above, use the brand accent hex ${accentHexForSpan} — NEVER a colour sampled from the background image (background colours are often off-brand). The arrow "→" renders fine in a browser.`,
       ].join("\n")
     : "No CTA";
 
@@ -544,7 +549,7 @@ async function buildOverlayHtmlFromGemini(
     "4. Headline typography:",
     "   • font-size:5.5–8cqw; font-weight:900.",
     "   • LINE BREAK: if headline is longer than 22 chars, add an explicit <br> at the most natural semantic split — after a colon, before a key verb — so both visual lines have roughly equal weight. Never rely on CSS auto-wrap.",
-    `   • ACCENT WORD (optional, 1–2 words max): wrap the single most impactful word in a <span style="color:${accentHexForSpan}">word</span> — use THIS EXACT brand colour. ⛔ Do NOT sample a colour from the background image (background colours like a blue dashboard are off-brand). If ${accentHexForSpan} would be low-contrast on the dark scrim, use #ffffff for that word instead.`,
+    `   • ACCENT TREATMENT — USE THIS EXACT ONE FOR THIS AD (style variant "${styleVariant.name}"): ${styleVariant.accent.replace(/ACCENT/g, accentHexForSpan)} ⛔ Do NOT sample a colour from the background image (background colours like a blue dashboard are off-brand). If ${accentHexForSpan} would be low-contrast on the dark scrim, use #ffffff instead.`,
     "   • text-align: center or left based on composition.",
     "",
     "5. Subheadline: font-size:2.5–4cqw; font-weight:400. Placed in GROUP 2 (OPTION A) or inside the single flex block (OPTION B).",
@@ -553,7 +558,10 @@ async function buildOverlayHtmlFromGemini(
     "",
     "RENDERER CAPABILITY: a real headless Chrome rasterizes your HTML — you have the FULL modern CSS toolkit. Use it tastefully for a premium look: linear/radial/conic gradients, backdrop-filter:blur() for a frosted-glass scrim panel, box-shadow, border-radius, letter-spacing, text-transform, transform, and web-font @import all render faithfully. A subtle frosted-glass or gradient scrim behind the text reads far more premium than a flat dark band — prefer it. (Do NOT, however, change the z-index structure rules below — the compositor keys on them.)",
     "",
-    "CREATIVE POLISH (optional, tasteful — use what elevates THIS comp, never all at once): an EYEBROW/kicker line above the headline (small ~1.8cqw, uppercase, letter-spacing:0.25em, brand-accent colour) adds editorial structure; a thin accent underline bar under the headline or under the accent word ties it to the brand; gentle letter-spacing on the headline reads more premium. Keep it minimal and legible — polish supports the copy, it never crowds it.",
+    styleVariant.eyebrow
+      ? "EYEBROW (use it for THIS ad): add a small kicker line above the headline — ~1.8cqw, uppercase, letter-spacing:0.25em, brand-accent colour. Keep it short (1-3 words derived from the industry/offer, not the literal headline text repeated)."
+      : "EYEBROW: do NOT add an eyebrow/kicker line for this ad — this variant's accent/CTA treatment already carries the brand colour, an eyebrow on top would be redundant polish stacking.",
+    "Keep any polish minimal and legible — it supports the copy, it never crowds it.",
     "",
     "TECHNICAL RULES (do not violate):",
     "• Do NOT output any bracket-notation placeholders [like this] as text content inside any HTML element. Every element must contain only real copy text or real HTML children — never a placeholder annotation.",
@@ -1822,6 +1830,44 @@ const LAYOUT_KEYS = [
   "vertical-story-stack",
   "floating-islands",
 ] as const;
+// Overlay TEXT/CTA treatments, rotated per job so ads don't all converge on the same "white bold
+// text + trailing arrow + underline" look. Telling the model it has "full creative freedom" in
+// buildOverlayHtmlFromGemini paradoxically made it default to the same safe recipe every time —
+// giving it ONE concrete, fully-specified recipe per generation (still respecting the shared
+// no-loud-button / no-overlap rules) produces real visual variety across a campaign's history.
+const OVERLAY_STYLE_VARIANTS = [
+  {
+    name: "underline-arrow",
+    accent: "Wrap the single most impactful headline word in <span style=\"color:ACCENT\">word</span>.",
+    eyebrow: false,
+    cta: "Bold #ffffff text (font-weight:800) ending with a trailing arrow span \"→\". Add a thin accent-colour underline bar beneath it (child div height:0.4cqh, width just under the text, border-radius:999px, margin-top:0.8cqh).",
+  },
+  {
+    name: "eyebrow-tinted-pill",
+    accent: "Keep the headline entirely #ffffff — no coloured span this time, let the eyebrow below carry the accent colour instead.",
+    eyebrow: true,
+    cta: "Bold #ffffff text with a trailing arrow \"→\", sitting inside a SUBTLE low-opacity tinted pill (background:rgba(0,0,0,0.18) or a faint brand-tint rgba, slim padding ~0.8cqh/2cqw, border-radius ≤1.2cqw). No border, no shadow — quiet, not a button.",
+  },
+  {
+    name: "highlight-chip",
+    accent: "Wrap the single most impactful headline word in a highlight chip instead of coloured text: <span style=\"background:ACCENT;color:#ffffff;padding:0.1cqh 0.6cqw;border-radius:0.4cqw;box-decoration-break:clone\">word</span>.",
+    eyebrow: false,
+    cta: "Bold #ffffff text, NO underline and NO container — just the arrow \"→\" placed BEFORE the words instead of after (e.g. \"→ Quero viralizar\"), relying on weight and the arrow alone for punch.",
+  },
+  {
+    name: "left-accent-bar",
+    accent: "Keep the headline entirely #ffffff. Instead of colouring a word, add a slim vertical accent-colour bar (width:0.4cqw, height matching the text block, border-radius:999px) to the LEFT of the whole headline+subheadline+CTA group, with a small gap before the text.",
+    eyebrow: false,
+    cta: "Bold #ffffff text ending with a trailing arrow \"→\" — no underline, no container (the left bar already carries the accent colour for this variant).",
+  },
+  {
+    name: "outline-chip",
+    accent: "Wrap the single most impactful headline word in <span style=\"color:ACCENT\">word</span>.",
+    eyebrow: true,
+    cta: "Bold #ffffff text with a trailing arrow \"→\" inside a thin 1px accent-colour OUTLINE pill (border:1px solid ACCENT, transparent background, slim padding, border-radius:999px) — an outline, never a filled/glossy pill.",
+  },
+] as const;
+
 const BACKGROUND_DIRECTIONS = [
   "single hero subject in sharp focus on a clean backdrop, generous negative space, soft natural shadow",
   "editorial product scene, one clear subject off-center, gentle side lighting, simple uncluttered surroundings",
