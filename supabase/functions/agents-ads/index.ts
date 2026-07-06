@@ -537,7 +537,7 @@ async function buildOverlayHtmlFromGemini(
         `   • Gradient text-fill on the CTA itself (background:linear-gradient(...); -webkit-background-clip:text; color:transparent) using the brand's accent colours — makes it pop with pure typography, zero container.`,
         `   • A loose hand-drawn-style circle or scribble AROUND one key word of the CTA (an SVG-free CSS trick: a rotated border-radius:40%/60% shape with border ONLY, no fill, sitting behind/around the word) — annotation energy, like a marker circling text, never a solid button shape.`,
         `   Pick ONE that fits the DESIGN DIRECTION below (or plain bold text with nothing extra, if that fits better) — never stack more than one embellishment on the CTA.`,
-        `   For any accent colour, use the brand accent hex ${accentHexForSpan} — NEVER a colour sampled from the background image (background colours are often off-brand).`,
+        `   For any accent colour, default to the brand accent hex ${accentHexForSpan} — or, if a strong vivid colour actually visible in THIS background harmonises better with the photo, use that instead. Either way it should still feel like this brand's palette family, not a random unrelated hue.`,
       ].join("\n")
     : "No CTA";
 
@@ -601,8 +601,8 @@ async function buildOverlayHtmlFromGemini(
     "   • font-size:5.5–8cqw; font-weight:900.",
     "   • LINE BREAK: if headline is longer than 22 chars, add an explicit <br> at the most natural semantic split — after a colon, before a key verb — so both visual lines have roughly equal weight. Never rely on CSS auto-wrap.",
     hasBrandHex
-      ? `   • ACCENT TREATMENT — DO THIS, it is what makes the ad feel like a real brand ad instead of generic stock text: wrap the single most impactful headline word in the brand's own colour. Default choice: a coloured span <span style="color:${accentHexForSpan}">word</span> — simple, reliable, always works. If the DESIGN DIRECTION above calls for something bolder, use a highlight chip instead — solid <span style="background:${accentHexForSpan};color:#ffffff;padding:0.1cqh 0.6cqw;border-radius:0.4cqw;box-decoration-break:clone">word</span> OR a gradient of the brand's own colours <span style="background:linear-gradient(135deg,${accentHexForSpan},${accentHexSecondary});color:#ffffff;padding:0.1cqh 0.6cqw;border-radius:0.4cqw;box-decoration-break:clone">word</span>. ⛔⛔ Whichever you pick, the colour MUST be ${accentHexForSpan} (or the gradient pair above) — NEVER plain white, black, or grey for this accent word; a colourless headline reads as generic and off-brand. Only skip the coloured word entirely if the DESIGN DIRECTION is explicitly minimal/restrained AND you are already carrying ${accentHexForSpan} prominently elsewhere (eyebrow, underline, bar) — never end up with zero brand colour anywhere in the text block. ⛔ Do NOT sample a colour from the background image (background colours like a blue dashboard are off-brand).`
-      : `   • ACCENT TREATMENT: no valid brand colour was provided for this campaign, so keep the headline plain white — no coloured span or chip is possible without a real brand hex.`,
+      ? `   • ACCENT TREATMENT (do this — it's what makes the ad feel branded, not generic): wrap the single most impactful headline word in a colour. Default to the brand hex <span style="color:${accentHexForSpan}">word</span> — but if you can see a strong, vivid colour actually present IN THIS background (a lamp glow, a coloured surface, a light reflection) that harmonises better with this specific photo while still feeling like the same brand family, you may use that shade instead — pick whichever reads best against THIS exact image. Bolder alternative if it fits the design direction: a chip with a solid or gradient background using ${accentHexForSpan}/${accentHexSecondary} or that background-sampled shade, e.g. <span style="background:linear-gradient(135deg,${accentHexForSpan},${accentHexSecondary});color:#ffffff;padding:0.1cqh 0.6cqw;border-radius:0.4cqw;box-decoration-break:clone">word</span>. Never plain white/black/grey for this word — only skip the coloured word entirely if the brand colour is already prominent elsewhere (eyebrow/underline/bar).`
+      : `   • ACCENT TREATMENT: no brand colour was provided — pick a strong, vivid colour actually visible in THIS background (a lamp glow, a coloured surface) for the single most impactful headline word, or keep it plain white if nothing suitable stands out.`,
     "   • text-align: center or left based on composition.",
     "",
     "5. Subheadline: font-size:2.5–4cqw; font-weight:400. Placed in GROUP 2 (OPTION A) or inside the single flex block (OPTION B).",
@@ -643,7 +643,7 @@ async function buildOverlayHtmlFromGemini(
   ].filter(Boolean).join("\n");
 
   try {
-    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.55, 2600, apiKey, undefined, [bgRef], { ...opts, thinkingBudget: 0, timeoutMs: 25000 });
+    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.35, 2600, apiKey, undefined, [bgRef], { ...opts, thinkingBudget: 0, timeoutMs: 25000 });
     const raw = String(res.text || "").trim()
       .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
 
@@ -2521,10 +2521,6 @@ function buildBackgroundPrompt(
     "",
     productMoodHint,
     "",
-    "████ CAMPAIGN RELEVANCE — VISUAL SUBJECT DRIVES THE SCENE ████",
-    "The 'Visual subject' field above tells you WHAT this specific campaign is about. Build your scene around THAT subject — not around a generic industry archetype.",
-    "⛔ Do NOT default to a generic visual that could fit any campaign in this industry. Each campaign has its own specific topic — read it and pick imagery that makes THAT topic instantly recognizable.",
-    "It should read as 'this is exactly what THIS campaign is about', immediately and unambiguously.",
     bgSource === "shapes"
       ? "Even though this is an ABSTRACT background, the palette, energy and mood must still reflect the campaign's product, audience and tone — not a decorative pattern unrelated to the offer."
       : "Keep it cohesive with the brand colors and the chosen visual style/tone; do not drift into stock visuals that ignore what is being advertised.",
@@ -2539,9 +2535,7 @@ function buildBackgroundPrompt(
     "❌ THE ATTACHED REFERENCE/BRAND IMAGES CONTAIN TEXT (captions, headlines, slogans, wordmarks). You MUST NOT reproduce, trace, paraphrase or 'echo' ANY of their text — not even garbled/fake lookalike lettering. Treat every word in the reference images as if it were invisible. Copy their STYLE and colours only, never their words.",
     "❌ If you render ANY product, package, container, label, tag or object, ALL SURFACES MUST BE COMPLETELY BLANK — no text, no letters, no numbers, no logo, no title. Any printed surface with ANY text is a complete render failure.",
     "❌ Any SCREEN, monitor, laptop, phone or tablet visible in the image must show NO text, labels, font names, UI captions, app names, or ANY readable annotation — no matter how small. This INCLUDES generic-looking app/analytics words like 'Views', 'Engagement', 'Likes', 'Followers', 'For You', axis labels, or any chart title — a realistic-looking dashboard mockup with real words is JUST AS MUCH a failure as a brand wordmark. The screen content can be abstract shapes, solid colors, blurred bokeh, or nothing at all — never simulate a real, readable app interface.",
-    "⛔ CRITICAL — THE TEXT ZONE / RESERVED PANEL MUST ALSO BE TEXT-FREE: When you create a dark panel, diagonal cutout, gradient band, or any calm area reserved for overlay text, that area must be COMPLETELY EMPTY of any letters, words, or characters — including layout annotations like 'text-safe', 'calm zone', 'generous', or any descriptor of the zone itself. Do NOT write a preview headline, placeholder copy, category name, product name, or ANY text inside that zone. The zone is a clean color/gradient surface ONLY.",
-    "⛔ DO NOT annotate your own composition choices as text in the image. Never write phrases like 'text area', 'text-safe', 'calm zone', 'headline here', 'generous calm', or any meta-description of the layout. These are internal design decisions — they must NEVER appear as pixels in the image.",
-    "⛔⛔ THIS ENTIRE PROMPT IS INSTRUCTIONS FOR YOU, NOT CONTENT TO DRAW: never render any word, phrase, technical term (e.g. 'layout', 'typography', 'stacked', 'zone', 'grid', 'composition'), or number/percentage/coordinate (e.g. '28%', '12%', 'top:5%') that appears ANYWHERE in these instructions as visible pixels in the image, even styled as decorative background texture. If you want a texture that suggests typography or data, make it genuinely illegible abstract marks — never actual dictionary words, and never a number that looks like a measurement or ratio.",
+    "⛔⛔ NOTHING FROM THIS PROMPT IS CONTENT TO DRAW: this whole message is instructions for you, not text to reproduce. The reserved panel/calm area where overlay text will go later must be a completely clean, empty colour/gradient surface — no preview headline, no placeholder copy, no meta-description of the zone, no layout jargon, no coordinate/percentage/measurement-looking numbers, no fabricated slogan or caption of any kind, however faint or decorative it looks. If you want texture that suggests typography or data, make it genuinely illegible abstract marks, never actual words or numbers.",
     "WHY: The system overlays the real logo and copy in a separate HTML layer AFTER your image is generated. Any text or logo you draw will appear TWICE in the final ad, ruined.",
     "A background image with ANY text or logo in it is a complete render failure.",
     "",
