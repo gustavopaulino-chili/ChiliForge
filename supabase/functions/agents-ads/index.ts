@@ -481,18 +481,18 @@ async function buildOverlayHtmlFromGemini(
   // vary independently across a campaign's generation history instead of always pairing up.
   const styleVariant = OVERLAY_STYLE_VARIANTS[(Number(opts.jobId ?? 0) * 13 + 5) % OVERLAY_STYLE_VARIANTS.length];
 
-  // CTA: a stylish action line that may sit in a SUBTLE container, but must NOT look like a
-  // tappable app button (no loud glossy pill / heavy-shadow rounded rectangle). Editorial/UGC,
-  // not UI. The exact treatment is FORCED by styleVariant (not "pick what fits") — that is what
-  // gives each generation a genuinely different look instead of the model defaulting to the
-  // same safe "bold text + underline" recipe every time.
+  // CTA: always PLAIN TEXT, never any container/border/background — that reads as a button.
+  // Editorial/UGC caption style, not UI. This is a HARD rule (unaffected by styleVariant) —
+  // the variant only shapes which OPTIONAL technique dresses up the plain text.
   const ctaMenu = ctaRaw
     ? [
-        `CTA — "${ctaRaw}" — a clear, stylish action line, ⛔ never a tappable-looking app button (no big glossy filled pill, no heavy drop-shadow, no thick border, no high-contrast rounded rectangle). Editorial/UGC, not UI.`,
-        `   USE THIS EXACT TREATMENT FOR THIS AD (style variant "${styleVariant.name}"): ${styleVariant.cta.replace(/ACCENT/g, accentHexForSpan)}`,
-        `   For any accent colour used above, use the brand accent hex ${accentHexForSpan} — NEVER a colour sampled from the background image (background colours are often off-brand). The arrow "→" renders fine in a browser.`,
+        `CTA — "${ctaRaw}" — a clear, stylish action line, rendered as PLAIN TEXT with no visible container of any kind: ⛔ NO pill, NO badge, NO background fill, NO border/outline, NO rounded rectangle, NO box-shadow behind it — any shape the eye can trace around the CTA reads as a button, and that is banned. Editorial/UGC caption style only, never app UI.`,
+        `   Optional techniques to consider (pick what fits the DESIGN DIRECTION below, or none at all): a trailing or leading arrow "→", a thin accent-colour underline bar beneath the text (no box around it), or just bold weight alone with nothing extra. Whatever you choose must stay flat text — never a filled/outlined shape around the CTA.`,
+        `   For any accent colour, use the brand accent hex ${accentHexForSpan} — NEVER a colour sampled from the background image (background colours are often off-brand).`,
       ].join("\n")
     : "No CTA";
+
+  const designDirectionLine = `🎨 DESIGN DIRECTION FOR THIS AD (style variant "${styleVariant.name}"): ${styleVariant.brief} Use this direction to guide your typography, accent, and composition choices for the headline/subheadline/CTA — you decide the specifics (whether to color/highlight a word, add an eyebrow, use a divider line, etc.), as long as the result clearly reads as THIS direction and never breaks the hard rules below (CTA stays plain text with no container; logo never collides with anything).`;
 
   const SYSTEM = [
     "You are an expert HTML/CSS advertising compositor.",
@@ -524,7 +524,9 @@ async function buildOverlayHtmlFromGemini(
     "",
     logoLine,
     "",
-    "YOUR ROLE: expert social media ad designer. Full creative freedom — make this ad look outstanding.",
+    designDirectionLine,
+    "",
+    "YOUR ROLE: expert social media ad designer. Full creative freedom within the design direction above — make this ad look outstanding.",
     "1. ANALYZE the background image:",
     "   a. LOCATE THE VISUAL HERO — where is the product/main subject positioned? (top / bottom / left / right / center / center-bottom / etc.)",
     "   b. Identify all calm/low-contrast zones available for text.",
@@ -536,7 +538,7 @@ async function buildOverlayHtmlFromGemini(
     "3. OPTION A — SPLIT LAYOUT (hero in center/middle, calm space above AND below):",
     "   • GROUP 1: position:absolute; display:flex; flex-direction:column; z-index:25 — anchored in the UPPER calm zone → contains HEADLINE ONLY.",
     "   • GROUP 2: position:absolute; display:flex; flex-direction:column; gap:2.5cqh; z-index:25 — anchored in the LOWER calm zone → contains SUBHEADLINE as first child, then CTA as second child.",
-    `   • CTA child in GROUP 2: align-self:flex-start; font-size:3cqw — style it as the CTA defined below (bold text + arrow, optional underline or SUBTLE container). Avoid a loud button/pill look.`,
+    `   • CTA child in GROUP 2: align-self:flex-start; font-size:3cqw — style it EXACTLY as the CTA treatment defined below (plain text, no container/border/background of any kind).`,
     "   • Both groups: left:6%; right:6%; keep ≥6% margin from all edges.",
     "",
     "   OPTION B — SINGLE ZONE (calm space concentrated in one area):",
@@ -549,7 +551,7 @@ async function buildOverlayHtmlFromGemini(
     "4. Headline typography:",
     "   • font-size:5.5–8cqw; font-weight:900.",
     "   • LINE BREAK: if headline is longer than 22 chars, add an explicit <br> at the most natural semantic split — after a colon, before a key verb — so both visual lines have roughly equal weight. Never rely on CSS auto-wrap.",
-    `   • ACCENT TREATMENT — USE THIS EXACT ONE FOR THIS AD (style variant "${styleVariant.name}"): ${styleVariant.accent.replace(/ACCENT/g, accentHexForSpan)} ⛔ Do NOT sample a colour from the background image (background colours like a blue dashboard are off-brand). If ${accentHexForSpan} would be low-contrast on the dark scrim, use #ffffff instead.`,
+    `   • ACCENT TREATMENT (optional, your choice): if it fits the DESIGN DIRECTION above, wrap the single most impactful word in a coloured span <span style="color:${accentHexForSpan}">word</span>, OR a highlight chip <span style="background:${accentHexForSpan};color:#ffffff;padding:0.1cqh 0.6cqw;border-radius:0.4cqw;box-decoration-break:clone">word</span>, OR leave the headline plain white and carry the accent elsewhere (eyebrow, underline, bar) instead. ⛔ Do NOT sample a colour from the background image (background colours like a blue dashboard are off-brand). If ${accentHexForSpan} would be low-contrast on the dark scrim, use #ffffff instead.`,
     "   • text-align: center or left based on composition.",
     "",
     "5. Subheadline: font-size:2.5–4cqw; font-weight:400. Placed in GROUP 2 (OPTION A) or inside the single flex block (OPTION B).",
@@ -558,9 +560,7 @@ async function buildOverlayHtmlFromGemini(
     "",
     "RENDERER CAPABILITY: a real headless Chrome rasterizes your HTML — you have the FULL modern CSS toolkit. Use it tastefully for a premium look: linear/radial/conic gradients, backdrop-filter:blur() for a frosted-glass scrim panel, box-shadow, border-radius, letter-spacing, text-transform, transform, and web-font @import all render faithfully. A subtle frosted-glass or gradient scrim behind the text reads far more premium than a flat dark band — prefer it. (Do NOT, however, change the z-index structure rules below — the compositor keys on them.)",
     "",
-    styleVariant.eyebrow
-      ? "EYEBROW (use it for THIS ad): add a small kicker line above the headline — ~1.8cqw, uppercase, letter-spacing:0.25em, brand-accent colour. Keep it short (1-3 words derived from the industry/offer, not the literal headline text repeated)."
-      : "EYEBROW: do NOT add an eyebrow/kicker line for this ad — this variant's accent/CTA treatment already carries the brand colour, an eyebrow on top would be redundant polish stacking.",
+    "EYEBROW (optional): a small kicker line above the headline — ~1.8cqw, uppercase, letter-spacing:0.25em, brand-accent colour, 1-3 words derived from the industry/offer — add ONE only if it fits the DESIGN DIRECTION below; skip it otherwise rather than stacking every possible flourish at once.",
     "Keep any polish minimal and legible — it supports the copy, it never crowds it.",
     "",
     "TECHNICAL RULES (do not violate):",
@@ -592,7 +592,7 @@ async function buildOverlayHtmlFromGemini(
   ].filter(Boolean).join("\n");
 
   try {
-    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.3, 2600, apiKey, undefined, [bgRef], { ...opts, thinkingBudget: 0, timeoutMs: 25000 });
+    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.55, 2600, apiKey, undefined, [bgRef], { ...opts, thinkingBudget: 0, timeoutMs: 25000 });
     const raw = String(res.text || "").trim()
       .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
 
@@ -1830,41 +1830,33 @@ const LAYOUT_KEYS = [
   "vertical-story-stack",
   "floating-islands",
 ] as const;
-// Overlay TEXT/CTA treatments, rotated per job so ads don't all converge on the same "white bold
-// text + trailing arrow + underline" look. Telling the model it has "full creative freedom" in
-// buildOverlayHtmlFromGemini paradoxically made it default to the same safe recipe every time —
-// giving it ONE concrete, fully-specified recipe per generation (still respecting the shared
-// no-loud-button / no-overlap rules) produces real visual variety across a campaign's history.
+// Overlay DESIGN DIRECTION, rotated per job so ads don't all converge on the same look. Giving
+// the model unstructured "full creative freedom" made it default to the same safe recipe every
+// time (white bold text + trailing arrow + underline). Giving it one exact CSS recipe per job
+// fixed the sameness but killed actual creativity — every ad became a literal instance of one of
+// N templates. This version gives a MOOD/DIRECTION brief instead (like a real art director's
+// reference), naming concrete techniques as OPTIONS to draw from rather than a forced recipe —
+// the model still decides the specifics, it just isn't reaching for the same default every time.
 const OVERLAY_STYLE_VARIANTS = [
   {
-    name: "underline-arrow",
-    accent: "Wrap the single most impactful headline word in <span style=\"color:ACCENT\">word</span>.",
-    eyebrow: false,
-    cta: "Bold #ffffff text (font-weight:800) ending with a trailing arrow span \"→\". Add a thin accent-colour underline bar beneath it (child div height:0.4cqh, width just under the text, border-radius:999px, margin-top:0.8cqh).",
+    name: "swiss-editorial",
+    brief: "Channel Swiss/International Typographic Style: strict alignment (headline, subheadline and CTA all sharing ONE consistent left or right margin), confident bold sans-serif, generous whitespace, at most one thin rule line as the only decorative device, restrained single-accent-colour use. Precise and structured — like a well-designed print poster, not a busy app screen.",
   },
   {
-    name: "eyebrow-tinted-pill",
-    accent: "Keep the headline entirely #ffffff — no coloured span this time, let the eyebrow below carry the accent colour instead.",
-    eyebrow: true,
-    cta: "Bold #ffffff text with a trailing arrow \"→\", sitting inside a SUBTLE low-opacity tinted pill (background:rgba(0,0,0,0.18) or a faint brand-tint rgba, slim padding ~0.8cqh/2cqw, border-radius ≤1.2cqw). No border, no shadow — quiet, not a button.",
+    name: "bold-maximalist",
+    brief: "Channel bold, energetic social-ad type: push the headline size toward the larger end of its range, give the single most impactful word real visual punch (colour, a highlight chip, or a scale/weight contrast — your choice), asymmetric confident placement rather than a perfectly centered grid. Still legible and uncluttered — bold, not busy.",
   },
   {
-    name: "highlight-chip",
-    accent: "Wrap the single most impactful headline word in a highlight chip instead of coloured text: <span style=\"background:ACCENT;color:#ffffff;padding:0.1cqh 0.6cqw;border-radius:0.4cqw;box-decoration-break:clone\">word</span>.",
-    eyebrow: false,
-    cta: "Bold #ffffff text, NO underline and NO container — just the arrow \"→\" placed BEFORE the words instead of after (e.g. \"→ Quero viralizar\"), relying on weight and the arrow alone for punch.",
+    name: "soft-refined",
+    brief: "Channel a soft, refined, premium feel: generous line-height and letter-spacing, a lighter weight contrast between headline and subheadline, ONE understated accent device (a slim line, a muted tint, extra letter-spacing on a kicker) rather than a loud colour pop. Calm, confident, premium-lifestyle-brand energy.",
   },
   {
-    name: "left-accent-bar",
-    accent: "Keep the headline entirely #ffffff. Instead of colouring a word, add a slim vertical accent-colour bar (width:0.4cqw, height matching the text block, border-radius:999px) to the LEFT of the whole headline+subheadline+CTA group, with a small gap before the text.",
-    eyebrow: false,
-    cta: "Bold #ffffff text ending with a trailing arrow \"→\" — no underline, no container (the left bar already carries the accent colour for this variant).",
+    name: "glass-digital",
+    brief: "Channel a modern digital/glassmorphism feel: a frosted-glass scrim panel behind the text (backdrop-filter:blur + translucent tint), crisp modern sans type, an accent line or glow that feels slightly tech-forward. Fits a digital/social product — precise and current, not decorative.",
   },
   {
-    name: "outline-chip",
-    accent: "Wrap the single most impactful headline word in <span style=\"color:ACCENT\">word</span>.",
-    eyebrow: true,
-    cta: "Bold #ffffff text with a trailing arrow \"→\" inside a thin 1px accent-colour OUTLINE pill (border:1px solid ACCENT, transparent background, slim padding, border-radius:999px) — an outline, never a filled/glossy pill.",
+    name: "ugc-caption",
+    brief: "Channel an authentic social-caption feel: text reads like a genuine creator's caption overlay laid over a photo — casual confident weight, tight natural grouping (not a rigid grid), the CTA reading like a natural sign-off line rather than a designed UI element. Human and premium-casual, not corporate.",
   },
 ] as const;
 
@@ -2473,6 +2465,7 @@ function buildBackgroundPrompt(
     briefBlock,
     "⛔ TEMPLATE PROHIBITION: The background MUST look like a professional art-directed photograph, illustration, or 3D render — NEVER like a CSS template or HTML layout. Do NOT create flat rectangular color panels side by side with hard edges (e.g. a solid beige block on the left + a solid red block on the right). Use soft gradients, light falloff, depth, blur, and organic composition. Hard geometric color divisions make the background look fake and broken.",
     "⛔ NO FRAMED PHOTO CARD: do NOT render the scene as a smaller photo/rectangle floating with a visible border or margin of solid brand color around all four sides, like a framed picture pasted in the middle of the canvas. The photography/illustration MUST extend edge-to-edge, filling the ENTIRE canvas (full-bleed) — no inset, no card, no padding, no picture-frame look.",
+    "⛔ NO COLLAGE SEAM: do NOT butt a flat solid-color shape (a triangle, diagonal wedge, band, or panel) directly against the photograph with a hard, visible edge — that reads as two separate images glued together, not one photo. If you use a brand-color accent shape, it must either (a) sit fully OUTSIDE the photographic area in genuinely empty canvas space, or (b) be blended into the photo itself via lighting/color-grade/vignette so there is no crisp geometric seam. The final image must read as ONE continuous photograph, never a cut-and-pasted composite.",
     "",
     productMoodHint,
     "",
