@@ -451,6 +451,12 @@ async function buildOverlayHtmlFromGemini(
     ctaRaw ? `• CTA: "${ctaRaw}"` : "",
   ].filter(Boolean).join("\n");
 
+  // Accent colour for the highlighted word / CTA underline = the BRAND's own colour, taken from
+  // the brand palette — NEVER sampled from the background image. Sampling from the image produced
+  // off-brand accents (e.g. a blue accent for a red brand because the scene had a blue dashboard).
+  const brandAccentHex = String((data as any).accentColor || (data as any).primaryColor || (data as any).secondaryColor || "").trim();
+  const accentHexForSpan = /^#[0-9a-f]{3,8}$/i.test(brandAccentHex) ? brandAccentHex : "#ffffff";
+
   // CTA: a stylish action line that may sit in a SUBTLE container, but must NOT look like a
   // tappable app button (no loud glossy pill / heavy-shadow rounded rectangle). Editorial/UGC,
   // not UI. Keeping it light also avoids the pill colliding with the subheadline.
@@ -460,7 +466,7 @@ async function buildOverlayHtmlFromGemini(
         `   • Bold #ffffff text (font-weight:800, ~3–3.6cqw) ending with a trailing arrow span "→" — clean and confident.`,
         `   • Optionally a thin accent underline beneath it (child div height:0.4cqh, width just under the text, background = real brand accent hex, border-radius:999px, margin-top:0.8cqh).`,
         `   • OR a SUBTLE container if it suits the design: a low-opacity tinted/frosted backing (e.g. background:rgba(0,0,0,0.18) or a faint brand tint, slim padding, small border-radius ≤0.8cqw, OR just a short left accent bar) — quiet and editorial, NEVER a glossy pill with a heavy shadow.`,
-        `   Use the real brand hex you sample for accents (never a bracket placeholder). The arrow "→" renders fine in a browser.`,
+        `   For any accent colour (underline/tint) use the brand accent hex ${accentHexForSpan} — NEVER a colour sampled from the background image (background colours are often off-brand). The arrow "→" renders fine in a browser.`,
       ].join("\n")
     : "No CTA";
 
@@ -519,7 +525,7 @@ async function buildOverlayHtmlFromGemini(
     "4. Headline typography:",
     "   • font-size:5.5–8cqw; font-weight:900.",
     "   • LINE BREAK: if headline is longer than 22 chars, add an explicit <br> at the most natural semantic split — after a colon, before a key verb — so both visual lines have roughly equal weight. Never rely on CSS auto-wrap.",
-    "   • ACCENT WORD (optional, 1–2 words max): wrap the single most impactful word in a <span style=\"color:[a vivid color sampled from the brand palette visible in the background image]\">word</span>. Do NOT use a bracket placeholder for the color — use the actual hex value you observe.",
+    `   • ACCENT WORD (optional, 1–2 words max): wrap the single most impactful word in a <span style="color:${accentHexForSpan}">word</span> — use THIS EXACT brand colour. ⛔ Do NOT sample a colour from the background image (background colours like a blue dashboard are off-brand). If ${accentHexForSpan} would be low-contrast on the dark scrim, use #ffffff for that word instead.`,
     "   • text-align: center or left based on composition.",
     "",
     "5. Subheadline: font-size:2.5–4cqw; font-weight:400. Placed in GROUP 2 (OPTION A) or inside the single flex block (OPTION B).",
