@@ -1807,6 +1807,45 @@ const BACKGROUND_DIRECTIONS = [
   "subject with shallow depth-of-field falling off behind it only, clean foreground, calm background",
 ] as const;
 
+// ── UGC auto-mode (external API, NO reference image) ─────────────────────────
+// Builds a Pexels search query for a candid real person that fits the campaign, and fetches one
+// person photo as base64. The compose re-lights/re-composes the person into the brand scene, so
+// the exact stock photo only needs to provide a believable human subject. Returns null on any
+// failure so the caller falls back to an invented-person prompt.
+function buildUgcPersonQuery(data: AgentsAdsPayload["campaignData"]): string {
+  const industry = String((data as any).businessCategory || "").trim();
+  const audience = String((data as any).targetAudience || "").trim();
+  const base = [industry, audience].filter(Boolean).join(" ").slice(0, 60);
+  return (base ? base + " " : "") + "happy person candid lifestyle portrait";
+}
+
+async function fetchPexelsPerson(
+  query: string,
+  aspectRatio: string,
+): Promise<{ data: string; mimeType: string } | null> {
+  try {
+    const key = env?.get("PEXELS_API_KEY");
+    if (!key) return null;
+    const orientation = aspectRatio === "9:16" ? "portrait" : (aspectRatio === "1:1" ? "square" : "landscape");
+    const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=20&orientation=${orientation}`;
+    const res = await fetch(url, { headers: { Authorization: key }, signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return null;
+    const j = await res.json();
+    const srcs = (Array.isArray(j?.photos) ? j.photos : [])
+      .map((p: any) => p?.src?.large2x || p?.src?.large || p?.src?.original)
+      .filter((s: unknown): s is string => typeof s === "string" && s.length > 0);
+    if (!srcs.length) return null;
+    const chosen = srcs[Math.floor(Math.random() * srcs.length)];
+    const imgRes = await fetch(chosen, { signal: AbortSignal.timeout(12000) });
+    if (!imgRes.ok) return null;
+    const buf = await imgRes.arrayBuffer();
+    if (buf.byteLength < 1000) return null;
+    return { data: bytesToBase64(buf), mimeType: (imgRes.headers.get("content-type") || "image/jpeg").split(";")[0] };
+  } catch {
+    return null;
+  }
+}
+
 // Extract the first font family name from a Google Fonts URL.
 // e.g. "https://fonts.googleapis.com/css2?family=Poppins:wght@400;700" → "Poppins"
 function extractFontFamilyFromUrl(url: string): string | null {
@@ -2127,6 +2166,7 @@ function buildBackgroundPrompt(
   visualBrief: string = "",
   heroRef: boolean = false,
   productRef: boolean = false,
+  ugcNoRef: boolean = false,
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
@@ -2258,6 +2298,21 @@ function buildBackgroundPrompt(
       "• The person fills a large part of the frame, sharp and well-lit, as the unmistakable focal point; the scene supports them.",
       "• Any OTHER attached images are brand STYLE references only — borrow their look/lighting/palette, NEVER their subjects and NEVER their text.",
       "• Recompose for this aspect ratio and keep the reserved text-safe zone calm and uncluttered.",
+    ].join("\n");
+  }
+
+  // UGC AUTO-MODE (no reference image): no person was provided, so INVENT a believable one and
+  // build the same authentic UGC "scene of success". Used when the external-API auto-mode picked
+  // 'ugc' but Pexels was unavailable. Only fires when there is genuinely no hero reference image.
+  if (ugcNoRef && !heroRef) {
+    sourceBlock = [
+      "████ BACKGROUND SOURCE: UGC SCENE — INVENT A REAL PERSON ████",
+      "No reference image was provided. Create an AUTHENTIC, candid UGC-style 'scene of success' featuring a REAL, believable person (invent them) who fits the campaign's audience.",
+      "• The person is the clear focal point — sharp, well-lit, filling a large part of the frame, with natural candid energy. NOT a stiff corporate headshot and NOT a flat studio cut-out on a plain colour field.",
+      "• ⭐ THE SCENE MUST BE ABOUT THE PRODUCT/CAMPAIGN (see CAMPAIGN CONTEXT): show the person actually doing/using/benefiting from what is advertised, in the exact context of the offer — it must instantly read as 'this is about THAT product/service'.",
+      "• Real depth with foreground/background layers, natural light, photographic realism.",
+      "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
+      "• Recompose for this aspect ratio; keep the reserved text-safe zone calm and uncluttered.",
     ].join("\n");
   }
 
@@ -3365,7 +3420,7 @@ serve(async (req: Request) => {
       // Caller explicitly sent a reference image to FEATURE (composeHeroRef from PHP). This makes
       // buildBackgroundPrompt reproduce the first reference's subject as the hero, overriding the
       // default style-only/creative-freedom treatment regardless of the resolved bgSource.
-      const heroRef = Boolean((campaignData as any).composeHeroRef);
+      let heroRef = Boolean((campaignData as any).composeHeroRef);
       // Caller sent a real product image (product_image_url) → feature that product in the scene
       // (don't let the "ebook/digital → don't render an object" rule hide it). Not for hero refs.
       const hasProductRef = !heroRef && Boolean(String((campaignData as any).productImageUrl || "").trim());
@@ -3390,6 +3445,37 @@ serve(async (req: Request) => {
       // description of the visual identity, images provide the pixel evidence. Only switch to
       // "creative" when brief exists but there are NO images to reference.
       if (briefDriven && !hasCompanyRefs && bgSource !== "shapes") bgSource = "creative";
+
+      // ── External-API auto-mode: randomise the look when NO reference image was sent ──────────
+      // ONLY for EXTERNAL API generations (campaignData.externalApiContract is set by
+      // generate-ads.php) that sent NO reference image (no hero ref, no product image, no
+      // background image). Randomly route the look (seeded by jobId) so generations don't all look
+      // the same. Pool EXCLUDES 'creative' (too generic for the API):
+      //   with brand posts → {ugc, company};  without brand posts → {ugc, shapes}.
+      // 'ugc' features a real person — pulled from Pexels, or invented in-prompt if Pexels is down.
+      // Brand posts are STILL used in every branch (they are NOT a "reference image"). This whole
+      // block is skipped whenever the caller sent a reference image — that path stays untouched.
+      let pexelsHero: { data: string; mimeType: string } | null = null;
+      let ugcNoRef = false;
+      const isExternalApi = Boolean(String((campaignData as any).externalApiContract || "").trim());
+      const callerSentBgUrl = String(campaignData.backgroundImageUrl || "").startsWith("http");
+      if (isExternalApi && !heroRef && !hasProductRef && !callerSentBgUrl) {
+        const pool = hasCompanyRefs ? ["ugc", "company"] : ["ugc", "shapes"];
+        const picked = pool[(Number(jobId) || 0) % pool.length];
+        if (picked === "ugc") {
+          pexelsHero = await fetchPexelsPerson(buildUgcPersonQuery(campaignData), imageAspectRatioForFormat(formats[0]));
+          if (pexelsHero) {
+            heroRef = true;         // feature the Pexels person via the existing hero-UGC path
+            bgSource = "company";   // usesRefs source that is NOT 'reference' (avoids the reference short-path); the hero block overrides it
+          } else {
+            ugcNoRef = true;        // no Pexels → invent a believable UGC person in the prompt
+            if (bgSource === "reference") bgSource = "creative";
+          }
+        } else {
+          bgSource = picked;        // 'company' or 'shapes'
+        }
+        console.log(`[ugc-auto] job=${jobId ?? "?"} picked=${picked} pexels=${pexelsHero ? "hit" : (picked === "ugc" ? "miss->invent" : "n/a")}`);
+      }
 
       // ── Store-derived brand brief (compose) ───────────────────────────────
       // Query the company store for brand visual identity guidelines BEFORE generating the
@@ -3465,6 +3551,15 @@ serve(async (req: Request) => {
         brandRefCountInBg = Math.min(companyRefImages.length, bgRefImages.length);
       }
 
+      // UGC auto-mode: the Pexels person is the HERO — put it FIRST so the hero-UGC block features
+      // it (identity isn't critical for a generic stock person; the scene is re-composed anyway).
+      // Any remaining images stay as brand STYLE references behind it.
+      if (pexelsHero) {
+        bgRefImages = [pexelsHero, ...bgRefImages].slice(0, 3);
+        brandRefCountInBg = 0;
+        genRefCountInBg = 0;
+      }
+
       // When brand posts and the generation reference coexist in bgRefImages, annotate the
       // visual brief so the image model knows which role each image plays. This is what lets
       // the model use the generation image creatively (product, anchor, element) while staying
@@ -3515,7 +3610,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef)
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef, ugcNoRef)
             + (bgRefImages.length > 0 ? REF_TEXT_LEAK_GUARD : "");
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
@@ -3599,7 +3694,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef)
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef, ugcNoRef)
             + (bgRefImages.length > 0 ? REF_TEXT_LEAK_GUARD : "");
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
