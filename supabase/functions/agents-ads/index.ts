@@ -422,7 +422,11 @@ Answer ONLY with the single word "ok" (layout works) or "fix" (clear problem fou
 function enforceLogoOppositeBand(html: string, logoUrl: string): string {
   if (!logoUrl) return html;
   const escapedUrl = logoUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const imgRe = new RegExp(`(<img[^>]*src=["']${escapedUrl}["'][^>]*style=["'])([^"']*)(["'][^>]*>)`, "i");
+  // NOTE: style attributes are always double-quoted by this codebase's HTML generator, but often
+  // contain single-quoted values INSIDE them (e.g. font-family:'Raleway'). A char class of
+  // [^"'] would stop at that embedded single quote and truncate the match — so these regexes
+  // must delimit on " specifically and exclude only " (not ') from the captured content.
+  const imgRe = new RegExp(`(<img[^>]*src="${escapedUrl}"[^>]*style=")([^"]*)("[^>]*>)`, "i");
   const imgMatch = html.match(imgRe);
   if (!imgMatch) return html;
   const logoStyle = imgMatch[2];
@@ -431,7 +435,7 @@ function enforceLogoOppositeBand(html: string, logoUrl: string): string {
   if (!logoTop && !logoBottom) return html; // can't determine anchor — leave as-is
   const logoBand: "top" | "bottom" = logoTop ? "top" : "bottom";
 
-  const groupRe = /<div\b[^>]*style=["']([^"']*z-index\s*:\s*2[56][^"']*)["'][^>]*>/gi;
+  const groupRe = /<div\b[^>]*style="([^"]*z-index\s*:\s*2[56][^"]*)"[^>]*>/gi;
   let m: RegExpExecArray | null;
   let conflict = false;
   while ((m = groupRe.exec(html))) {
@@ -2483,12 +2487,11 @@ function buildBackgroundPrompt(
     ? `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: the FIRST attached image is the actual PRODUCT being advertised${rawProduct ? ` ("${scrubBgPromptText(rawProduct)}")` : ""}. FEATURE that exact product as the clear, sharp HERO of the composition — show it prominently (filling a large part of the frame), beautifully lit, unmistakably visible and recognizable as the real product (e.g. an e-reader/tablet/device held in hands or styled on a surface) — NOT merely implied by a person or a vague scene. Build an aspirational lifestyle context around it (hands, desk, soft props), but the PRODUCT itself MUST be the focal point. Re-light and colour-grade everything into the brand's palette. ⛔ Do NOT render any product name, cover text, label or wordmark on the product or anywhere — all surfaces stay blank.`
     : rawProduct
     ? [
-        `VISUAL HERO — THIS IS THE MOST IMPORTANT INSTRUCTION: The campaign is about "${scrubBgPromptText(rawProduct)}".`,
-        "VISUAL BRIEF — what to photograph/illustrate:",
+        `VISUAL BRIEF — what to photograph/illustrate (the campaign topic is given as internal context in the "Visual subject" line elsewhere in this prompt — those words are for YOUR understanding only, never render them as pixels):`,
         "• Tangible physical product (object you can hold: food, cosmetics, clothing, bottle, packaging, equipment, toy, furniture…): the product itself, large and dramatic, shot in the brand's colors and lighting.",
         "• Digital product, software, platform, SaaS, app, API, documentation, guide, tool, course, ebook: treat it as a SERVICE — never as a physical object you can hold or stack on a desk. Show the SCENE OF SUCCESS instead: the PEOPLE and the moment when this delivers its promise. (Naming a paper object here tends to summon it — so do not picture one at all; picture the outcome.)",
-        "• Service or activity (marketing, education, coaching, consulting, events, finance, healthcare…): paint the SCENE OF SUCCESS — the world as it looks the moment this service delivers its promise. What are people doing? What do they feel? What is visibly different? Make that moment the hero.",
-        "⛔ A generic 'tech desk', floating device, or stock photo office is always wrong for a service. The scene must be unmistakably about what THIS campaign delivers.",
+        "• Service or activity (marketing, education, coaching, consulting, events, finance, healthcare…): paint the SCENE OF SUCCESS — the world as it looks the moment this service delivers its promise, concretely and literally. For a social-media/TikTok/content/viral-growth service specifically: a phone actively filming or held up, a ring light, a content-creation setup, or a screen with a rising engagement chart — NOT a generic laptop, empty desk, or unrelated office objects. For other services, apply the same concreteness: show the exact moment/activity that topic implies, not a generic stand-in.",
+        "⛔ A generic laptop/'tech desk', floating device, or stock photo office is always wrong for a service. The scene must be unmistakably about what THIS campaign delivers — someone should recognize the topic from the image alone, with no text.",
         "• Whichever you choose: the hero subject fills ≥50% of the frame, dramatically lit, in the brand's palette.",
         "• BRAND IDENTITY IS NON-NEGOTIABLE: even in an action scene or photographic composition, the brand's color palette must dominate — use it as the background lighting, color grade, or backdrop. The brand's visual identity elements (textures, patterns, signature colors from the brand facts) must be present. A scene shot in neutral/white/random colors is a brand failure.",
         "• The background should feel like a professional art-directed shot made FOR THIS BRAND — their signature style must be unmistakably present.",
