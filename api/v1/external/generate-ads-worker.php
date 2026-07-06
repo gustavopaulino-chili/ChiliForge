@@ -618,6 +618,18 @@ try {
             array_merge(array_slice($storedBrandPosts, -8), $existingComposeRefs),
             'strlen'
         )));
+        // Absolutize — brand posts are stored ROOT-RELATIVE (/projects/...). This injection runs
+        // AFTER the section-7 absolutization, so without re-absolutizing here the posts stay
+        // relative and the edge (which only fetches http(s) URLs) silently DROPS them — only the
+        // few already-absolute refs survived, so most brand posts never reached the image model
+        // and backgrounds came out generic. Re-absolutize so all brand posts actually get through.
+        if ($pubBase !== '') {
+            $mergedRefs = array_values(array_filter(array_map(function ($u) use ($pubBase) {
+                $u = trim((string)$u);
+                if ($u === '' || preg_match('~^https?://~i', $u)) return $u;
+                return ($u[0] === '/') ? $pubBase . $u : $u;
+            }, $mergedRefs), 'strlen'));
+        }
         $campaignFormData['composeCompanyRefs'] = array_slice($mergedRefs, 0, 10);
     }
 
