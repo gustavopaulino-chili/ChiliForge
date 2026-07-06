@@ -413,6 +413,45 @@ Answer ONLY with the single word "ok" (layout works) or "fix" (clear problem fou
   }
 }
 
+// Deterministic safety net for the #1 recurring bug: the logo sharing a vertical band with a
+// text group (headline/subheadline/CTA), which reliably collides because those groups span
+// nearly the full width (left:6%;right:6%). Asking the model nicely to "check for overlap"
+// keeps failing intermittently — this parses the actual HTML and, if the logo's anchor (top or
+// bottom) matches any z-index:25/26 group's anchor, flips the logo to the OPPOSITE band. Cheap,
+// deterministic, and doesn't depend on the model's spatial reasoning being right every time.
+function enforceLogoOppositeBand(html: string, logoUrl: string): string {
+  if (!logoUrl) return html;
+  const escapedUrl = logoUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const imgRe = new RegExp(`(<img[^>]*src=["']${escapedUrl}["'][^>]*style=["'])([^"']*)(["'][^>]*>)`, "i");
+  const imgMatch = html.match(imgRe);
+  if (!imgMatch) return html;
+  const logoStyle = imgMatch[2];
+  const logoTop = logoStyle.match(/(?:^|;)\s*top\s*:\s*([\d.]+)%/);
+  const logoBottom = logoStyle.match(/(?:^|;)\s*bottom\s*:\s*([\d.]+)%/);
+  if (!logoTop && !logoBottom) return html; // can't determine anchor — leave as-is
+  const logoBand: "top" | "bottom" = logoTop ? "top" : "bottom";
+
+  const groupRe = /<div\b[^>]*style=["']([^"']*z-index\s*:\s*2[56][^"']*)["'][^>]*>/gi;
+  let m: RegExpExecArray | null;
+  let conflict = false;
+  while ((m = groupRe.exec(html))) {
+    const gs = m[1];
+    const hasTop = /(?:^|;)\s*top\s*:\s*[\d.]+%/.test(gs);
+    const hasBottom = /(?:^|;)\s*bottom\s*:\s*[\d.]+%/.test(gs);
+    if ((logoBand === "top" && hasTop) || (logoBand === "bottom" && hasBottom)) { conflict = true; break; }
+  }
+  if (!conflict) return html;
+
+  const offset = (logoBand === "top" ? logoTop![1] : logoBottom![1]);
+  const newBand = logoBand === "top" ? "bottom" : "top";
+  const newLogoStyle = logoStyle.replace(
+    logoBand === "top" ? /(?:^|;)\s*top\s*:\s*[\d.]+%/ : /(?:^|;)\s*bottom\s*:\s*[\d.]+%/,
+    (mm) => (mm.startsWith(";") ? `;${newBand}:${offset}%` : `${newBand}:${offset}%`)
+  );
+  console.log(`[overlay-html] logo band conflict detected → flipped logo to ${newBand}`);
+  return html.replace(imgRe, `$1${newLogoStyle}$3`);
+}
+
 // It has full creative freedom: choose placement, font sizes, line breaks, alignment.
 // The returned HTML is authoritative — GD renders it exactly (pixel-faithful translation).
 // Returns null on failure — callers fall back to the static TypeScript template.
@@ -470,11 +509,17 @@ async function buildOverlayHtmlFromGemini(
     ctaRaw ? `• CTA: "${ctaRaw}"` : "",
   ].filter(Boolean).join("\n");
 
-  // Accent colour for the highlighted word / CTA underline = the BRAND's own colour, taken from
-  // the brand palette — NEVER sampled from the background image. Sampling from the image produced
-  // off-brand accents (e.g. a blue accent for a red brand because the scene had a blue dashboard).
-  const brandAccentHex = String((data as any).accentColor || (data as any).primaryColor || (data as any).secondaryColor || "").trim();
-  const accentHexForSpan = /^#[0-9a-f]{3,8}$/i.test(brandAccentHex) ? brandAccentHex : "#ffffff";
+  // Accent colour(s) for the highlighted word / CTA underline = the BRAND's own colours, taken
+  // from the brand palette — NEVER sampled from the background image. Sampling from the image
+  // produced off-brand accents (e.g. a blue accent for a red brand because the scene had a blue
+  // dashboard). A second brand hex is exposed so highlight chips can use a brand-colour GRADIENT
+  // instead of defaulting to a flat white/black chip (which reads as generic, not on-brand).
+  const isHex = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-f]{3,8}$/i.test(v);
+  const brandHexCandidates = [(data as any).accentColor, (data as any).primaryColor, (data as any).secondaryColor]
+    .filter(isHex);
+  const hasBrandHex = brandHexCandidates.length > 0;
+  const accentHexForSpan = brandHexCandidates[0] || "#ffffff";
+  const accentHexSecondary = brandHexCandidates[1] || accentHexForSpan;
 
   // Style variant, rotated by jobId — see OVERLAY_STYLE_VARIANTS comment. Decorrelated from the
   // layout-hint rotation (different modulus/seed) so layout structure and text-treatment style
@@ -555,7 +600,7 @@ async function buildOverlayHtmlFromGemini(
     "4. Headline typography:",
     "   • font-size:5.5–8cqw; font-weight:900.",
     "   • LINE BREAK: if headline is longer than 22 chars, add an explicit <br> at the most natural semantic split — after a colon, before a key verb — so both visual lines have roughly equal weight. Never rely on CSS auto-wrap.",
-    `   • ACCENT TREATMENT (optional, your choice): if it fits the DESIGN DIRECTION above, wrap the single most impactful word in a coloured span <span style="color:${accentHexForSpan}">word</span>, OR a highlight chip <span style="background:${accentHexForSpan};color:#ffffff;padding:0.1cqh 0.6cqw;border-radius:0.4cqw;box-decoration-break:clone">word</span>, OR leave the headline plain white and carry the accent elsewhere (eyebrow, underline, bar) instead. ⛔ Do NOT sample a colour from the background image (background colours like a blue dashboard are off-brand). If ${accentHexForSpan} would be low-contrast on the dark scrim, use #ffffff instead.`,
+    `   • ACCENT TREATMENT (optional, your choice): if it fits the DESIGN DIRECTION above, wrap the single most impactful word in a coloured span <span style="color:${accentHexForSpan}">word</span>, OR a highlight chip using a BRAND-COLOUR background — solid <span style="background:${accentHexForSpan};color:#ffffff;padding:0.1cqh 0.6cqw;border-radius:0.4cqw;box-decoration-break:clone">word</span> OR a gradient of the brand's own colours <span style="background:linear-gradient(135deg,${accentHexForSpan},${accentHexSecondary});color:#ffffff;padding:0.1cqh 0.6cqw;border-radius:0.4cqw;box-decoration-break:clone">word</span> — pick whichever reads best against THIS background. ⛔⛔ If you use a chip, its background MUST be a brand colour or a gradient built from brand colours — NEVER plain white, black, or grey; a colourless chip looks generic and off-brand. OR leave the headline plain white and carry the accent elsewhere (eyebrow, underline, bar) instead. ⛔ Do NOT sample a colour from the background image (background colours like a blue dashboard are off-brand)${hasBrandHex ? "" : " — no valid brand colour was provided for this campaign, so skip any chip/coloured-span treatment and keep the headline plain white"}.`,
     "   • text-align: center or left based on composition.",
     "",
     "5. Subheadline: font-size:2.5–4cqw; font-weight:400. Placed in GROUP 2 (OPTION A) or inside the single flex block (OPTION B).",
@@ -655,11 +700,12 @@ async function buildOverlayHtmlFromGemini(
           if (raw2 && headlinePresent(raw2)) {
             console.log(`[overlay-critique] retry accepted job=${opts.jobId ?? "?"}`);
             const styleTag2 = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-            setDiag("ok-retry"); return styleTag2 + ensureScrim(raw2);
+            setDiag("ok-retry"); return styleTag2 + enforceLogoOppositeBand(ensureScrim(raw2), logoUrl);
           }
         }
       }
     }
+    html = enforceLogoOppositeBand(html, logoUrl);
     console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${html.length} font=${_fontName ?? "none"}`);
     const styleTag = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
     setDiag("ok"); return styleTag + html;
@@ -2490,9 +2536,10 @@ function buildBackgroundPrompt(
     "❌ NO placeholder boxes, lorem ipsum, or shapes that imply text.",
     "❌ THE ATTACHED REFERENCE/BRAND IMAGES CONTAIN TEXT (captions, headlines, slogans, wordmarks). You MUST NOT reproduce, trace, paraphrase or 'echo' ANY of their text — not even garbled/fake lookalike lettering. Treat every word in the reference images as if it were invisible. Copy their STYLE and colours only, never their words.",
     "❌ If you render ANY product, package, container, label, tag or object, ALL SURFACES MUST BE COMPLETELY BLANK — no text, no letters, no numbers, no logo, no title. Any printed surface with ANY text is a complete render failure.",
-    "❌ Any SCREEN, monitor, laptop, phone or tablet visible in the image must show NO text, labels, font names, UI captions, app names, or ANY readable annotation — no matter how small. The screen content can be abstract shapes, solid colors, blurred bokeh, or nothing at all.",
+    "❌ Any SCREEN, monitor, laptop, phone or tablet visible in the image must show NO text, labels, font names, UI captions, app names, or ANY readable annotation — no matter how small. This INCLUDES generic-looking app/analytics words like 'Views', 'Engagement', 'Likes', 'Followers', 'For You', axis labels, or any chart title — a realistic-looking dashboard mockup with real words is JUST AS MUCH a failure as a brand wordmark. The screen content can be abstract shapes, solid colors, blurred bokeh, or nothing at all — never simulate a real, readable app interface.",
     "⛔ CRITICAL — THE TEXT ZONE / RESERVED PANEL MUST ALSO BE TEXT-FREE: When you create a dark panel, diagonal cutout, gradient band, or any calm area reserved for overlay text, that area must be COMPLETELY EMPTY of any letters, words, or characters — including layout annotations like 'text-safe', 'calm zone', 'generous', or any descriptor of the zone itself. Do NOT write a preview headline, placeholder copy, category name, product name, or ANY text inside that zone. The zone is a clean color/gradient surface ONLY.",
     "⛔ DO NOT annotate your own composition choices as text in the image. Never write phrases like 'text area', 'text-safe', 'calm zone', 'headline here', 'generous calm', or any meta-description of the layout. These are internal design decisions — they must NEVER appear as pixels in the image.",
+    "⛔⛔ THIS ENTIRE PROMPT IS INSTRUCTIONS FOR YOU, NOT CONTENT TO DRAW: never render any word, phrase, technical term (e.g. 'layout', 'typography', 'stacked', 'zone', 'grid', 'composition'), or number/percentage/coordinate (e.g. '28%', '12%', 'top:5%') that appears ANYWHERE in these instructions as visible pixels in the image, even styled as decorative background texture. If you want a texture that suggests typography or data, make it genuinely illegible abstract marks — never actual dictionary words, and never a number that looks like a measurement or ratio.",
     "WHY: The system overlays the real logo and copy in a separate HTML layer AFTER your image is generated. Any text or logo you draw will appear TWICE in the final ad, ruined.",
     "A background image with ANY text or logo in it is a complete render failure.",
     "",
