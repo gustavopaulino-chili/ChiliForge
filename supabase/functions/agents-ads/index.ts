@@ -2296,6 +2296,7 @@ function buildBackgroundPrompt(
       "• ⭐ THE UGC SCENE MUST BE ABOUT THE PRODUCT/CAMPAIGN (see CAMPAIGN CONTEXT) — not a generic lifestyle shot. Show this person actually living the campaign's promise: doing/using/benefiting from what is being advertised, in the exact context of the offer. The moment must instantly read as 'this is about THAT product'. Example: for a TikTok ads service → the person filming/going viral/celebrating content results on their phone; for a fitness product → using it mid-workout. The product/service or its outcome is visibly the point of the scene.",
       "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
       "• The person fills a large part of the frame, sharp and well-lit, as the unmistakable focal point; the scene supports them.",
+      "• ⛔ ZERO TEXT & NO FAKE LOGO IN THE SCENE: any screen, monitor, TV, phone, tablet, dashboard, graph or chart shows ONLY abstract bars, lines and shapes — NO text, numbers, labels, axis titles, legends or captions. Never draw the brand name, the word 'agency', a tagline, a wordmark, a monogram or ANY logo anywhere (walls, screens, props, clothing, signage). The real logo and all copy are composited on top afterwards, so anything you draw appears twice and ruins the ad.",
       "• Any OTHER attached images are brand STYLE references only — borrow their look/lighting/palette, NEVER their subjects and NEVER their text.",
       "• Recompose for this aspect ratio and keep the reserved text-safe zone calm and uncluttered.",
     ].join("\n");
@@ -2312,6 +2313,7 @@ function buildBackgroundPrompt(
       "• ⭐ THE SCENE MUST BE ABOUT THE PRODUCT/CAMPAIGN (see CAMPAIGN CONTEXT): show the person actually doing/using/benefiting from what is advertised, in the exact context of the offer — it must instantly read as 'this is about THAT product/service'.",
       "• Real depth with foreground/background layers, natural light, photographic realism.",
       "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
+      "• ⛔ ZERO TEXT & NO FAKE LOGO IN THE SCENE: any screen, monitor, TV, phone, tablet, dashboard, graph or chart shows ONLY abstract bars, lines and shapes — NO text, numbers, labels, axis titles, legends or captions. Never draw the brand name, the word 'agency', a tagline, a wordmark, a monogram or ANY logo anywhere (walls, screens, props, clothing, signage). The real logo and all copy are composited on top afterwards, so anything you draw appears twice and ruins the ad.",
       "• Recompose for this aspect ratio; keep the reserved text-safe zone calm and uncluttered.",
     ].join("\n");
   }
@@ -3459,22 +3461,20 @@ serve(async (req: Request) => {
       let ugcNoRef = false;
       const isExternalApi = Boolean(String((campaignData as any).externalApiContract || "").trim());
       const callerSentBgUrl = String(campaignData.backgroundImageUrl || "").startsWith("http");
+      // External API with NO reference image → ALWAYS feature a real person (UGC). No mode
+      // randomisation: pull a person from Pexels (a different one each time = the "random people"
+      // system), falling back to an invented person if Pexels is unavailable. Brand posts still
+      // influence the scene via the brief/company store. Caller-supplied ref images are untouched.
       if (isExternalApi && !heroRef && !hasProductRef && !callerSentBgUrl) {
-        const pool = hasCompanyRefs ? ["ugc", "company"] : ["ugc", "shapes"];
-        const picked = pool[(Number(jobId) || 0) % pool.length];
-        if (picked === "ugc") {
-          pexelsHero = await fetchPexelsPerson(buildUgcPersonQuery(campaignData), imageAspectRatioForFormat(formats[0]));
-          if (pexelsHero) {
-            heroRef = true;         // feature the Pexels person via the existing hero-UGC path
-            bgSource = "company";   // usesRefs source that is NOT 'reference' (avoids the reference short-path); the hero block overrides it
-          } else {
-            ugcNoRef = true;        // no Pexels → invent a believable UGC person in the prompt
-            if (bgSource === "reference") bgSource = "creative";
-          }
+        pexelsHero = await fetchPexelsPerson(buildUgcPersonQuery(campaignData), imageAspectRatioForFormat(formats[0]));
+        if (pexelsHero) {
+          heroRef = true;           // feature the Pexels person via the existing hero-UGC path
+          bgSource = "company";     // usesRefs source that is NOT 'reference' (avoids the reference short-path); the hero block overrides it
         } else {
-          bgSource = picked;        // 'company' or 'shapes'
+          ugcNoRef = true;          // no Pexels → invent a believable UGC person in the prompt
+          if (bgSource === "reference") bgSource = "creative";
         }
-        console.log(`[ugc-auto] job=${jobId ?? "?"} picked=${picked} pexels=${pexelsHero ? "hit" : (picked === "ugc" ? "miss->invent" : "n/a")}`);
+        console.log(`[ugc-auto] job=${jobId ?? "?"} pexels=${pexelsHero ? "hit" : "miss->invent"}`);
       }
 
       // ── Store-derived brand brief (compose) ───────────────────────────────
