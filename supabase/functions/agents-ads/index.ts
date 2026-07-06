@@ -2452,8 +2452,14 @@ function buildBackgroundPrompt(
       ].join(" ")
     : "";
 
+  const themeLockLine = rawProduct
+    ? `███ RULE #2 — CAMPAIGN THEME LOCK: THE SCENE MUST BE ABOUT "${scrubBgPromptText(rawProduct)}" ███\n⛔⛔ This overrides brand-style guidance below on WHAT to depict — the brand identity (colors, lighting, signature motifs) only dictates HOW it looks, never WHAT the scene is about. A hero subject (person, product, or object) related to THIS exact topic must occupy a LARGE, unmistakable, in-focus portion of the frame — never a mostly-empty gradient/abstract canvas with the actual subject shrunk into a small corner. If this campaign is about social media / TikTok / going viral / content creation: show a phone actively filming or held up, a ring light, a content-creation setup, or a screen with a rising engagement/views chart — concrete and literal, not a vague office/desk with unrelated props (books, coffee mug, generic stationery) that could belong to any industry. Ask yourself: "would someone recognize THIS campaign's topic from this image alone, with no text?" If not, redo it.`
+    : "";
+
   return [
     PRIMARY_BG_RULE,
+    themeLockLine,
+    "",
     "███ THIS IS AN AD BACKGROUND LAYER — NOT A FINISHED AD ███",
     "Your ONLY job is to produce the BACKGROUND IMAGE of a digital advertisement. The system will composite the brand logo, headline, body copy, and CTA button on top of your image in a separate layer — automatically. You do NOT draw those elements.",
     "Think of yourself as an art director painting the backdrop on a canvas before a photographer places the product and copywriter adds the text. Your canvas must be beautiful, rich, and on-brand — but it is NOT the finished ad.",
