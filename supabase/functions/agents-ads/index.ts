@@ -324,13 +324,18 @@ async function backgroundHasText(
     const mime = (res.headers.get("content-type") || "image/jpeg").split(";")[0];
     // gemini-3-pro-preview (the strong vision model already used for calm-zone placement): far more
     // reliable at catching burned-in text/logos than 2.5-flash, which missed large obvious wordmarks.
+    // Validate with the SERVER's paid Gemini key, NOT the caller's key: in an n8n batch the caller
+    // key is hammered generating many ads at once, so its validation calls 429/time-out — which the
+    // catch below turns into "no text" (silent pass), letting texty backgrounds through. A dedicated
+    // server key has its own quota, so the detector stays reliable under batch load.
+    const validatorKey = env?.get("GEMINI_API_KEY_PRODUCTION") || env?.get("GEMINI_API_KEY_TESTING") || apiKey;
     const result = await callGemini(
       "You are a strict image quality validator for advertising backgrounds. A background MUST be completely free of any text or logo — the real text and logo are added later in a separate layer.",
       "Does this image contain ANY visible text, letters, numbers, logos, wordmarks, brand names, or UI elements with readable labels? THIS INCLUDES: a headline or title anywhere, text printed on book covers or spines, magazine/newspaper titles, bottle labels, product package text, screen/monitor text, price tags, captions, signage, or any words or letters anywhere in the image — even lightly rendered or partially cut off. ALSO INCLUDES: any decorative cursive/script squiggle, monogram, emblem, or stylized flourish that reads as a logo or brand mark even though it has no actual legible letters — treat that the same as a real logo. If you are unsure, answer 'yes'. Answer with ONLY the single word 'yes' or 'no'.",
       "gemini-3-pro-preview",
       0.0,
       10,
-      apiKey,
+      validatorKey,
       undefined,
       [{ data: b64, mimeType: mime, label: "Ad background" }],
       { ...opts, thinkingLevel: "low", timeoutMs: 25000 }
