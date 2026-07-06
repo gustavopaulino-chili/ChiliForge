@@ -3461,20 +3461,26 @@ serve(async (req: Request) => {
       let ugcNoRef = false;
       const isExternalApi = Boolean(String((campaignData as any).externalApiContract || "").trim());
       const callerSentBgUrl = String(campaignData.backgroundImageUrl || "").startsWith("http");
-      // External API with NO reference image → ALWAYS feature a real person (UGC). No mode
-      // randomisation: pull a person from Pexels (a different one each time = the "random people"
-      // system), falling back to an invented person if Pexels is unavailable. Brand posts still
-      // influence the scene via the brief/company store. Caller-supplied ref images are untouched.
+      // External API with NO reference image → randomly (seeded by jobId) decide whether to feature
+      // a REAL PERSON (pulled from Pexels, a different one each time) or a PERSON-FREE brand scene.
+      // This variety keeps the API's ads from all looking the same. 'creative' stays OUT of the
+      // rotation (too generic); the person-free branch uses the brand's own world ('company') when
+      // brand posts exist, else abstract brand shapes. Caller-supplied ref images are untouched.
       if (isExternalApi && !heroRef && !hasProductRef && !callerSentBgUrl) {
-        pexelsHero = await fetchPexelsPerson(buildUgcPersonQuery(campaignData), imageAspectRatioForFormat(formats[0]));
-        if (pexelsHero) {
-          heroRef = true;           // feature the Pexels person via the existing hero-UGC path
-          bgSource = "company";     // usesRefs source that is NOT 'reference' (avoids the reference short-path); the hero block overrides it
+        const usePexels = (Number(jobId) || 0) % 2 === 0;
+        if (usePexels) {
+          pexelsHero = await fetchPexelsPerson(buildUgcPersonQuery(campaignData), imageAspectRatioForFormat(formats[0]));
+          if (pexelsHero) {
+            heroRef = true;         // feature the Pexels person via the existing hero-UGC path
+            bgSource = "company";   // usesRefs source that is NOT 'reference' (avoids the reference short-path); the hero block overrides it
+          } else {
+            ugcNoRef = true;        // no Pexels → invent a believable UGC person in the prompt
+            if (bgSource === "reference") bgSource = "creative";
+          }
         } else {
-          ugcNoRef = true;          // no Pexels → invent a believable UGC person in the prompt
-          if (bgSource === "reference") bgSource = "creative";
+          bgSource = hasCompanyRefs ? "company" : "shapes"; // person-free brand scene (never 'creative')
         }
-        console.log(`[ugc-auto] job=${jobId ?? "?"} pexels=${pexelsHero ? "hit" : "miss->invent"}`);
+        console.log(`[ugc-auto] job=${jobId ?? "?"} usePexels=${usePexels} pexels=${pexelsHero ? "hit" : (usePexels ? "miss->invent" : "n/a")}`);
       }
 
       // ── Store-derived brand brief (compose) ───────────────────────────────
