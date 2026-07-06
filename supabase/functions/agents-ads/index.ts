@@ -328,27 +328,29 @@ async function backgroundHasText(
     const buf = await res.arrayBuffer();
     const b64 = bytesToBase64(buf);
     const mime = (res.headers.get("content-type") || "image/jpeg").split(";")[0];
-    // gemini-3-pro-preview (the strong vision model already used for calm-zone placement): far more
-    // reliable at catching burned-in text/logos than 2.5-flash, which missed large obvious wordmarks.
-    // Validate with the SERVER's paid Gemini key, NOT the caller's key: in an n8n batch the caller
-    // key is hammered generating many ads at once, so its validation calls 429/time-out — which the
-    // catch below turns into "no text" (silent pass), letting texty backgrounds through. A dedicated
-    // server key has its own quota, so the detector stays reliable under batch load.
-    const validatorKey = env?.get("GEMINI_API_KEY_PRODUCTION") || env?.get("GEMINI_API_KEY_TESTING") || apiKey;
-    const result = await callGemini(
-      "You are a strict image quality validator for advertising backgrounds. A background MUST be completely free of any text or logo — the real text and logo are added later in a separate layer.",
-      "Does this image contain ANY visible text, letters, numbers, logos, wordmarks, brand names, or UI elements with readable labels? THIS INCLUDES: a headline or title anywhere, text printed on book covers or spines, magazine/newspaper titles, bottle labels, product package text, screen/monitor text, price tags, captions, signage, or any words or letters anywhere in the image — even lightly rendered or partially cut off. ALSO INCLUDES: any decorative cursive/script squiggle, monogram, emblem, or stylized flourish that reads as a logo or brand mark even though it has no actual legible letters — treat that the same as a real logo. If you are unsure, answer 'yes'. Answer with ONLY the single word 'yes' or 'no'.",
-      "gemini-3-pro-preview",
-      0.0,
-      10,
-      validatorKey,
-      undefined,
-      [{ data: b64, mimeType: mime, label: "Ad background" }],
-      { ...opts, thinkingLevel: "low", timeoutMs: 25000 }
-    );
-    const answer = String(result?.text || "").trim().toLowerCase();
+    // RESILIENT detection: validate with the SERVER's key first, then fall back to the CALLER's key
+    // if that call throws or returns nothing. Previously a single key was used — if it was throttled
+    // (n8n batch) or free-tier, the call 429'd/timed-out, the catch returned "no text" (silent pass)
+    // and texty/logo backgrounds slipped through. Trying BOTH keys means a healthy key on either side
+    // still produces a real verdict. Only a clean 'no' from a key that ACTUALLY answered = pass.
+    // gemini-3-pro-preview is far more reliable at catching burned-in text/logos than 2.5-flash.
+    const validatorKey = env?.get("GEMINI_API_KEY_PRODUCTION") || env?.get("GEMINI_API_KEY_TESTING") || "";
+    const keyChain = [...new Set([validatorKey, apiKey].filter((k): k is string => Boolean(k)))];
+    const VSYS = "You are a strict image quality validator for advertising backgrounds. A background MUST be completely free of any text or logo — the real text and logo are added later in a separate layer.";
+    const VQ = "Does this image contain ANY visible text, letters, numbers, logos, wordmarks, brand names, or UI elements with readable labels? THIS INCLUDES: a headline or title anywhere, text printed on book covers or spines, magazine/newspaper titles, bottle labels, product package text, screen/monitor text, price tags, captions, signage, or any words or letters anywhere in the image — even lightly rendered or partially cut off. ALSO INCLUDES: any decorative cursive/script squiggle, monogram, emblem, or stylized flourish that reads as a logo or brand mark even though it has no actual legible letters — treat that the same as a real logo. If you are unsure, answer 'yes'. Answer with ONLY the single word 'yes' or 'no'.";
+    let answer = "";
+    for (const k of keyChain) {
+      try {
+        const result = await callGemini(VSYS, VQ, "gemini-3-pro-preview", 0.0, 10, k, undefined,
+          [{ data: b64, mimeType: mime, label: "Ad background" }], { ...opts, thinkingLevel: "low", timeoutMs: 25000 });
+        answer = String(result?.text || "").trim().toLowerCase();
+        if (answer) break;
+      } catch (e) {
+        console.warn(`[bg-validate] validation call failed on a key (trying next) job=${opts.jobId ?? "?"}: ${e}`);
+      }
+    }
     const found = answer.startsWith("yes");
-    console.log(`[bg-validate] job=${opts.jobId ?? "?"} result=${found ? "FAIL (text/logo found → retry)" : "PASS (clean)"}`);
+    console.log(`[bg-validate] job=${opts.jobId ?? "?"} answered=${answer || "NONE"} result=${found ? "FAIL (text/logo → retry)" : "PASS (clean)"}`);
     return found;
   } catch (err) {
     console.warn(`[bg-validate] validation error (skipping) job=${opts.jobId ?? "?"}: ${err}`);
@@ -484,7 +486,7 @@ async function buildOverlayHtmlFromGemini(
 
   const logoUrl = String(data.logoUrl || "").trim();
   const logoLine = logoUrl
-    ? `LOGO — YOU fully art-direct it: place <img src="${logoUrl}"> wherever it best balances THIS specific composition, and size it freely (anywhere from a small ~14% mark to a bold ~38% statement) based on the background and where your text sits. Vary the placement creatively across ads (a top corner, a bottom corner, centred under a top headline, etc.) — do NOT default to the same spot every time. The ONLY hard rule: it must sit in a clean area and NEVER overlap or crowd the headline, subheadline, CTA, or the visual hero's face. ⛔ CRITICAL: the logo must NOT share a horizontal band with the HEADLINE, nor with the CTA line (the CTA usually lands at the bottom — if you place the logo in a bottom corner, put it on the OPPOSITE side from the CTA and leave a clear horizontal gap, or move the logo to a top corner instead). Check the logo's full footprint (including its own padding) against BOTH the headline zone and the CTA zone before finalizing — they must live in fully separate zones so nothing can ever touch or cross. Use position:absolute; object-fit:contain; z-index:20. The logo image is IMMUTABLE — render it exactly as-is, never redraw, recolor or alter it. ⛔ Do NOT write the brand name as text anywhere — the img tag is the complete brand identifier.`
+    ? `LOGO — YOU fully art-direct it: place <img src="${logoUrl}"> wherever it best balances THIS specific composition, and size it freely (anywhere from a small ~14% mark to a bold ~38% statement) based on the background and where your text sits. Vary the placement creatively across ads (a top corner, a bottom corner, centred under a top headline, etc.) — do NOT default to the same spot every time. The ONLY hard rule: it must sit in a clean area and NEVER overlap or crowd the headline, subheadline, CTA, or the visual hero's face. ⛔ CRITICAL: the logo must NOT share a horizontal band with the HEADLINE, nor with the CTA line (the CTA usually lands at the bottom — if you place the logo in a bottom corner, put it on the OPPOSITE side from the CTA and leave a clear horizontal gap, or move the logo to a top corner instead). Check the logo's full footprint (including its own padding) against BOTH the headline zone and the CTA zone before finalizing — they must live in fully separate zones so nothing can ever touch or cross. Use position:absolute; object-fit:contain; z-index:20. The logo image is IMMUTABLE — render it exactly as-is, never redraw, recolor or alter it. ⛔ Emit EXACTLY ONE logo <img> element — never two, never a duplicate anywhere in the HTML. ⛔ Do NOT place any solid/opaque white or coloured box, card, panel or filled rectangle behind the logo — set it directly on the background (transparent). If the area behind it is busy and the logo needs separation, use AT MOST a very subtle soft drop-shadow or a faint low-opacity scrim — NEVER a solid filled block. ⛔ Do NOT write the brand name as text anywhere — the img tag is the complete brand identifier.`
     : "";
 
   // A dedicated vision model (pickCalmTextZone) already inspected THIS exact background and
