@@ -310,24 +310,35 @@ async function backgroundHasText(
   opts: { jobId?: number; costAcc?: { usd: number } } = {}
 ): Promise<boolean> {
   try {
-    // Fetch the image, retrying once — a transient fetch failure used to make the whole
-    // check silently pass (return false), letting a texty background through.
-    let res: Response | null = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        res = await fetch(imageUrl, { signal: AbortSignal.timeout(12000) });
-        if (res.ok) break;
-      } catch (_e) { /* retry */ }
-      res = null;
-      if (attempt === 0) await new Promise((r) => setTimeout(r, 800));
+    let b64 = "";
+    let mime = "image/jpeg";
+    // The generated background is a data: URI (base64). fetch() on data: URLs is unreliable in the
+    // edge runtime — it threw, the catch returned false, and validation was SILENTLY SKIPPED. That
+    // is the real reason burned text/logos kept slipping through no matter the prompt/model/key.
+    // Decode the data: URI directly (no fetch); only fall back to fetch for real http(s) URLs.
+    const dataMatch = imageUrl.match(/^data:([^;,]+)?;base64,(.+)$/is);
+    if (dataMatch) {
+      mime = (dataMatch[1] || "image/jpeg").split(";")[0];
+      b64 = dataMatch[2].replace(/\s+/g, "");
+    } else {
+      let res: Response | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          res = await fetch(imageUrl, { signal: AbortSignal.timeout(12000) });
+          if (res.ok) break;
+        } catch (_e) { /* retry */ }
+        res = null;
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 800));
+      }
+      if (!res || !res.ok) {
+        console.warn(`[bg-validate] could not fetch bg for validation (skipping) job=${opts.jobId ?? "?"}`);
+        return false;
+      }
+      const buf = await res.arrayBuffer();
+      b64 = bytesToBase64(buf);
+      mime = (res.headers.get("content-type") || "image/jpeg").split(";")[0];
     }
-    if (!res || !res.ok) {
-      console.warn(`[bg-validate] could not fetch bg for validation (skipping) job=${opts.jobId ?? "?"}`);
-      return false;
-    }
-    const buf = await res.arrayBuffer();
-    const b64 = bytesToBase64(buf);
-    const mime = (res.headers.get("content-type") || "image/jpeg").split(";")[0];
+    if (!b64) { console.warn(`[bg-validate] empty image data (skipping) job=${opts.jobId ?? "?"}`); return false; }
     // RESILIENT detection: validate with the SERVER's key first, then fall back to the CALLER's key
     // if that call throws or returns nothing. Previously a single key was used — if it was throttled
     // (n8n batch) or free-tier, the call 429'd/timed-out, the catch returned "no text" (silent pass)
