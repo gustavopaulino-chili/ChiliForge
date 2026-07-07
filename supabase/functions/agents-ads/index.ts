@@ -3765,6 +3765,7 @@ serve(async (req: Request) => {
       // brand post" bug). Check the actual reference; when it's not a person, switch to
       // reproduce-the-reference mode with ONLY that image so its real content drives the ad.
       // Person references (the normal skincare/finance/fitness case) classify YES and are untouched.
+      let refAsSubject = false;   // set when a non-person reference is featured as a subject (below)
       if (heroRef && companyRefImages.length > 0) {
         let refIsPerson = true;
         try {
@@ -3782,12 +3783,13 @@ serve(async (req: Request) => {
           refIsPerson = /\byes\b/i.test(String(cls.text || ""));
         } catch (_) { refIsPerson = true; /* fail open — keep person-hero behavior */ }
         if (!refIsPerson) {
-          console.log(`[hero-gate] job=${jobId ?? "?"} reference has NO person → reproduce-reference mode (heroRef off)`);
+          console.log(`[hero-gate] job=${jobId ?? "?"} reference has NO person → feature-as-subject mode (heroRef off, brand kept)`);
           heroRef = false;
-          bgSource = "reference";                 // recreate/feature the reference scene, not a person
-          bgRefImages = [companyRefImages[0]];    // ONLY the caller's ref — drop brand posts so it dominates
-          brandRefCountInBg = 0;
-          genRefCountInBg = 1;
+          refAsSubject = true;      // feature the ref as the hero SUBJECT (like a product) — KEEP brand identity
+          bgSource = "inspired";    // long path: keeps brand brief + brand colors + brand-post style refs
+          // bgRefImages stays [ref, brand posts…]: the ref is FIRST so productMoodHint features it,
+          // and the brand posts stay so the ad still looks like the brand's (NOT a bare full-bleed
+          // paste of the raw reference, and NOT a person recycled from a brand post).
         }
       }
 
@@ -3846,7 +3848,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef, ugcNoRef, themeScene);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene));
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -3929,7 +3931,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef, ugcNoRef, themeScene);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene));
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
