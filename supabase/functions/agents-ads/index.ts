@@ -3656,7 +3656,10 @@ serve(async (req: Request) => {
       // This variety keeps the API's ads from all looking the same. 'creative' stays OUT of the
       // rotation (too generic); the person-free branch uses the brand's own world ('company') when
       // brand posts exist, else abstract brand shapes. Caller-supplied ref images are untouched.
-      if (isExternalApi && !heroRef && !hasProductRef && !callerSentBgUrl) {
+      // Caller opt-out: if they explicitly asked for a 'creative' (invented) or 'shapes' (abstract)
+      // background, DON'T fetch a Pexels photo — honour the request and let the model invent/abstract.
+      const skipPexels = explicitBgSource === "creative" || explicitBgSource === "shapes";
+      if (isExternalApi && !heroRef && !hasProductRef && !callerSentBgUrl && !skipPexels) {
         // ALWAYS try to ground the generation in a REAL Pexels photo (no more jobId coin-flip). A
         // real reference scene makes the model REPRODUCE reality instead of INVENTING — the invented
         // path is what burns fake text/buttons/dashboards/logo-icons into the bg. Derive a
@@ -3904,7 +3907,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), Boolean(pexelsHero));
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene));
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -3987,7 +3990,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), Boolean(pexelsHero));
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene));
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
