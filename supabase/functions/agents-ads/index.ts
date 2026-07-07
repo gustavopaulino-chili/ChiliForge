@@ -3768,9 +3768,17 @@ serve(async (req: Request) => {
             .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
             .slice(0, 3)
         : [];
-      const companyRefImages = (await Promise.all(
-        companyRefUrls.map((url) => fetchImageAsBase64(url).catch(() => null))
-      )).filter((r): r is { mimeType: string; data: string } => Boolean(r?.data));
+      // A Pexels-sourced hero is treated EXACTLY like a caller-sent reference_image: it goes FIRST
+      // in companyRefImages (the genRef slot), so everything after — bgRefImages build, the
+      // vision-gate, and brand-post weighting — runs identically to a real reference. Brand posts
+      // keep the SAME influence they'd have with a caller ref (not the weakened special-case the old
+      // pexelsHero block gave them, which zeroed brandRefCountInBg and skipped the gate).
+      const companyRefImages = [
+        ...(pexelsHero ? [pexelsHero] : []),
+        ...((await Promise.all(
+          companyRefUrls.map((url) => fetchImageAsBase64(url).catch(() => null))
+        )).filter((r): r is { mimeType: string; data: string } => Boolean(r?.data))),
+      ];
 
       let bgRefImages: { data: string; mimeType: string }[];
       let brandRefCountInBg = 0; // how many brand-post images are in bgRefImages
@@ -3793,14 +3801,8 @@ serve(async (req: Request) => {
         brandRefCountInBg = Math.min(companyRefImages.length, bgRefImages.length);
       }
 
-      // UGC auto-mode: the Pexels person is the HERO — put it FIRST so the hero-UGC block features
-      // it (identity isn't critical for a generic stock person; the scene is re-composed anyway).
-      // Any remaining images stay as brand STYLE references behind it.
-      if (pexelsHero) {
-        bgRefImages = [pexelsHero, ...bgRefImages].slice(0, 3);
-        brandRefCountInBg = 0;
-        genRefCountInBg = 0;
-      }
+      // (Pexels hero is already the first companyRefImages entry above, so bgRefImages and the
+      // brand-post counts are built identically to a caller reference_image — no special-casing.)
 
       // Vision-gate heroRef: `reference_image` forces "feature THIS person" mode, but if the
       // caller's reference has NO person (a product, a phone/app screenshot, a scene, a logo),
@@ -3810,10 +3812,9 @@ serve(async (req: Request) => {
       // reproduce-the-reference mode with ONLY that image so its real content drives the ad.
       // Person references (the normal skincare/finance/fitness case) classify YES and are untouched.
       let refAsSubject = false;   // set when a non-person reference is featured as a subject (below)
-      // Skip the gate for a Pexels-sourced hero (pexelsHero): it's an intentionally-chosen photo that
-      // lives in bgRefImages[0], NOT in companyRefImages (those are brand posts). Running the gate here
-      // would classify a brand post and could wrongly drop the Pexels photo. Only gate a CALLER's ref.
-      if (heroRef && !pexelsHero && companyRefImages.length > 0) {
+      // Gate runs on companyRefImages[0] — the caller ref OR the Pexels hero (now the same slot), so a
+      // non-person hero (product/scene) is featured-as-subject exactly the same way in both paths.
+      if (heroRef && companyRefImages.length > 0) {
         let refIsPerson = true;
         try {
           const cls = await callGemini(
