@@ -3758,6 +3758,39 @@ serve(async (req: Request) => {
         genRefCountInBg = 0;
       }
 
+      // Vision-gate heroRef: `reference_image` forces "feature THIS person" mode, but if the
+      // caller's reference has NO person (a product, a phone/app screenshot, a scene, a logo),
+      // that mode tries to feature a person that isn't there and pulls one from the brand posts —
+      // so the caller's reference ends up with ZERO influence (exactly the "usou uma pessoa do
+      // brand post" bug). Check the actual reference; when it's not a person, switch to
+      // reproduce-the-reference mode with ONLY that image so its real content drives the ad.
+      // Person references (the normal skincare/finance/fitness case) classify YES and are untouched.
+      if (heroRef && companyRefImages.length > 0) {
+        let refIsPerson = true;
+        try {
+          const cls = await callGemini(
+            "You classify an image. Answer with exactly one word: YES or NO.",
+            "Does the attached image prominently feature a real human PERSON (a visible face or body) who could be the main model/subject of an ad? Hands alone, a product, a phone, an app screenshot/UI, a logo, or a scene with no clear person = NO.",
+            "gemini-2.5-flash",
+            0,
+            5,
+            apiKey,
+            undefined,
+            [{ mimeType: companyRefImages[0].mimeType, data: companyRefImages[0].data }],
+            { jobId, costAcc },
+          );
+          refIsPerson = /\byes\b/i.test(String(cls.text || ""));
+        } catch (_) { refIsPerson = true; /* fail open — keep person-hero behavior */ }
+        if (!refIsPerson) {
+          console.log(`[hero-gate] job=${jobId ?? "?"} reference has NO person → reproduce-reference mode (heroRef off)`);
+          heroRef = false;
+          bgSource = "reference";                 // recreate/feature the reference scene, not a person
+          bgRefImages = [companyRefImages[0]];    // ONLY the caller's ref — drop brand posts so it dominates
+          brandRefCountInBg = 0;
+          genRefCountInBg = 1;
+        }
+      }
+
       // Diagnostic: how many brand-post vs generation refs actually reached the image model.
       const _ccrefs = Array.isArray((campaignData as any).composeCompanyRefs)
         ? ((campaignData as any).composeCompanyRefs as unknown[]).map((u) => String(u)) : [];
