@@ -1946,6 +1946,38 @@ function buildUgcPersonQuery(data: AgentsAdsPayload["campaignData"]): string {
   return (base ? base + " " : "") + "happy person candid lifestyle portrait";
 }
 
+// Context-aware Pexels query: turn the campaign into a short stock-photo search phrase for a REAL
+// photograph that fits the topic (a person doing the activity, or the relevant object/scene). A real
+// reference photo makes the image model REPRODUCE reality instead of INVENTING — and inventing is
+// exactly what burns fake text/buttons/dashboards/logo-icons into the background. Returns '' on error.
+async function pexelsQueryForCampaign(
+  facts: string,
+  apiKey: string,
+  opts: { jobId?: number; costAcc?: { usd: number } } = {},
+): Promise<string> {
+  try {
+    const res = await callGemini(
+      [
+        "You output a SHORT stock-photo search query (2 to 5 words) for a REAL photograph that best represents an advertising campaign's topic.",
+        "Name a real, photographable scene: a person doing the relevant activity, or the key object/place. Examples: 'woman applying skincare', 'person holding smartphone', 'barista pouring coffee', 'modern apartment interior', 'runner on track at sunrise', 'bright smile dentist'.",
+        "Prefer a REAL PERSON doing the activity when the topic naturally involves people. Keep it concrete and photographable — never abstract concepts, never brand names.",
+        "Return ONLY the query words. No quotes, no punctuation, no explanation.",
+      ].join("\n"),
+      facts.slice(0, 1200),
+      "gemini-2.5-flash",
+      0.3,
+      20,
+      apiKey,
+      undefined,
+      undefined,
+      opts,
+    );
+    return String(res.text || "").trim().replace(/^["']+|["']+$/g, "").replace(/[\r\n]+/g, " ").slice(0, 60);
+  } catch (_) {
+    return "";
+  }
+}
+
 async function fetchPexelsPerson(
   query: string,
   aspectRatio: string,
@@ -3617,20 +3649,23 @@ serve(async (req: Request) => {
       // rotation (too generic); the person-free branch uses the brand's own world ('company') when
       // brand posts exist, else abstract brand shapes. Caller-supplied ref images are untouched.
       if (isExternalApi && !heroRef && !hasProductRef && !callerSentBgUrl) {
-        const usePexels = (Number(jobId) || 0) % 2 === 0;
-        if (usePexels) {
-          pexelsHero = await fetchPexelsPerson(buildUgcPersonQuery(campaignData), imageAspectRatioForFormat(formats[0]));
-          if (pexelsHero) {
-            heroRef = true;         // feature the Pexels person via the existing hero-UGC path
-            bgSource = "company";   // usesRefs source that is NOT 'reference' (avoids the reference short-path); the hero block overrides it
-          } else {
-            ugcNoRef = true;        // no Pexels → invent a believable UGC person in the prompt
-            if (bgSource === "reference") bgSource = "creative";
-          }
+        // ALWAYS try to ground the generation in a REAL Pexels photo (no more jobId coin-flip). A
+        // real reference scene makes the model REPRODUCE reality instead of INVENTING — the invented
+        // path is what burns fake text/buttons/dashboards/logo-icons into the bg. Derive a
+        // CONTEXT-aware query (a person with a phone, a coffee cup, a gym…) so the fetched photo
+        // actually matches the ad's topic, not a generic portrait. Brand posts still layer in as
+        // style below. Fall back to an invented scene only if Pexels has no key / no result.
+        const pexQuery = (await pexelsQueryForCampaign(campaignFactsImg, apiKey, { jobId, costAcc }))
+          || buildUgcPersonQuery(campaignData);
+        pexelsHero = await fetchPexelsPerson(pexQuery, imageAspectRatioForFormat(formats[0]));
+        if (pexelsHero) {
+          heroRef = true;         // feature the Pexels subject via the hero/ref path
+          bgSource = "company";   // usesRefs source (NOT the 'reference' short-path); the hero block overrides it
         } else {
-          bgSource = hasCompanyRefs ? "company" : "shapes"; // person-free brand scene (never 'creative')
+          ugcNoRef = true;        // no Pexels → invent a believable scene in the prompt
+          if (bgSource === "reference") bgSource = "creative";
         }
-        console.log(`[ugc-auto] job=${jobId ?? "?"} usePexels=${usePexels} pexels=${pexelsHero ? "hit" : (usePexels ? "miss->invent" : "n/a")}`);
+        console.log(`[ugc-auto] job=${jobId ?? "?"} pexQuery="${pexQuery}" pexels=${pexelsHero ? "hit" : "miss->invent"}`);
       }
 
       // ── Store-derived brand brief (compose) ───────────────────────────────
@@ -3775,7 +3810,10 @@ serve(async (req: Request) => {
       // reproduce-the-reference mode with ONLY that image so its real content drives the ad.
       // Person references (the normal skincare/finance/fitness case) classify YES and are untouched.
       let refAsSubject = false;   // set when a non-person reference is featured as a subject (below)
-      if (heroRef && companyRefImages.length > 0) {
+      // Skip the gate for a Pexels-sourced hero (pexelsHero): it's an intentionally-chosen photo that
+      // lives in bgRefImages[0], NOT in companyRefImages (those are brand posts). Running the gate here
+      // would classify a brand post and could wrongly drop the Pexels photo. Only gate a CALLER's ref.
+      if (heroRef && !pexelsHero && companyRefImages.length > 0) {
         let refIsPerson = true;
         try {
           const cls = await callGemini(
