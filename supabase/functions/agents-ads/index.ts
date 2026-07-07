@@ -3675,9 +3675,20 @@ serve(async (req: Request) => {
       const wantsThemeScene = heroRef || ugcNoRef || hasProductRef ||
         bgSource === "creative" || (bgSource === "company" && !heroRef);
       if (wantsThemeScene && campaignFactsImg.trim()) {
-        try {
-          const sceneRes = await callGemini(
-            [
+        // The hero is a PRODUCT (object) when a product image was sent; otherwise a PERSON
+        // (reference person, invented UGC person, or brand scene). The derived scene must keep
+        // the correct hero: a product scene FEATURES the object; a person scene places the person.
+        const sceneSystem = hasProductRef
+          ? [
+              "You are an advertising art director. A physical PRODUCT (an object) is the hero of this ad and MUST be featured prominently — large in the frame and in sharp focus. From the campaign facts, describe ONE concrete scene that SHOWCASES THIS product in the real, literal context of the campaign's topic.",
+              "STRICT RULES:",
+              "• The product itself is the clear focal point (fills a large part of the frame). Around it add ONLY the real environment, surface and props that THIS topic implies (e.g. running shoes resting on a forest trail or being laced up trailside; a coffee bag on a rustic café counter beside a fresh cup; a watch on a marble surface in warm light).",
+              "• Derive the context from THIS topic only. Do NOT default to a content-creation / social-media / ring-light / phone-filming setup.",
+              "• A person may appear ONLY partially (hands, legs) to interact with the product if the topic calls for it — the PRODUCT stays the hero and is never replaced by a full person or a wide lifestyle scene where the product is small or absent.",
+              "• Describe ONLY the product's placement, the setting, props and lighting mood — NO text or logos on any surface.",
+              "• Output ONE or TWO sentences, concrete and vivid. No preamble, no lists.",
+            ]
+          : [
               "You are an advertising art director. From the campaign facts, describe ONE concrete, literal 'scene of success' for the ad's hero — the exact SETTING, PROPS and ACTION/POSE that make THIS campaign's topic instantly recognizable from the image alone, with no text.",
               "STRICT RULES:",
               "• Derive everything from THIS topic only. Do NOT default to a content-creation / social-media / filming / ring-light / streaming setup UNLESS the topic is literally about creating social content. For finance, health, skincare/beauty, food, retail, education, fitness, real estate, etc., a ring light or phone-filming scene is WRONG.",
@@ -3685,7 +3696,10 @@ serve(async (req: Request) => {
               "• If the topic has no natural connection to a phone or screen, there must be NO phone/screen in the scene.",
               "• Describe ONLY setting, props, action and lighting mood — NOT the person's identity/appearance (a real person is supplied separately) and NO text or logos.",
               "• Output ONE or TWO sentences, concrete and vivid. No preamble, no lists.",
-            ].join("\n"),
+            ];
+        try {
+          const sceneRes = await callGemini(
+            sceneSystem.join("\n"),
             campaignFactsImg.slice(0, 1600),
             "gemini-2.5-flash",
             0.4,
