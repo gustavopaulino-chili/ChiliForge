@@ -2327,6 +2327,7 @@ function buildBackgroundPrompt(
   productRef: boolean = false,
   ugcNoRef: boolean = false,
   themeScene: string = "",
+  castingRef: boolean = false,
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
@@ -2460,9 +2461,15 @@ function buildBackgroundPrompt(
   // guidance — the FIRST attached image is the hero subject and must visibly appear in the ad.
   if (heroRef && hasRefImages) {
     sourceBlock = [
-      "████ BACKGROUND SOURCE: HERO REFERENCE — FEATURE THIS PERSON IN A UGC SCENE ████",
-      "The FIRST attached image is the HERO of this ad — a real person the user chose on purpose. They MUST appear, recognizably, in the final creative. This is NOT style inspiration.",
-      "• PRESERVE THEIR IDENTITY: same face, hair, beard, skin tone, body and overall look as the reference. It must clearly read as the SAME person. Do not swap them for a different model.",
+      castingRef
+        ? "████ BACKGROUND SOURCE: CASTING REFERENCE — RE-STAGE THIS PERSON IN A BRAND-DESIGNED SCENE ████"
+        : "████ BACKGROUND SOURCE: HERO REFERENCE — FEATURE THIS PERSON IN A UGC SCENE ████",
+      castingRef
+        ? "The FIRST attached image is a CASTING reference — a stock photo showing the TYPE of person (age, vibe, energy) to feature. Use a similar-looking believable person, but you do NOT need pixel-exact identity, and you MUST NOT reproduce the stock photo's background/setting — that stock scene is casting only, not the ad."
+        : "The FIRST attached image is the HERO of this ad — a real person the user chose on purpose. They MUST appear, recognizably, in the final creative. This is NOT style inspiration.",
+      castingRef
+        ? "• RE-STAGE, don't reproduce: build a FRESH, clean, premium BRAND-DESIGNED composition around a similar person — an art-directed brand ad, NOT the reproduced stock photo. The person is well-lit and believable; the environment is newly designed in the brand's visual world."
+        : "• PRESERVE THEIR IDENTITY: same face, hair, beard, skin tone, body and overall look as the reference. It must clearly read as the SAME person. Do not swap them for a different model.",
       "• DO NOT paste them as a flat studio cut-out on a plain colour field. Instead, place them inside an AUTHENTIC, DYNAMIC UGC 'SCENE OF SUCCESS' with natural candid energy, real depth and foreground/background layers — like a great UGC ad, not a corporate headshot.",
       scene
         ? `• ⭐⭐ PLACE THIS PERSON INTO THIS EXACT SCENE, built for THIS campaign's topic: ${scene}. Their setting, props, action and body-language must be exactly what THIS scene calls for. The person is CASTING — the believable face performing THIS campaign's topic — NOT a generic 'person looking at a tablet/chart', and NOT the scene from the reference image's own background. A phone/device appears ONLY if THIS scene genuinely calls for one.`
@@ -2470,6 +2477,7 @@ function buildBackgroundPrompt(
       "⛔⛔ DO NOT REUSE THE SAME POSE OR PROP ACROSS DIFFERENT TOPICS: a pose or object that worked for a PREVIOUS campaign (e.g. 'arm extended, holding phone up, filming/selfie' for content-creation) is ONLY correct for that specific kind of topic. If THIS campaign's topic is something else, that exact pose/prop is WRONG regardless of how well it worked before — invent the pose and prop that THIS specific topic actually calls for from scratch. If the topic has no natural connection to a phone or screen at all, there should be NO phone or screen in the scene.",
       "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
       "• The person fills a large part of the frame, sharp and well-lit, as the unmistakable focal point; the scene supports them.",
+      castingRef ? "• BRAND-DESIGN the frame so it reads as a designed brand ad, not a stock photo with a logo slapped on: give it generous brand-colour negative space, a strong on-brand colour grade, and integrate ONE brand device (a brand-colour organic shape/panel OR a subtle dot cluster) tastefully in an EMPTY area — never over the person's face or the text zone. Keep it clean and premium, not cluttered." : "",
       "• ⛔ ZERO TEXT & NO FAKE LOGO IN THE SCENE: any screen, monitor, TV, phone, tablet, dashboard, graph or chart shows ONLY abstract bars, lines and shapes — NO text, numbers, labels, axis titles, legends or captions. Never draw the brand name, the word 'agency', a tagline, a wordmark, a monogram or ANY logo anywhere (walls, screens, props, clothing, signage). The real logo and all copy are composited on top afterwards, so anything you draw appears twice and ruins the ad.",
       "• Any OTHER attached images are brand STYLE references only — borrow their look/lighting/palette, NEVER their subjects and NEVER their text.",
       "• Recompose for this aspect ratio and keep the reserved text-safe zone calm and uncluttered.",
@@ -3896,7 +3904,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene));
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), Boolean(pexelsHero));
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -3979,7 +3987,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene));
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), Boolean(pexelsHero));
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
