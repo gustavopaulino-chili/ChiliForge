@@ -2286,10 +2286,16 @@ function buildBackgroundPrompt(
   heroRef: boolean = false,
   productRef: boolean = false,
   ugcNoRef: boolean = false,
+  themeScene: string = "",
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
   const direction = visualDirection || BACKGROUND_DIRECTIONS[0];
+  // Theme scene (derived per-job from the campaign topic): the concrete SETTING/PROPS/ACTION
+  // this ad should depict. Placed into the person/subject blocks below so the hero (the
+  // reference person, when heroRef) is put INTO a scene that matches THIS ad's theme, instead
+  // of defaulting to the same content-creator / ring-light scene for every campaign.
+  const scene = String(themeScene || "").trim();
 
   // ── SHORT PATH: reference mode with actual reference images ─────────────
   // When the caller sent reference images to match, the model needs a SHORT focused prompt —
@@ -2372,7 +2378,9 @@ function buildBackgroundPrompt(
       "THE SUBJECT OF THIS AD COMES FROM THE CAMPAIGN — NOT THE REFERENCES:",
       "• Build ONE clear hero subject that visually represents THIS campaign's product/service and topic (see CAMPAIGN CONTEXT below), rendered in the brand's color/lighting/photographic style.",
       "• Example: the brand's posts are about cars but this campaign is social-media management → show a relevant content/social scene (e.g. a laptop with an analytics dashboard, a tidy content workspace) in the brand's style — NOT a car.",
-      "• Concrete example for THIS kind of campaign — a TikTok/viral-content/social-ads service → someone actively filming or checking a phone with rising view/engagement numbers, celebrating a post taking off, or a content-creation setup (ring light, phone on a tripod) — the moment must instantly read as 'this is about going viral', not a generic desk/office/writing scene that could belong to any industry.",
+      scene
+        ? `• THE SCENE FOR THIS AD (derived from THIS campaign's topic): ${scene} — build exactly this, rendered in the brand's colors/lighting. Do NOT reuse a content-creator / ring-light / phone-filming scene unless the topic is literally about creating social content.`
+        : "• Build the ONE concrete scene that makes THIS campaign's specific topic instantly recognizable from the image alone — the real environment, prop and activity of the topic, never a generic desk/office scene that could belong to any industry.",
       "• The subject must be relevant and in sharp focus; the brand style only dictates HOW it looks, not WHAT it is.",
       "",
       "Compose fresh for this format. The image must be ENTIRELY TEXT-FREE and ENTIRELY LOGO-FREE.",
@@ -2416,14 +2424,17 @@ function buildBackgroundPrompt(
       "The FIRST attached image is the HERO of this ad — a real person the user chose on purpose. They MUST appear, recognizably, in the final creative. This is NOT style inspiration.",
       "• PRESERVE THEIR IDENTITY: same face, hair, beard, skin tone, body and overall look as the reference. It must clearly read as the SAME person. Do not swap them for a different model.",
       "• DO NOT paste them as a flat studio cut-out on a plain colour field. Instead, place them inside an AUTHENTIC, DYNAMIC UGC 'SCENE OF SUCCESS' with natural candid energy, real depth and foreground/background layers — like a great UGC ad, not a corporate headshot.",
-      "• ⭐⭐ THE PERSON IS CASTING, NOT THE PRODUCT — WE ARE SELLING THE CAMPAIGN'S TOPIC, NOT THIS PERSON: their job is to be a believable face for whatever concrete action the campaign topic (see CAMPAIGN CONTEXT) implies. Do NOT default to a generic 'person looking thoughtfully at a tablet/chart' pose — that could illustrate literally any business and fails the whole point of casting them. A phone/device is NOT the default prop — most topics have NOTHING to do with phones. Figure out the ONE specific action/prop/pose that makes THIS topic instantly recognizable, whatever object or activity that genuinely is, and put THEM in it. Examples across different kinds of topics (do not copy these literally — derive the equivalent for THIS campaign's actual topic): social-video/TikTok → filming with a phone held up, ring light nearby; fitness → mid-workout with real equipment, no phone at all; a bakery/food product → hands-on with the actual food, kneading/plating/tasting; a financial app → glancing down at a phone at chest height, relaxed, thumb on the screen; consulting/education → mid-conversation or presenting, gesturing, no device needed; a furniture/home product → sitting in/using the actual piece in a living space; a physical retail product → holding/examining/unboxing the real object with their hands. The prop AND the pose/body-language must both be the SPECIFIC thing THIS topic is about — invented fresh for the topic given, never assumed.",
+      scene
+        ? `• ⭐⭐ PLACE THIS PERSON INTO THIS EXACT SCENE, built for THIS campaign's topic: ${scene}. Their setting, props, action and body-language must be exactly what THIS scene calls for. The person is CASTING — the believable face performing THIS campaign's topic — NOT a generic 'person looking at a tablet/chart', and NOT the scene from the reference image's own background. A phone/device appears ONLY if THIS scene genuinely calls for one.`
+        : "• ⭐⭐ THE PERSON IS CASTING, NOT THE PRODUCT: put them in the ONE specific action/prop/pose that makes THIS campaign's topic (see CAMPAIGN CONTEXT) instantly recognizable — the real activity of the topic, never a generic 'person looking thoughtfully at a tablet/chart' that could illustrate any business. A phone/device is NOT a default prop; most topics have nothing to do with phones. Derive the pose and prop from THIS topic alone.",
       "⛔⛔ DO NOT REUSE THE SAME POSE OR PROP ACROSS DIFFERENT TOPICS: a pose or object that worked for a PREVIOUS campaign (e.g. 'arm extended, holding phone up, filming/selfie' for content-creation) is ONLY correct for that specific kind of topic. If THIS campaign's topic is something else, that exact pose/prop is WRONG regardless of how well it worked before — invent the pose and prop that THIS specific topic actually calls for from scratch. If the topic has no natural connection to a phone or screen at all, there should be NO phone or screen in the scene.",
       "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
       "• The person fills a large part of the frame, sharp and well-lit, as the unmistakable focal point; the scene supports them.",
       "• ⛔ ZERO TEXT & NO FAKE LOGO IN THE SCENE: any screen, monitor, TV, phone, tablet, dashboard, graph or chart shows ONLY abstract bars, lines and shapes — NO text, numbers, labels, axis titles, legends or captions. Never draw the brand name, the word 'agency', a tagline, a wordmark, a monogram or ANY logo anywhere (walls, screens, props, clothing, signage). The real logo and all copy are composited on top afterwards, so anything you draw appears twice and ruins the ad.",
       "• Any OTHER attached images are brand STYLE references only — borrow their look/lighting/palette, NEVER their subjects and NEVER their text.",
       "• Recompose for this aspect ratio and keep the reserved text-safe zone calm and uncluttered.",
-    ].join("\n");
+      scene ? `⚠️ SCENE OVERRIDE: the reference image may show this person in an unrelated context (e.g. a studio, a filming/ring-light setup, a desk) — IGNORE that background entirely. Keep ONLY the PERSON (their identity/face/look) from the reference and rebuild everything around them as: ${scene}` : "",
+    ].filter(Boolean).join("\n");
   }
 
   // UGC AUTO-MODE (no reference image): no person was provided, so INVENT a believable one and
@@ -2439,7 +2450,8 @@ function buildBackgroundPrompt(
       "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
       "• ⛔ ZERO TEXT & NO FAKE LOGO IN THE SCENE: any screen, monitor, TV, phone, tablet, dashboard, graph or chart shows ONLY abstract bars, lines and shapes — NO text, numbers, labels, axis titles, legends or captions. Never draw the brand name, the word 'agency', a tagline, a wordmark, a monogram or ANY logo anywhere (walls, screens, props, clothing, signage). The real logo and all copy are composited on top afterwards, so anything you draw appears twice and ruins the ad.",
       "• Recompose for this aspect ratio; keep the reserved text-safe zone calm and uncluttered.",
-    ].join("\n");
+      scene ? `⭐ THE SCENE (derived from THIS campaign's topic) — build exactly this around the invented person, in the brand's colors/lighting: ${scene}` : "",
+    ].filter(Boolean).join("\n");
   }
 
   // Convey the brand palette as color NAMES (never raw hex) and scrub every code/URL/CSS
@@ -2491,7 +2503,9 @@ function buildBackgroundPrompt(
         `VISUAL BRIEF — what to photograph/illustrate (the campaign topic is given as internal context in the "Visual subject" line elsewhere in this prompt — those words are for YOUR understanding only, never render them as pixels):`,
         "• Tangible physical product (object you can hold: food, cosmetics, clothing, bottle, packaging, equipment, toy, furniture…): the product itself, large and dramatic, shot in the brand's colors and lighting.",
         "• Digital product, software, platform, SaaS, app, API, documentation, guide, tool, course, ebook: treat it as a SERVICE — never as a physical object you can hold or stack on a desk. Show the SCENE OF SUCCESS instead: the PEOPLE and the moment when this delivers its promise. (Naming a paper object here tends to summon it — so do not picture one at all; picture the outcome.)",
-        "• Service or activity (marketing, education, coaching, consulting, events, finance, healthcare…): paint the SCENE OF SUCCESS — the world as it looks the moment this service delivers its promise, concretely and literally. For a social-media/TikTok/content/viral-growth service specifically: a phone actively filming or held up, a ring light, a content-creation setup, or a screen with a rising engagement chart — NOT a generic laptop, empty desk, or unrelated office objects. For other services, apply the same concreteness: show the exact moment/activity that topic implies, not a generic stand-in.",
+        scene
+          ? `• Service or activity: paint the SCENE OF SUCCESS derived from THIS campaign's topic — ${scene} Build exactly that, concretely and literally. Do NOT substitute a content-creation / ring-light / phone-filming scene unless the topic is literally about creating social content.`
+          : "• Service or activity (marketing, education, coaching, consulting, events, finance, healthcare…): paint the SCENE OF SUCCESS — the world the moment this service delivers its promise, concretely and literally: the exact environment, prop and activity that THIS specific topic implies, never a generic laptop/desk/office stand-in that could belong to any industry.",
         "⛔ A generic laptop/'tech desk', floating device, or stock photo office is always wrong for a service. The scene must be unmistakably about what THIS campaign delivers — someone should recognize the topic from the image alone, with no text.",
         "• Whichever you choose: the hero subject fills ≥50% of the frame, dramatically lit, in the brand's palette.",
         "• BRAND IDENTITY IS NON-NEGOTIABLE: even in an action scene or photographic composition, the brand's color palette must dominate — use it as the background lighting, color grade, or backdrop. The brand's visual identity elements (textures, patterns, signature colors from the brand facts) must be present. A scene shot in neutral/white/random colors is a brand failure.",
@@ -2501,7 +2515,7 @@ function buildBackgroundPrompt(
     : "";
 
   const themeLockLine = rawProduct
-    ? `███ RULE #2 — CAMPAIGN THEME LOCK ███\nThe topic of this campaign (given to you as internal context only, never to be rendered as pixels — see the no-echo reminder below) determines WHAT the scene depicts. This overrides brand-style guidance below on WHAT to depict — the brand identity (colors, lighting, signature motifs) only dictates HOW it looks, never WHAT the scene is about. A hero subject (person, product, or object) related to that topic must occupy a LARGE, unmistakable, in-focus portion of the frame — never a mostly-empty gradient/abstract canvas with the actual subject shrunk into a small corner. If this campaign is about social media / TikTok / going viral / content creation: show a phone actively filming or held up, a ring light, a content-creation setup, or a screen with a rising engagement/views chart — concrete and literal, not a vague office/desk with unrelated props (books, coffee mug, generic stationery) that could belong to any industry. Ask yourself: "would someone recognize THIS campaign's topic from this image alone, with no text?" If not, redo it.\n⛔ NO-ECHO REMINDER: the campaign topic is named elsewhere in this prompt in quotes (e.g. in the "Visual subject" line) purely so YOU understand what to depict — those exact words are instructions, never content. Do not render the product/service name, or any word from it, as pixels anywhere in the image.`
+    ? `███ RULE #2 — CAMPAIGN THEME LOCK ███\nThe topic of this campaign (given to you as internal context only, never to be rendered as pixels — see the no-echo reminder below) determines WHAT the scene depicts. This overrides brand-style guidance below on WHAT to depict — the brand identity (colors, lighting, signature motifs) only dictates HOW it looks, never WHAT the scene is about. A hero subject (person, product, or object) related to that topic must occupy a LARGE, unmistakable, in-focus portion of the frame — never a mostly-empty gradient/abstract canvas with the actual subject shrunk into a small corner.${scene ? ` ███ BUILD EXACTLY THIS SCENE (derived from THIS campaign's topic): ${scene} ███` : " Derive the ONE concrete setting, prop and action that makes THIS specific topic instantly recognizable from the image alone."}\n⛔ DO NOT DEFAULT to a content-creation / social-media / filming / ring-light / streaming / 'person holding a phone that shows a chart' scene UNLESS this campaign's topic is literally about creating social content. For finance, health, skincare/beauty, food, retail, education, fitness, real estate, etc., that setup is WRONG — use the real environment of THIS topic instead. Ask yourself: "would someone recognize THIS campaign's topic from this image alone, with no text?" If not, redo it.\n⛔ NO-ECHO REMINDER: the campaign topic is named elsewhere in this prompt in quotes (e.g. in the "Visual subject" line) purely so YOU understand what to depict — those exact words are instructions, never content. Do not render the product/service name, or any word from it, as pixels anywhere in the image.`
     : "";
 
   return [
@@ -3649,6 +3663,43 @@ serve(async (req: Request) => {
         } catch (_) { /* non-fatal — fall through with existing brief */ }
       }
 
+      // ── Theme scene (compose) ─────────────────────────────────────────────
+      // Derive ONE concrete "scene of success" from THIS campaign's topic, so the image model
+      // places the hero (the reference person, when heroRef) INTO a setting that matches the
+      // ad's theme — instead of defaulting to the same content-creator / ring-light scene for
+      // every campaign (the finance/skincare-ad-still-shows-a-creator regression). The person's
+      // identity still comes from the reference image; this only dictates the SETTING, PROPS and
+      // ACTION around them. Only runs for the photographic person/subject paths (skip abstract
+      // 'shapes' and the reference short-path, which don't build a topic scene).
+      let themeScene = "";
+      const wantsThemeScene = heroRef || ugcNoRef || hasProductRef ||
+        bgSource === "creative" || (bgSource === "company" && !heroRef);
+      if (wantsThemeScene && campaignFactsImg.trim()) {
+        try {
+          const sceneRes = await callGemini(
+            [
+              "You are an advertising art director. From the campaign facts, describe ONE concrete, literal 'scene of success' for the ad's hero — the exact SETTING, PROPS and ACTION/POSE that make THIS campaign's topic instantly recognizable from the image alone, with no text.",
+              "STRICT RULES:",
+              "• Derive everything from THIS topic only. Do NOT default to a content-creation / social-media / filming / ring-light / streaming setup UNLESS the topic is literally about creating social content. For finance, health, skincare/beauty, food, retail, education, fitness, real estate, etc., a ring light or phone-filming scene is WRONG.",
+              "• Name the real environment and the real prop/action (e.g. skincare → bright bathroom vanity, applying cream, dewy skin; a budgeting app → calm kitchen table or café, glancing at a phone at chest height, notebook and coffee; fitness → gym floor mid-exercise with real equipment).",
+              "• If the topic has no natural connection to a phone or screen, there must be NO phone/screen in the scene.",
+              "• Describe ONLY setting, props, action and lighting mood — NOT the person's identity/appearance (a real person is supplied separately) and NO text or logos.",
+              "• Output ONE or TWO sentences, concrete and vivid. No preamble, no lists.",
+            ].join("\n"),
+            campaignFactsImg.slice(0, 1600),
+            "gemini-2.5-flash",
+            0.4,
+            220,
+            apiKey,
+            undefined,
+            undefined,
+            { jobId, costAcc },
+          );
+          themeScene = String(sceneRes.text || "").trim().slice(0, 500);
+          if (themeScene) console.log(`[theme-scene] job=${jobId ?? "?"} ${themeScene.slice(0, 160)}`);
+        } catch (_) { /* non-fatal — fall through with generic theme guidance in the prompt */ }
+      }
+
       // User-uploaded reference images (the ads/visuals the caller wants to look like) arrive
       // in composeCompanyRefs. ONLY fetch+decode them for the sources that actually consume
       // them ('reference'/'company'/'inspired') — 'shapes'/'creative' discard refs, so we skip
@@ -3743,7 +3794,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef, ugcNoRef);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef, ugcNoRef, themeScene);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -3826,7 +3877,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef, ugcNoRef);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, hasProductRef, ugcNoRef, themeScene);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
