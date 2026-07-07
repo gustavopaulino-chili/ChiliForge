@@ -3758,6 +3758,11 @@ serve(async (req: Request) => {
         genRefCountInBg = 0;
       }
 
+      // Diagnostic: how many brand-post vs generation refs actually reached the image model.
+      const _ccrefs = Array.isArray((campaignData as any).composeCompanyRefs)
+        ? ((campaignData as any).composeCompanyRefs as unknown[]).map((u) => String(u)) : [];
+      console.log(`[refs] job=${jobId ?? "?"} bgSource=${bgSource} heroRef=${heroRef} productRef=${hasProductRef} composeCompanyRefs=${_ccrefs.length} companyRefImgsFetched=${companyRefImages.length} bgRefImgs=${bgRefImages.length} brandPostsInBg=${brandRefCountInBg} genRefsInBg=${genRefCountInBg} urls=[${_ccrefs.map((u) => u.split("/").slice(-2).join("/")).join(" | ")}]`);
+
       // When brand posts and the generation reference coexist in bgRefImages, annotate the
       // visual brief so the image model knows which role each image plays. This is what lets
       // the model use the generation image creatively (product, anchor, element) while staying
