@@ -1978,6 +1978,28 @@ async function pexelsQueryForCampaign(
   }
 }
 
+// Returns the chosen Pexels image URL (does NOT download it) so the URL can be fed through the
+// IDENTICAL caller-reference_image path — set as referenceImageUrl + first in composeCompanyRefs and
+// then fetched downstream exactly like any user-sent reference image (Diego etc.).
+async function fetchPexelsUrl(query: string, aspectRatio: string): Promise<string | null> {
+  try {
+    const key = env?.get("PEXELS_API_KEY");
+    if (!key) return null;
+    const orientation = aspectRatio === "9:16" ? "portrait" : (aspectRatio === "1:1" ? "square" : "landscape");
+    const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=20&orientation=${orientation}`;
+    const res = await fetch(url, { headers: { Authorization: key }, signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return null;
+    const j = await res.json();
+    const srcs = (Array.isArray(j?.photos) ? j.photos : [])
+      .map((p: any) => p?.src?.large2x || p?.src?.large || p?.src?.original)
+      .filter((s: unknown): s is string => typeof s === "string" && s.length > 0);
+    if (!srcs.length) return null;
+    return srcs[Math.floor(Math.random() * srcs.length)];
+  } catch {
+    return null;
+  }
+}
+
 async function fetchPexelsPerson(
   query: string,
   aspectRatio: string,
@@ -3652,7 +3674,6 @@ serve(async (req: Request) => {
       // 'ugc' features a real person — pulled from Pexels, or invented in-prompt if Pexels is down.
       // Brand posts are STILL used in every branch (they are NOT a "reference image"). This whole
       // block is skipped whenever the caller sent a reference image — that path stays untouched.
-      let pexelsHero: { data: string; mimeType: string } | null = null;
       let ugcNoRef = false;
       const isExternalApi = Boolean(String((campaignData as any).externalApiContract || "").trim());
       const callerSentBgUrl = String(campaignData.backgroundImageUrl || "").startsWith("http");
@@ -3673,15 +3694,25 @@ serve(async (req: Request) => {
         // style below. Fall back to an invented scene only if Pexels has no key / no result.
         const pexQuery = (await pexelsQueryForCampaign(campaignFactsImg, apiKey, { jobId, costAcc }))
           || buildUgcPersonQuery(campaignData);
-        pexelsHero = await fetchPexelsPerson(pexQuery, imageAspectRatioForFormat(formats[0]));
-        if (pexelsHero) {
-          heroRef = true;         // feature the Pexels subject via the hero/ref path
-          bgSource = "company";   // usesRefs source (NOT the 'reference' short-path); the hero block overrides it
+        const pexUrl = await fetchPexelsUrl(pexQuery, imageAspectRatioForFormat(formats[0]));
+        if (pexUrl) {
+          // Send the Pexels photo through the IDENTICAL path as a caller-sent reference_image: set it
+          // as referenceImageUrl, flag composeHeroRef, and put it FIRST in composeCompanyRefs. The edge
+          // then fetches + treats it EXACTLY like any user reference (Diego etc.) — no special base64
+          // injection, no divergent handling.
+          (campaignData as any).referenceImageUrl = pexUrl;
+          (campaignData as any).composeHeroRef = true;
+          const existingRefs = Array.isArray((campaignData as any).composeCompanyRefs)
+            ? ((campaignData as any).composeCompanyRefs as unknown[]).filter((u): u is string => typeof u === "string" && u.startsWith("http"))
+            : [];
+          (campaignData as any).composeCompanyRefs = [pexUrl, ...existingRefs.filter((u) => u !== pexUrl)];
+          heroRef = true;
+          bgSource = "company";
         } else {
           ugcNoRef = true;        // no Pexels → invent a believable scene in the prompt
           if (bgSource === "reference") bgSource = "creative";
         }
-        console.log(`[ugc-auto] job=${jobId ?? "?"} pexQuery="${pexQuery}" pexels=${pexelsHero ? "hit" : "miss->invent"}`);
+        console.log(`[ugc-auto] job=${jobId ?? "?"} pexQuery="${pexQuery}" pexels=${pexUrl ? "as-ref" : "miss->invent"}`);
       }
 
       // ── Store-derived brand brief (compose) ───────────────────────────────
@@ -3784,17 +3815,12 @@ serve(async (req: Request) => {
             .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
             .slice(0, 3)
         : [];
-      // A Pexels-sourced hero is treated EXACTLY like a caller-sent reference_image: it goes FIRST
-      // in companyRefImages (the genRef slot), so everything after — bgRefImages build, the
-      // vision-gate, and brand-post weighting — runs identically to a real reference. Brand posts
-      // keep the SAME influence they'd have with a caller ref (not the weakened special-case the old
-      // pexelsHero block gave them, which zeroed brandRefCountInBg and skipped the gate).
-      const companyRefImages = [
-        ...(pexelsHero ? [pexelsHero] : []),
-        ...((await Promise.all(
-          companyRefUrls.map((url) => fetchImageAsBase64(url).catch(() => null))
-        )).filter((r): r is { mimeType: string; data: string } => Boolean(r?.data))),
-      ];
+      // companyRefImages: fetch every composeCompanyRefs URL. When auto-mode set the Pexels photo as
+      // referenceImageUrl above, that URL is already FIRST in composeCompanyRefs → it is fetched here
+      // as companyRefImages[0], byte-identical to a caller-sent reference_image (no special-casing).
+      const companyRefImages = (await Promise.all(
+        companyRefUrls.map((url) => fetchImageAsBase64(url).catch(() => null))
+      )).filter((r): r is { mimeType: string; data: string } => Boolean(r?.data));
 
       let bgRefImages: { data: string; mimeType: string }[];
       let brandRefCountInBg = 0; // how many brand-post images are in bgRefImages
