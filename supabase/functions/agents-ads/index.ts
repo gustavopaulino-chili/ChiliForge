@@ -470,7 +470,7 @@ async function buildOverlayHtmlFromGemini(
   cssVars: string,
   apiKey: string,
   rec?: ComposeTextRec | null,
-  opts: { jobId?: number; costAcc?: { usd: number }; calmZone?: string | null; diag?: { reason?: string } } = {}
+  opts: { jobId?: number; costAcc?: { usd: number }; calmZone?: string | null; diag?: { reason?: string }; brandDevices?: boolean } = {}
 ): Promise<string | null> {
   const setDiag = (r: string) => { if (opts.diag) opts.diag.reason = r; };
   // Accept either a base64 data URL or a public HTTPS URL (e.g. Supabase Storage).
@@ -552,6 +552,21 @@ async function buildOverlayHtmlFromGemini(
 
   const designDirectionLine = `🎨 DESIGN DIRECTION FOR THIS AD (style variant "${styleVariant.name}"): ${styleVariant.brief} Use this direction to guide your typography, accent, and composition choices for the headline/subheadline/CTA — you decide the specifics (whether to color/highlight a word, add an eyebrow, use a divider line, etc.), as long as the result clearly reads as THIS direction and never breaks the hard rules below (CTA stays plain text with no container; logo never collides with anything).`;
 
+  // BRAND DESIGN DEVICES as a real OVERLAY LAYER (not baked into the photo). The background is a
+  // clean photographic scene; the brand's signature graphic devices (the "bolinhas e formas" of a
+  // designed social ad — dot clusters/halftone, organic blobs, diagonal colour fields, rings) are
+  // rendered HERE as crisp CSS/SVG shapes in the brand colours, on TOP of the photo but UNDER the
+  // logo/text. This makes the devices a distinct DESIGN LAYER of the ad instead of a faint tint in
+  // the background. Gated to photographic ads that have a known brand colour + brand posts.
+  const brandDevicesLine = (opts.brandDevices && hasBrandHex)
+    ? `🔵 BRAND DESIGN DEVICES — REQUIRED — MAKE THIS LOOK LIKE A DESIGNED SOCIAL AD, NOT JUST A PHOTO + TEXT: you MUST add the brand's signature GRAPHIC DEVICES as a real DESIGN LAYER on top of the photo, in the brand colours ${accentHexForSpan}${accentHexSecondary !== accentHexForSpan ? ` / ${accentHexSecondary}` : ""}. These are the "bolinhas e formas" of a modern Instagram ad. Add AT LEAST ONE (ideally TWO) device, sitting in EMPTY areas. Use these ready-to-paste CSS elements (adjust position/size, keep z-index:15):
+   • DOT GRID (a signature — favour it): \`<div style="position:absolute;bottom:6%;right:5%;width:16%;height:16%;background-image:radial-gradient(${accentHexForSpan} 22%,transparent 23%);background-size:14% 14%;z-index:15;pointer-events:none"></div>\`
+   • ORGANIC BLOB bleeding from a corner: \`<div style="position:absolute;top:-6%;right:-6%;width:26%;height:26%;background:${accentHexForSpan};border-radius:47% 53% 60% 40%/50% 45% 55% 50%;opacity:0.9;z-index:15;pointer-events:none"></div>\`
+   • OUTLINE RING: \`<div style="position:absolute;top:8%;left:40%;width:8%;height:8%;border:0.5cqw solid ${accentHexForSpan};border-radius:50%;z-index:15;pointer-events:none"></div>\`
+   • DIAGONAL COLOUR WEDGE from an edge: \`<div style="position:absolute;bottom:0;left:0;width:22%;height:30%;background:${accentHexForSpan};clip-path:polygon(0 100%,0 20%,100% 100%);opacity:0.85;z-index:15;pointer-events:none"></div>\`
+   HARD RULES: (a) restraint — ONE or TWO devices only, small-to-medium, hugging edges/corners, together WELL UNDER ~18% of the canvas; never a busy field, never confetti everywhere; (b) place them ONLY in genuinely EMPTY areas — ⛔ NEVER over the person's face or body, NEVER over any text, the CTA, or the logo, NEVER over the visual hero (if a corner is occupied, pick another); (c) BLANK graphics — ZERO text/letters/logo inside; (d) always z-index:15 (ABOVE the scrim, BELOW the logo z-index:20 and text z-index:25). This layer is what makes the ad feel designed and on-brand — do not skip it.`
+    : "";
+
   const SYSTEM = [
     "You are an expert HTML/CSS advertising compositor.",
     "You receive a background image and output the complete HTML text overlay to be placed ON TOP of it.",
@@ -583,6 +598,8 @@ async function buildOverlayHtmlFromGemini(
     logoLine,
     "",
     designDirectionLine,
+    "",
+    brandDevicesLine,
     "",
     "YOUR ROLE: expert social media ad designer. Full creative freedom within the design direction above — make this ad look outstanding.",
     "1. ANALYZE the background image:",
@@ -638,6 +655,7 @@ async function buildOverlayHtmlFromGemini(
     `• Font: ${fontFamily}`,
     "• Text: color:#ffffff | text-shadow:0 2px 10px rgba(0,0,0,0.65),0 1px 3px rgba(0,0,0,0.45)",
     "• Scrim: position:absolute; z-index:1; pointer-events:none",
+    brandDevicesLine ? "• Brand design devices: position:absolute; z-index:15; pointer-events:none; blank brand-colour shapes only, in EMPTY areas — never over face/text/logo/hero." : "",
     "• Logo img: position:absolute; object-fit:contain; z-index:20",
     "• Text groups: position:absolute; display:flex; flex-direction:column; z-index:25",
     "• CTA: ends up at the bottom of the ad — but if the text block is already at the bottom, the CTA is the LAST CHILD of that block (below the subheadline); only when the block is at the top/center is the CTA a standalone z-index:26 element pinned to bottom:6–9%. Never both.",
@@ -648,6 +666,7 @@ async function buildOverlayHtmlFromGemini(
     "OPTION B → scrim div" + (logoUrl ? ", logo img," : ",") + " text-block div (headline + sub), CTA div.",
     "Example OPTION A:",
     "<div style=\"position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(...);z-index:1;pointer-events:none\"></div>",
+    brandDevicesLine ? `<div style="position:absolute;bottom:6%;right:5%;width:16%;height:16%;background-image:radial-gradient(${accentHexForSpan} 22%,transparent 23%);background-size:14% 14%;z-index:15;pointer-events:none"></div>` : "",
     logoUrl ? `<img src="${logoUrl}" style="position:absolute;top:4%;left:5%;width:24%;max-height:12%;object-fit:contain;z-index:20" alt="logo" />` : "",
     "<div style=\"position:absolute;top:6%;left:6%;right:6%;display:flex;flex-direction:column;z-index:25\">",
     "  <div style=\"font-size:7cqw;font-weight:900;color:#ffffff;...\">Headline <br> split here</div>",
@@ -2506,10 +2525,10 @@ function buildBackgroundPrompt(
       "⛔⛔ DO NOT REUSE THE SAME POSE OR PROP ACROSS DIFFERENT TOPICS: a pose or object that worked for a PREVIOUS campaign (e.g. 'arm extended, holding phone up, filming/selfie' for content-creation) is ONLY correct for that specific kind of topic. If THIS campaign's topic is something else, that exact pose/prop is WRONG regardless of how well it worked before — invent the pose and prop that THIS specific topic actually calls for from scratch. If the topic has no natural connection to a phone or screen at all, there should be NO phone or screen in the scene.",
       "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
       "• The person fills a large part of the frame, sharp and well-lit, as the unmistakable focal point; the scene supports them.",
-      castingRef ? "• BRAND-DESIGN the frame so it reads as a designed brand ad, not a stock photo with a logo slapped on. STUDY the attached brand posts (the other images) and match their creative ENERGY — their colour grade, their signature devices (brand-colour organic blobs/panels/diagonal fields, dot clusters/halftone), their composition and boldness — so this ad clearly belongs to the SAME family as those posts. Apply a strong on-brand colour grade over the WHOLE scene, give it generous brand-colour negative space, and integrate ONE OR TWO of the brand's signature devices tastefully in EMPTY areas (never over the face or the text zone). Be genuinely creative and dynamic — a bold, art-directed composition, NOT a flat centered stock photo. Still clean, never cluttered." : "",
+      castingRef ? "• BRAND-DESIGN the frame so it reads as a designed brand ad, not a stock photo with a logo slapped on. STUDY the attached brand posts (the other images) and match their creative ENERGY — their colour grade, their composition and boldness — so this ad clearly belongs to the SAME family as those posts. Apply a strong on-brand colour grade over the WHOLE scene and give it generous brand-colour negative space. ⛔ Do NOT bake the brand's graphic devices (organic blobs/panels/diagonal fields, dot clusters/halftone) INTO the photo — those crisp devices are added AFTERWARDS on a separate DESIGN LAYER on top, so keep the photographic scene itself clean and leave generous empty/calm areas for them. Be genuinely creative and dynamic — a bold, art-directed composition, NOT a flat centered stock photo. Still clean, never cluttered." : "",
       "• ⛔⛔ NEVER DRAW THE BRAND LOGO — IT WOULD APPEAR TWICE: the real brand logo is added by us, ONCE, on top afterwards. If you draw the brand name / wordmark / logo / monogram ANYWHERE in the scene it becomes a DUPLICATE and ruins the ad. So draw NO logo on any laptop screen, TV, monitor, phone, tablet, slide, wall, poster, sign, badge, lanyard, mug, notebook or clothing. This is the #1 failure — a screen must NEVER show a branded slide or a dashboard with a logo header.",
       "• ⛔ ZERO TEXT & ABSTRACT SCREENS: any screen, monitor, TV, phone, tablet, dashboard, graph or chart shows ONLY an abstract wavy line, soft glow or plain coloured shapes — NO slide layout, NO title/header, NO bullet points, NO text, numbers, labels, axis titles, legends or captions. If you can't render a screen without adding a logo or bullet text, make it a blank/off screen or a soft colour glow instead. Also never draw the word 'agency', a tagline or any wordmark on walls or props. The real logo and all copy are composited on top afterwards, so anything you draw appears twice and ruins the ad.",
-      "• The OTHER attached images are the brand's OWN posts — STUDY them and ECHO their signature visual DEVICES into this ad: their characteristic shapes, dot/halftone patterns, colour panels/diagonal fields and recurring motifs, plus their colour grade and composition energy, so the ad unmistakably belongs to the SAME brand family as those posts. Place those devices as BLANK graphics in EMPTY areas (never over the face or the text zone), with ZERO text/logo in them. Borrow their STYLE only — NEVER their subjects, people, captions or text.",
+      "• The OTHER attached images are the brand's OWN posts — STUDY them for the brand's COLOUR GRADE, mood and composition energy and match that, so this photo clearly belongs to the SAME brand family as those posts. Borrow their STYLE only — NEVER their subjects, people, captions or text. ⛔ Do NOT bake the brand's graphic DEVICES (dot fields, halftone, organic blobs, colour panels/diagonal fields) INTO the photo — those crisp devices are added AFTERWARDS on a separate DESIGN LAYER on top. So keep the photographic background itself clean and natural, and leave GENEROUS empty/calm areas (corners, sky, walls, floor) where those brand devices and the text will be composited.",
       "• Recompose for this aspect ratio and keep the reserved text-safe zone calm and uncluttered.",
       scene ? `⚠️ SCENE OVERRIDE: the reference image may show this person in an unrelated context (e.g. a studio, a filming/ring-light setup, a desk) — IGNORE that background entirely. Keep ONLY the PERSON (their identity/face/look) from the reference and rebuild everything around them as: ${scene}` : "",
     ].filter(Boolean).join("\n");
@@ -4020,7 +4039,7 @@ serve(async (req: Request) => {
           // +1 Gemini round-trip of latency; buys far more accurate text placement.
           const calm = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
           const geminiOverlay = bgForZone
-            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null })
+            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, brandDevices: (heroRef || refAsSubject) && brandRefCountInBg > 0 })
             : null;
           bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay });
         }
@@ -4136,7 +4155,7 @@ serve(async (req: Request) => {
           const calm = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
           const overlayDiag: { reason?: string } = {};
           const geminiOverlay = bgForZone
-            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, diag: overlayDiag })
+            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, diag: overlayDiag, brandDevices: (heroRef || refAsSubject) && brandRefCountInBg > 0 })
             : null;
           bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay, overlayDiag: overlayDiag.reason });
         }
