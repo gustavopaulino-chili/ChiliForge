@@ -2499,7 +2499,7 @@ function buildBackgroundPrompt(
       "⛔⛔ DO NOT REUSE THE SAME POSE OR PROP ACROSS DIFFERENT TOPICS: a pose or object that worked for a PREVIOUS campaign (e.g. 'arm extended, holding phone up, filming/selfie' for content-creation) is ONLY correct for that specific kind of topic. If THIS campaign's topic is something else, that exact pose/prop is WRONG regardless of how well it worked before — invent the pose and prop that THIS specific topic actually calls for from scratch. If the topic has no natural connection to a phone or screen at all, there should be NO phone or screen in the scene.",
       "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
       "• The person fills a large part of the frame, sharp and well-lit, as the unmistakable focal point; the scene supports them.",
-      castingRef ? "• BRAND-DESIGN the frame so it reads as a designed brand ad, not a stock photo with a logo slapped on: give it generous brand-colour negative space, a strong on-brand colour grade, and integrate ONE brand device (a brand-colour organic shape/panel OR a subtle dot cluster) tastefully in an EMPTY area — never over the person's face or the text zone. Keep it clean and premium, not cluttered." : "",
+      castingRef ? "• BRAND-DESIGN the frame so it reads as a designed brand ad, not a stock photo with a logo slapped on. STUDY the attached brand posts (the other images) and match their creative ENERGY — their colour grade, their signature devices (brand-colour organic blobs/panels/diagonal fields, dot clusters/halftone), their composition and boldness — so this ad clearly belongs to the SAME family as those posts. Apply a strong on-brand colour grade over the WHOLE scene, give it generous brand-colour negative space, and integrate ONE OR TWO of the brand's signature devices tastefully in EMPTY areas (never over the face or the text zone). Be genuinely creative and dynamic — a bold, art-directed composition, NOT a flat centered stock photo. Still clean, never cluttered." : "",
       "• ⛔ ZERO TEXT & NO FAKE LOGO IN THE SCENE: any screen, monitor, TV, phone, tablet, dashboard, graph or chart shows ONLY abstract bars, lines and shapes — NO text, numbers, labels, axis titles, legends or captions. Never draw the brand name, the word 'agency', a tagline, a wordmark, a monogram or ANY logo anywhere (walls, screens, props, clothing, signage). The real logo and all copy are composited on top afterwards, so anything you draw appears twice and ruins the ad.",
       "• Any OTHER attached images are brand STYLE references only — borrow their look/lighting/palette, NEVER their subjects and NEVER their text.",
       "• Recompose for this aspect ratio and keep the reserved text-safe zone calm and uncluttered.",
@@ -3675,6 +3675,10 @@ serve(async (req: Request) => {
       // Brand posts are STILL used in every branch (they are NOT a "reference image"). This whole
       // block is skipped whenever the caller sent a reference image — that path stays untouched.
       let ugcNoRef = false;
+      // Marks a hero that came from the AUTO-Pexels stock fetch (NOT a caller-chosen reference). A
+      // stock full-scene photo must be RE-STAGED creatively in the brand's style (castingRef=true),
+      // whereas a caller's own image (Diego) is reproduced faithfully (castingRef=false).
+      let pexelsAuto = false;
       const isExternalApi = Boolean(String((campaignData as any).externalApiContract || "").trim());
       const callerSentBgUrl = String(campaignData.backgroundImageUrl || "").startsWith("http");
       // External API with NO reference image → randomly (seeded by jobId) decide whether to feature
@@ -3708,6 +3712,7 @@ serve(async (req: Request) => {
           (campaignData as any).composeCompanyRefs = [pexUrl, ...existingRefs.filter((u) => u !== pexUrl)];
           heroRef = true;
           bgSource = "company";
+          pexelsAuto = true;      // stock hero → RE-STAGE creatively in the brand's style (not reproduce)
         } else {
           ugcNoRef = true;        // no Pexels → invent a believable scene in the prompt
           if (bgSource === "reference") bgSource = "creative";
@@ -3938,7 +3943,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene));
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -4021,7 +4026,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene));
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
