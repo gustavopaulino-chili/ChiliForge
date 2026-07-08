@@ -3,22 +3,81 @@
 
 // Estimated Gemini cost log (server error_log only; never returned to clients).
 // Prices USD per 1M tokens — keep in sync with https://ai.google.dev/gemini-api/docs/pricing
-if (!function_exists('gemini_log_cost')) {
-    function gemini_log_cost(string $fn, string $model, $usage): void {
+// ── Gemini cost tracking (authoritative, exact-to-the-token) ─────────────────
+// Single source of truth for pricing across PHP + the edge (the edge POSTs its raw
+// usageMetadata to log-gemini-usage.php, which calls gemini_record_usage below, so BOTH
+// PHP-native calls and edge calls land in ONE table with ONE price table).
+if (!function_exists('gemini_pricing_table')) {
+    // [input $/1M, text-output $/1M]. Image models bill their output separately (see below).
+    function gemini_pricing_table(): array {
+        return [
+            'gemini-2.5-flash'        => [0.30, 2.50],
+            'gemini-2.5-flash-lite'   => [0.10, 0.40],
+            'gemini-2.5-pro'          => [1.25, 10.00],
+            'gemini-3.5-flash'        => [1.50, 9.00],
+            'gemini-3-flash-preview'  => [0.50, 3.00],
+            'gemini-3-pro-preview'    => [2.00, 12.00],
+            'gemini-2.5-flash-image'  => [0.30, 0.00],
+            'gemini-3-pro-image'      => [2.00, 0.00],
+            'gemini-3.1-flash-image'  => [0.50, 0.00],
+        ];
+    }
+}
+if (!function_exists('gemini_image_out_per_1m')) {
+    // Image OUTPUT price per 1M tokens (image models bill the generated image as output tokens).
+    function gemini_image_out_per_1m(string $model): float {
+        $t = ['gemini-2.5-flash-image' => 30.0, 'gemini-3.1-flash-image' => 60.0, 'gemini-3-pro-image' => 120.0];
+        foreach ($t as $k => $v) { if (strpos($model, $k) === 0) return $v; }
+        return 0.0;
+    }
+}
+if (!function_exists('gemini_calc_usd')) {
+    // Exact USD for ONE call, from Google's real usageMetadata (prompt + output + THINKING tokens).
+    // promptTokenCount already includes File Search retrieval + cached content, so retrieval is billed.
+    function gemini_calc_usd(string $model, $usage): float {
+        $P = gemini_pricing_table(); $rate = [0.30, 2.50];
+        foreach ($P as $k => $v) { if (strpos($model, $k) === 0) { $rate = $v; break; } }
+        $u = is_array($usage) ? $usage : [];
+        $in    = (int)($u['promptTokenCount']    ?? $u['prompt_token_count']     ?? 0);
+        $out   = (int)($u['candidatesTokenCount'] ?? $u['candidates_token_count'] ?? 0);
+        $think = (int)($u['thoughtsTokenCount']   ?? $u['thoughts_token_count']   ?? 0); // billed at output rate
+        $imgRate = gemini_image_out_per_1m($model);
+        $inUsd  = ($in / 1000000) * $rate[0];
+        $outUsd = $imgRate > 0
+            ? ($out / 1000000) * $imgRate                 // image model: candidates = generated image
+            : (($out + $think) / 1000000) * $rate[1];     // text/vision: candidates + thinking at output rate
+        return $inUsd + $outUsd;
+    }
+}
+if (!function_exists('gemini_record_usage')) {
+    // Compute exact cost + PERSIST one call into the gemini_usage table. Returns the USD.
+    // $conn optional — falls back to the global $conn (db.php). Never throws.
+    function gemini_record_usage(string $source, string $model, $usage, ?int $jobId = null, ?string $meta = null, $conn = null): float {
+        $usd = gemini_calc_usd($model, $usage);
         try {
-            $P = [
-                'gemini-2.5-flash' => [0.30, 2.50], 'gemini-2.5-flash-lite' => [0.10, 0.40],
-                'gemini-2.5-pro' => [1.25, 10.00], 'gemini-3.5-flash' => [1.50, 9.00],
-                'gemini-3-flash-preview' => [0.50, 3.00], 'gemini-2.5-flash-image' => [0.30, 0.0],
-            ];
-            $rate = [0.30, 2.50];
-            foreach ($P as $k => $v) { if (strpos($model, $k) === 0) { $rate = $v; break; } }
-            $u = is_array($usage) ? $usage : [];
-            $in  = (int)($u['promptTokenCount'] ?? $u['prompt_token_count'] ?? 0);
-            $out = (int)($u['candidatesTokenCount'] ?? $u['candidates_token_count'] ?? 0);
-            $usd = ($in / 1000000) * $rate[0] + ($out / 1000000) * $rate[1];
-            error_log(sprintf('[cost-estimate] fn=%s model=%s in=%d out=%d ~=$%.5f', $fn, $model, $in, $out, $usd));
-        } catch (\Throwable $e) { /* logging must never break */ }
+            if (!$conn) { global $conn; }
+            if ($conn instanceof mysqli) {
+                $u = is_array($usage) ? $usage : [];
+                $in    = (int)($u['promptTokenCount']    ?? $u['prompt_token_count']     ?? 0);
+                $out   = (int)($u['candidatesTokenCount'] ?? $u['candidates_token_count'] ?? 0);
+                $think = (int)($u['thoughtsTokenCount']   ?? $u['thoughts_token_count']   ?? 0);
+                $cached= (int)($u['cachedContentTokenCount'] ?? $u['cached_content_token_count'] ?? 0);
+                $metaS = $meta !== null ? mb_substr($meta, 0, 250) : null;
+                $stmt = $conn->prepare("INSERT INTO gemini_usage (source, model, in_tokens, cached_tokens, out_tokens, thought_tokens, usd, job_id, meta) VALUES (?,?,?,?,?,?,?,?,?)");
+                if ($stmt) {
+                    $stmt->bind_param('ssiiiidis', $source, $model, $in, $cached, $out, $think, $usd, $jobId, $metaS);
+                    $stmt->execute(); $stmt->close();
+                }
+            }
+        } catch (\Throwable $e) { /* logging must never break the request */ }
+        error_log(sprintf('[cost] fn=%s model=%s ~=$%.5f', $source, $model, $usd));
+        return $usd;
+    }
+}
+if (!function_exists('gemini_log_cost')) {
+    // Back-compat wrapper — existing callers (chat, setup-wizard) now persist exactly.
+    function gemini_log_cost(string $fn, string $model, $usage): void {
+        try { gemini_record_usage($fn, $model, $usage); } catch (\Throwable $e) { /* never break */ }
     }
 }
 

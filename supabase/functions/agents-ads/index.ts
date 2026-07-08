@@ -863,6 +863,7 @@ async function generateAdImage(
               const job = opts.costAcc?.jobId ? ` job=${opts.costAcc.jobId}` : "";
               console.log(`[cost-estimate]${job} IMAGE model=${model} in=${inTok}tok($${inUsd.toFixed(5)}) image=${outTok}tok($${imgUsd.toFixed(5)}) ~= $${total.toFixed(5)}`);
               if (opts.costAcc) { opts.costAcc.usd += total; opts.costAcc.images += 1; }
+              logGeminiUsage("agents-ads-image", model, u, opts.costAcc?.jobId);
             } catch (_) { /* logging must never break generation */ }
             return { url, rec: parseComposeTextRec(extractTextFromGeminiPayload(data)) };
           }
@@ -2977,6 +2978,24 @@ const CREATIVE_PLAN_JSON_SCHEMA: Record<string, unknown> = {
 // Estimated paid-tier prices (USD per 1M tokens) — for the [cost-estimate] server
 // log only (Supabase function logs). Not billing; Google is the source of truth.
 // Keep in sync with https://ai.google.dev/gemini-api/docs/pricing
+// Fire-and-forget: POST one Gemini call's RAW usageMetadata to the PHP usage ledger
+// (log-gemini-usage.php), which is the single pricing authority and persists it to the
+// gemini_usage table. Never blocks or throws — cost logging must never affect generation.
+// Requires the Supabase secrets USAGE_LOG_URL + USAGE_LOG_SECRET (no-ops if unset).
+function logGeminiUsage(source: string, model: string, usage: unknown, jobId?: number | string): void {
+  try {
+    const url = env?.get("USAGE_LOG_URL");
+    const secret = env?.get("USAGE_LOG_SECRET");
+    if (!url || !secret) return;
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret, source, model, usage: usage ?? {}, job_id: jobId ? Number(jobId) : null }),
+      signal: AbortSignal.timeout(4000),
+    }).catch(() => {});
+  } catch (_) { /* never break generation */ }
+}
+
 const GEMINI_PRICING: Record<string, { in: number; out: number }> = {
   "gemini-2.5-flash":        { in: 0.30, out: 2.50 },
   "gemini-2.5-flash-lite":   { in: 0.10, out: 0.40 },
@@ -3121,6 +3140,7 @@ async function callGemini(
     console.log(`[token-usage]${jobId ? ` job=${jobId}` : ""} model=${model} stores=${fileSearchStores?.length ?? 0}(${(fileSearchStores ?? []).join(",")}) refImgs=${referenceImages?.length ?? 0} prompt=${u.promptTokenCount ?? u.prompt_token_count ?? "?"} candidates=${u.candidatesTokenCount ?? u.candidates_token_count ?? "?"} toolUse=${u.toolUsePromptTokenCount ?? u.tool_use_prompt_token_count ?? 0} total=${u.totalTokenCount ?? u.total_token_count ?? "?"}`);
     const callUsd = logCostEstimate(model, promptTok, outTok, "", jobId);
     if (options?.costAcc) options.costAcc.usd += callUsd; // fold every Gemini call into the per-request total
+    logGeminiUsage("agents-ads", model, u, options?.jobId); // persist to the central gemini_usage ledger
   } catch (_) { /* logging must never break generation */ }
   const text = data?.candidates?.[0]?.content?.parts
     ?.filter((p: any) => typeof p.text === "string")
