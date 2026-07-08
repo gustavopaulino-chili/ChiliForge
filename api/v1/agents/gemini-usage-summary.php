@@ -26,6 +26,19 @@ $source = trim((string) ($_GET['source'] ?? $_POST['source'] ?? ''));
 if ($source !== '') { $where[] = 'source = ?'; $types .= 's'; $args[] = $source; }
 $sqlWhere = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
 
+// by_job=1 → recent jobs with per-job cost (to find "my last request").
+if (!empty($_GET['by_job']) || !empty($_POST['by_job'])) {
+    try {
+        $sqlJ = "SELECT job_id, COUNT(*) calls, SUM(usd) usd, MIN(created_at) at FROM gemini_usage $sqlWhere GROUP BY job_id ORDER BY at DESC LIMIT 20";
+        $stmtJ = $conn->prepare($sqlJ);
+        if (!$stmtJ) { echo json_encode(['error' => 'prepare failed — table exists?', 'mysql' => $conn->error]); exit; }
+        if ($types !== '') $stmtJ->bind_param($types, ...$args);
+        $stmtJ->execute(); $rj = $stmtJ->get_result(); $jobs = [];
+        while ($row = $rj->fetch_assoc()) { $row['usd'] = round((float)$row['usd'], 6); $jobs[] = $row; }
+        echo json_encode(['ok' => true, 'jobs' => $jobs], JSON_UNESCAPED_UNICODE); exit;
+    } catch (\Throwable $e) { echo json_encode(['error' => 'query failed', 'detail' => $e->getMessage()]); exit; }
+}
+
 try {
     $sql = "SELECT model, COUNT(*) calls, SUM(usd) usd, SUM(in_tokens) in_tok, SUM(out_tokens) out_tok, SUM(thought_tokens) thought_tok FROM gemini_usage $sqlWhere GROUP BY model ORDER BY usd DESC";
     $stmt = $conn->prepare($sql);
