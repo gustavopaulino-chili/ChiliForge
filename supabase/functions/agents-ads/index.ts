@@ -2501,7 +2501,7 @@ function buildBackgroundPrompt(
       "• The person fills a large part of the frame, sharp and well-lit, as the unmistakable focal point; the scene supports them.",
       castingRef ? "• BRAND-DESIGN the frame so it reads as a designed brand ad, not a stock photo with a logo slapped on. STUDY the attached brand posts (the other images) and match their creative ENERGY — their colour grade, their signature devices (brand-colour organic blobs/panels/diagonal fields, dot clusters/halftone), their composition and boldness — so this ad clearly belongs to the SAME family as those posts. Apply a strong on-brand colour grade over the WHOLE scene, give it generous brand-colour negative space, and integrate ONE OR TWO of the brand's signature devices tastefully in EMPTY areas (never over the face or the text zone). Be genuinely creative and dynamic — a bold, art-directed composition, NOT a flat centered stock photo. Still clean, never cluttered." : "",
       "• ⛔ ZERO TEXT & NO FAKE LOGO IN THE SCENE: any screen, monitor, TV, phone, tablet, dashboard, graph or chart shows ONLY abstract bars, lines and shapes — NO text, numbers, labels, axis titles, legends or captions. Never draw the brand name, the word 'agency', a tagline, a wordmark, a monogram or ANY logo anywhere (walls, screens, props, clothing, signage). The real logo and all copy are composited on top afterwards, so anything you draw appears twice and ruins the ad.",
-      "• Any OTHER attached images are brand STYLE references only — borrow their look/lighting/palette, NEVER their subjects and NEVER their text.",
+      "• The OTHER attached images are the brand's OWN posts — STUDY them and ECHO their signature visual DEVICES into this ad: their characteristic shapes, dot/halftone patterns, colour panels/diagonal fields and recurring motifs, plus their colour grade and composition energy, so the ad unmistakably belongs to the SAME brand family as those posts. Place those devices as BLANK graphics in EMPTY areas (never over the face or the text zone), with ZERO text/logo in them. Borrow their STYLE only — NEVER their subjects, people, captions or text.",
       "• Recompose for this aspect ratio and keep the reserved text-safe zone calm and uncluttered.",
       scene ? `⚠️ SCENE OVERRIDE: the reference image may show this person in an unrelated context (e.g. a studio, a filming/ring-light setup, a desk) — IGNORE that background entirely. Keep ONLY the PERSON (their identity/face/look) from the reference and rebuild everything around them as: ${scene}` : "",
     ].filter(Boolean).join("\n");
@@ -4062,8 +4062,11 @@ serve(async (req: Request) => {
                 } else if (retryHasText) {
                   // Hero mode: shapes would erase the hero subject. Try ONE more attempt with a
                   // stricter reminder targeting the devices/screens/signage that keep leaking text.
-                  console.warn(`[bg-validate] retry still has text, heroRef → final attempt job=${jobId ?? "?"}`);
-                  const finalRetry = await generateAdImage(bgPrompt + HERO_NO_TEXT_RETRY_REMINDER, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
+                  // Final attempt: DROP the brand-post images (the usual source of TRACED captions/
+                  // slogans) and keep ONLY the hero. This removes the text source while preserving the
+                  // person — so a caller ref can still come out clean WITH the subject.
+                  console.warn(`[bg-validate] retry still has text, heroRef → final attempt (hero-only refs) job=${jobId ?? "?"}`);
+                  const finalRetry = await generateAdImage(bgPrompt + HERO_NO_TEXT_RETRY_REMINDER, bgRefImages.slice(0, 1), apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
                   if (finalRetry) {
                     const finalHasText = await backgroundHasText(finalRetry.url, apiKey, { jobId, costAcc });
                     gen = finalRetry;
