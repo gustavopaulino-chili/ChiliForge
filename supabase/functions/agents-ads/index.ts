@@ -2355,6 +2355,7 @@ function buildBackgroundPrompt(
   ugcNoRef: boolean = false,
   themeScene: string = "",
   castingRef: boolean = false,
+  hasBrandPosts: boolean = false,
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
@@ -2538,7 +2539,16 @@ function buildBackgroundPrompt(
   const paletteHexes = [...new Set((spec.match(/#[0-9a-f]{6}\b/gi) || []))].slice(0, 4);
   const primaryName = describeHexColor(paletteHexes[0] || "");
   const accentNames = [...new Set(paletteHexes.slice(1).map(describeHexColor).filter(Boolean))];
-  const colorLine = primaryName
+  // COLOUR SOURCE OF TRUTH.
+  // When brand-post reference images are attached, THEY define the real brand palette — the
+  // stored CSS-var hex can be stale/generic/wrong (e.g. a company saved navy+orange but every
+  // brand post is actually red). So when posts are present we tell the model to SAMPLE the
+  // dominant, recurring brand colours from the brand-post images and grade the whole scene to
+  // match THOSE — the stored colour name becomes a weak fallback that the posts override. Only
+  // when there are NO brand posts do we lock hard onto the stored hex name.
+  const colorLine = hasBrandPosts
+    ? `BRAND COLORS — ⛔ SOURCE OF TRUTH = THE BRAND-POST REFERENCE IMAGES: the real brand palette is whatever DOMINANT, RECURRING colours appear across the attached brand Instagram posts. STUDY those posts, identify the brand's signature colour(s), and light + colour-grade the WHOLE scene so those post colours clearly DOMINATE the canvas as the main brand field. Do NOT take the palette from any hero/product/person reference (e.g. that model's clothing colour) and do NOT invent a colour — if the hero image has a different colour, RE-GRADE it into the brand-post palette. ${primaryName ? `(As a rough hint the saved brand colour is around ${primaryName}, but if the brand posts disagree, the BRAND POSTS WIN.)` : ""} Never write any color name, code, hex or # as text.`
+    : primaryName
     ? `BRAND COLORS — the DOMINANT background color is ${primaryName}: it should fill MOST of the canvas as the main, vivid brand field (do not mute, grey-out or darken it into a dull mix).${accentNames.length ? ` Use ${accentNames.join(", ")} only as smaller accents and contrast.` : ""} ⛔ COLOUR-SOURCE LOCK: the palette comes ONLY from the brand. Any attached product/reference image is used for its SUBJECT and SHAPE, NEVER its colours — if that image has a different colour (e.g. blue), RE-LIGHT and COLOUR-GRADE the entire scene into ${primaryName} and the brand accents regardless. The product may keep its own material, but the surrounding scene, lighting and overall colour grade MUST be unmistakably the brand's, not the reference image's. Never write any color name, code, hex or # as text.`
     : "";
   const safeSpec = scrubBgPromptText(spec);
@@ -3968,7 +3978,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -4051,7 +4061,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
