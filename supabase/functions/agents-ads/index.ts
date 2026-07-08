@@ -268,7 +268,11 @@ function parseComposeTextRec(text: string): ComposeTextRec | null {
 }
 
 // Feature flags
-const VALIDATE_BACKGROUND = true;  // background text detection + retry
+// DISABLED (2026-07-08): the burned-text detector (gemini-3-pro-preview per banner) + retry loop
+// (extra image gens per texty banner) was a real cost drain AND not reliable — text still slipped
+// through. Turned off by request: if a rare banner comes with text, the client regenerates it.
+// Set back to true to re-enable the backgroundHasText validation + retry + shapes fallback.
+const VALIDATE_BACKGROUND = false;  // background text detection + retry
 const CRITIQUE_OVERLAY    = true;  // Flash self-reviews its overlay and retries once if poor
 
 // Appended to the bg prompt when a regeneration is triggered because the first attempt leaked
@@ -775,7 +779,7 @@ async function pickCalmTextZone(
   try {
     // Gemini 3 Pro decides placement — best vision/reasoning for finding the calm zone. thinkingLevel
     // "low" keeps it cheap/fast for a one-word answer; maxTokens leaves room for the minimal thinking.
-    const res = await callGemini(SYSTEM, USER, "gemini-3-pro-preview", 0, 512, apiKey, undefined, [bgRef], { ...opts, thinkingLevel: "low", timeoutMs: 25000 });
+    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0, 64, apiKey, undefined, [bgRef], { ...opts, thinkingBudget: 0, timeoutMs: 25000 });
     const word = String(res.text || "").toLowerCase().match(/top|bottom|left|right|center/)?.[0];
     const layout = word ? (CALM_ZONE_TO_LAYOUT[word] ?? null) : null;
     if (word && layout) console.log(`[calm-zone] job=${opts.jobId ?? "?"} → ${word} (${layout})`);
