@@ -31,7 +31,9 @@ $body = json_decode($raw, true);
 if (!is_array($body)) { http_response_code(400); echo json_encode(['error' => 'invalid json']); exit; }
 
 // ── Auth (shared secret) ────────────────────────────────────────────────────
-$expected = (string) getenv('USAGE_LOG_SECRET');
+// getenv fallback follows the same pattern as db.php (this server doesn't populate getenv from
+// .env). Must match the Supabase secret USAGE_LOG_SECRET that the edge sends.
+$expected = (string) (getenv('USAGE_LOG_SECRET') ?: '4abec0d3d772668c863df116597c2264370dfeb19a7e9024');
 $provided = (string) ($body['secret'] ?? $_SERVER['HTTP_X_USAGE_SECRET'] ?? '');
 if ($expected === '' || !hash_equals($expected, $provided)) {
     http_response_code(401); echo json_encode(['error' => 'unauthorized']); exit;
