@@ -2527,11 +2527,11 @@ function buildBackgroundPrompt(
       "⛔⛔ DO NOT REUSE THE SAME POSE OR PROP ACROSS DIFFERENT TOPICS: a pose or object that worked for a PREVIOUS campaign (e.g. 'arm extended, holding phone up, filming/selfie' for content-creation) is ONLY correct for that specific kind of topic. If THIS campaign's topic is something else, that exact pose/prop is WRONG regardless of how well it worked before — invent the pose and prop that THIS specific topic actually calls for from scratch. If the topic has no natural connection to a phone or screen at all, there should be NO phone or screen in the scene.",
       "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
       "• The person fills a large part of the frame, sharp and well-lit, as the unmistakable focal point; the scene supports them.",
-      castingRef ? "• BRAND-DESIGN the frame so it reads as a designed brand ad, not a stock photo with a logo slapped on. STUDY the attached brand posts (the other images) and match their creative ENERGY — colour grade, composition, boldness, and their signature graphic MOTIFS — so this ad clearly belongs to the SAME family. Apply a strong on-brand colour grade over the WHOLE scene and give it generous brand-colour negative space. ⭐ ADD A DESIGN-ASSET LAYER (this is what makes it a designed social ad, not just a photo): float a few of the brand's signature graphic elements — soft 3D/glass brand-colour shapes, dot/halftone clusters, rings, organic blobs, the brand's motif, or relevant floating icons (e.g. heart/like bubbles, stars) — HOVERING in the composition like the sticker/icon layer of a modern Instagram ad, catching the scene's light but clearly DECORATIVE, NOT physical objects sitting in the room. Place them ONLY in EMPTY areas (never over the face or the reserved text zone), ZERO text/letters/logo inside them. Be genuinely creative and dynamic — a bold, art-directed composition, NOT a flat centered stock photo. Still clean, never cluttered — a few tasteful accents, never a busy field." : "",
+      castingRef ? "• BRAND-DESIGN the frame so it reads as a designed brand ad, not a stock photo with a logo slapped on. STUDY the attached brand posts (the other images) and match their creative ENERGY — colour grade, composition, boldness — so this ad clearly belongs to the SAME family. Apply a strong on-brand colour grade over the WHOLE scene and give it generous brand-colour negative space. ⭐ DESIGN-ASSET LAYER — ONLY IF THE BRAND USES ONE: judge from the attached brand posts whether the brand decorates its posts with graphic overlays (floating dots/halftone, blobs, colour panels, rings, stars, icons/badges). IF YES, replicate that same layer here in the SAME devices and SAME colours the posts use — floating over the scene, clearly decorative, in empty areas only (never over the face or text zone), ZERO text/logo inside. IF the brand's posts are clean without such overlays, add NONE. Mirror what the posts actually do — never invent a design language the brand lacks. Be genuinely creative and dynamic — a bold, art-directed composition, NOT a flat centered stock photo. Still clean, never cluttered." : "",
       "• ⛔⛔ NEVER DRAW THE BRAND LOGO OR A 'LOGO' PLACEHOLDER — IT WOULD APPEAR TWICE: the real brand logo is added by us, ONCE, on top afterwards. If you draw the brand name / wordmark / logo / monogram ANYWHERE in the scene it becomes a DUPLICATE and ruins the ad. Also NEVER render a placeholder like the literal word 'LOGO', 'YOUR LOGO', 'YOUR LOGO HERE', 'BRAND' or an empty logo box (stock scenes often have these — omit them entirely). So draw NO logo/wordmark/placeholder on any laptop screen, TV, monitor, phone, tablet, slide, wall, poster, sign, badge, lanyard, mug, notebook or clothing. This is the #1 failure — a screen must NEVER show a branded slide or a dashboard with a logo header.",
       "• ⛔ ZERO TEXT & ABSTRACT SCREENS: any screen, monitor, TV, phone, tablet, dashboard, graph or chart shows ONLY an abstract wavy line, soft glow or plain coloured shapes — NO slide layout, NO title/header, NO bullet points, NO text, numbers, labels, axis titles, legends or captions. If you can't render a screen without adding a logo or bullet text, make it a blank/off screen or a soft colour glow instead. Also never draw the word 'agency', a tagline or any wordmark on walls or props. The real logo and all copy are composited on top afterwards, so anything you draw appears twice and ruins the ad.",
       "• The OTHER attached images are the brand's OWN posts — STUDY them for the brand's COLOUR GRADE, mood, composition energy AND their signature graphic MOTIFS (dot/halftone clusters, organic blobs, colour panels, the brand's icon/smile/comma shape, rings, stars, social like/heart bubbles). Borrow their STYLE only — NEVER their subjects, people, captions or text.",
-      "• ⭐ ADD A DESIGN-ASSET LAYER OVER THE SCENE — THIS IS IMPORTANT (it's what makes a designed social ad instead of a plain photo): besides colour-grading the environment, FLOAT a few of the brand's signature graphic elements as a DECORATIVE layer — soft 3D/glass brand-colour shapes, dot clusters, rings, organic blobs, the brand's own motif, or relevant floating icons (heart/like bubbles, stars, sparkles) — HOVERING in the composition like the sticker/icon layer of a modern Instagram ad. They catch the scene's light but are clearly DECORATIVE graphic elements, NOT physical objects sitting in the room. Keep the environment itself brand-graded too. RULES: place these floating elements ONLY in EMPTY areas (never over the face or the reserved text zone), keep them tasteful (a few accents, never a busy field), in the brand colours, ZERO text/letters/logo inside them.",
+      "• ⭐ MATCH THE BRAND'S DESIGN LANGUAGE — READ IT FROM THE BRAND POSTS (do NOT force or invent it): look carefully at the attached brand posts and judge whether this brand DECORATES its posts with GRAPHIC DESIGN-ASSET OVERLAYS — floating dots/halftone clusters, organic blobs, colour panels/diagonal fields, rings, stars, sparkles, badges or icons layered OVER the content. ▶ IF the brand's posts consistently use such overlays: replicate THAT SAME design-asset layer here — the SAME kinds of devices, in the SAME colours the posts actually use — floating over the scene like the sticker/icon layer of a designed social ad (catching the scene's light, clearly decorative, NOT physical objects in the room). Place them ONLY in EMPTY areas (never over the face or the reserved text zone), tasteful, ZERO text/letters/logo inside. ▶ IF the brand's posts do NOT use graphic overlays (clean photographic ads, minimal or no floating devices): add NONE — keep the scene clean and simply brand-graded. Mirror what the brand ACTUALLY does in its posts; never impose a design language it doesn't have, and never take the device colours from anywhere but the brand's own posts.",
       "• Recompose for this aspect ratio and keep the reserved text-safe zone calm and uncluttered.",
       scene ? `⚠️ SCENE OVERRIDE: the reference image may show this person in an unrelated context (e.g. a studio, a filming/ring-light setup, a desk) — IGNORE that background entirely. Keep ONLY the PERSON (their identity/face/look) from the reference and rebuild everything around them as: ${scene}` : "",
     ].filter(Boolean).join("\n");
@@ -3879,7 +3879,7 @@ serve(async (req: Request) => {
       const companyRefUrls = usesRefs && Array.isArray((campaignData as any).composeCompanyRefs)
         ? ((campaignData as any).composeCompanyRefs as unknown[])
             .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
-            .slice(0, 3)
+            .slice(0, 4)
         : [];
       // companyRefImages: fetch every composeCompanyRefs URL. When auto-mode set the Pexels photo as
       // referenceImageUrl above, that URL is already FIRST in composeCompanyRefs → it is fetched here
@@ -3897,15 +3897,18 @@ serve(async (req: Request) => {
       } else if (briefDriven && refImagesForGen.length > 0 && companyRefImages.length > 0) {
         // Brand brief + brand post images + generation-specific reference:
         // Reserve the last slot for the generation image so the model can distinguish roles.
-        // Cap brand posts at 2 so there is always room for the generation ref.
-        const brandSlice = companyRefImages.slice(0, 2);
+        // Cap brand posts at 3 (was 2) so the model sees more examples to detect + replicate the
+        // brand's design language, while still leaving room for the generation ref.
+        const brandSlice = companyRefImages.slice(0, 3);
         const genSlice = refImagesForGen.slice(0, 1);
         bgRefImages = [...brandSlice, ...genSlice];
         brandRefCountInBg = brandSlice.length;
         genRefCountInBg = genSlice.length;
       } else {
-        // Standard: brand images + gen assets fill all slots (up to 3 total).
-        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 3);
+        // Standard: brand images + gen assets fill all slots (up to 4 total = hero + 3 brand posts).
+        // Bumped 3→4 so the model has 3 brand-post examples to judge whether the brand uses design
+        // assets and, if so, mirror their exact devices + colours (2 examples was too thin).
+        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 4);
         brandRefCountInBg = Math.min(companyRefImages.length, bgRefImages.length);
       }
 
@@ -4042,7 +4045,11 @@ serve(async (req: Request) => {
           // +1 Gemini round-trip of latency; buys far more accurate text placement.
           const calm = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
           const geminiOverlay = bgForZone
-            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, brandDevices: (heroRef || refAsSubject) && brandRefCountInBg > 0 })
+            // brandDevices (CSS overlay device) DISABLED: the overlay model can't see the brand posts,
+            // so it rendered off-brand (blue) devices from a stored accent hex. The brand's real design
+            // assets are now handled by the image model (which sees the posts and matches their devices +
+            // colours), conditional on the brand actually using them. See the heroRef design-asset rule.
+            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, brandDevices: false })
             : null;
           bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay });
         }
@@ -4158,7 +4165,9 @@ serve(async (req: Request) => {
           const calm = bgForZone ? await pickCalmTextZone(bgForZone, apiKey, { jobId, costAcc }) : null;
           const overlayDiag: { reason?: string } = {};
           const geminiOverlay = bgForZone
-            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, diag: overlayDiag, brandDevices: (heroRef || refAsSubject) && brandRefCountInBg > 0 })
+            // brandDevices (CSS overlay device) DISABLED — see note at the other call site. Design
+            // assets now come from the image model, matched to the brand posts, conditional on usage.
+            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, diag: overlayDiag, brandDevices: false })
             : null;
           bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay, overlayDiag: overlayDiag.reason });
         }
