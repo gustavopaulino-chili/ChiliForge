@@ -4060,17 +4060,26 @@ serve(async (req: Request) => {
                   if (shapes) { gen = shapes; console.log(`[bg-validate] shapes fallback ok job=${jobId ?? "?"}`); }
                   else console.warn(`[bg-validate] shapes fallback failed, keeping texty bg job=${jobId ?? "?"}`);
                 } else if (retryHasText) {
-                  // Hero mode: shapes would erase the hero subject (the whole point of the ad).
-                  // Don't give up yet — one more attempt with a stricter reminder that specifically
-                  // targets the devices/screens/signage that keep leaking "content" text, since this
-                  // failure was recurring frequently before this final attempt was added.
+                  // Hero mode: shapes would erase the hero subject. Try ONE more attempt with a
+                  // stricter reminder targeting the devices/screens/signage that keep leaking text.
                   console.warn(`[bg-validate] retry still has text, heroRef → final attempt job=${jobId ?? "?"}`);
                   const finalRetry = await generateAdImage(bgPrompt + HERO_NO_TEXT_RETRY_REMINDER, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
                   if (finalRetry) {
                     const finalHasText = await backgroundHasText(finalRetry.url, apiKey, { jobId, costAcc });
                     gen = finalRetry;
-                    if (finalHasText) console.warn(`[bg-validate] hero final-retry still has text, using best-of-3 anyway job=${jobId ?? "?"}`);
-                    else console.log(`[bg-validate] hero final-retry clean job=${jobId ?? "?"}`);
+                    if (finalHasText) {
+                      if (pexelsAuto) {
+                        // The hero is an auto-fetched STOCK person (expendable — NOT the caller's own
+                        // asset), and all 3 photographic attempts leaked text. Fall back to an ABSTRACT
+                        // shapes background, which essentially cannot contain legible text → guarantees a
+                        // TEXT-FREE ad on the common no-ref production path. One extra gen.
+                        console.warn(`[bg-validate] pexels hero still texty after 3 → shapes fallback job=${jobId ?? "?"}`);
+                        const shapesPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), "shapes", false, visualBriefForPrompt);
+                        const shapes = await generateAdImage(shapesPrompt, [], apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
+                        if (shapes) { gen = shapes; console.log(`[bg-validate] pexels→shapes fallback ok job=${jobId ?? "?"}`); }
+                        else console.warn(`[bg-validate] pexels→shapes fallback failed, keeping texty bg job=${jobId ?? "?"}`);
+                      } else console.warn(`[bg-validate] hero final-retry still has text (caller ref) → using best-of-3 anyway job=${jobId ?? "?"}`);
+                    } else console.log(`[bg-validate] hero final-retry clean job=${jobId ?? "?"}`);
                   } else console.warn(`[bg-validate] hero final-retry failed, keeping previous retry job=${jobId ?? "?"}`);
                 } else console.log(`[bg-validate] retry clean job=${jobId ?? "?"}`);
               } else console.warn(`[bg-validate] retry failed, using original job=${jobId ?? "?"}`);
