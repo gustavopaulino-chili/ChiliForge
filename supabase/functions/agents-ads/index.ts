@@ -3915,9 +3915,12 @@ serve(async (req: Request) => {
       } else if (briefDriven && refImagesForGen.length > 0 && companyRefImages.length > 0) {
         // Brand brief + brand post images + generation-specific reference:
         // Reserve the last slot for the generation image so the model can distinguish roles.
-        // Cap brand posts at 3 (was 2) so the model sees more examples to detect + replicate the
-        // brand's design language, while still leaving room for the generation ref.
-        const brandSlice = companyRefImages.slice(0, 3);
+        // The text brief already DISTILLS what's consistent across up to 10 posts — sending too
+        // many raw posts alongside it invited the model to collage one-off elements from each
+        // individual photo (busy, unnatural ads). Cap brand posts at 2: just enough for the model
+        // to CONFIRM the (sometimes abstract) brief against concrete examples — see what it
+        // actually looks like in practice — without turning the generation into a multi-image blend.
+        const brandSlice = companyRefImages.slice(0, 2);
         const genSlice = refImagesForGen.slice(0, 1);
         bgRefImages = [...brandSlice, ...genSlice];
         brandRefCountInBg = brandSlice.length;
@@ -3981,7 +3984,7 @@ serve(async (req: Request) => {
       // true to the brand's design language from the posts.
       const visualBriefForPrompt = (brandRefCountInBg > 0 && genRefCountInBg > 0)
         ? (visualBrief ? visualBrief + "\n\n" : "") +
-          `IMAGE ROLES: The first ${brandRefCountInBg} image(s) are brand Instagram posts — study their visual motifs, color palette, depth treatment, layering, and recurring design devices. These define the aesthetic universe for this ad. The last image is the creative reference for this specific campaign: incorporate it as you see fit — as the hero product, a background subject, a scene anchor, or a compositional element — while staying firmly within the brand's visual world.`
+          `IMAGE ROLES: The first ${brandRefCountInBg} image(s) are real brand Instagram posts, given ONLY to ground the (necessarily abstract) brief above in concrete examples. Use them to CONFIRM the brief: cross-check what's actually CONSISTENT between the brief's description and these ${brandRefCountInBg} example posts (and, if there is more than one, consistent between the examples themselves) — that shared pattern is the real brand aesthetic. Do NOT treat each example post as a separate source to copy from — a decorative element, layout choice, or composition trick that appears in only ONE of the examples (and isn't backed by the brief) is a one-off, not the brand's language, and must be left out. Apply only the confirmed, recurring pattern. The last image is the creative reference for this specific campaign: incorporate it as you see fit — as the hero product, a background subject, a scene anchor, or a compositional element — while staying firmly within that confirmed brand aesthetic.`
         : visualBrief;
 
       // brandSpec: use creativePlan if provided (e.g. from external API worker),
