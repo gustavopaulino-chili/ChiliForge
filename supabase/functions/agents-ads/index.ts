@@ -460,6 +460,24 @@ function enforceLogoOppositeBand(html: string, logoUrl: string): string {
   return html.replace(imgRe, `$1${newLogoStyle}$3`);
 }
 
+// Deterministic safety net for a second recurring bug: despite the "emit EXACTLY ONE logo
+// <img>, never a duplicate" instruction, the model sometimes still emits the logo twice
+// (e.g. once near the top, once lower) — producing a visibly duplicated brand mark. This
+// strips every occurrence of the logo <img> after the first, keeping only the earliest one.
+function dedupeLogo(html: string, logoUrl: string): string {
+  if (!logoUrl) return html;
+  const escapedUrl = logoUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const imgReGlobal = new RegExp(`<img[^>]*src="${escapedUrl}"[^>]*>`, "gi");
+  const matches = html.match(imgReGlobal);
+  if (!matches || matches.length < 2) return html;
+  console.log(`[overlay-html] duplicate logo detected (${matches.length}x) → keeping first, stripping rest`);
+  let seen = false;
+  return html.replace(imgReGlobal, (m) => {
+    if (!seen) { seen = true; return m; }
+    return "";
+  });
+}
+
 // It has full creative freedom: choose placement, font sizes, line breaks, alignment.
 // The returned HTML is authoritative — GD renders it exactly (pixel-faithful translation).
 // Returns null on failure — callers fall back to the static TypeScript template.
@@ -737,12 +755,12 @@ async function buildOverlayHtmlFromGemini(
           if (raw2 && headlinePresent(raw2)) {
             console.log(`[overlay-critique] retry accepted job=${opts.jobId ?? "?"}`);
             const styleTag2 = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-            setDiag("ok-retry"); return styleTag2 + enforceLogoOppositeBand(ensureScrim(raw2), logoUrl);
+            setDiag("ok-retry"); return styleTag2 + dedupeLogo(enforceLogoOppositeBand(ensureScrim(raw2), logoUrl), logoUrl);
           }
         }
       }
     }
-    html = enforceLogoOppositeBand(html, logoUrl);
+    html = dedupeLogo(enforceLogoOppositeBand(html, logoUrl), logoUrl);
     console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${html.length} font=${_fontName ?? "none"}`);
     const styleTag = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
     setDiag("ok"); return styleTag + html;
