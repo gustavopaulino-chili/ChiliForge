@@ -3897,7 +3897,7 @@ serve(async (req: Request) => {
       const companyRefUrls = usesRefs && Array.isArray((campaignData as any).composeCompanyRefs)
         ? ((campaignData as any).composeCompanyRefs as unknown[])
             .filter((u): u is string => typeof u === "string" && u.startsWith("http"))
-            .slice(0, 4)
+            .slice(0, 5)
         : [];
       // companyRefImages: fetch every composeCompanyRefs URL. When auto-mode set the Pexels photo as
       // referenceImageUrl above, that URL is already FIRST in composeCompanyRefs → it is fetched here
@@ -3917,19 +3917,20 @@ serve(async (req: Request) => {
         // Reserve the last slot for the generation image so the model can distinguish roles.
         // The text brief already DISTILLS what's consistent across up to 10 posts — sending too
         // many raw posts alongside it invited the model to collage one-off elements from each
-        // individual photo (busy, unnatural ads). Cap brand posts at 2: just enough for the model
+        // individual photo (busy, unnatural ads). Cap brand posts at 3: enough for the model
         // to CONFIRM the (sometimes abstract) brief against concrete examples — see what it
         // actually looks like in practice — without turning the generation into a multi-image blend.
-        const brandSlice = companyRefImages.slice(0, 2);
+        const brandSlice = companyRefImages.slice(0, 3);
         const genSlice = refImagesForGen.slice(0, 1);
         bgRefImages = [...brandSlice, ...genSlice];
         brandRefCountInBg = brandSlice.length;
         genRefCountInBg = genSlice.length;
       } else {
-        // Standard: brand images + gen assets fill all slots (up to 4 total = hero + 3 brand posts).
-        // Bumped 3→4 so the model has 3 brand-post examples to judge whether the brand uses design
-        // assets and, if so, mirror their exact devices + colours (2 examples was too thin).
-        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 4);
+        // Standard: brand images + gen assets fill all slots (up to 5 total = hero + 4 brand posts).
+        // Bumped 4→5 so the model has 4 brand-post examples to judge whether the brand uses design
+        // assets and, if so, mirror their exact devices + colours (results were too generic / weak
+        // on brand identity with only 3).
+        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 5);
         brandRefCountInBg = Math.min(companyRefImages.length, bgRefImages.length);
       }
 

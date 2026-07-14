@@ -354,12 +354,12 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
     // Added directly (not via $addRef) because $addRef filters non-http. The absolutize step
     // in asset-mirroring (line ~1073) converts them to absolute URLs before the edge call.
     // ⭐ ORDER: brand posts come SECOND (right after the hero ref), BEFORE product/hero/background
-    // images. composeCompanyRefs is later sliced to 4 here AND to 3 on the edge — if brand posts
+    // images. composeCompanyRefs is later sliced to 5 here AND to 5 on the edge — if brand posts
     // sat at the TAIL (the old order), a hero ref + product/company images pushed them out of the
     // kept window, so the ad lost all brand-post influence (no devices, off-brand). Keeping them
     // high guarantees [hero, bp1, bp2, …] survives both slices.
     if (!empty($companyData['brandPostImages']) && is_array($companyData['brandPostImages'])) {
-        foreach (array_slice($companyData['brandPostImages'], 0, 3) as $bp) {
+        foreach (array_slice($companyData['brandPostImages'], 0, 4) as $bp) {
             $bp = trim((string)$bp);
             if ($bp !== '' && !$isLogo($bp)) $allRefs[] = $bp;
         }
@@ -371,7 +371,7 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
     $addRef($allRefs, $campaignData['backgroundImageUrl'] ?? '');                   // campaign.background_image_url
     $allRefs = array_values(array_unique($allRefs));
     if (!empty($allRefs)) {
-        $campaignData['composeCompanyRefs'] = array_slice($allRefs, 0, 4);
+        $campaignData['composeCompanyRefs'] = array_slice($allRefs, 0, 5);
     }
 
     $bgSourceRaw = strtolower(trim((string)($campaignData['composeBackgroundSource'] ?? '')));
