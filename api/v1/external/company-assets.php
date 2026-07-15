@@ -106,6 +106,16 @@ $brandPostInputs = is_array($body['brand_posts'] ?? null) ? array_values($body['
 $compPostInputs  = is_array($body['competitor_posts'] ?? null) ? array_values($body['competitor_posts']) : [];
 $geminiApiKey    = trim((string)($body['gemini_api_key'] ?? ''));
 
+// brand_posts_are_proxy: the images in brand_posts are NOT the client's — they are market/category
+// reference, used when the client's own Instagram is empty. Absent (the default, and what every
+// caller sends today) = the client's own posts = today's behaviour, unchanged end to end.
+// Deliberately NOT part of $fieldMap: that loop writes values as strings into company_form_data,
+// which would store this as "1" instead of a boolean.
+$brandPostsAreProxy = filter_var(
+    $body['brand_posts_are_proxy'] ?? ($company['brand_posts_are_proxy'] ?? false),
+    FILTER_VALIDATE_BOOLEAN
+);
+
 // Legacy text description fields (kept for backwards-compat; image-based analysis is preferred).
 $brandVisualGuidelines = trim((string)($body['brand_visual_guidelines'] ?? ($company['brand_visual_guidelines'] ?? '')));
 $competitorExamples    = trim((string)($body['competitor_examples']     ?? ($company['competitor_examples']     ?? '')));
@@ -272,10 +282,29 @@ try {
         elseif (isset($r['skip'])) $skipped[] = ['type' => 'brand_post', 'reason' => $r['reason']];
     }
 
+    // Provenance change REPLACES instead of merging. Merging stays the default within the same
+    // provenance (accumulating a client's real posts across calls is correct and unchanged), but
+    // mixing the client's own posts with market-reference stand-ins is never something anyone
+    // wants, and it would leave brandPostsAreProxy describing only half the set. The transition
+    // itself is the signal — no separate "replace" flag to forget to send.
+    // This self-heals both ways: the day an empty-Instagram client starts posting, the normal
+    // crawl sends real posts with no flag → provenance flips proxy→real → the stand-ins are
+    // dropped automatically. And a client who deletes their profile flips real→proxy the same way.
     $existingBrandPosts = is_array($formData['brandPostImages'] ?? null) ? $formData['brandPostImages'] : [];
+    $storedProxy   = !empty($formData['brandPostsAreProxy']);
+    $provenanceFlipped = !empty($newBrandUrls) && ($storedProxy !== $brandPostsAreProxy);
+    if ($provenanceFlipped) {
+        error_log('[company-assets] brand post provenance ' . ($storedProxy ? 'proxy' : 'real') . ' → '
+            . ($brandPostsAreProxy ? 'proxy' : 'real') . ' for company ' . $companyId . ' — replacing '
+            . count($existingBrandPosts) . ' stored post(s)');
+        $existingBrandPosts = [];
+    }
     $allBrandPosts = array_values(array_unique(array_filter(array_merge($existingBrandPosts, $newBrandUrls), 'strlen')));
     if (count($allBrandPosts) > CAA_MAX_BRAND_STORED) $allBrandPosts = array_slice($allBrandPosts, -CAA_MAX_BRAND_STORED);
     if (!empty($allBrandPosts)) $formData['brandPostImages'] = $allBrandPosts;
+    // Provenance is a property of the STORED posts, so it is only (re)written when posts are sent.
+    // A bare poll or a metadata-only call must never silently flip it.
+    if (!empty($newBrandUrls)) $formData['brandPostsAreProxy'] = $brandPostsAreProxy;
 
     // ── Competitor Instagram posts ────────────────────────────────────────────
     $newCompUrls = [];
@@ -349,6 +378,9 @@ try {
         $jobPayload = json_encode([
             'brandImageUrls'      => $toAbsolute(array_slice($allBrandPosts, -10)),
             'competitorImageUrls' => $toAbsolute(array_slice($allCompPosts, -6)),
+            // Read back from the stored value, not the request: the worker must reflect the
+            // provenance of the posts actually stored (which a provenance flip may have replaced).
+            'brandPostsAreProxy'  => !empty($formData['brandPostsAreProxy']),
         ], JSON_UNESCAPED_UNICODE);
 
         $jobId = 0;
@@ -436,6 +468,7 @@ try {
                 'geminiApiKey'        => $geminiApiKey,
                 'brandImageUrls'      => $toAbsolute(array_slice($allBrandPosts, -10)),
                 'competitorImageUrls' => $toAbsolute(array_slice($allCompPosts, -6)),
+                'brandPostsAreProxy'  => !empty($formData['brandPostsAreProxy']),
             ];
             $bvRes = agents_call_edge_function('agents-ads', $briefPayload, $geminiApiKey);
             $briefEdgeCalled = true;
@@ -452,7 +485,11 @@ try {
 
                 // Merge extracted hex palette into brand fields (only non-empty values).
                 // Only fills fields the caller hasn't already set — existing explicit values win.
-                $palette = is_array($bvRes['palette'] ?? null) ? $bvRes['palette'] : [];
+                // NEVER merged for proxy posts: the palette would be the reference's, and this
+                // write is sticky (the empty() guard means nothing overwrites it later). The edge
+                // already skips extracting it; this is the second lock on the same door.
+                $palette = (is_array($bvRes['palette'] ?? null) && empty($formData['brandPostsAreProxy']))
+                    ? $bvRes['palette'] : [];
                 foreach (['primaryColor', 'secondaryColor', 'accentColor', 'backgroundColor', 'textColor'] as $colorKey) {
                     $hex = trim((string)($palette[$colorKey] ?? ''));
                     if ($hex !== '' && preg_match('/^#[0-9a-fA-F]{3,8}$/', $hex) && empty($formData[$colorKey])) {
@@ -548,13 +585,22 @@ try {
         'brand_visual_brief'       => $brandBriefResult !== null
                                         ? $brandBriefResult
                                         : ($formData['brandVisualBrief'] ?? null),
-        // Client-facing pt-BR rendering (what n8n sends over WhatsApp). Falls back to the English
-        // brief so the caller always has something to send rather than an empty message.
-        'brand_visual_brief_pt'    => trim((string)($formData['brandVisualBriefPt'] ?? '')) !== ''
-                                        ? $formData['brandVisualBriefPt']
-                                        : ($brandBriefResult !== null
-                                            ? $brandBriefResult
-                                            : ($formData['brandVisualBrief'] ?? null)),
+        // Client-facing pt-BR rendering (what n8n sends over WhatsApp).
+        // Two different reasons for an empty pt brief, and they must NOT behave the same:
+        //  - translation failed → fall back to the English brief. Content is still about THIS
+        //    brand, so sending it beats sending nothing.
+        //  - posts are a proxy → return null. The brief describes the reference's identity, so
+        //    there is no client deliverable at all, and falling back to English here would hand
+        //    the client a study of someone else's brand under "Análise de design da sua marca".
+        'brand_visual_brief_pt'    => !empty($formData['brandPostsAreProxy'])
+                                        ? null
+                                        : (trim((string)($formData['brandVisualBriefPt'] ?? '')) !== ''
+                                            ? $formData['brandVisualBriefPt']
+                                            : ($brandBriefResult !== null
+                                                ? $brandBriefResult
+                                                : ($formData['brandVisualBrief'] ?? null))),
+        // Explicit signal so the caller never has to infer "no deliverable" from an empty field.
+        'brand_visual_client_deliverable' => empty($formData['brandPostsAreProxy']),
         // 'cached' keys off a brief that is actually THERE, not merely set: the worker writes
         // status 'ready' (never 'processing'/'cached'), so a stored-'ready' company lands here and
         // an isset() check would have reported 'cached' for an empty-string brief.

@@ -99,6 +99,8 @@ if (!function_exists('caa_run_brief_job')) {
         $payload      = json_decode((string)$payloadJson, true) ?: [];
         $brandImageUrls      = is_array($payload['brandImageUrls'] ?? null) ? $payload['brandImageUrls'] : [];
         $competitorImageUrls = is_array($payload['competitorImageUrls'] ?? null) ? $payload['competitorImageUrls'] : [];
+        // The stored brand_posts are market reference, not the client's own profile.
+        $brandPostsAreProxy  = !empty($payload['brandPostsAreProxy']);
 
         // ── Load company (store name + form data) ─────────────────────────────
         agents_reconnect_mysqli_if_needed($conn);
@@ -121,6 +123,7 @@ if (!function_exists('caa_run_brief_job')) {
                 'geminiApiKey'        => $geminiApiKey,
                 'brandImageUrls'      => $brandImageUrls,
                 'competitorImageUrls' => $competitorImageUrls,
+                'brandPostsAreProxy'  => $brandPostsAreProxy,
             ], $geminiApiKey ?: null);
             agents_reconnect_mysqli_if_needed($conn);
 
@@ -140,7 +143,10 @@ if (!function_exists('caa_run_brief_job')) {
                 if ($newBriefPt !== '') $formData['brandVisualBriefPt'] = $newBriefPt;
 
                 // Merge extracted hex palette (only fills fields the caller hasn't set).
-                $palette = is_array($bvRes['palette'] ?? null) ? $bvRes['palette'] : [];
+                // Never for proxy posts — that palette belongs to the reference, not this brand,
+                // and the empty() guard below would make the wrong colour permanent.
+                $palette = (is_array($bvRes['palette'] ?? null) && !$brandPostsAreProxy)
+                    ? $bvRes['palette'] : [];
                 foreach (['primaryColor', 'secondaryColor', 'accentColor', 'backgroundColor', 'textColor'] as $colorKey) {
                     $hex = trim((string)($palette[$colorKey] ?? ''));
                     if ($hex !== '' && preg_match('/^#[0-9a-fA-F]{3,8}$/', $hex) && empty($formData[$colorKey])) {

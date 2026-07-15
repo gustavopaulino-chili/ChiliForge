@@ -2395,6 +2395,10 @@ function buildBackgroundPrompt(
   themeScene: string = "",
   castingRef: boolean = false,
   hasBrandPosts: boolean = false,
+  // The images in brand_posts are NOT this brand's — they are market/category reference (used when
+  // the client's own Instagram is empty). Use their STRUCTURE, never their IDENTITY. Default false
+  // = today's behaviour, unchanged, for every client with a real profile.
+  brandPostsAreProxy: boolean = false,
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
@@ -2441,14 +2445,27 @@ function buildBackgroundPrompt(
   // Brand visual identity brief — a text description of the brand's design language
   // (motifs, textures, depth treatment, design flourishes) extracted ONCE from the
   // reference images. Drives creative freedom without re-sending raw pixels every time.
-  const briefBlock = String(visualBrief || "").trim()
+  // The brief is written FROM the brand posts. When those posts are a proxy, every identity claim
+  // in it (colour above all) describes the reference, not this brand — and the normal framing
+  // ("this brand's signature visual DNA", "embody ... color treatment", "absolute precedence")
+  // would push the reference's colours into the background hard enough to beat colorLine. So the
+  // proxy variant reframes the block as structure-only and carves colour out explicitly, keeping
+  // the composition/motif/depth guidance, which is the whole point of using the reference.
+  const briefBlock = !String(visualBrief || "").trim()
+    ? ""
+    : brandPostsAreProxy
     ? [
+        "████ MARKET REFERENCE — STRUCTURE ONLY, NOT THIS BRAND'S IDENTITY ████",
+        "The following describes the visual design language of MARKET/CATEGORY REFERENCE material. It is NOT this brand's identity — this brand's own profile was unavailable. Use it ONLY for structure: composition, layout, motifs, depth, layering, texture and finish.",
+        String(visualBrief).trim(),
+        "⛔ COLOUR CARVE-OUT: every colour statement above — the COLOR SYSTEM section, any named colour, any palette, tint or grade claim — describes the REFERENCE, NOT this brand. IGNORE all of them. Colour comes EXCLUSIVELY from the BRAND COLORS line. Any typography, logo or brand-name claim above is reference-only and must never be treated as this brand's identity.",
+      ].join("\n")
+    : [
         "████ BRAND VISUAL IDENTITY — EMBODY THIS DESIGN LANGUAGE ████",
         "The following describes this brand's signature visual DNA (extracted from its Instagram profile analysis and brand guidelines stored in the company profile). Make the background unmistakably feel like THIS brand:",
         String(visualBrief).trim(),
         "BRAND_DNA takes absolute precedence over any creative instinct — embody these specific design devices (motifs, depth, layers, textures, color treatment) in the background. LAYOUT_INSPIRATION may inform composition structure but must never bleed into brand identity.",
-      ].join("\n")
-    : "";
+      ].join("\n");
 
   // Source-specific guidance for HOW to treat (or not) the attached reference images.
   let sourceBlock = "";
@@ -2589,10 +2606,18 @@ function buildBackgroundPrompt(
   // dominant, recurring brand colours from the brand-post images and grade the whole scene to
   // match THOSE — the stored colour name becomes a weak fallback that the posts override. Only
   // when there are NO brand posts do we lock hard onto the stored hex name.
-  const colorLine = hasBrandPosts
+  // When the posts are a PROXY they are not evidence of anything about this brand, so the
+  // "posts win" rule inverts: fall through to the stored-colour LOCK below (which already says
+  // attached images give SUBJECT and SHAPE, never colour). If no brand colour is known either,
+  // colorLine would otherwise be "" — no colour instruction at all — and the proxy posts would
+  // drive the palette by omission, defeating the flag in exactly the case it exists for. Hence
+  // the third branch: an explicit prohibition with no colour to lock onto.
+  const colorLine = (hasBrandPosts && !brandPostsAreProxy)
     ? `BRAND COLORS — ⛔ SOURCE OF TRUTH = THE BRAND-POST REFERENCE IMAGES: the real brand palette is whatever DOMINANT, RECURRING colours appear across the attached brand Instagram posts. STUDY those posts, identify the brand's signature colour(s), and light + colour-grade the WHOLE scene so those post colours clearly DOMINATE the canvas as the main brand field. Do NOT take the palette from any hero/product/person reference (e.g. that model's clothing colour) and do NOT invent a colour — if the hero image has a different colour, RE-GRADE it into the brand-post palette. ${primaryName ? `(As a rough hint the saved brand colour is around ${primaryName}, but if the brand posts disagree, the BRAND POSTS WIN.)` : ""} Never write any color name, code, hex or # as text.`
     : primaryName
     ? `BRAND COLORS — the DOMINANT background color is ${primaryName}: it should fill MOST of the canvas as the main, vivid brand field (do not mute, grey-out or darken it into a dull mix).${accentNames.length ? ` Use ${accentNames.join(", ")} only as smaller accents and contrast.` : ""} ⛔ COLOUR-SOURCE LOCK: the palette comes ONLY from the brand. Any attached product/reference image is used for its SUBJECT and SHAPE, NEVER its colours — if that image has a different colour (e.g. blue), RE-LIGHT and COLOUR-GRADE the entire scene into ${primaryName} and the brand accents regardless. The product may keep its own material, but the surrounding scene, lighting and overall colour grade MUST be unmistakably the brand's, not the reference image's. Never write any color name, code, hex or # as text.`
+    : (hasBrandPosts && brandPostsAreProxy)
+    ? `BRAND COLORS — ⛔ THE ATTACHED BRAND-POST REFERENCE IMAGES ARE NOT THIS BRAND: they are market/category reference material. Do NOT take ANY colour from them — not their palette, not their colour grade, not their background tint. No brand colour is known for this brand yet, so do NOT invent a loud signature colour either: use a restrained, NEUTRAL background treatment (soft neutral tones, natural light, low saturation) that stays out of the way. Never write any color name, code, hex or # as text.`
     : "";
   const safeSpec = scrubBgPromptText(spec);
   // Background-only: drop the verbatim COPY lines (headline, subheadline, CTA, offer, brand and
@@ -3297,6 +3322,11 @@ serve(async (req: Request) => {
         });
       }
 
+      // The brand_posts are market reference, not the client's own profile. Two consequences below:
+      // the extracted palette is the REFERENCE's and must never become the company's colours, and
+      // the brief describes the reference, so it must not be sent to the client as "sua marca".
+      const brandPostsAreProxy = Boolean((payload as any).brandPostsAreProxy);
+
       // Brand posts: deep visual identity analysis (up to 10 images)
       const brandUrls = [
         ...(Array.isArray((payload as any).brandImageUrls) ? (payload as any).brandImageUrls : []),
@@ -3386,7 +3416,14 @@ serve(async (req: Request) => {
       // Separate call so the prose brief stays clean and PHP gets machine-readable colors
       // to store as primaryColor/secondaryColor/accentColor/backgroundColor/textColor.
       let colorPalette: Record<string, string> = {};
-      try {
+      // Skipped entirely for proxy posts: the palette would be the REFERENCE's, and PHP merges it
+      // into the company's colour fields whenever they are empty — which is exactly the state a
+      // brand with no site/Instagram is in. That write is sticky (the merge guard is
+      // `empty($formData[$colorKey])`, so nothing later overwrites it) and the colour lock would
+      // then lock onto the reference's colour forever. Not extracting it also saves the call.
+      if (brandPostsAreProxy) {
+        console.log(`[brand_visual]${jobId ? ` job=${jobId}` : ""} proxy posts → palette extraction skipped`);
+      } else try {
         const COLOR_EXTRACTION_SYSTEM = [
           "You are a color extraction specialist. Analyze these brand Instagram posts and identify the exact brand color palette.",
           "Return ONLY a valid JSON object with exactly these 5 keys (lowercase hex values, no explanation, no markdown):",
@@ -3469,7 +3506,14 @@ serve(async (req: Request) => {
       // post structure does not belong in it. The section stays in `brief`, where it usefully
       // gives the generator the niche's layout patterns.
       let briefPt = "";
-      try {
+      // Suppressed for proxy posts: the brief describes the REFERENCE's identity, and the client
+      // receives brief_pt under the header "🎨 Análise de design da sua marca" — that would tell
+      // them their brand is something it is not. Empty here means n8n's `ready` never fires on a
+      // proxy brief and the client is simply not sent a design study, which is the correct outcome
+      // until there is a deliverable actually about them.
+      if (brandPostsAreProxy) {
+        console.log(`[brand_visual]${jobId ? ` job=${jobId}` : ""} proxy posts → brief_pt suppressed`);
+      } else try {
         const TRANSLATE_SYSTEM = [
           "You translate brand design briefs from English to Brazilian Portuguese (pt-BR).",
           "This text is read by the brand's owner — a client, not a designer. Translate faithfully:",
@@ -3733,6 +3777,9 @@ serve(async (req: Request) => {
       // worker. When present it carries the brand's design language as words, which lets the
       // image model RE-COMPOSE freely (more creative, less "closed") instead of copying pixels —
       // and means we no longer re-send raw base64 on every generation (cheaper tokens).
+      // Set by company-assets.php when the stored brand_posts are market reference rather than the
+      // client's own profile (empty Instagram). Gates the colour rules in buildBackgroundPrompt.
+      const brandPostsAreProxy = Boolean((campaignData as any).brandPostsAreProxy);
       let visualBrief = String((campaignData as any).brandVisualBrief || "").trim();
       // The COMPLETE 300-400 word brief is the company's stored brand KNOWLEDGE, produced by the
       // company-assets call — it stays full there. But in GENERATION, injecting the whole brief
@@ -4069,7 +4116,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -4156,7 +4203,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.

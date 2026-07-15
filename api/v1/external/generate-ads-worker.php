@@ -605,6 +605,12 @@ try {
     $cachedBrief = trim((string)($companyFormData['brandVisualBrief'] ?? ''));
     $cachedHash  = (string)($companyFormData['brandVisualBriefHash'] ?? '');
 
+    // The stored brand posts are market reference, not this client's own profile. The edge needs
+    // this to invert its colour rules: the posts drive STRUCTURE, the brand's saved colour drives
+    // COLOUR (and when no colour is known, a neutral treatment rather than the reference's).
+    // Without this line the flag never reaches buildBackgroundPrompt and the whole feature is dead.
+    $campaignFormData['brandPostsAreProxy'] = !empty($companyFormData['brandPostsAreProxy']);
+
     // Inject brand post images into composeCompanyRefs so they reach the image model.
     $storedBrandPosts = is_array($companyFormData['brandPostImages'] ?? null)
         ? array_values(array_filter(array_map('strval', $companyFormData['brandPostImages'])))
