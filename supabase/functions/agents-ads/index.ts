@@ -3223,7 +3223,9 @@ async function generateWithRetry(
   const chain = [preferredModel, ...chainBase.filter((m) => m !== preferredModel)];
   let lastError: Error | null = null;
 
-  const geminiOpts = { thinkingLevel: options?.thinkingLevel, responseMimeType: options?.responseMimeType, responseSchema: options?.responseSchema, jobId: options?.jobId, costAcc: options?.costAcc };
+  // thinkingBudget MUST be forwarded: without it, callers on this path cannot disable gemini-2.5
+  // thinking, whose tokens eat maxOutputTokens and truncate the answer mid-sentence.
+  const geminiOpts = { thinkingLevel: options?.thinkingLevel, thinkingBudget: options?.thinkingBudget, responseMimeType: options?.responseMimeType, responseSchema: options?.responseSchema, jobId: options?.jobId, costAcc: options?.costAcc };
 
   for (const model of chain) {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -3359,10 +3361,11 @@ serve(async (req: Request) => {
         const brandVis = await generateWithRetry(
           BRAND_IDENTITY_SYSTEM,
           `Analyze these ${brandRefs.length} brand posts and write the complete visual identity brief.`,
-          "gemini-2.5-flash", 0.4, 1200, visKey, undefined, brandRefs, { jobId },
+          "gemini-2.5-flash", 0.4, 1200, visKey, undefined, brandRefs, { jobId, thinkingBudget: 0 },
         );
-        // Full brief — no char cap. Length is already bounded by maxOutputTokens (1200)
-        // and the 300-400 word target in the prompt, so the complete brief is returned intact.
+        // Full brief — no char cap. maxOutputTokens 1200 comfortably fits the 300-400 word target
+        // (~550 tokens) ONLY with thinkingBudget:0 — gemini-2.5 thinks by default and those tokens
+        // come out of the same budget, which was leaving ~240 chars of brief cut mid-sentence.
         brandBrief = String(brandVis.text || "").trim();
       } catch (e) {
         const errMsg = e instanceof Error ? e.message : String(e);
