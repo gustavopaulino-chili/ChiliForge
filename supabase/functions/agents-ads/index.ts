@@ -3454,8 +3454,37 @@ serve(async (req: Request) => {
       }
 
       const brief = (brandBrief + competitorSection).trim();
-      console.log(`[brand_visual]${jobId ? ` job=${jobId}` : ""} brandRefs=${brandRefs.length} competitorUrls=${competitorUrls.length} briefLen=${brief.length} paletteKeys=${Object.keys(colorPalette).length}`);
-      return new Response(JSON.stringify({ brief, palette: colorPalette }), {
+
+      // ── Phase 3: pt-BR rendering for the human deliverable ────────────────
+      // `brief` MUST stay English: it feeds the image model (compose → buildBackgroundPrompt)
+      // and the Gemini store, and those adhere better to English. `briefPt` is a separate,
+      // client-facing rendering sent over WhatsApp as the "estudo de design". Translating
+      // `brief` itself would silently push pt-BR text into every ad's image prompt.
+      // Non-fatal: on failure briefPt is empty and the caller falls back to `brief`.
+      let briefPt = "";
+      try {
+        const TRANSLATE_SYSTEM = [
+          "You translate brand design briefs from English to Brazilian Portuguese (pt-BR).",
+          "This text is read by the brand's owner — a client, not a designer. Translate faithfully:",
+          "keep every specific detail (colors, motifs, composition, typography, mood) and the same",
+          "paragraph structure. Do not summarize, do not add or drop information, do not add a preamble.",
+          "Use natural pt-BR design vocabulary. Keep established English design terms that pt-BR",
+          "designers use untranslated (ex.: layout, grid, close-up, bokeh, gradiente, lettering).",
+          "Return ONLY the translated text.",
+        ].join("\n");
+
+        const ptRes = await generateWithRetry(
+          TRANSLATE_SYSTEM,
+          `Translate this brand design brief to pt-BR:\n\n${brief}`,
+          "gemini-2.5-flash", 0.2, 2600, visKey, undefined, undefined, { jobId, thinkingBudget: 0 },
+        );
+        briefPt = String(ptRes.text || "").trim();
+      } catch (e) {
+        console.warn(`[brand_visual]${jobId ? ` job=${jobId}` : ""} pt-BR translation failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      console.log(`[brand_visual]${jobId ? ` job=${jobId}` : ""} brandRefs=${brandRefs.length} competitorUrls=${competitorUrls.length} briefLen=${brief.length} briefPtLen=${briefPt.length} paletteKeys=${Object.keys(colorPalette).length}`);
+      return new Response(JSON.stringify({ brief, brief_pt: briefPt, palette: colorPalette }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

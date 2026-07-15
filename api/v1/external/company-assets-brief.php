@@ -132,6 +132,13 @@ if (!function_exists('caa_run_brief_job')) {
                 $formData['brandVisualStatusAt']  = gmdate('c');
                 unset($formData['brandVisualError']);
 
+                // pt-BR rendering for the client-facing WhatsApp deliverable. Kept SEPARATE from
+                // brandVisualBrief on purpose: that one stays English because it feeds the image
+                // model and the Gemini store. Empty when the edge's translation step failed —
+                // callers fall back to the English brief rather than sending nothing.
+                $newBriefPt = trim((string)($bvRes['brief_pt'] ?? ''));
+                if ($newBriefPt !== '') $formData['brandVisualBriefPt'] = $newBriefPt;
+
                 // Merge extracted hex palette (only fills fields the caller hasn't set).
                 $palette = is_array($bvRes['palette'] ?? null) ? $bvRes['palette'] : [];
                 foreach (['primaryColor', 'secondaryColor', 'accentColor', 'backgroundColor', 'textColor'] as $colorKey) {

@@ -379,6 +379,7 @@ try {
                 'competitor_posts_added'   => count($newCompUrls),
                 'brand_visual_status'      => 'processing',
                 'brand_visual_brief'       => $formData['brandVisualBrief'] ?? null,
+                'brand_visual_brief_pt'    => $formData['brandVisualBriefPt'] ?? ($formData['brandVisualBrief'] ?? null),
                 'brief_empty_reason'       => null,
                 'brief_warning'            => null,
                 'store_warning'            => null,
@@ -443,6 +444,11 @@ try {
                 $formData['brandVisualBrief']     = $newBrief;
                 $formData['brandVisualBriefHash'] = 'instagram-profile'; // sentinel → worker won't regenerate
                 $formData['brandVisualStatus']    = 'ready';
+
+                // pt-BR rendering for the client (WhatsApp). brandVisualBrief stays English —
+                // it feeds the image model and the Gemini store. See company-assets-brief.php.
+                $newBriefPt = trim((string)($bvRes['brief_pt'] ?? ''));
+                if ($newBriefPt !== '') $formData['brandVisualBriefPt'] = $newBriefPt;
 
                 // Merge extracted hex palette into brand fields (only non-empty values).
                 // Only fills fields the caller hasn't already set — existing explicit values win.
@@ -542,6 +548,13 @@ try {
         'brand_visual_brief'       => $brandBriefResult !== null
                                         ? $brandBriefResult
                                         : ($formData['brandVisualBrief'] ?? null),
+        // Client-facing pt-BR rendering (what n8n sends over WhatsApp). Falls back to the English
+        // brief so the caller always has something to send rather than an empty message.
+        'brand_visual_brief_pt'    => trim((string)($formData['brandVisualBriefPt'] ?? '')) !== ''
+                                        ? $formData['brandVisualBriefPt']
+                                        : ($brandBriefResult !== null
+                                            ? $brandBriefResult
+                                            : ($formData['brandVisualBrief'] ?? null)),
         // 'cached' keys off a brief that is actually THERE, not merely set: the worker writes
         // status 'ready' (never 'processing'/'cached'), so a stored-'ready' company lands here and
         // an isset() check would have reported 'cached' for an empty-string brief.
