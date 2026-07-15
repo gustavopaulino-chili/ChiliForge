@@ -3461,6 +3461,13 @@ serve(async (req: Request) => {
       // client-facing rendering sent over WhatsApp as the "estudo de design". Translating
       // `brief` itself would silently push pt-BR text into every ad's image prompt.
       // Non-fatal: on failure briefPt is empty and the caller falls back to `brief`.
+      //
+      // Source is `brandBrief`, NOT `brief`: the competitor section is deliberately excluded.
+      // It carries the internal prompt directive "[COMPETITOR LAYOUT PATTERNS — structure only,
+      // no identity]" (a rule for Gemini, meaningless to a client and internal machinery we do
+      // not expose), and the client asked for a study of THEIR brand — a paragraph on a rival's
+      // post structure does not belong in it. The section stays in `brief`, where it usefully
+      // gives the generator the niche's layout patterns.
       let briefPt = "";
       try {
         const TRANSLATE_SYSTEM = [
@@ -3475,7 +3482,7 @@ serve(async (req: Request) => {
 
         const ptRes = await generateWithRetry(
           TRANSLATE_SYSTEM,
-          `Translate this brand design brief to pt-BR:\n\n${brief}`,
+          `Translate this brand design brief to pt-BR:\n\n${brandBrief.trim()}`,
           "gemini-2.5-flash", 0.2, 2600, visKey, undefined, undefined, { jobId, thinkingBudget: 0 },
         );
         briefPt = String(ptRes.text || "").trim();
