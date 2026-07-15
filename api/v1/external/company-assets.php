@@ -47,6 +47,13 @@ const CAA_MAX_BYTES         = 8000000; // 8 MB per image (decoded)
 const CAA_MAX_STORED        = 24;   // cap referenceImages kept on the company
 const CAA_MAX_BRAND_STORED  = 20;   // cap brandPostImages accumulated on the company
 const CAA_MAX_COMP_STORED   = 12;   // cap competitorPostImages accumulated on the company
+// Curl budget for edge calls made while the HTTP request is still live. set_time_limit(180) above
+// is NOT the real ceiling — the front-end proxy cuts at ~120s and hands the caller a 500/503, so a
+// blocking upstream call must fail (and be reported as a warning) well before that.
+const CAA_WEB_EDGE_TIMEOUT  = 60;   // seconds
+// How long brandVisualStatus='processing' is believed before it is treated as a dead worker.
+// The brief takes 1-3 min; past this the worker is gone and the caller must stop polling.
+const CAA_PROCESSING_TTL    = 600;  // seconds (10 min)
 // No custom request rate limit: the only upstream cost here is the Gemini store sync, which
 // already handles Gemini's own 429/rate-limit gracefully (kept as a warning, never fatal).
 
@@ -401,7 +408,14 @@ try {
             }
             while (ob_get_level() > 0) { @ob_end_flush(); }
             @flush();
-            caa_spawn_worker($jobId);         // LiteSpeed: exec a detached CLI worker.
+            // LiteSpeed: exec a detached CLI worker. If the spawn is impossible (exec disabled, no
+            // CLI php), run the job inline anyway — the 202 is already on the wire and the caller
+            // polls for the result, so a held-open connection is a far better failure than a job
+            // that silently never runs and a company parked on 'processing' forever.
+            if (!caa_spawn_worker($jobId)) {
+                error_log('[company-assets] worker spawn failed for job ' . $jobId . ' — running brief inline');
+                caa_run_brief_job($conn, $jobId);
+            }
             exit;
         }
         // Enqueue failed → fall through to inline generation rather than losing the brief.
@@ -457,12 +471,26 @@ try {
         }
     }
 
-    // ── Re-sync the Gemini company store — skip on bare polls (no new content) ─
+    // ── Re-sync the Gemini company store — NEVER on a bare poll ──────────────
+    // A bare poll ({api_key, phone}) carries no new content, so there is nothing to sync and it
+    // must stay a pure read: the n8n loop polls this up to 10x and any upstream call here is
+    // charged 10x in both latency and cost.
+    //
+    // This used to also run whenever $storeName was empty ("heal the missing store"), which was
+    // the exact opposite of a heal: if the store could not be created (e.g. the stored name
+    // belongs to a rotated-out Gemini project, so get_or_create has to build one from scratch and
+    // is slow), the sync throws, $storeName stays empty — and every subsequent poll retries the
+    // same slow call. Each retry burned ~120s until the proxy cut it, turning a missing store into
+    // a hung endpoint and starving the brief the caller was polling for. The store is created by
+    // the brief worker and by any content-bearing call; a poll has no business touching it.
     $storeWarning = null;
-    if ($hasNewContent || empty($storeName)) {
+    if ($hasNewContent) {
         $passKey = agents_env_value('GEMINI_API_KEY_PRODUCTION') ?: agents_env_value('GEMINI_API_KEY_TESTING') ?: null;
         try {
-            $storeName = agents_sync_company_store($conn, $companyId, $formData, $accountType, $userId, ($storeName ?: null), $passKey);
+            $storeName = agents_sync_company_store(
+                $conn, $companyId, $formData, $accountType, $userId, ($storeName ?: null), $passKey,
+                CAA_WEB_EDGE_TIMEOUT
+            );
         } catch (Throwable $se) {
             $storeWarning = $se->getMessage();
             error_log('[company-assets] store sync failed: ' . $se->getMessage());
@@ -470,7 +498,30 @@ try {
     }
 
     // Surface the async job lifecycle (processing/ready/failed) stored on the company.
+    // 'processing' EXPIRES: it is written when the job is enqueued, but nothing guarantees the
+    // worker ever ran (exec can be disabled, the CLI php can be missing, the process can die), and
+    // a status nobody ever clears pins the caller in a poll loop against a job that no longer
+    // exists. brandVisualStatusAt is the enqueue timestamp — past the TTL we call it what it is.
     $bvStatusStored = (string)($formData['brandVisualStatus'] ?? '');
+    if ($bvStatusStored === 'processing') {
+        $startedAt = strtotime((string)($formData['brandVisualStatusAt'] ?? '')) ?: 0;
+        if ($startedAt > 0 && (time() - $startedAt) > CAA_PROCESSING_TTL) {
+            $bvStatusStored = 'failed';
+            $formData['brandVisualStatus'] = 'failed';
+            $formData['brandVisualError']  = 'brief worker did not finish within ' . CAA_PROCESSING_TTL . 's (worker never started or died)';
+            $fjS = json_encode($formData, JSON_UNESCAPED_UNICODE);
+            if ($fjS && ($us = $conn->prepare("UPDATE projects SET company_form_data = ? WHERE id = ?"))) {
+                $us->bind_param('si', $fjS, $companyId); $us->execute(); $us->close();
+            }
+            if ($uj = $conn->prepare(
+                "UPDATE company_asset_jobs SET status = 'failed', error = 'stale: no worker result', gemini_api_key = NULL
+                 WHERE company_project_id = ? AND status = 'processing'"
+            )) {
+                $uj->bind_param('i', $companyId); $uj->execute(); $uj->close();
+            }
+            error_log('[company-assets] stale processing brief for company ' . $companyId . ' → marked failed');
+        }
+    }
     if ($briefWarning === null && $bvStatusStored === 'failed') {
         $briefWarning = trim((string)($formData['brandVisualError'] ?? '')) ?: null;
     }
@@ -491,6 +542,9 @@ try {
         'brand_visual_brief'       => $brandBriefResult !== null
                                         ? $brandBriefResult
                                         : ($formData['brandVisualBrief'] ?? null),
+        // 'cached' keys off a brief that is actually THERE, not merely set: the worker writes
+        // status 'ready' (never 'processing'/'cached'), so a stored-'ready' company lands here and
+        // an isset() check would have reported 'cached' for an empty-string brief.
         'brand_visual_status'      => $brandBriefResult !== null
                                         ? 'generated'
                                         : ($bvStatusStored === 'processing'
@@ -499,7 +553,7 @@ try {
                                                 ? 'failed'
                                                 : ($briefEdgeCalled
                                                     ? 'empty_response'  // edge called but brief came back empty
-                                                    : (isset($formData['brandVisualBrief'])
+                                                    : (trim((string)($formData['brandVisualBrief'] ?? '')) !== ''
                                                         ? 'cached'
                                                         : 'not_requested')))),
         'brief_empty_reason'       => $briefEmptyReason,

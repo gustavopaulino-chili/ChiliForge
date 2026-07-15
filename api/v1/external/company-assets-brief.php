@@ -39,19 +39,36 @@ if (!function_exists('caa_spawn_worker')) {
     /**
      * Spawn the detached CLI worker (LiteSpeed path). Mirrors generate-ads.php: PHP_BINARY is
      * lsphp under LSAPI and fatals when exec'd, so we hunt for a real CLI php first.
+     *
+     * Returns false when the worker demonstrably could not be launched (exec disabled — common on
+     * cPanel/LiteSpeed — no worker script, no usable CLI php, or a non-zero exec). The caller must
+     * act on false: a silently un-spawned job leaves the company stuck on 'processing' with a
+     * brief that never arrives, which is invisible until a customer doesn't get their brief.
+     * A true return only means the shell accepted the command, not that the job succeeded.
      */
-    function caa_spawn_worker(int $jobId): void {
+    function caa_spawn_worker(int $jobId): bool {
         $workerPath = __DIR__ . '/company-assets-worker.php';
         if (!is_file($workerPath)) {
             error_log('[company-assets] worker script missing at ' . $workerPath);
-            return;
+            return false;
+        }
+        $disabled = array_map('trim', explode(',', (string)ini_get('disable_functions')));
+        if (!function_exists('exec') || in_array('exec', $disabled, true)) {
+            error_log('[company-assets] exec() unavailable (disable_functions) — cannot spawn worker for job ' . $jobId);
+            return false;
         }
         $cliPhp = '';
         foreach (['/usr/bin/php', '/usr/local/bin/php', '/opt/cpanel/ea-php81/root/usr/bin/php'] as $cand) {
             if (@is_executable($cand)) { $cliPhp = $cand; break; }
         }
         if ($cliPhp === '') $cliPhp = 'php';
-        @exec(escapeshellarg($cliPhp) . ' ' . escapeshellarg($workerPath) . ' ' . $jobId . ' > /dev/null 2>&1 &');
+        $rc = 1;
+        @exec(escapeshellarg($cliPhp) . ' ' . escapeshellarg($workerPath) . ' ' . $jobId . ' > /dev/null 2>&1 &', $out, $rc);
+        if ($rc !== 0) {
+            error_log('[company-assets] worker spawn returned ' . $rc . ' for job ' . $jobId . ' (php=' . $cliPhp . ')');
+            return false;
+        }
+        return true;
     }
 }
 

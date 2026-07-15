@@ -327,7 +327,13 @@ if (!function_exists('agents_get_user_gemini_key')) {
 }
 
 if (!function_exists('agents_call_edge_function')) {
-    function agents_call_edge_function(string $name, array $payload, ?string $geminiApiKey = null): array {
+    /**
+     * @param int|null $timeoutSeconds Total curl budget. Defaults to 580 (long jobs run detached
+     *   with no PHP time limit). Callers still inside a live HTTP request MUST pass a budget that
+     *   fits under their set_time_limit() and the front-end proxy's ~120s cut, otherwise the proxy
+     *   kills the request and the caller sees a 500/503 instead of a handled failure.
+     */
+    function agents_call_edge_function(string $name, array $payload, ?string $geminiApiKey = null, ?int $timeoutSeconds = null): array {
         if ($geminiApiKey !== null && trim($geminiApiKey) !== '') {
             $payload['geminiApiKey'] = trim($geminiApiKey);
         }
@@ -387,12 +393,15 @@ if (!function_exists('agents_call_edge_function')) {
 
         $url     = $baseUrl . '/functions/v1/' . $name;
 
+        $timeout = ($timeoutSeconds !== null && $timeoutSeconds > 0) ? $timeoutSeconds : 580;
+
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 580,
+            CURLOPT_TIMEOUT        => $timeout,
+            CURLOPT_CONNECTTIMEOUT => 15,
             CURLOPT_HTTPHEADER     => [
                 'Content-Type: application/json',
                 'apikey: '               . $key,
@@ -778,7 +787,8 @@ if (!function_exists('agents_sync_company_store')) {
         string $accountType,
         int $userId = 0,
         ?string $existingStoreName = null,
-        ?string $geminiApiKey = null
+        ?string $geminiApiKey = null,
+        ?int $timeoutSeconds = null
     ): string {
         $companyDocument = buildCompanyDocument($companyFormData);
 
@@ -789,7 +799,7 @@ if (!function_exists('agents_sync_company_store')) {
             'documentText'  => $companyDocument,
             'documentLabel' => 'Brand Guidelines',
             'accountType'   => $accountType,
-        ], $geminiApiKey);
+        ], $geminiApiKey, $timeoutSeconds);
 
         if (empty($storeResult['storeName'])) {
             throw new RuntimeException('agents-store did not return a storeName');
