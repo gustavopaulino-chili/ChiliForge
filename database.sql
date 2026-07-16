@@ -333,3 +333,24 @@ CREATE TABLE IF NOT EXISTS global_store_files (
   INDEX idx_global_store_type (store_type),
   INDEX idx_global_store_name (store_name)
 );
+
+-- Gemini usage ledger — one row per Gemini call (exact cost, incl. thinking tokens).
+-- Written by gemini_record_usage() (PHP-native calls) and by log-gemini-usage.php (edge
+-- calls POST their raw usageMetadata here). NOTE: this was previously created only ad-hoc
+-- on the server; documented here so it exists everywhere. Without it, gemini_record_usage
+-- swallows the INSERT error and cost tracking silently records nothing.
+CREATE TABLE IF NOT EXISTS gemini_usage (
+  id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+  source         VARCHAR(60)  NOT NULL,
+  model          VARCHAR(60)  NOT NULL,
+  in_tokens      INT NOT NULL DEFAULT 0,
+  cached_tokens  INT NOT NULL DEFAULT 0,
+  out_tokens     INT NOT NULL DEFAULT 0,
+  thought_tokens INT NOT NULL DEFAULT 0,
+  usd            DECIMAL(12,6) NOT NULL DEFAULT 0,
+  job_id         INT NULL,
+  meta           VARCHAR(255) NULL,
+  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_gu_source (source),
+  INDEX idx_gu_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

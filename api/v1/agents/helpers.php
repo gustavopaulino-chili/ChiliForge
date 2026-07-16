@@ -69,7 +69,12 @@ if (!function_exists('gemini_record_usage')) {
                     $stmt->execute(); $stmt->close();
                 }
             }
-        } catch (\Throwable $e) { /* logging must never break the request */ }
+        } catch (\Throwable $e) {
+            // Logging must never break the request — but a SILENT swallow is what hid the fact
+            // that the gemini_usage table didn't exist, so the whole ledger recorded nothing for
+            // a long time. Surface the reason in the server log without ever throwing.
+            error_log('[cost] persist FAILED (' . $e->getMessage() . ') — is the gemini_usage table created?');
+        }
         error_log(sprintf('[cost] fn=%s model=%s ~=$%.5f', $source, $model, $usd));
         return $usd;
     }
