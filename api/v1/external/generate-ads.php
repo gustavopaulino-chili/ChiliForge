@@ -835,20 +835,36 @@ try {
     // ORDER BY created_at DESC, id DESC MUST stay identical to company-assets.php's resolver so a
     // brand's pushes and its generation always resolve to the SAME company row when duplicates
     // exist. The id DESC tie-break makes it deterministic even when two rows share a created_at.
-    $compStmt = $conn->prepare(
-        "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
-         FROM projects
-         WHERE user_id = ? AND phone = ? AND project_type = 'project'
-         ORDER BY created_at DESC, id DESC LIMIT 1"
-    );
-    if (!$compStmt) throw new RuntimeException($conn->error);
-    $compStmt->bind_param('is', $userId, $phone);
-    $compStmt->execute();
+    // Reusable resolver — also used to recover from a lost INSERT race below.
+    $resolveCompany = function () use ($conn, $userId, $phone) {
+        $s = $conn->prepare(
+            "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
+             FROM projects
+             WHERE user_id = ? AND phone = ? AND project_type = 'project'
+             ORDER BY created_at DESC, id DESC LIMIT 1"
+        );
+        if (!$s) throw new RuntimeException($conn->error);
+        $s->bind_param('is', $userId, $phone);
+        $s->execute();
+        $s->bind_result($id, $store, $fd, $folder, $pub);
+        $ok = $s->fetch();
+        $s->close();
+        return $ok ? ['id' => (int)$id, 'store' => $store, 'fd' => $fd, 'folder' => $folder, 'pub' => $pub] : null;
+    };
+
     $existingCompanyFolderPath = null;
     $existingCompanyPublicUrl  = null;
-    $compStmt->bind_result($companyId, $existingStoreName, $existingFormDataJson, $existingCompanyFolderPath, $existingCompanyPublicUrl);
-    $companyExists = $compStmt->fetch();
-    $compStmt->close();
+    $existingStoreName = null;
+    $existingFormDataJson = null;
+    $row = $resolveCompany();
+    $companyExists = $row !== null;
+    if ($companyExists) {
+        $companyId = $row['id'];
+        $existingStoreName = $row['store'];
+        $existingFormDataJson = $row['fd'];
+        $existingCompanyFolderPath = $row['folder'];
+        $existingCompanyPublicUrl = $row['pub'];
+    }
 
     if (!$companyExists) {
         $companyName = trim((string)($company['name'] ?? 'Company'));
@@ -859,19 +875,39 @@ try {
         );
         if (!$insComp) throw new RuntimeException($conn->error);
         $insComp->bind_param('issss', $userId, $companyName, $phone, $companyFormDataJson, $context);
-        $insComp->execute();
-        $companyId = (int)$conn->insert_id;
-        $insComp->close();
-        $existingStoreName = null;
-        $forceSync = true;
-    } elseif ($forceSync) {
+        // Atomic get-or-create: with UNIQUE(user_id, phone) a concurrent caller can win the INSERT.
+        // Recover from the duplicate-key race by loading the row that now exists (and falling into
+        // the merge path) instead of erroring or creating the duplicate this fix prevents. Handles
+        // both mysqli error modes (exception on PHP 8.1+ default, or a false return).
+        $inserted = false;
+        try { $inserted = @$insComp->execute(); }
+        catch (\mysqli_sql_exception $e) { if ((int)$conn->errno !== 1062) { $insComp->close(); throw $e; } }
+        if ($inserted && (int)$conn->insert_id > 0) {
+            $companyId = (int)$conn->insert_id;
+            $insComp->close();
+            $existingStoreName = null;
+            $forceSync = true;
+        } else {
+            $insComp->close();
+            $raced = $resolveCompany();
+            if ($raced === null) throw new RuntimeException('company get-or-create failed for phone ' . $phone);
+            $companyId                 = $raced['id'];
+            $existingStoreName         = $raced['store'];
+            $existingFormDataJson      = $raced['fd'];
+            $existingCompanyFolderPath = $raced['folder'];
+            $existingCompanyPublicUrl  = $raced['pub'];
+            $companyExists = true; // fall through to the merge below
+        }
+    }
+
+    if ($companyExists && $forceSync) {
         $updComp = $conn->prepare("UPDATE projects SET company_form_data = ? WHERE id = ?");
         if ($updComp) {
             $updComp->bind_param('si', $companyFormDataJson, $companyId);
             $updComp->execute();
             $updComp->close();
         }
-    } else {
+    } elseif ($companyExists) {
         // Reuse stored company data as the BASE, but let any fields the caller provided in
         // THIS request override the stored ones (deep-merging the images map). Otherwise a
         // stale stored value — e.g. an old placeholder logo from a previous run — would win

@@ -138,16 +138,27 @@ try {
     // deleting the visible company leaves the one generation actually reads untouched. Same tie-break
     // = same row on both sides. (The real cure is one row per phone — see the dedupe SQL / unique
     // index; this keeps the two endpoints agreeing until then and forever after.)
-    $compStmt = $conn->prepare(
-        "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
-         FROM projects WHERE user_id = ? AND phone = ? AND project_type = 'project'
-         ORDER BY created_at DESC, id DESC LIMIT 1"
-    );
-    $compStmt->bind_param('is', $userId, $phone);
-    $compStmt->execute();
-    $compStmt->bind_result($companyId, $storeName, $formDataJson, $folderPath, $publicUrl);
-    $found = $compStmt->fetch();
-    $compStmt->close();
+    // Reusable resolver — also used to recover from a lost INSERT race below.
+    $resolveCompany = function () use ($conn, $userId, $phone) {
+        $s = $conn->prepare(
+            "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
+             FROM projects WHERE user_id = ? AND phone = ? AND project_type = 'project'
+             ORDER BY created_at DESC, id DESC LIMIT 1"
+        );
+        $s->bind_param('is', $userId, $phone);
+        $s->execute();
+        $s->bind_result($id, $store, $fd, $folder, $pub);
+        $ok = $s->fetch();
+        $s->close();
+        return $ok ? ['id' => (int)$id, 'store' => (string)$store, 'fd' => (string)$fd, 'folder' => (string)$folder, 'pub' => (string)$pub] : null;
+    };
+
+    $row = $resolveCompany();
+    $found = $row !== null;
+    if ($found) {
+        $companyId = $row['id']; $storeName = $row['store'];
+        $formDataJson = $row['fd']; $folderPath = $row['folder']; $publicUrl = $row['pub'];
+    }
 
     $formData = $found ? (json_decode((string)$formDataJson, true) ?: []) : [];
     if (!is_array($formData)) $formData = [];
@@ -158,11 +169,29 @@ try {
         $ins = $conn->prepare("INSERT INTO projects (user_id, name, project_type, phone, company_form_data, context) VALUES (?, ?, 'project', ?, ?, ?)");
         $emptyJson = '{}';
         $ins->bind_param('issss', $userId, $companyName, $phone, $emptyJson, $ctx);
-        $ins->execute();
-        $companyId = (int)$conn->insert_id;
-        $ins->close();
-        $storeName = '';
-        $folderPath = ''; $publicUrl = '';
+        // Atomic get-or-create: with UNIQUE(user_id, phone) a concurrent caller can win the INSERT.
+        // On the duplicate-key race, recover by re-reading the row that now exists instead of
+        // erroring or creating the very duplicate this whole fix exists to prevent. Works whether
+        // mysqli reports errors as exceptions (PHP 8.1+ default) or as a false return.
+        $inserted = false;
+        try { $inserted = @$ins->execute(); }
+        catch (\mysqli_sql_exception $e) {
+            if ((int)$conn->errno !== 1062) { $ins->close(); throw $e; }
+        }
+        if ($inserted && (int)$conn->insert_id > 0) {
+            $companyId = (int)$conn->insert_id;
+            $storeName = ''; $folderPath = ''; $publicUrl = '';
+            $ins->close();
+        } else {
+            $ins->close();
+            $row = $resolveCompany();
+            if ($row === null) throw new RuntimeException('company get-or-create failed for phone ' . $phone);
+            $companyId = $row['id']; $storeName = $row['store'];
+            $formData = json_decode((string)$row['fd'], true) ?: [];
+            if (!is_array($formData)) $formData = [];
+            $folderPath = $row['folder']; $publicUrl = $row['pub'];
+            $found = true;
+        }
     }
     $companyId = (int)$companyId;
 
