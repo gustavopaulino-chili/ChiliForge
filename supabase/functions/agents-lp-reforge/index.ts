@@ -197,6 +197,27 @@ function textAnchor(replace: string): string {
 
 type GeminiCall = { text: string; inTok: number; outTok: number; model: string };
 
+// A base64 data: URI in the page is enormous as text — a single ~100KB image is ≈130k tokens — and
+// the model never needs it: the images already live on the server, referenced by their asset path.
+// Sending them was inflating the prompt to millions of input tokens (≈$1/message) across the up-to-3
+// retry rounds, and input is the whole cost (output is capped at 20k). Replace each data URI with a
+// stable placeholder before the prompt; restore the originals in the returned HTML so the page is
+// byte-identical to before — the image is untouched, it just never travels to Gemini.
+function stripDataUris(html: string): { html: string; restores: Array<[string, string]> } {
+  const restores: Array<[string, string]> = [];
+  const stripped = html.replace(/data:[^\s;,]+;base64,[A-Za-z0-9+/=]+/gi, (m) => {
+    const token = `__CF_B64_${restores.length}__`;
+    restores.push([token, m]);
+    return token;
+  });
+  return { html: stripped, restores };
+}
+function restoreDataUris(html: string, restores: Array<[string, string]>): string {
+  let out = html;
+  for (const [token, original] of restores) out = out.split(token).join(original);
+  return out;
+}
+
 async function callGemini(payload: ReforgePayload, model: string, apiKey: string): Promise<GeminiCall> {
   const stores = [payload.globalStoreName?.trim(), payload.companyStoreName?.trim()].filter(Boolean) as string[];
 
@@ -208,7 +229,7 @@ async function callGemini(payload: ReforgePayload, model: string, apiKey: string
   const userMessage = [
     stores.length ? "Use the attached File Search stores (global LP guidelines + company brand) as the source of truth for brand, tone and design rules." : "",
     payload.generationContext?.trim() ? `=== ORIGINAL GENERATION CONTEXT (brand + brief) ===\n${payload.generationContext.trim()}` : "",
-    payload.focusHtml?.trim() ? `=== SELECTED ELEMENT (the user picked this in the editor) ===\nWhen the request says "this", "isto", "esse", "aqui" or is otherwise about a specific element, it refers to THIS one. Prefer editing it (or its closest relevant ancestor) and keep the change scoped to it:\n${payload.focusHtml.trim().slice(0, 4000)}` : "",
+    payload.focusHtml?.trim() ? `=== SELECTED ELEMENT (the user picked this in the editor) ===\nWhen the request says "this", "isto", "esse", "aqui" or is otherwise about a specific element, it refers to THIS one. Prefer editing it (or its closest relevant ancestor) and keep the change scoped to it:\n${stripDataUris(payload.focusHtml.trim()).html.slice(0, 4000)}` : "",
     payload.leadCaptureStatus?.trim() ? `=== LEAD CAPTURE STATUS (for guidance only — never edit this wiring in the HTML) ===\n${payload.leadCaptureStatus.trim().slice(0, 600)}` : "",
     payload.availableAssets?.trim() ? `=== AVAILABLE ASSET IMAGES (the only image paths you may use; they exist in the LP) ===\n${payload.availableAssets.trim().slice(0, 2000)}` : "",
     historyText ? `=== CONVERSATION SO FAR ===\n${historyText}` : "",
@@ -289,7 +310,11 @@ serve(async (req: Request) => {
     // Round 0: the user's request. Rounds 1-2: auto-correct the blocks that did not
     // match, re-issued against the (already partially-updated) HTML — so edits land
     // reliably without the user having to rephrase.
-    let html = payload.html;
+    // Strip base64 data: URIs up front so every prompt round works on the light HTML. The
+    // originals are restored into the final HTML before returning (see below), so the page is
+    // unchanged — the model just never pays for the blobs.
+    const { html: strippedHtml, restores: b64Restores } = stripDataUris(payload.html);
+    let html = strippedHtml;
     let firstReply = "";
     let totalApplied = 0;
     let lastUnmatched: Unmatched[] = [];
@@ -340,9 +365,13 @@ serve(async (req: Request) => {
       || (reverted ? "Detectei que a alteração quebraria a página, então não apliquei. Pode reformular?"
         : totalApplied ? "Pronto, apliquei a alteração." : "Não fiz alterações.");
 
+    // Restore the base64 blobs into the edited HTML. On a revert, html is already the untouched
+    // original (which still has its blobs), so restore only the edited path.
+    const outHtml = reverted ? html : restoreDataUris(html, b64Restores);
+
     return new Response(JSON.stringify({
       reply,
-      html,
+      html: outHtml,
       changed: totalApplied > 0,
       applied: totalApplied,
       unmatched: unmatchedSnippets,
