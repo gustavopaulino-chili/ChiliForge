@@ -361,22 +361,36 @@ serve(async (req: Request) => {
     }
 
     const unmatchedSnippets = lastUnmatched.map((u) => u.search.slice(0, 120)).filter(Boolean);
-    const reply = firstReply
-      || (reverted ? "Detectei que a alteração quebraria a página, então não apliquei. Pode reformular?"
-        : totalApplied ? "Pronto, apliquei a alteração." : "Não fiz alterações.");
 
     // Restore the base64 blobs into the edited HTML. On a revert, html is already the untouched
     // original (which still has its blobs), so restore only the edited path.
-    const outHtml = reverted ? html : restoreDataUris(html, b64Restores);
+    let outHtml = reverted ? html : restoreDataUris(html, b64Restores);
+
+    // HARD SAFETY: a placeholder should only ever survive as an exact token (restored above) or be
+    // deleted by an intentional edit. If a MANGLED fragment remains, an image would render broken —
+    // so ship the untouched original instead of a corrupted page. The edit simply doesn't apply;
+    // the LP can never come back broken from base64 handling.
+    let safetyReverted = false;
+    if (!reverted && outHtml.includes("__CF_B64_")) {
+      console.error(`[agents-lp-reforge] stray base64 placeholder after restore → returning original untouched`);
+      outHtml = payload.html;
+      totalApplied = 0;
+      safetyReverted = true;
+    }
+
+    const didRevert = reverted || safetyReverted;
+    const reply = firstReply
+      || (didRevert ? "Detectei que a alteração quebraria a página, então não apliquei. Pode reformular?"
+        : totalApplied ? "Pronto, apliquei a alteração." : "Não fiz alterações.");
 
     return new Response(JSON.stringify({
       reply,
       html: outHtml,
-      changed: totalApplied > 0,
+      changed: totalApplied > 0 && !safetyReverted,
       applied: totalApplied,
       unmatched: unmatchedSnippets,
-      reverted,
-      anchor,
+      reverted: didRevert,
+      anchor: safetyReverted ? "" : anchor,
       tokensIn,
       tokensOut,
       costUsd: Number(costUsd.toFixed(6)),
