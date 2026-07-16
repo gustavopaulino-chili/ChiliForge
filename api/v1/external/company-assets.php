@@ -106,6 +106,15 @@ $brandPostInputs = is_array($body['brand_posts'] ?? null) ? array_values($body['
 $compPostInputs  = is_array($body['competitor_posts'] ?? null) ? array_values($body['competitor_posts']) : [];
 $geminiApiKey    = trim((string)($body['gemini_api_key'] ?? ''));
 
+// site_images: a screenshot / hero image of the CLIENT'S OWN site. This is the client's real
+// visual identity, used in PROXY mode (empty Instagram) to give brand_visual actual material to
+// pull colour/feel from — so the brief combines the client's identity with the competitor's
+// STRUCTURE instead of describing the competitor's colours. Accepts an array (site_images) or a
+// single URL (site_image). Ignored (harmless) outside proxy.
+$siteImageInputs = is_array($body['site_images'] ?? null) ? array_values($body['site_images']) : [];
+$siteImageOne    = trim((string)($body['site_image'] ?? ''));
+if ($siteImageOne !== '') $siteImageInputs[] = $siteImageOne;
+
 // brand_posts_are_proxy: the images in brand_posts are NOT the client's — they are market/category
 // reference, used when the client's own Instagram is empty. Absent (the default, and what every
 // caller sends today) = the client's own posts = today's behaviour, unchanged end to end.
@@ -343,6 +352,21 @@ try {
     // A bare poll or a metadata-only call must never silently flip it.
     if (!empty($newBrandUrls)) $formData['brandPostsAreProxy'] = $brandPostsAreProxy;
 
+    // ── Client site images (identity source for proxy mode) ───────────────────
+    // A screenshot / hero of the CLIENT'S own site. REPLACE-latest (not accumulate): a re-crawl
+    // gives a fresh screenshot and we always want the current one, not a pile. Stored as siteImages.
+    $newSiteUrls = [];
+    $ns = 1;
+    foreach ($siteImageInputs as $si) {
+        $r = $storeImage($si, 'site', $ns++);
+        if (isset($r['url'])) $newSiteUrls[] = $r['url'];
+        elseif (isset($r['skip'])) $skipped[] = ['type' => 'site_image', 'reason' => $r['reason']];
+    }
+    if (!empty($newSiteUrls)) {
+        $formData['siteImages'] = array_slice(array_values(array_unique(array_filter($newSiteUrls, 'strlen'))), 0, 4);
+    }
+    $allSiteImages = is_array($formData['siteImages'] ?? null) ? $formData['siteImages'] : [];
+
     // ── Competitor Instagram posts ────────────────────────────────────────────
     $newCompUrls = [];
     $nc = 1;
@@ -418,6 +442,8 @@ try {
             // Read back from the stored value, not the request: the worker must reflect the
             // provenance of the posts actually stored (which a provenance flip may have replaced).
             'brandPostsAreProxy'  => !empty($formData['brandPostsAreProxy']),
+            // The client's own site images — proxy mode uses them as the identity/colour source.
+            'siteImageUrls'       => $toAbsolute(array_slice($allSiteImages, -3)),
         ], JSON_UNESCAPED_UNICODE);
 
         $jobId = 0;
@@ -506,6 +532,7 @@ try {
                 'brandImageUrls'      => $toAbsolute(array_slice($allBrandPosts, -10)),
                 'competitorImageUrls' => $toAbsolute(array_slice($allCompPosts, -6)),
                 'brandPostsAreProxy'  => !empty($formData['brandPostsAreProxy']),
+                'siteImageUrls'       => $toAbsolute(array_slice($allSiteImages, -3)),
             ];
             $bvRes = agents_call_edge_function('agents-ads', $briefPayload, $geminiApiKey);
             $briefEdgeCalled = true;

@@ -3367,6 +3367,22 @@ serve(async (req: Request) => {
         });
       }
 
+      // Client site images — the client's OWN visual identity (screenshot/hero of their site).
+      // Only meaningful in proxy mode: they give the model real material to pull COLOUR/feel from,
+      // so the brief becomes the client's identity executed with the competitor's STRUCTURE instead
+      // of describing the competitor's colours. Empty → falls back to structure-only colorless.
+      const siteUrls = (Array.isArray((payload as any).siteImageUrls) ? (payload as any).siteImageUrls as unknown[] : [])
+        .filter((u): u is string => typeof u === "string" && u.startsWith("http")).slice(0, 3);
+      const fetchedSite = await Promise.all(
+        siteUrls.map((url, i) =>
+          fetchImageAsBase64(url)
+            .then((img) => (img ? { label: `Client site ${i + 1}`, ...img } as ReferenceImage : null))
+            .catch(() => null)
+        )
+      );
+      const siteRefs = fetchedSite.filter((r): r is ReferenceImage => r !== null);
+      const hasSiteIdentity = brandPostsAreProxy && siteRefs.length > 0;
+
       // ── Phase 1: full brand visual identity ────────────────────────────────
       // The brief is written FROM the brand posts. When those posts are a PROXY (market reference,
       // not this client's own profile), any colour/palette/typography the model reads is the
@@ -3376,7 +3392,20 @@ serve(async (req: Request) => {
       // profiles STRUCTURE ONLY — layout, composition, motif SHAPES, depth, density, finish — and
       // is forbidden from naming any colour, palette, grade or typography. Colour then comes solely
       // from the brand's explicit primaryColor/accentColor downstream.
-      const BRAND_IDENTITY_SYSTEM = brandPostsAreProxy ? [
+      const BRAND_IDENTITY_SYSTEM = hasSiteIdentity ? [
+        // proxy + client site images: combine the two identities by ROLE.
+        "You are a senior art director. You are given TWO image groups with DIFFERENT, non-negotiable roles:",
+        "• 'CLIENT SITE' images = THIS client's OWN brand. They are the ONLY source of COLOUR, palette, tones, mood and overall brand feel.",
+        "• 'MARKET REFERENCE' images = competitors in the same niche. They are the ONLY source of LAYOUT, composition, decorative devices, density and niche energy — take their STRUCTURE, NEVER their colour or identity.",
+        "Write 300-400 words of dense, actionable prose describing the CLIENT'S visual identity (colour + feel, from CLIENT SITE) EXECUTED with this niche's structural conventions (layout + decoration, from MARKET REFERENCE). The result must feel unmistakably like the CLIENT'S brand, arranged like a strong, richly-designed ad in this market — never plain or empty.",
+        "",
+        "COLOUR SYSTEM — from CLIENT SITE ONLY: name the client's colours (warm coral, deep navy — never hex), which dominates, which accents. NEVER take a colour from the MARKET REFERENCE images; render the market's decorative devices IN THE CLIENT'S colours.",
+        "BACKGROUND & DECORATIVE STRUCTURE — from MARKET REFERENCE ONLY: background type (photo/flat/gradient + direction), texture layer, and the signature decorative devices (dots, blobs, shapes, particles, halftone…) with their density and placement. Match the market's RICHNESS — if the references are heavily decorated, decorate just as much.",
+        "DEPTH & LAYERING, SUBJECT TREATMENT, COMPOSITION ENERGY — from MARKET REFERENCE.",
+        "FINISH & MOOD: the client's mood (from CLIENT SITE) applied over the market's structure.",
+        "",
+        "Return ONLY the brief — no preamble, no section headers, no bullet points, no markdown, no hex codes.",
+      ].join("\n") : brandPostsAreProxy ? [
         "You are a senior art director extracting the STRUCTURAL DESIGN LANGUAGE from a set of MARKET/CATEGORY REFERENCE posts. These are NOT the client's own brand — they are reference material for layout only.",
         "Your output will be used as a creative brief for an AI image generation model to lay out on-brand advertising backgrounds. The brand's OWN colours are supplied separately and are the only colours that matter — so your brief must be COLOUR-BLIND.",
         "Write 220-320 words of dense, specific, actionable prose about STRUCTURE ONLY.",
@@ -3412,12 +3441,22 @@ serve(async (req: Request) => {
 
       let brandBrief = "";
       try {
+        // In proxy mode brandRefs are the competitor/market posts — relabel so the model reads them
+        // as reference, not "the brand". When we also have site images, send BOTH groups (site first
+        // so identity leads) with their role labels intact.
+        const proxyBrandRefs = brandRefs.map((r, i) => ({ ...r, label: `Market reference ${i + 1}` }));
+        const identityImages = hasSiteIdentity
+          ? [...siteRefs, ...proxyBrandRefs]
+          : brandPostsAreProxy ? proxyBrandRefs : brandRefs;
+        const userMsg = hasSiteIdentity
+          ? `Combine the two groups by role: take COLOUR and brand feel ONLY from the ${siteRefs.length} CLIENT SITE image(s), and LAYOUT / decoration / structure ONLY from the ${proxyBrandRefs.length} MARKET REFERENCE post(s). Write the client's identity executed with the market's structure — rich and unmistakably on-brand.`
+          : brandPostsAreProxy
+            ? `Analyze the STRUCTURE of these ${brandRefs.length} market-reference posts and write the structural brief. Describe layout, composition, motif shapes, depth and density ONLY — not a single colour word or font.`
+            : `Analyze these ${brandRefs.length} brand posts and write the complete visual identity brief.`;
         const brandVis = await generateWithRetry(
           BRAND_IDENTITY_SYSTEM,
-          brandPostsAreProxy
-            ? `Analyze the STRUCTURE of these ${brandRefs.length} market-reference posts and write the structural brief. Describe layout, composition, motif shapes, depth and density ONLY — not a single colour word or font.`
-            : `Analyze these ${brandRefs.length} brand posts and write the complete visual identity brief.`,
-          "gemini-2.5-flash", 0.4, 1200, visKey, undefined, brandRefs, { jobId, thinkingBudget: 0 },
+          userMsg,
+          "gemini-2.5-flash", 0.4, 1200, visKey, undefined, identityImages, { jobId, thinkingBudget: 0 },
         );
         // Full brief — no char cap. maxOutputTokens 1200 comfortably fits the 300-400 word target
         // (~550 tokens) ONLY with thinkingBudget:0 — gemini-2.5 thinks by default and those tokens

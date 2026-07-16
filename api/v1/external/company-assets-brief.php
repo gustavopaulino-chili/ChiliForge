@@ -101,6 +101,7 @@ if (!function_exists('caa_run_brief_job')) {
         $competitorImageUrls = is_array($payload['competitorImageUrls'] ?? null) ? $payload['competitorImageUrls'] : [];
         // The stored brand_posts are market reference, not the client's own profile.
         $brandPostsAreProxy  = !empty($payload['brandPostsAreProxy']);
+        $siteImageUrls       = is_array($payload['siteImageUrls'] ?? null) ? $payload['siteImageUrls'] : [];
 
         // ── Load company (store name + form data) ─────────────────────────────
         agents_reconnect_mysqli_if_needed($conn);
@@ -124,6 +125,7 @@ if (!function_exists('caa_run_brief_job')) {
                 'brandImageUrls'      => $brandImageUrls,
                 'competitorImageUrls' => $competitorImageUrls,
                 'brandPostsAreProxy'  => $brandPostsAreProxy,
+                'siteImageUrls'       => $siteImageUrls,
             ], $geminiApiKey ?: null);
             agents_reconnect_mysqli_if_needed($conn);
 
