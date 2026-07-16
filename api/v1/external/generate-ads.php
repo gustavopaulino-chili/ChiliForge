@@ -900,18 +900,14 @@ try {
         }
     }
 
-    if ($companyExists && $forceSync) {
-        $updComp = $conn->prepare("UPDATE projects SET company_form_data = ? WHERE id = ?");
-        if ($updComp) {
-            $updComp->bind_param('si', $companyFormDataJson, $companyId);
-            $updComp->execute();
-            $updComp->close();
-        }
-    } elseif ($companyExists) {
-        // Reuse stored company data as the BASE, but let any fields the caller provided in
-        // THIS request override the stored ones (deep-merging the images map). Otherwise a
-        // stale stored value — e.g. an old placeholder logo from a previous run — would win
-        // over the real logo_url/colors the caller just sent. Persist so later runs keep it.
+    if ($companyExists) {
+        // ALWAYS merge (even on force_sync): stored company data is the BASE, this request's
+        // non-empty fields override it. force_sync must NOT wipe registered identity — the logo,
+        // colours, brief, brand posts and site images that company-assets saved are meant to be
+        // REUSED without re-sending on every generation. force_sync's real job (re-syncing the
+        // Gemini store) is handled independently downstream and is unaffected by this merge.
+        // Otherwise a stale stored value — e.g. an old placeholder logo from a previous run — would
+        // win over the real logo_url/colors the caller just sent. Persist so later runs keep it.
         $existing = json_decode($existingFormDataJson ?: '{}', true);
         if (is_array($existing) && !empty($existing)) {
             $payloadCompany = $companyFormData; // already mapped + non-empty-filtered above
