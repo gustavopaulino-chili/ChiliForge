@@ -131,9 +131,17 @@ if ((!empty($brandPostInputs) || !empty($compPostInputs)) && $geminiApiKey === '
 
 try {
     // ── Find/create company (project_type='project') by (user_id, phone) ──────
+    // ORDER BY created_at DESC MUST match generate-ads.php's resolver exactly. When duplicate
+    // company rows exist for one (user_id, phone) — which they should not, but do — an unordered
+    // LIMIT 1 here and an ordered LIMIT 1 there pick DIFFERENT rows: the brand pushes (logo/colour/
+    // brief) land on one company while generation reads another, so updates never reach the ad and
+    // deleting the visible company leaves the one generation actually reads untouched. Same tie-break
+    // = same row on both sides. (The real cure is one row per phone — see the dedupe SQL / unique
+    // index; this keeps the two endpoints agreeing until then and forever after.)
     $compStmt = $conn->prepare(
         "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
-         FROM projects WHERE user_id = ? AND phone = ? AND project_type = 'project' LIMIT 1"
+         FROM projects WHERE user_id = ? AND phone = ? AND project_type = 'project'
+         ORDER BY created_at DESC, id DESC LIMIT 1"
     );
     $compStmt->bind_param('is', $userId, $phone);
     $compStmt->execute();

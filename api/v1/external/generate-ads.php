@@ -832,11 +832,14 @@ try {
     $companyFormData = ext_map_company($company);
     $companyFormDataJson = json_encode($companyFormData, JSON_UNESCAPED_UNICODE);
 
+    // ORDER BY created_at DESC, id DESC MUST stay identical to company-assets.php's resolver so a
+    // brand's pushes and its generation always resolve to the SAME company row when duplicates
+    // exist. The id DESC tie-break makes it deterministic even when two rows share a created_at.
     $compStmt = $conn->prepare(
         "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
          FROM projects
          WHERE user_id = ? AND phone = ? AND project_type = 'project'
-         ORDER BY created_at DESC LIMIT 1"
+         ORDER BY created_at DESC, id DESC LIMIT 1"
     );
     if (!$compStmt) throw new RuntimeException($conn->error);
     $compStmt->bind_param('is', $userId, $phone);
