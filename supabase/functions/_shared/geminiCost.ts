@@ -31,3 +31,21 @@ export function logGeminiCost(fn: string, model: string, usage: any, extra?: { i
     console.log(`[cost-estimate] fn=${fn} model=${model} in=${i} out=${o}${tool ? ` tool=${tool}` : ""}${imgs ? ` images=${imgs}` : ""} ~=$${usd.toFixed(5)}`);
   } catch (_) { /* logging must never break a generation */ }
 }
+
+// Fire-and-forget: POST one Gemini call's RAW usageMetadata to the PHP usage ledger
+// (log-gemini-usage.php), which is the SINGLE pricing authority — it computes the exact USD
+// (INCLUDING thinking tokens, which the estimate above omits) and persists it to gemini_usage.
+// Never blocks or throws. No-op if USAGE_LOG_URL / USAGE_LOG_SECRET are not configured.
+export function logGeminiUsage(source: string, model: string, usage: unknown, jobId?: number | string): void {
+  try {
+    const url = (globalThis as any).Deno?.env?.get?.("USAGE_LOG_URL");
+    const secret = (globalThis as any).Deno?.env?.get?.("USAGE_LOG_SECRET");
+    if (!url || !secret) return;
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret, source, model, usage: usage ?? {}, job_id: jobId ? Number(jobId) : null }),
+      signal: AbortSignal.timeout(4000),
+    }).catch(() => {});
+  } catch (_) { /* never break a generation */ }
+}

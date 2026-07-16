@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { logGeminiCost, geminiPricing } from "../_shared/geminiCost.ts";
+import { logGeminiCost, logGeminiUsage, geminiPricing } from "../_shared/geminiCost.ts";
 
 // ReForge / "Chilito" — surgical LP editor. Given the CURRENT page HTML, the user's
 // requested change, the conversation history, and the LP + company File Search
@@ -256,10 +256,18 @@ async function callGemini(payload: ReforgePayload, model: string, apiKey: string
   }
   const data = await res.json();
   logGeminiCost("agents-lp-reforge", model, data?.usageMetadata);
+  // Persist the RAW usageMetadata to the PHP ledger (single pricing authority — counts thinking
+  // and lands in gemini_usage). Fire-and-forget; the empty SELECT earlier was because reforge
+  // never did this.
+  logGeminiUsage("agents-lp-reforge", model, data?.usageMetadata);
   const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
   if (!text.trim()) throw new Error(`Gemini ${model} returned empty response`);
   const u = data?.usageMetadata ?? data?.usage_metadata ?? {};
-  return { text, model, inTok: Number(u.promptTokenCount ?? u.prompt_token_count ?? 0), outTok: Number(u.candidatesTokenCount ?? u.candidates_token_count ?? 0) };
+  // outTok INCLUDES thinking tokens: gemini-2.5 thinks by default and Google bills those at the
+  // output rate, so the chat-facing costUsd must count them or it undercounts the real bill.
+  const out    = Number(u.candidatesTokenCount ?? u.candidates_token_count ?? 0);
+  const think  = Number(u.thoughtsTokenCount   ?? u.thoughts_token_count   ?? 0);
+  return { text, model, inTok: Number(u.promptTokenCount ?? u.prompt_token_count ?? 0), outTok: out + think };
 }
 
 serve(async (req: Request) => {
