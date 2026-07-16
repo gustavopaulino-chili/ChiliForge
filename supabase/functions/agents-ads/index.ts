@@ -3368,7 +3368,31 @@ serve(async (req: Request) => {
       }
 
       // ── Phase 1: full brand visual identity ────────────────────────────────
-      const BRAND_IDENTITY_SYSTEM = [
+      // The brief is written FROM the brand posts. When those posts are a PROXY (market reference,
+      // not this client's own profile), any colour/palette/typography the model reads is the
+      // REFERENCE's — and this brief flows into the compose background prompt AND the Gemini store.
+      // Scrubbing colour at compose time (a carve-out) is fighting 300+ words of vivid colour prose
+      // after the fact; the robust fix is to never let colour into the brief. So the proxy variant
+      // profiles STRUCTURE ONLY — layout, composition, motif SHAPES, depth, density, finish — and
+      // is forbidden from naming any colour, palette, grade or typography. Colour then comes solely
+      // from the brand's explicit primaryColor/accentColor downstream.
+      const BRAND_IDENTITY_SYSTEM = brandPostsAreProxy ? [
+        "You are a senior art director extracting the STRUCTURAL DESIGN LANGUAGE from a set of MARKET/CATEGORY REFERENCE posts. These are NOT the client's own brand — they are reference material for layout only.",
+        "Your output will be used as a creative brief for an AI image generation model to lay out on-brand advertising backgrounds. The brand's OWN colours are supplied separately and are the only colours that matter — so your brief must be COLOUR-BLIND.",
+        "Write 220-320 words of dense, specific, actionable prose about STRUCTURE ONLY.",
+        "",
+        "⛔ ABSOLUTELY FORBIDDEN — do NOT mention any of these, not even once: any colour name or hue (blue, coral, navy, warm, cool, pastel…), any palette/hex/tint/duotone, any colour grade or 'mood' conveyed by colour, and any typography/font/lettering. If you catch yourself about to describe a colour, describe the SHAPE, PLACEMENT or DENSITY instead.",
+        "",
+        "Cover ONLY the following — be hyper-specific, never generic:",
+        "BACKGROUND STRUCTURE: Is the background photography, a flat field, or a gradient (describe the gradient's DIRECTION and softness, never its colours)? Is there a texture layer on top (grain, noise, halftone, paper)?",
+        "SIGNATURE DECORATIVE DEVICES (SHAPES ONLY): The recurring motifs — scattered dots/bokeh, floating geometric shapes, confetti, botanical line art, hand-drawn strokes, sticker/emoji overlays, blobs, particle bursts, light leaks, film grain. Name the SHAPES precisely and say how densely they appear and where (corners, full bleed, behind the subject). Never their colour.",
+        "DEPTH & LAYERING: Flat (one plane) vs layered (background → decorative mid-layer → subject → text). Foreground blur? Drop shadows? Overlapping translucent elements? 3D separation or flat sticker-on-background?",
+        "SUBJECT TREATMENT: How are products or people positioned — centered, off-center, cropped, floating, cutout silhouette, placed on a surface? Any consistent framing device (circle mask, arch, frame line)?",
+        "COMPOSITION ENERGY: Symmetric and still vs asymmetric and kinetic. Where does the eye land first? Airy with breathing room, or dense and packed?",
+        "FINISH (NON-COLOUR): Matte vs glossy, raw/gritty vs clean digital, sharp vs soft — surface qualities only, never colour or colour-mood.",
+        "",
+        "Return ONLY the structural brief — no preamble, no section headers, no bullet points, no markdown. Not a single colour word or font name.",
+      ].join("\n") : [
         "You are a senior art director profiling a brand's complete VISUAL DESIGN LANGUAGE from its real Instagram posts.",
         "Your output will be used as the authoritative creative brief for an AI image generation model to produce on-brand advertising backgrounds.",
         "Write 300-400 words of dense, specific, actionable prose. Another designer reading this must be able to recreate the EXACT visual feel of this brand on a fresh ad with no other reference.",
@@ -3390,7 +3414,9 @@ serve(async (req: Request) => {
       try {
         const brandVis = await generateWithRetry(
           BRAND_IDENTITY_SYSTEM,
-          `Analyze these ${brandRefs.length} brand posts and write the complete visual identity brief.`,
+          brandPostsAreProxy
+            ? `Analyze the STRUCTURE of these ${brandRefs.length} market-reference posts and write the structural brief. Describe layout, composition, motif shapes, depth and density ONLY — not a single colour word or font.`
+            : `Analyze these ${brandRefs.length} brand posts and write the complete visual identity brief.`,
           "gemini-2.5-flash", 0.4, 1200, visKey, undefined, brandRefs, { jobId, thinkingBudget: 0 },
         );
         // Full brief — no char cap. maxOutputTokens 1200 comfortably fits the 300-400 word target
