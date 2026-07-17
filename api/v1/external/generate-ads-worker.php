@@ -611,34 +611,42 @@ try {
     // Without this line the flag never reaches buildBackgroundPrompt and the whole feature is dead.
     $campaignFormData['brandPostsAreProxy'] = !empty($companyFormData['brandPostsAreProxy']);
 
+    // Site images = the CLIENT'S OWN identity (their website), captured in the proxy flow. In proxy
+    // mode the stored brand posts belong to a COMPETITOR (structure reference only), so the site is
+    // the ONLY source of the client's real colour, mood and identity. It MUST reach the image model
+    // as the PRIMARY reference — ahead of the competitor posts — or the ad comes out with no site
+    // colour and no site feel (the "fundo sem cor da empresa, sem ref do site" regression). Before
+    // this the site images were stored on the company but never injected into composeCompanyRefs,
+    // so they only fed the brief text and never influenced a single pixel.
+    $storedSiteImages = is_array($companyFormData['siteImages'] ?? null)
+        ? array_values(array_filter(array_map('strval', $companyFormData['siteImages'])))
+        : [];
+
     // Inject brand post images into composeCompanyRefs so they reach the image model.
     $storedBrandPosts = is_array($companyFormData['brandPostImages'] ?? null)
         ? array_values(array_filter(array_map('strval', $companyFormData['brandPostImages'])))
         : [];
-    if (!empty($storedBrandPosts)) {
+
+    if (!empty($storedSiteImages) || !empty($storedBrandPosts)) {
         $existingComposeRefs = is_array($campaignFormData['composeCompanyRefs'] ?? null)
             ? $campaignFormData['composeCompanyRefs'] : [];
-        // Brand posts normally take priority as the aesthetic reference (prepended). BUT when the
-        // caller sent an explicit reference_image_url (composeHeroRef), that image is genRefUrl —
-        // already first in $existingComposeRefs — and it MUST stay first: it's the featured hero
-        // subject, not style inspiration. Prepending up to 8 brand posts ahead of it pushed it past
-        // the edge's slice(0,3) cutoff, so the hero silently became an unrelated stored brand-post
-        // person instead of the reference the caller actually sent.
+        // When the caller sent an explicit reference_image_url (composeHeroRef), that image is
+        // genRefUrl — already first in $existingComposeRefs — and it MUST stay first: it's the
+        // featured hero subject. Otherwise the priority order is:
+        //   [client SITE identity] → [competitor / brand posts] → [any pre-existing refs]
+        // Site leads so the client's own colour/feel dominates the reference set; competitor posts
+        // follow purely as structure. Site capped at 4, posts at 8, so the site is never pushed
+        // past the edge's fetch cutoff.
         $heroRefActive = !empty($campaignFormData['composeHeroRef']);
+        $siteSlice  = array_slice($storedSiteImages, -4);
+        $postsSlice = array_slice($storedBrandPosts, -8);
         $mergedRefs = $heroRefActive
-            ? array_values(array_unique(array_filter(
-                array_merge($existingComposeRefs, array_slice($storedBrandPosts, -8)),
-                'strlen'
-            )))
-            : array_values(array_unique(array_filter(
-                array_merge(array_slice($storedBrandPosts, -8), $existingComposeRefs),
-                'strlen'
-            )));
-        // Absolutize — brand posts are stored ROOT-RELATIVE (/projects/...). This injection runs
-        // AFTER the section-7 absolutization, so without re-absolutizing here the posts stay
-        // relative and the edge (which only fetches http(s) URLs) silently DROPS them — only the
-        // few already-absolute refs survived, so most brand posts never reached the image model
-        // and backgrounds came out generic. Re-absolutize so all brand posts actually get through.
+            ? array_merge($existingComposeRefs, $siteSlice, $postsSlice)
+            : array_merge($siteSlice, $postsSlice, $existingComposeRefs);
+        $mergedRefs = array_values(array_unique(array_filter($mergedRefs, 'strlen')));
+        // Absolutize — site images and brand posts are stored ROOT-RELATIVE (/projects/...). This
+        // injection runs AFTER the section-7 absolutization, so without re-absolutizing here they
+        // stay relative and the edge (which only fetches http(s) URLs) silently DROPS them.
         if ($pubBase !== '') {
             $mergedRefs = array_values(array_filter(array_map(function ($u) use ($pubBase) {
                 $u = trim((string)$u);
@@ -647,6 +655,14 @@ try {
             }, $mergedRefs), 'strlen'));
         }
         $campaignFormData['composeCompanyRefs'] = array_slice($mergedRefs, 0, 10);
+
+        // Tell the edge how many of the LEADING refs are the client's own site (identity/colour) vs
+        // the trailing competitor posts (structure only). Non-hero proxy path puts the site first,
+        // so the edge treats the first N companyRefImages as the site identity and grades the whole
+        // background to them, taking ONLY structure from the competitor posts.
+        if (!$heroRefActive && !empty($siteSlice)) {
+            $campaignFormData['composeSiteRefCount'] = count($siteSlice);
+        }
     }
 
     $composeRefs = is_array($campaignFormData['composeCompanyRefs'] ?? null)

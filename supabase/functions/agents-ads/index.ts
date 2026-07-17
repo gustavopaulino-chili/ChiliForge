@@ -2399,6 +2399,11 @@ function buildBackgroundPrompt(
   // the client's own Instagram is empty). Use their STRUCTURE, never their IDENTITY. Default false
   // = today's behaviour, unchanged, for every client with a real profile.
   brandPostsAreProxy: boolean = false,
+  // Proxy mode only: the leading `siteRefCount` reference images are the client's OWN website —
+  // the sole source of brand colour/identity. When set, the colour rule and the company source
+  // block point at the site instead of falling back to a neutral (colourless) treatment.
+  hasSiteIdentity: boolean = false,
+  siteRefCount: number = 0,
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
@@ -2511,6 +2516,21 @@ function buildBackgroundPrompt(
       "",
       "Compose fresh for this format. The image must be ENTIRELY TEXT-FREE and ENTIRELY LOGO-FREE.",
     ].join("\n");
+    // PROXY MODE: the attached images are NOT this brand's own posts — the leading ones are the
+    // client's own website (identity/colour), the rest are competitor posts (structure only). The
+    // generic company block above tells the model to KEEP the posts' palette/identity, which for
+    // competitor posts is exactly wrong. Prepend a hard override so the roles are unambiguous.
+    if (brandPostsAreProxy) {
+      sourceBlock = [
+        "████ REFERENCE ROLES — PROXY MODE (READ FIRST, OVERRIDES EVERYTHING BELOW) ████",
+        hasSiteIdentity
+          ? `The FIRST ${Math.max(1, siteRefCount)} attached image(s) are the CLIENT'S OWN WEBSITE — the ONLY source of this brand's COLOUR, mood and identity. Colour-grade the WHOLE scene to match them. The OTHER attached images are MARKET/COMPETITOR references: use ONLY their STRUCTURE (layout, composition, negative-space, density) — take NONE of their colour, palette, logo, wordmark or identity.`
+          : "The attached images are MARKET/COMPETITOR references, NOT this brand's own posts. Use ONLY their STRUCTURE (layout, composition, density). Take NONE of their colour, palette, logo or identity — colour comes only from the BRAND COLORS line below.",
+        "So when the block below says to keep 'the brand's' palette/grading/identity, that means the CLIENT SITE (or the BRAND COLORS line) — NEVER the competitor posts.",
+        "",
+        sourceBlock,
+      ].join("\n");
+    }
   } else if (bgSource === "inspired") {
     sourceBlock = [
       "████ BACKGROUND SOURCE: INSPIRED BY REFERENCE — CREATIVE FREEDOM ████",
@@ -2616,6 +2636,8 @@ function buildBackgroundPrompt(
     ? `BRAND COLORS — ⛔ SOURCE OF TRUTH = THE BRAND-POST REFERENCE IMAGES: the real brand palette is whatever DOMINANT, RECURRING colours appear across the attached brand Instagram posts. STUDY those posts, identify the brand's signature colour(s), and light + colour-grade the WHOLE scene so those post colours clearly DOMINATE the canvas as the main brand field. Do NOT take the palette from any hero/product/person reference (e.g. that model's clothing colour) and do NOT invent a colour — if the hero image has a different colour, RE-GRADE it into the brand-post palette. ${primaryName ? `(As a rough hint the saved brand colour is around ${primaryName}, but if the brand posts disagree, the BRAND POSTS WIN.)` : ""} Never write any color name, code, hex or # as text.`
     : primaryName
     ? `BRAND COLORS — the DOMINANT background color is ${primaryName}: it should fill MOST of the canvas as the main, vivid brand field (do not mute, grey-out or darken it into a dull mix).${accentNames.length ? ` Use ${accentNames.join(", ")} only as smaller accents and contrast.` : ""} ⛔ COLOUR-SOURCE LOCK: the palette comes ONLY from the brand. Any attached product/reference image is used for its SUBJECT and SHAPE, NEVER its colours — if that image has a different colour (e.g. blue), RE-LIGHT and COLOUR-GRADE the entire scene into ${primaryName} and the brand accents regardless. The product may keep its own material, but the surrounding scene, lighting and overall colour grade MUST be unmistakably the brand's, not the reference image's. Never write any color name, code, hex or # as text.`
+    : (hasBrandPosts && brandPostsAreProxy && hasSiteIdentity)
+    ? `BRAND COLORS — ⛔ SOURCE OF TRUTH = THE CLIENT'S OWN WEBSITE (the FIRST ${Math.max(1, siteRefCount)} attached image(s)): sample the dominant, recurring colours of the client site and colour-grade the WHOLE scene so THOSE colours clearly dominate the canvas as the main brand field. ⛔ The OTHER attached images are market/competitor references — take NO colour from them (not their palette, grade, or tint); they inform STRUCTURE only. Never write any color name, code, hex or # as text.`
     : (hasBrandPosts && brandPostsAreProxy)
     ? `BRAND COLORS — ⛔ THE ATTACHED BRAND-POST REFERENCE IMAGES ARE NOT THIS BRAND: they are market/category reference material. Do NOT take ANY colour from them — not their palette, not their colour grade, not their background tint. No brand colour is known for this brand yet, so do NOT invent a loud signature colour either: use a restrained, NEUTRAL background treatment (soft neutral tones, natural light, low saturation) that stays out of the way. Never write any color name, code, hex or # as text.`
     : "";
@@ -3845,6 +3867,14 @@ serve(async (req: Request) => {
       // Set by company-assets.php when the stored brand_posts are market reference rather than the
       // client's own profile (empty Instagram). Gates the colour rules in buildBackgroundPrompt.
       const brandPostsAreProxy = Boolean((campaignData as any).brandPostsAreProxy);
+      // How many of the LEADING composeCompanyRefs are the client's OWN website (set by
+      // generate-ads-worker.php). In proxy mode the site is the ONLY source of this brand's colour
+      // and identity — the trailing refs are competitor posts used for structure only. When present
+      // it BOTH suppresses the Pexels/UGC auto-hijack below (so the real site+competitor refs drive
+      // the background instead of a random stock person) AND flips the colour/role rules so the
+      // scene is graded to the site, never the competitor.
+      const siteRefCount = Math.max(0, Number((campaignData as any).composeSiteRefCount) || 0);
+      const hasSiteIdentity = brandPostsAreProxy && siteRefCount > 0;
       let visualBrief = String((campaignData as any).brandVisualBrief || "").trim();
       // The COMPLETE 300-400 word brief is the company's stored brand KNOWLEDGE, produced by the
       // company-assets call — it stays full there. But in GENERATION, injecting the whole brief
@@ -3917,7 +3947,10 @@ serve(async (req: Request) => {
       // brand posts exist, else abstract brand shapes. Caller-supplied ref images are untouched.
       // Caller opt-out: if they explicitly asked for a 'creative' (invented) or 'shapes' (abstract)
       // background, DON'T fetch a Pexels photo — honour the request and let the model invent/abstract.
-      const skipPexels = explicitBgSource === "creative" || explicitBgSource === "shapes";
+      // hasSiteIdentity opts OUT of Pexels too: in proxy+site mode the client's own site (+ the
+      // competitor structure posts) ARE the reference — a random stock hero would throw both away
+      // and produce the generic, colourless, site-less background this feature exists to prevent.
+      const skipPexels = explicitBgSource === "creative" || explicitBgSource === "shapes" || hasSiteIdentity;
       if (isExternalApi && !heroRef && !hasProductRef && !callerSentBgUrl && !skipPexels) {
         // ALWAYS try to ground the generation in a REAL Pexels photo (no more jobId coin-flip). A
         // real reference scene makes the model REPRODUCE reality instead of INVENTING — the invented
@@ -4086,6 +4119,13 @@ serve(async (req: Request) => {
         brandRefCountInBg = Math.min(companyRefImages.length, bgRefImages.length);
       }
 
+      // How many of the reference images actually in bgRefImages are the client's own site. The
+      // worker prepends the site refs, so they are the FIRST entries of companyRefImages → the
+      // first `siteRefsInBg` of the brand refs in bgRefImages. Drives the colour + role rules so
+      // the scene is graded to the SITE and the competitor posts contribute structure only.
+      const siteRefsInBg = Math.min(hasSiteIdentity ? siteRefCount : 0, brandRefCountInBg);
+      const hasSiteInBg = siteRefsInBg > 0;
+
       // (Pexels hero is already the first companyRefImages entry above, so bgRefImages and the
       // brand-post counts are built identically to a caller reference_image — no special-casing.)
 
@@ -4135,10 +4175,20 @@ serve(async (req: Request) => {
       // visual brief so the image model knows which role each image plays. This is what lets
       // the model use the generation image creatively (product, anchor, element) while staying
       // true to the brand's design language from the posts.
-      const visualBriefForPrompt = (brandRefCountInBg > 0 && genRefCountInBg > 0)
+      let visualBriefForPrompt = (brandRefCountInBg > 0 && genRefCountInBg > 0)
         ? (visualBrief ? visualBrief + "\n\n" : "") +
           `IMAGE ROLES: The first ${brandRefCountInBg} image(s) are real brand Instagram posts, given ONLY to ground the (necessarily abstract) brief above in concrete examples. Use them to CONFIRM the brief: cross-check what's actually CONSISTENT between the brief's description and these ${brandRefCountInBg} example posts (and, if there is more than one, consistent between the examples themselves) — that shared pattern is the real brand aesthetic. Do NOT treat each example post as a separate source to copy from — a decorative element, layout choice, or composition trick that appears in only ONE of the examples (and isn't backed by the brief) is a one-off, not the brand's language, and must be left out. Apply only the confirmed, recurring pattern. The last image is the creative reference for this specific campaign: incorporate it as you see fit — as the hero product, a background subject, a scene anchor, or a compositional element — while staying firmly within that confirmed brand aesthetic.`
         : visualBrief;
+
+      // PROXY MODE ROLE SPLIT: the leading refs are the client's OWN website (identity/colour), the
+      // trailing refs are competitor posts (structure only). Without this the model treats the
+      // competitor posts as the brand's own and copies THEIR colour/identity — the exact "saiu com
+      // a identidade do concorrente" bug — and ignores the site entirely.
+      if (hasSiteInBg) {
+        const marketCount = Math.max(0, brandRefCountInBg - siteRefsInBg);
+        visualBriefForPrompt = (visualBriefForPrompt ? visualBriefForPrompt + "\n\n" : "") +
+          `IMAGE ROLES (CRITICAL — OVERRIDES ANY COLOUR/IDENTITY GUIDANCE ABOVE): the FIRST ${siteRefsInBg} attached image(s) are the CLIENT'S OWN WEBSITE — they are the SOLE source of this brand's COLOUR, mood and visual identity. Colour-grade the WHOLE background to match the client site's palette and feel.${marketCount > 0 ? ` The remaining ${marketCount} attached image(s) are MARKET/COMPETITOR references — borrow ONLY their STRUCTURE (layout, composition, negative-space, density). NEVER take colour, palette, logo, wordmark or identity from those competitor images.` : ""}`;
+      }
 
       // brandSpec: use creativePlan if provided (e.g. from external API worker),
       // otherwise derive instantly from campaignData — PHP already enriched it with
@@ -4181,7 +4231,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -4268,7 +4318,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
