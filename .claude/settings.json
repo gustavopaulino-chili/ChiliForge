@@ -1,0 +1,61 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Recurse -Force)",
+      "Bash(Select-Object -First 50 FullName)",
+      "Bash(npm --version)",
+      "Bash(npm show *)",
+      "Bash(node -e \"import\\('@google/adk'\\).then\\(m => console.log\\(Object.keys\\(m\\).slice\\(0,40\\).join\\(', '\\)\\)\\).catch\\(e => console.error\\(e.message\\)\\)\")",
+      "Bash(node -e \"import\\('@google/adk'\\).then\\(m => console.log\\(Object.keys\\(m\\).join\\(', '\\)\\)\\).catch\\(e => console.error\\(e.message\\)\\)\")",
+      "Bash(node -e \"import\\('@google/adk'\\).then\\(m => { const keys = Object.keys\\(m\\); const content = keys.filter\\(k => /content|event|part|message/i.test\\(k\\)\\); console.log\\(content.join\\('\\\\n'\\)\\); }\\)\")",
+      "Bash(node -e \"import\\('@google/adk'\\).then\\(m => { const r = new m.InMemoryRunner\\({ agent: new m.LlmAgent\\({ name:'t', model:'gemini-2.5-flash', instruction:'test' }\\), appName:'test', sessionService: new m.InMemorySessionService\\(\\) }\\); console.log\\(typeof r.runAsync\\); }\\)\")",
+      "Bash(node -e ' *)",
+      "WebFetch(domain:ai.google.dev)",
+      "PowerShell(Remove-Item -Recurse -Force \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\agents\" -Confirm:$false)",
+      "PowerShell(Remove-Item -Recurse -Force \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\supabase\\\\functions\\\\agents-lp\" -Confirm:$false)",
+      "PowerShell(Remove-Item -Recurse -Force \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\supabase\\\\functions\\\\agents-ads\" -Confirm:$false)",
+      "PowerShell(Remove-Item -Recurse -Force \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\supabase\\\\functions\\\\agents-learn\" -Confirm:$false)",
+      "PowerShell(Remove-Item -Recurse -Force \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\api\\\\v1\\\\agents\" -Confirm:$false)",
+      "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\api\\\\v1\\\\agents\")",
+      "Bash(ls -la \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\\\\\" | head -30)",
+      "Read(//c/Users/ativa/Downloads/**)",
+      "PowerShell(head -20)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\" -Recurse -File | Where-Object {$_.Extension -in @\\('.php', '.ts', '.js', '.sql'\\)} | Select-Object -First 50)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\ativa\\\\Downloads\\\\ChiliForge\" -Recurse -File -Filter \"*.sql\")"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "touch \"$(git rev-parse --git-dir 2>/dev/null)/.cf-edited\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$(git rev-parse --show-toplevel)\" || exit 0\ngit status --porcelain -- supabase/functions/ | grep -oE 'supabase/functions/[^/]+' | sed 's#supabase/functions/##' | sort -u | while read -r fn; do [ -n \"$fn\" ] && echo \"Deploying supabase function: $fn\" && npx supabase functions deploy \"$fn\"; done",
+            "timeout": 300,
+            "statusMessage": "Deploy das funções Supabase alteradas..."
+          },
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "cd \"$(git rev-parse --show-toplevel)\" || exit 0\nMARKER=\"$(git rev-parse --git-dir)/.cf-edited\"\n[ -f \"$MARKER\" ] || exit 0\nrm -f \"$MARKER\"\ngit add -A\nif ! git diff --cached --quiet; then git commit -m \"auto: commit automatico na dev ao fim do request\" && git push origin dev; fi",
+            "timeout": 120,
+            "statusMessage": "Commit + push na dev (request com edições)..."
+          }
+        ]
+      }
+    ]
+  }
+}

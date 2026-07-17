@@ -26,5 +26,11 @@ dist-ssr
 projects/
 node_modules/
 auto-commit-dev.ps1
-.claude/
 Downloads/
+
+# .claude — versionar skills, memória e settings de time; NUNCA o settings.local.json
+# (contém credenciais de FTP em texto puro) nem o cache de sessões.
+.claude/*
+!.claude/settings.json
+!.claude/skills/
+!.claude/memory/
