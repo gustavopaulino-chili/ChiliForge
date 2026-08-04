@@ -2353,10 +2353,20 @@ function describeHexColor(hex: string): string {
   let h = 0;
   if (d) { if (max === r) h = ((g - b) / d) % 6; else if (max === g) h = (b - r) / d + 2; else h = (r - g) / d + 4; h *= 60; if (h < 0) h += 360; }
   const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  // A very dark colour reads as black whatever its HSL "saturation" says (#161202 computes as
+  // 83% saturated, but the eye just sees near-black — calling it "very dark amber" invited a
+  // brown-olive accent that is not what the brand ships).
+  if (l < 0.10) return "near-black";
   if (s < 0.12) return l < 0.22 ? "near-black" : l < 0.45 ? "charcoal gray" : l > 0.82 ? "off-white" : "light gray";
   const light = l < 0.22 ? "very dark " : l < 0.4 ? "dark " : l > 0.82 ? "very light " : l > 0.62 ? "light " : "";
-  const hue = (h < 15 || h >= 345) ? "red" : h < 45 ? "orange" : h < 70 ? "amber" : h < 160 ? "green" : h < 200 ? "teal" : h < 255 ? "blue" : h < 290 ? "violet" : h < 330 ? "magenta" : "pink";
-  return (light + hue).trim();
+  // A brand colour is usually a PURE one. Without this the model renders a tastefully muted
+  // version of the right hue and the ad reads off-brand.
+  const punch = (!light && s >= 0.85) ? "vivid " : "";
+  // YELLOW HAS ITS OWN BAND. Lumping 45°-70° into "amber" is what turned #fee701 (hue 55° —
+  // a vivid yellow) into a warm orange-amber grade: the brand was handed to the image model
+  // under the wrong colour NAME, which is the only colour channel it gets (hex is scrubbed).
+  const hue = (h < 15 || h >= 345) ? "red" : h < 40 ? "orange" : h < 50 ? "amber" : h < 66 ? "yellow" : h < 80 ? "lime" : h < 160 ? "green" : h < 200 ? "teal" : h < 255 ? "blue" : h < 290 ? "violet" : h < 330 ? "magenta" : "pink";
+  return (light + punch + hue).trim();
 }
 
 // Strip anything the image model could copy verbatim as text into a "zero-text" background:
@@ -2423,6 +2433,14 @@ function stripColourFromBrief(text: string): string {
     .replace(/\bwhite\b(?!\s*space)/gi, "brand-coloured")
     // "navy blue", "black and white" → one token, not a stutter.
     .replace(/brand-coloured(?:[\s,]+(?:and\s+|or\s+)?brand-coloured)+/gi, "brand-coloured")
+    // The reference's colour ADJECTIVES outlive its colour nouns, and they keep steering the
+    // brand's own colour: "a deep, sophisticated navy" became "a deep, sophisticated
+    // brand-coloured", which darkened a vivid yellow into a muted amber grade and fought the
+    // "do not mute, grey-out or darken it" rule on the BRAND COLORS line. Intensity and mood
+    // qualifiers sitting directly on the token describe the COMPETITOR's colour, not this
+    // brand's — drop them. Structural words (flat, layered, solid…) are not in this list and
+    // survive: "a flat, rich brand-coloured field" → "a flat, brand-coloured field".
+    .replace(/(?:\b(?:very\s+)?(?:deep|deeper|dark|darker|rich|richer|muted|dusty|moody|sombre|somber|subdued|desaturated|washed[-\s]out|faded|pale|soft|softer|light|lighter|warm|warmer|cool|cooler|sophisticated|understated|earthy|smoky|dull)\b[,\s]+)+(?=brand-coloured)/gi, "")
     .replace(/[ \t]{2,}/g, " ")
     .trim();
 }
