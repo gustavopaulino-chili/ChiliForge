@@ -77,3 +77,5 @@ Files downloaded from an external Ads API test go into `ad-tests/` labeled with 
 - **Next run: use `testforge_job<id>` (test) / `live_job<id>` (live) naming (job id avoids overwrite). Next job id ~240.**
 
 Update this note each time a run happens. Part of [[external-ads-api-test-procedure]].
+
+- **Run 266 (2026-08-04, LIVE, job 297 / company 297 "Unica" #fee701):** verificação do fix de color-lock. Arquivos: `ad-tests/test266_instagram-square.jpg`, `test266_prompt_0.txt` (prompt de debug, 38k chars), `test266_status.json`. Payload mínimo (`company:{name,primary_color,accent_color}` + campaign genérica) — dados gravados da company são a BASE e só campos não-vazios sobrepõem, então não sobrescreve identidade. `debug:true` no body → `creatives[].debug.prompt` no job-status. Resultado: `Brand palette: amber;very dark amber;amber;...` (antes `;;;`), navy 0 / coral 0, brief-proxy com 8× `brand-coloured`, banner dominado por âmbar. Custo ~US$0,07. **Próximo run: 267.**
