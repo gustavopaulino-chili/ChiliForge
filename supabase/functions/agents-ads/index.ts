@@ -2342,9 +2342,13 @@ function specForFormat(allSpecs: string, format: AdFormat): string {
 // Approximate a hex color with a plain English name so the background prompt can convey
 // the brand palette WITHOUT ever feeding a raw "#hex" string the model might render as text.
 function describeHexColor(hex: string): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec((hex || "").trim());
+  // Accepts #rgb / #rrggbb / #rrggbbaa so the background-prompt scrub can name every hex form
+  // it finds in the wild (alpha is dropped — it says nothing about the hue).
+  const raw = (hex || "").trim().replace(/^#/, "");
+  const m = /^([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(raw);
   if (!m) return "";
-  const r = parseInt(m[1].slice(0, 2), 16) / 255, g = parseInt(m[1].slice(2, 4), 16) / 255, b = parseInt(m[1].slice(4, 6), 16) / 255;
+  const full = raw.length === 3 ? raw.split("").map((c) => c + c).join("") : raw.slice(0, 6);
+  const r = parseInt(full.slice(0, 2), 16) / 255, g = parseInt(full.slice(2, 4), 16) / 255, b = parseInt(full.slice(4, 6), 16) / 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
   let h = 0;
   if (d) { if (max === r) h = ((g - b) / d) % 6; else if (max === g) h = (b - r) / d + 2; else h = (r - g) / d + 4; h *= 60; if (h < 0) h += 360; }
@@ -2372,9 +2376,54 @@ function scrubBgPromptText(text: string): string {
     .replace(/--[a-z0-9-]+\s*:/gi, "")
     // Generic CSS declarations carrying units (font-size:48px, top:60px, width:30%, etc.).
     .replace(/\b[a-z-]{3,}\s*:\s*[^;\n}]*?\d(?:px|%|em|rem|deg|vh|vw|fr|cqw|cqh)[^;\n}]*/gi, "")
-    .replace(/#[0-9a-f]{3,8}\b/gi, "")
+    // A raw hex must never reach the image model (it paints "#fee701" into the banner as literal
+    // text). Deleting it, though, left every structured colour slot EMPTY — "Brand palette: ;;;"
+    // and "Colors: primary:  → dominant element" — so the only colour statement with any textual
+    // weight left in the prompt was whatever prose the brief carried, and a market reference's
+    // navy/coral could out-argue a brand whose colour is amber. Substitute the plain-English NAME
+    // instead: the slots keep pointing at the real brand colour and nothing renderable survives.
+    .replace(/#[0-9a-f]{3,8}\b/gi, (m) => describeHexColor(m) || "")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// Hue words that must not survive inside a PROXY brief. Deliberately hue-only: material and
+// finish words that double as props in a structural description (stone, slate, sand, sage,
+// bronze, copper, brass, silver, jade) are left alone so the layout prose stays intact.
+const BRIEF_COLOUR_TERMS = [
+  "greyscale", "grayscale", "monochrome", "duotone", "sepia",
+  "turquoise", "terracotta", "burgundy", "lavender", "charcoal", "magenta", "fuchsia",
+  "mustard", "emerald", "crimson", "scarlet", "apricot", "salmon", "golden", "maroon",
+  "indigo", "violet", "purple", "orange", "yellow", "cobalt", "azure", "cyan", "aqua",
+  "lilac", "mauve", "blush", "peach", "plum", "coral", "navy", "teal", "olive", "khaki",
+  "beige", "taupe", "cream", "ivory", "ochre", "mint", "lime", "green", "brown", "black",
+  "grey", "gray", "gold", "amber", "pink", "blue", "red", "tan",
+];
+const BRIEF_COLOUR_RE = new RegExp(`\\b(?:${BRIEF_COLOUR_TERMS.join("|")})\\b`, "gi");
+
+// Neutralise the colour CLAIMS of a market-reference brief without losing its structure.
+//
+// A proxy brief profiles COMPETITOR material: its layout is exactly what we want, its colour is
+// exactly what we don't. The existing one-line COLOUR CARVE-OUT ("ignore every colour above")
+// loses to 300+ words of vivid colour prose — that is how "a deep, sophisticated navy accented
+// by a warm, energetic coral" beat a single "the DOMINANT background color is amber" line and
+// produced a navy ad for a #fee701 brand. Rather than argue with the prose after the fact, the
+// colour is taken out of it: every hue word becomes "brand-coloured", which POINTS AT the BRAND
+// COLORS line instead of contradicting it, while "flat, rich … field" and every other structural
+// claim survives word for word. This also fixes briefs ALREADY STORED with competitor colour —
+// they are neutralised on read, with no regeneration needed.
+function stripColourFromBrief(text: string): string {
+  const src = String(text || "").trim();
+  if (!src) return "";
+  return src
+    .replace(/#[0-9a-f]{3,8}\b/gi, "brand-coloured")
+    .replace(BRIEF_COLOUR_RE, "brand-coloured")
+    // "white space" / "whitespace" is a layout term, not a colour claim — leave it alone.
+    .replace(/\bwhite\b(?!\s*space)/gi, "brand-coloured")
+    // "navy blue", "black and white" → one token, not a stutter.
+    .replace(/brand-coloured(?:[\s,]+(?:and\s+|or\s+)?brand-coloured)+/gi, "brand-coloured")
+    .replace(/[ \t]{2,}/g, " ")
     .trim();
 }
 
@@ -2462,8 +2511,8 @@ function buildBackgroundPrompt(
     ? [
         "████ MARKET REFERENCE — STRUCTURE ONLY, NOT THIS BRAND'S IDENTITY ████",
         "The following describes the visual design language of MARKET/CATEGORY REFERENCE material. It is NOT this brand's identity — this brand's own profile was unavailable. Use it ONLY for structure: composition, layout, motifs, depth, layering, texture and finish.",
-        String(visualBrief).trim(),
-        "⛔ COLOUR CARVE-OUT: every colour statement above — the COLOR SYSTEM section, any named colour, any palette, tint or grade claim — describes the REFERENCE, NOT this brand. IGNORE all of them. Colour comes EXCLUSIVELY from the BRAND COLORS line. Any typography, logo or brand-name claim above is reference-only and must never be treated as this brand's identity.",
+        stripColourFromBrief(visualBrief),
+        "⛔ COLOUR CARVE-OUT: the block above has had every colour name REMOVED — each 'brand-coloured' in it is a placeholder meaning 'use the colour from the BRAND COLORS line'. It describes STRUCTURE ONLY. Do not infer, reconstruct or invent what the reference's original colours might have been; there is no colour information in it at all. Colour comes EXCLUSIVELY from the BRAND COLORS line. Any typography, logo or brand-name claim above is reference-only and must never be treated as this brand's identity.",
       ].join("\n")
     : [
         "████ BRAND VISUAL IDENTITY — EMBODY THIS DESIGN LANGUAGE ████",
@@ -3422,7 +3471,12 @@ serve(async (req: Request) => {
         "• 'MARKET REFERENCE' images = competitors in the same niche. They are the ONLY source of LAYOUT, composition, decorative devices, density and niche energy — take their STRUCTURE, NEVER their colour or identity.",
         "Write 300-400 words of dense, actionable prose describing the CLIENT'S visual identity (colour + feel, from CLIENT SITE) EXECUTED with this niche's structural conventions (layout + decoration, from MARKET REFERENCE). The result must feel unmistakably like the CLIENT'S brand, arranged like a strong, richly-designed ad in this market — never plain or empty.",
         "",
-        "COLOUR SYSTEM — from CLIENT SITE ONLY: name the client's colours (warm coral, deep navy — never hex), which dominates, which accents. NEVER take a colour from the MARKET REFERENCE images; render the market's decorative devices IN THE CLIENT'S colours.",
+        // ⚠️ NO EXAMPLE COLOURS HERE, EVER. This line used to read "(warm coral, deep navy — never
+        // hex)" and the model simply parroted the sample back: an amber (#fee701) brand got a brief
+        // built on "a deep, sophisticated navy accented by a warm, energetic coral". An illustrative
+        // palette in the instruction becomes the output palette whenever the CLIENT SITE images are
+        // weak — so describe the RULE, never a specimen.
+        "COLOUR SYSTEM — from CLIENT SITE ONLY: name, in plain English colour words (never hex), ONLY the colours you can actually SEE in the CLIENT SITE image(s) — say which dominates and which accent. ⛔ NEVER name a colour taken from the MARKET REFERENCE images, and NEVER invent or assume a palette: if the CLIENT SITE images do not show a clear one, write NOTHING about colour at all rather than guessing. Render the market's decorative devices IN THE CLIENT'S colours.",
         "BACKGROUND & DECORATIVE STRUCTURE — from MARKET REFERENCE ONLY: background type (photo/flat/gradient + direction), texture layer, and the signature decorative devices (dots, blobs, shapes, particles, halftone…) with their density and placement. Match the market's RICHNESS — if the references are heavily decorated, decorate just as much.",
         "DEPTH & LAYERING, SUBJECT TREATMENT, COMPOSITION ENERGY — from MARKET REFERENCE.",
         "FINISH & MOOD: the client's mood (from CLIENT SITE) applied over the market's structure.",
@@ -3450,7 +3504,9 @@ serve(async (req: Request) => {
         "Write 300-400 words of dense, specific, actionable prose. Another designer reading this must be able to recreate the EXACT visual feel of this brand on a fresh ad with no other reference.",
         "",
         "Cover ALL of the following — be hyper-specific, never generic:",
-        "COLOR SYSTEM: Name every color you see in use (warm coral, dusty sage, midnight navy — never hex). Identify which is dominant, which is accent, and how they relate (analogous harmony, high contrast, muted pastels, etc.). Note if backgrounds are always pure white/black or always tinted.",
+        // No example palette here either — see the CLIENT SITE variant above: a sample palette in the
+        // instruction gets parroted back as the brand's own.
+        "COLOR SYSTEM: Name every color you actually see in use, in plain English colour words (never hex). Identify which is dominant, which is accent, and how they relate (analogous harmony, high contrast, muted pastels, etc.). Note if backgrounds are always pure white/black or always tinted.",
         "BACKGROUND TREATMENT: Is the background always photography, always flat color, always gradient? What is the gradient direction and color transition? Is there always a texture layer on top (grain, noise, halftone)?",
         "SIGNATURE DECORATIVE DEVICES: The specific recurring motifs — scattered dots/bokeh, floating geometric shapes, confetti, botanical line art, hand-drawn strokes, sticker/emoji overlays, gradient blobs, particle bursts, light leaks, film grain, duotone washes. Name them precisely and say how densely they appear and where (corners, full bleed, behind the subject).",
         "DEPTH & LAYERING: Flat (everything on one plane) vs layered (background → decorative mid-layer → subject → text). Is there visible foreground blur? Drop shadows? Overlapping translucent elements? 3D separation or flat sticker-on-background?",
