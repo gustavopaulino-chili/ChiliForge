@@ -2369,6 +2369,100 @@ function describeHexColor(hex: string): string {
   return (light + punch + hue).trim();
 }
 
+// The image model can only paint a brand name it was handed. RULE #1 forbids drawing it, but the
+// word still reached the prompt 25 times for one company (theme-scene line + the company-profile
+// JSON) and came back burned into the background as a garbled "<Brand> vs aglencies". A background
+// never needs the name — the real logo is composited on top afterwards. Nothing brand-specific
+// here: the names come from this request's own facts.
+function stripBrandNameForBg(text: string, names: (string | undefined)[]): string {
+  let out = String(text || "");
+  for (const raw of names) {
+    const name = String(raw || "").trim();
+    // Under 4 chars is too likely to collide with an ordinary word to replace safely.
+    if (name.length < 4) continue;
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`\\b${esc}\\b`, "gi"), "the brand");
+  }
+  return out;
+}
+
+// CRC32 (PNG chunk checksums).
+const CRC32_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC32_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// Builds a flat swatch of the brand's colour as a PNG, to attach as a reference image.
+// WHY: the hex is deliberately scrubbed from the prompt text (the model paints "#fee701" as
+// characters), so a colour NAME is the only channel the words have — and a name is an
+// approximation: #fee701 described as "vivid yellow" landed on the canvas as #dcb744. Pixels are
+// exact where prose cannot be. Generic by construction — it renders whatever primaryColor arrived
+// in this request, so every brand gets its own colour and none is hard-coded.
+// Deliberately tiny (96px, a few hundred bytes) so it adds no meaningful resource pressure to the
+// worker — unlike another full-size brand post, which is what the 546 limit reacts to.
+async function makeSolidColourPng(hex: string, size = 96): Promise<string> {
+  const raw = (hex || "").trim().replace(/^#/, "");
+  const m = /^([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(raw);
+  if (!m) return "";
+  const full = raw.length === 3 ? raw.split("").map((c) => c + c).join("") : raw;
+  const r = parseInt(full.slice(0, 2), 16), g = parseInt(full.slice(2, 4), 16), b = parseInt(full.slice(4, 6), 16);
+
+  // Raw scanlines: one filter byte (0 = None) then RGB triplets.
+  const stride = size * 3 + 1;
+  const rawData = new Uint8Array(stride * size);
+  for (let y = 0; y < size; y++) {
+    const off = y * stride;
+    for (let x = 0; x < size; x++) {
+      const p = off + 1 + x * 3;
+      rawData[p] = r; rawData[p + 1] = g; rawData[p + 2] = b;
+    }
+  }
+  // CompressionStream("deflate") emits a zlib stream — exactly what PNG's IDAT expects.
+  const cs = new CompressionStream("deflate");
+  const writer = cs.writable.getWriter();
+  writer.write(rawData);
+  writer.close();
+  const idat = new Uint8Array(await new Response(cs.readable).arrayBuffer());
+
+  const chunk = (type: string, data: Uint8Array): Uint8Array => {
+    const out = new Uint8Array(12 + data.length);
+    const dv = new DataView(out.buffer);
+    dv.setUint32(0, data.length);
+    for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+    out.set(data, 8);
+    dv.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+    return out;
+  };
+  const ihdr = new Uint8Array(13);
+  const idv = new DataView(ihdr.buffer);
+  idv.setUint32(0, size);
+  idv.setUint32(4, size);
+  ihdr[8] = 8;   // bit depth
+  ihdr[9] = 2;   // colour type 2 = truecolour RGB
+  const parts = [
+    new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", idat),
+    chunk("IEND", new Uint8Array(0)),
+  ];
+  const png = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) { png.set(p, o); o += p.length; }
+  let bin = "";
+  for (let i = 0; i < png.length; i++) bin += String.fromCharCode(png[i]);
+  return btoa(bin);
+}
+
 // Strip anything the image model could copy verbatim as text into a "zero-text" background:
 // hex codes, CSS variable tokens/declarations, var(), URLs, font-URL lines. Used ONLY for the
 // background image prompt — the HTML overlay still gets the real hex via cssVars.
@@ -2471,6 +2565,11 @@ function buildBackgroundPrompt(
   // block point at the site instead of falling back to a neutral (colourless) treatment.
   hasSiteIdentity: boolean = false,
   siteRefCount: number = 0,
+  // A flat swatch of this brand's own colour was APPENDED as the LAST reference image. It exists
+  // because the hex is scrubbed from this text (the model would paint the characters), leaving a
+  // colour NAME as the only channel — and a name is an approximation. The swatch carries the
+  // payload's colour as pixels, which the model can match instead of interpret.
+  hasColourSwatch: boolean = false,
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
@@ -2762,7 +2861,7 @@ function buildBackgroundPrompt(
     ? `███ RULE #2 — CAMPAIGN THEME LOCK ███\nThe topic of this campaign (given to you as internal context only, never to be rendered as pixels — see the no-echo reminder below) determines WHAT the scene depicts. This overrides brand-style guidance below on WHAT to depict — the brand identity (colors, lighting, signature motifs) only dictates HOW it looks, never WHAT the scene is about. A hero subject (person, product, or object) related to that topic must occupy a LARGE, unmistakable, in-focus portion of the frame — never a mostly-empty gradient/abstract canvas with the actual subject shrunk into a small corner.${scene ? ` ███ BUILD EXACTLY THIS SCENE (derived from THIS campaign's topic): ${scene} ███` : " Derive the ONE concrete setting, prop and action that makes THIS specific topic instantly recognizable from the image alone."}\n⛔ DO NOT DEFAULT to a content-creation / social-media / filming / ring-light / streaming / 'person holding a phone that shows a chart' scene UNLESS this campaign's topic is literally about creating social content. For finance, health, skincare/beauty, food, retail, education, fitness, real estate, etc., that setup is WRONG — use the real environment of THIS topic instead. Ask yourself: "would someone recognize THIS campaign's topic from this image alone, with no text?" If not, redo it.\n⛔ NO-ECHO REMINDER: the campaign topic is named elsewhere in this prompt in quotes (e.g. in the "Visual subject" line) purely so YOU understand what to depict — those exact words are instructions, never content. Do not render the product/service name, or any word from it, as pixels anywhere in the image.`
     : "";
 
-  return [
+  const assembled = [
     PRIMARY_BG_RULE,
     themeLockLine,
     "",
@@ -2828,6 +2927,9 @@ function buildBackgroundPrompt(
     "Place the strongest focal subject and highest-contrast elements OUTSIDE those zones; the zone itself is just a clean surface for white text.",
     "",
     colorLine,
+    hasColourSwatch
+      ? "⛔ BRAND COLOUR SWATCH — THE LAST ATTACHED IMAGE IS NOT A DESIGN REFERENCE: it is a flat rectangle filled with this brand's EXACT colour, attached purely so you can see the precise value. SAMPLE IT and make the dominant background field that EXACT colour — same hue, same saturation, same brightness. Do not shift it warmer, cooler, darker, duller or more 'tasteful'; do not substitute a neighbouring shade you consider more premium. If your field does not visually match that swatch side by side, it is wrong. Take NOTHING else from that image — no composition, no subject, no layout, no edges; it contributes colour only, and the flat rectangle itself must never appear in your output."
+      : "",
     safeSpec
       ? `CREATIVE SPEC (follow for visual style, brand aesthetic, and composition):\n${safeSpec}`
       : "Create a visually compelling backdrop using the brand's colors and visual language.",
@@ -2847,6 +2949,18 @@ function buildBackgroundPrompt(
     // emphatically at the very end, not only inline above.
     hasRefImages ? REF_TEXT_LEAK_GUARD : "",
   ].filter(Boolean).join("\n");
+
+  // LAST STEP — take the brand's NAME out of the prompt. RULE #1 already forbids drawing it, yet a
+  // banner came back with a garbled "Unica vs aglencies" burned into the background: the word was
+  // sitting in this prompt 25 times (the theme-scene line plus the company-profile JSON), and a
+  // word the model keeps reading is a word it eventually paints. The name adds nothing to a
+  // BACKGROUND — the real logo is composited on top afterwards — so removing it removes the
+  // temptation without costing any visual information.
+  const brandNamesForBg = [
+    (campaignFactsImg.match(/^Brand:\s*(.+)$/mi) ?? [])[1],
+    (campaignFactsImg.match(/"businessName"\s*:\s*"([^"]+)"/i) ?? [])[1],
+  ];
+  return stripBrandNameForBg(assembled, brandNamesForBg);
 }
 
 // Gradient scrims positioned over each layout's text zone.
@@ -4201,6 +4315,26 @@ serve(async (req: Request) => {
       const siteRefsInBg = Math.min(hasSiteIdentity ? siteRefCount : 0, brandRefCountInBg);
       const hasSiteInBg = siteRefsInBg > 0;
 
+      // BRAND COLOUR SWATCH — appended LAST, on purpose. Every role rule above addresses images by
+      // position ("the FIRST N attached images are the CLIENT'S OWN WEBSITE"), and those counts are
+      // now fixed, so putting the swatch at the END leaves all of them intact. It carries the
+      // payload's exact colour as pixels, which is the one thing the prompt text cannot do — the hex
+      // is scrubbed from it and a colour name only approximates (#fee701 → "vivid yellow" → #dcb744
+      // on the canvas). Non-fatal: if the hex is missing or malformed the swatch is simply skipped.
+      let hasColourSwatch = false;
+      const swatchHex = String((campaignData as any).primaryColor || "").trim();
+      if (swatchHex) {
+        try {
+          const swatchB64 = await makeSolidColourPng(swatchHex);
+          if (swatchB64) {
+            bgRefImages = [...bgRefImages, { data: swatchB64, mimeType: "image/png" }];
+            hasColourSwatch = true;
+          }
+        } catch (e) {
+          console.warn(`[swatch] job=${jobId ?? "?"} could not build colour swatch: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
       // (Pexels hero is already the first companyRefImages entry above, so bgRefImages and the
       // brand-post counts are built identically to a caller reference_image — no special-casing.)
 
@@ -4306,7 +4440,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg, hasColourSwatch);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -4393,7 +4527,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg, hasColourSwatch);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
