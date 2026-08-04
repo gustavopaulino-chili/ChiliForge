@@ -2570,6 +2570,11 @@ function buildBackgroundPrompt(
   // colour NAME as the only channel — and a name is an approximation. The swatch carries the
   // payload's colour as pixels, which the model can match instead of interpret.
   hasColourSwatch: boolean = false,
+  // Proxy mode only: whether the competitor post IMAGES are actually attached. They are now
+  // withheld from the image model (they are ads — traceable headlines and wordmarks), so the role
+  // sentences must stop describing images that are not there. The competitor's STRUCTURE still
+  // reaches the model, as prose, via the brief.
+  competitorRefsPresent: boolean = true,
 ): string {
   const layout = resolveCompositionLayout(spec, layoutKey, forceLayout);
   const spaceGuide = CREATIVE_SPACE_GUIDANCE[layout] ?? CREATIVE_SPACE_GUIDANCE["hero-full-bleed"];
@@ -2689,11 +2694,13 @@ function buildBackgroundPrompt(
     if (brandPostsAreProxy) {
       sourceBlock = [
         "████ REFERENCE ROLES — PROXY MODE (READ FIRST, OVERRIDES EVERYTHING BELOW) ████",
-        hasSiteIdentity
+        !competitorRefsPresent
+          ? `${hasSiteIdentity ? `ALL ${Math.max(1, siteRefCount)} attached reference image(s) are the CLIENT'S OWN WEBSITE — the source of this brand's COLOUR, mood and identity. Colour-grade the WHOLE scene to match them. ` : ""}⛔ NO COMPETITOR IMAGE IS ATTACHED. The market's layout conventions reach you ONLY as the written brief further below — as words, never as pixels. So there is nothing here to copy, trace or echo: no competitor headline, wordmark, logo, caption or colour exists in your inputs. Build THIS brand's own ad from the written structure plus the client's identity.`
+          : hasSiteIdentity
           ? `The FIRST ${Math.max(1, siteRefCount)} attached image(s) are the CLIENT'S OWN WEBSITE — the source of this brand's COLOUR, mood and identity. Colour-grade the WHOLE scene to match them. The OTHER attached images are MARKET/COMPETITOR references: draw on their COMPOSITION, LAYOUT and creative energy — INCLUDING design-asset ideas when they make the ad stronger — but REINTERPRET all of it in the CLIENT's OWN identity (the site's colours and feel). Take NONE of the competitor's colour, palette, logo, wordmark or literal identity.`
           : "The attached images are MARKET/COMPETITOR references, NOT this brand's own posts. Draw on their COMPOSITION, LAYOUT and creative energy (including design-asset ideas when they help), but REINTERPRET everything in THIS brand's own colours (from the BRAND COLORS line below). Take NONE of the competitor's colour, palette, logo or literal identity.",
-        "⭐ DECORATION — REINTERPRET, DON'T COPY (this is the fix for the 'pasted-on CSS-overlay' look): a graphic design-asset layer (floating dots, halftone, blobs, colour panels, rings, stars, badges) is WELCOME when it strengthens the ad — the competitor refs are here partly as creative fuel for it. BUT: (1) render every device in the CLIENT's colours (site / BRAND COLORS), NEVER the competitor's; (2) INTEGRATE it into the scene — grade it with the scene's light and depth so it feels native to this image, NOT a flat sticker layer floating disconnected on top; (3) do NOT slavishly 'camouflage into the competitor's feed' or match their exact devices/colours/density — you are building THIS brand's OWN identity USING the refs as inspiration, not reproducing the competitor. Keep it tasteful and legible: devices in empty areas only, ZERO text/letters/logo inside them.",
-        "So when the block below says to keep 'the brand's' palette / grading / identity / decoration, that means the CLIENT SITE (or the BRAND COLORS line) — NEVER the competitor posts.",
+        `⭐ DECORATION — REINTERPRET, DON'T COPY (this is the fix for the 'pasted-on CSS-overlay' look): a graphic design-asset layer (floating dots, halftone, blobs, colour panels, rings, stars, badges) is WELCOME when it strengthens the ad${competitorRefsPresent ? " — the competitor refs are here partly as creative fuel for it" : " — build it from the devices the written brief describes"}. BUT: (1) render every device in the CLIENT's colours (site / BRAND COLORS), NEVER the competitor's; (2) INTEGRATE it into the scene — grade it with the scene's light and depth so it feels native to this image, NOT a flat sticker layer floating disconnected on top; (3) do NOT slavishly 'camouflage into the competitor's feed' or match their exact devices/colours/density — you are building THIS brand's OWN identity, not reproducing the competitor. Keep it tasteful and legible: devices in empty areas only, ZERO text/letters/logo inside them.`,
+        `So when the block below says to keep 'the brand's' palette / grading / identity / decoration, that means the CLIENT SITE (or the BRAND COLORS line) — NEVER the competitor${competitorRefsPresent ? " posts" : " described in the brief"}.`,
         "",
         sourceBlock,
       ].join("\n");
@@ -2804,7 +2811,7 @@ function buildBackgroundPrompt(
     : primaryName
     ? `BRAND COLORS — the DOMINANT background color is ${primaryName}: it should fill MOST of the canvas as the main, vivid brand field (do not mute, grey-out or darken it into a dull mix).${accentNames.length ? ` Use ${accentNames.join(", ")} only as smaller accents and contrast.` : ""} ⛔ COLOUR-SOURCE LOCK: the palette comes ONLY from the brand. Any attached product/reference image is used for its SUBJECT and SHAPE, NEVER its colours — if that image has a different colour (e.g. blue), RE-LIGHT and COLOUR-GRADE the entire scene into ${primaryName} and the brand accents regardless. The product may keep its own material, but the surrounding scene, lighting and overall colour grade MUST be unmistakably the brand's, not the reference image's. Never write any color name, code, hex or # as text.`
     : (hasBrandPosts && brandPostsAreProxy && hasSiteIdentity)
-    ? `BRAND COLORS — ⛔ SOURCE OF TRUTH = THE CLIENT'S OWN WEBSITE (the FIRST ${Math.max(1, siteRefCount)} attached image(s)): sample the dominant, recurring colours of the client site and colour-grade the WHOLE scene so THOSE colours clearly dominate the canvas as the main brand field. ⛔ The OTHER attached images are market/competitor references — take NO colour from them (not their palette, grade, or tint); they inform STRUCTURE only. Never write any color name, code, hex or # as text.`
+    ? `BRAND COLORS — ⛔ SOURCE OF TRUTH = THE CLIENT'S OWN WEBSITE (the FIRST ${Math.max(1, siteRefCount)} attached image(s)): sample the dominant, recurring colours of the client site and colour-grade the WHOLE scene so THOSE colours clearly dominate the canvas as the main brand field. ${competitorRefsPresent ? "⛔ The OTHER attached images are market/competitor references — take NO colour from them (not their palette, grade, or tint); they inform STRUCTURE only." : "⛔ No competitor image is attached, so no colour in your inputs comes from anyone but this client — and the written brief carries NO colour information at all."} Never write any color name, code, hex or # as text.`
     : (hasBrandPosts && brandPostsAreProxy)
     ? `BRAND COLORS — ⛔ THE ATTACHED BRAND-POST REFERENCE IMAGES ARE NOT THIS BRAND: they are market/category reference material. Do NOT take ANY colour from them — not their palette, not their colour grade, not their background tint. No brand colour is known for this brand yet, so do NOT invent a loud signature colour either: use a restrained, NEUTRAL background treatment (soft neutral tones, natural light, low saturation) that stays out of the way. Never write any color name, code, hex or # as text.`
     : "";
@@ -4308,6 +4315,34 @@ serve(async (req: Request) => {
         brandRefCountInBg = Math.min(companyRefImages.length, bgRefImages.length);
       }
 
+      // ── PROXY MODE: the competitor's PIXELS never reach the image model ──────────────────
+      // In proxy mode the "brand posts" are a competitor's marketing posts, and they are declared
+      // STRUCTURE ONLY everywhere in the prompt. But they are ADS: one is a headline reading
+      // "O que a Conversion faz? — maior agência de SEO do Brasil" over a portrait, another is
+      // nothing but a food-delivery wordmark on a flat red field. Handed those at full resolution,
+      // the model traced them — a banner came back with "aglencies" burned in, a drawn logotype and
+      // that red bleeding into the palette. Downscaling does not save it: a headline occupying a
+      // third of the frame is LOW-frequency, so it survives even a blur strong enough to erase the
+      // decorative devices we wanted to keep (measured, not assumed).
+      //
+      // The structure of those posts is already carried into the prompt as PROSE — that is exactly
+      // what the proxy brief is for, and words cannot be traced as pixels. So in proxy mode we keep
+      // the CLIENT's own site refs (their colour and identity, and they are not ads) and the
+      // generation refs (hero/product — the actual subject), and drop the competitor images.
+      // Untouched for every client with a real profile: non-proxy brand posts still go through
+      // exactly as tuned.
+      if (brandPostsAreProxy && brandRefCountInBg > siteRefCount) {
+        const keptBrand = companyRefImages.slice(0, siteRefCount);
+        const dropped = brandRefCountInBg - keptBrand.length;
+        bgRefImages = [...keptBrand, ...refImagesForGen].slice(0, 5);
+        brandRefCountInBg = keptBrand.length;
+        genRefCountInBg = Math.max(0, bgRefImages.length - keptBrand.length);
+        console.log(`[refs] job=${jobId ?? "?"} proxy mode: dropped ${dropped} competitor post image(s) from the image model (structure comes from the brief); kept ${keptBrand.length} client-site ref(s)`);
+      }
+      // Whether any competitor IMAGE is still attached, so the prompt's role sentences stay true to
+      // what the model can actually see. Always true off the proxy path (real brand posts).
+      const competitorRefsPresent = !brandPostsAreProxy || brandRefCountInBg > siteRefCount;
+
       // How many of the reference images actually in bgRefImages are the client's own site. The
       // worker prepends the site refs, so they are the FIRST entries of companyRefImages → the
       // first `siteRefsInBg` of the brand refs in bgRefImages. Drives the colour + role rules so
@@ -4440,7 +4475,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg, hasColourSwatch);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg, hasColourSwatch, competitorRefsPresent);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -4527,7 +4562,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg, hasColourSwatch);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg, hasColourSwatch, competitorRefsPresent);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
