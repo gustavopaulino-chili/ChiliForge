@@ -298,7 +298,7 @@ const HERO_NO_TEXT_RETRY_REMINDER =
 // important constraint (a clean, text-free ad background) must never get lost among the creative
 // direction. Short and absolute on purpose.
 const PRIMARY_BG_RULE =
-  "███ RULE #1 — READ THIS FIRST, IT OVERRIDES EVERYTHING BELOW ███\nYou are producing ONLY the BACKGROUND of an advertisement — nothing else. You must NOT draw ANY text, letter, word, number, headline, caption, slogan, price, brand name, wordmark or logo ANYWHERE in the image — ZERO. The real logo and all copy are added by the system in a separate layer ON TOP of your image afterwards. Your whole job is ONE clean, cohesive, on-brand background scene that leaves calm space for that overlay. A background that contains ANY text or logo is a total failure and is discarded.\n⛔ THIS IS A PHOTOGRAPH/ILLUSTRATION, NOT A LAYOUT MOCKUP: do NOT draw any card, chip, banner, badge, callout bubble, sign or panel that CONTAINS text, a title, a label or a logo. Do NOT draw a logo PLACEHOLDER of any kind — no box, frame, circle or label marking where a logo goes, and NEVER write the literal word 'logo'. Do NOT render the product/service/company name or the campaign topic (e.g. an industry phrase like 'SEO and Performance Media') as a heading, title card or sign. ✅ ALLOWED and ENCOURAGED: blank brand-colour shapes, organic blobs, diagonal fields, panels and dot clusters as tasteful background DEVICES that make it look like this brand — as long as they contain ZERO text, letters or logo. The ban is only on TEXT / LOGO / placeholders, NEVER on clean blank brand graphics. If you catch yourself composing a heading, a titled card, or a 'logo here' placeholder, STOP.";
+  "███ RULE #1 — READ THIS FIRST, IT OVERRIDES EVERYTHING BELOW ███\nYou are producing ONLY the BACKGROUND of an advertisement — nothing else. You must NOT draw ANY text, letter, word, number, headline, caption, slogan, price, brand name, wordmark or logo ANYWHERE in the image — ZERO. The real logo and all copy are added by the system in a separate layer ON TOP of your image afterwards. Your whole job is ONE clean, cohesive, on-brand background scene that leaves calm space for that overlay. A background that contains ANY text or logo is a total failure and is discarded.\n⛔ THIS IS A PHOTOGRAPH/ILLUSTRATION, NOT A LAYOUT MOCKUP: do NOT draw any card, chip, banner, badge, callout bubble, sign or panel that CONTAINS text, a title, a label or a logo. Do NOT draw a PLACEHOLDER of any kind — no box, frame, circle, badge or label marking where a brand mark would go, and never letter such a marker. That corner is simply empty, plain surface. Do NOT render the product/service/company name or the campaign topic (e.g. an industry phrase like 'SEO and Performance Media') as a heading, title card or sign. ✅ ALLOWED and ENCOURAGED: blank brand-colour shapes, organic blobs, diagonal fields, panels and dot clusters as tasteful background DEVICES that make it look like this brand — as long as they contain ZERO text, letters or logo. The ban is only on TEXT / LOGO / placeholders, NEVER on clean blank brand graphics. If you catch yourself composing a heading, a titled card, or a 'logo here' placeholder, STOP.";
 
 const REF_TEXT_LEAK_GUARD =
   "\n\n⛔⛔ THE ATTACHED REFERENCE IMAGES CONTAIN TEXT, CAPTIONS, WORDMARKS AND LOGOS. Do NOT copy, trace, paraphrase or recreate ANY of that text, nor any logo or wordmark, from them. Reproduce the subject/scene and the brand colours only — but every wall, screen, monitor, poster, sign, product label, paper, prop and surface in your output MUST be completely BLANK: zero letters, zero numbers, zero words, zero logos, zero wordmarks, and zero decorative cursive/script flourishes or emblems that merely LOOK like a brand mark even without legible letters. The real logo and all copy are composited in a separate layer afterwards, so ANY text or logo-like graphic you draw appears twice and ruins the ad. A background with any text or logo-like decoration is a complete render failure.";
@@ -2402,7 +2402,11 @@ function crc32(bytes: Uint8Array): number {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-// Builds a flat swatch of the brand's colour as a PNG, to attach as a reference image.
+// Builds a flat swatch of the brand's PALETTE as a PNG, to attach as a reference image.
+// In proxy mode it is the ONLY colour input the image model gets: the client's site capture used
+// to play that role, but a site capture is a web page — it carries the header logo and a
+// full-size headline, and the model drew that logo next to the real composited one. A synthetic
+// swatch states the palette exactly and has nothing to trace.
 // WHY: the hex is deliberately scrubbed from the prompt text (the model paints "#fee701" as
 // characters), so a colour NAME is the only channel the words have — and a name is an
 // approximation: #fee701 described as "vivid yellow" landed on the canvas as #dcb744. Pixels are
@@ -2410,18 +2414,38 @@ function crc32(bytes: Uint8Array): number {
 // in this request, so every brand gets its own colour and none is hard-coded.
 // Deliberately tiny (96px, a few hundred bytes) so it adds no meaningful resource pressure to the
 // worker — unlike another full-size brand post, which is what the 546 limit reacts to.
-async function makeSolidColourPng(hex: string, size = 96): Promise<string> {
-  const raw = (hex || "").trim().replace(/^#/, "");
-  const m = /^([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(raw);
-  if (!m) return "";
-  const full = raw.length === 3 ? raw.split("").map((c) => c + c).join("") : raw;
-  const r = parseInt(full.slice(0, 2), 16), g = parseInt(full.slice(2, 4), 16), b = parseInt(full.slice(4, 6), 16);
+async function makeSolidColourPng(hexes: string | string[], size = 96): Promise<string> {
+  const list = (Array.isArray(hexes) ? hexes : [hexes])
+    .map((h) => {
+      const raw = String(h || "").trim().replace(/^#/, "");
+      if (!/^([0-9a-f]{3}|[0-9a-f]{6})$/i.test(raw)) return null;
+      const full = raw.length === 3 ? raw.split("").map((c) => c + c).join("") : raw;
+      return [parseInt(full.slice(0, 2), 16), parseInt(full.slice(2, 4), 16), parseInt(full.slice(4, 6), 16)] as [number, number, number];
+    })
+    .filter((c): c is [number, number, number] => c !== null)
+    // Same colour twice (secondary often falls back to accent) would waste a band.
+    .filter((c, i, arr) => arr.findIndex((o) => o[0] === c[0] && o[1] === c[1] && o[2] === c[2]) === i)
+    .slice(0, 4);
+  if (!list.length) return "";
+
+  // Horizontal bands, PRIMARY taking the top half. The split encodes the hierarchy the prompt
+  // states in words ("dominant" vs "smaller accents"), so the model reads proportion as well as
+  // value — a single flat colour could not say which one should dominate the canvas.
+  const primaryRows = list.length === 1 ? size : Math.round(size * 0.5);
+  const restRows = size - primaryRows;
+  const perRest = list.length > 1 ? Math.max(1, Math.floor(restRows / (list.length - 1))) : 0;
+  const colourAtRow = (y: number): [number, number, number] => {
+    if (y < primaryRows || list.length === 1) return list[0];
+    const idx = Math.min(list.length - 1, 1 + Math.floor((y - primaryRows) / perRest));
+    return list[idx];
+  };
 
   // Raw scanlines: one filter byte (0 = None) then RGB triplets.
   const stride = size * 3 + 1;
   const rawData = new Uint8Array(stride * size);
   for (let y = 0; y < size; y++) {
     const off = y * stride;
+    const [r, g, b] = colourAtRow(y);
     for (let x = 0; x < size; x++) {
       const p = off + 1 + x * 3;
       rawData[p] = r; rawData[p + 1] = g; rawData[p + 2] = b;
@@ -2758,7 +2782,7 @@ function buildBackgroundPrompt(
       "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
       "• The person fills a large part of the frame, sharp and well-lit, as the unmistakable focal point; the scene supports them.",
       castingRef ? "• BRAND-DESIGN the frame so it reads as a designed brand ad, not a stock photo with a logo slapped on. STUDY the attached brand posts (the other images) and match their creative ENERGY — colour grade, composition, boldness — so this ad clearly belongs to the SAME family. Apply a strong on-brand colour grade over the WHOLE scene and give it generous brand-colour negative space. ⭐ DESIGN-ASSET LAYER — ONLY IF THE BRAND USES ONE: judge from the attached brand posts whether the brand decorates its posts with graphic overlays (floating dots/halftone, blobs, colour panels, rings, stars, icons/badges). IF YES, replicate that same layer here in the SAME devices, SAME colours AND SAME DENSITY/ABUNDANCE the posts use — if they are heavily decorated, decorate this ad just as heavily so it CAMOUFLAGES into their feed as one more of their posts; NEVER water a busy layer down to a single subtle motif. Float them over the scene, clearly decorative, in empty areas only (never over the face or text zone), ZERO text/logo inside. IF the brand's posts are clean without such overlays, add NONE. Mirror what the posts actually do — never invent a design language the brand lacks. Be genuinely creative and dynamic — a bold, art-directed composition, NOT a flat centered stock photo." : "",
-      "• ⛔⛔ NEVER DRAW THE BRAND LOGO OR A 'LOGO' PLACEHOLDER — IT WOULD APPEAR TWICE: the real brand logo is added by us, ONCE, on top afterwards. If you draw the brand name / wordmark / logo / monogram ANYWHERE in the scene it becomes a DUPLICATE and ruins the ad. Also NEVER render a placeholder like the literal word 'LOGO', 'YOUR LOGO', 'YOUR LOGO HERE', 'BRAND' or an empty logo box (stock scenes often have these — omit them entirely). So draw NO logo/wordmark/placeholder on any laptop screen, TV, monitor, phone, tablet, slide, wall, poster, sign, badge, lanyard, mug, notebook or clothing. This is the #1 failure — a screen must NEVER show a branded slide or a dashboard with a logo header.",
+      "• ⛔⛔ NEVER DRAW THE BRAND LOGO OR A 'LOGO' PLACEHOLDER — IT WOULD APPEAR TWICE: the real brand logo is added by us, ONCE, on top afterwards. If you draw the brand name / wordmark / logo / monogram ANYWHERE in the scene it becomes a DUPLICATE and ruins the ad. Also NEVER render a stand-in marker where a brand mark would go — no lettered placeholder, no empty badge or box (stock scenes often carry these — omit them entirely). So draw NO logo/wordmark/placeholder on any laptop screen, TV, monitor, phone, tablet, slide, wall, poster, sign, badge, lanyard, mug, notebook or clothing. This is the #1 failure — a screen must NEVER show a branded slide or a dashboard with a logo header.",
       "• ⛔ ZERO TEXT & ABSTRACT SCREENS: any screen, monitor, TV, phone, tablet, dashboard, graph or chart shows ONLY an abstract wavy line, soft glow or plain coloured shapes — NO slide layout, NO title/header, NO bullet points, NO text, numbers, labels, axis titles, legends or captions. If you can't render a screen without adding a logo or bullet text, make it a blank/off screen or a soft colour glow instead. Also never draw the word 'agency', a tagline or any wordmark on walls or props. The real logo and all copy are composited on top afterwards, so anything you draw appears twice and ruins the ad.",
       "• The OTHER attached images are the brand's OWN posts — STUDY them for the brand's COLOUR GRADE, mood, composition energy AND their signature graphic MOTIFS (dot/halftone clusters, organic blobs, colour panels, the brand's icon/smile/comma shape, rings, stars, social like/heart bubbles). Borrow their STYLE only — NEVER their subjects, people, captions or text.",
       "• ⭐ MATCH THE BRAND'S DESIGN LANGUAGE — READ IT FROM THE BRAND POSTS (do NOT force or invent it): look carefully at the attached brand posts and judge whether this brand DECORATES its posts with GRAPHIC DESIGN-ASSET OVERLAYS — floating dots/halftone clusters, organic blobs, colour panels/diagonal fields, rings, stars, sparkles, badges or icons layered OVER the content. ▶ IF the brand's posts consistently use such overlays: replicate THAT SAME design-asset layer here — the SAME kinds of devices, the SAME colours, AND the SAME DENSITY/ABUNDANCE the posts actually use — floating over the scene like the sticker/icon layer of a designed social ad (catching the scene's light, clearly decorative, NOT physical objects in the room). ⭐ MATCH THEIR RICHNESS: if the posts are heavily decorated with many floating elements, cover this ad with just as many so it CAMOUFLAGES into the brand's feed as one more of their posts — do NOT reduce a busy, element-packed layer to a single subtle motif. Place them ONLY in EMPTY areas (never over the face or the reserved text zone), ZERO text/letters/logo inside. ▶ IF the brand's posts do NOT use graphic overlays (clean photographic ads, minimal or no floating devices): add NONE — keep the scene clean and simply brand-graded. Mirror what the brand ACTUALLY does in its posts; never impose a design language it doesn't have, and never take the device colours from anywhere but the brand's own posts.",
@@ -2778,7 +2802,7 @@ function buildBackgroundPrompt(
       "• ⭐ THE SCENE MUST BE ABOUT THE PRODUCT/CAMPAIGN (see CAMPAIGN CONTEXT): show the person actually doing/using/benefiting from what is advertised, in the exact context of the offer — it must instantly read as 'this is about THAT product/service'.",
       "• Real depth with foreground/background layers, natural light, photographic realism.",
       "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
-      "• ⛔⛔ NEVER DRAW THE BRAND LOGO OR A 'LOGO' PLACEHOLDER — IT WOULD APPEAR TWICE: the real brand logo is added by us, ONCE, on top afterwards. If you draw the brand name / wordmark / logo / monogram ANYWHERE in the scene it becomes a DUPLICATE and ruins the ad. Also NEVER render a placeholder like the literal word 'LOGO', 'YOUR LOGO', 'YOUR LOGO HERE', 'BRAND' or an empty logo box (stock scenes often have these — omit them entirely). So draw NO logo/wordmark/placeholder on any laptop screen, TV, monitor, phone, tablet, slide, wall, poster, sign, badge, lanyard, mug, notebook or clothing. This is the #1 failure — a screen must NEVER show a branded slide or a dashboard with a logo header.",
+      "• ⛔⛔ NEVER DRAW THE BRAND LOGO OR A 'LOGO' PLACEHOLDER — IT WOULD APPEAR TWICE: the real brand logo is added by us, ONCE, on top afterwards. If you draw the brand name / wordmark / logo / monogram ANYWHERE in the scene it becomes a DUPLICATE and ruins the ad. Also NEVER render a stand-in marker where a brand mark would go — no lettered placeholder, no empty badge or box (stock scenes often carry these — omit them entirely). So draw NO logo/wordmark/placeholder on any laptop screen, TV, monitor, phone, tablet, slide, wall, poster, sign, badge, lanyard, mug, notebook or clothing. This is the #1 failure — a screen must NEVER show a branded slide or a dashboard with a logo header.",
       "• ⛔ ZERO TEXT & ABSTRACT SCREENS: any screen, monitor, TV, phone, tablet, dashboard, graph or chart shows ONLY an abstract wavy line, soft glow or plain coloured shapes — NO slide layout, NO title/header, NO bullet points, NO text, numbers, labels, axis titles, legends or captions. If you can't render a screen without adding a logo or bullet text, make it a blank/off screen or a soft colour glow instead. Also never draw the word 'agency', a tagline or any wordmark on walls or props. The real logo and all copy are composited on top afterwards, so anything you draw appears twice and ruins the ad.",
       "• Recompose for this aspect ratio; keep the reserved text-safe zone calm and uncluttered.",
       scene ? `⭐ THE SCENE (derived from THIS campaign's topic) — build exactly this around the invented person, in the brand's colors/lighting: ${scene}` : "",
@@ -2935,7 +2959,7 @@ function buildBackgroundPrompt(
     "",
     colorLine,
     hasColourSwatch
-      ? "⛔ BRAND COLOUR SWATCH — THE LAST ATTACHED IMAGE IS NOT A DESIGN REFERENCE: it is a flat rectangle filled with this brand's EXACT colour, attached purely so you can see the precise value. SAMPLE IT and make the dominant background field that EXACT colour — same hue, same saturation, same brightness. Do not shift it warmer, cooler, darker, duller or more 'tasteful'; do not substitute a neighbouring shade you consider more premium. If your field does not visually match that swatch side by side, it is wrong. Take NOTHING else from that image — no composition, no subject, no layout, no edges; it contributes colour only, and the flat rectangle itself must never appear in your output."
+      ? "⛔ BRAND PALETTE SWATCH — THE LAST ATTACHED IMAGE IS NOT A DESIGN REFERENCE: it is a flat colour chart of this brand's EXACT palette, attached purely so you can see the precise values. The TOP HALF is the DOMINANT brand colour; the thinner bands below it are the secondary/accent colours. SAMPLE THEM and build the scene's colour from those exact values — same hue, same saturation, same brightness — with the top-half colour clearly dominating the canvas and the lower bands used only as smaller accents and contrast. Do not shift them warmer, cooler, darker, duller or more 'tasteful'; do not substitute a neighbouring shade you consider more premium. If your dominant field does not visually match that top band side by side, it is wrong. Take NOTHING else from that image — no composition, no subject, no layout, no edges, and never draw the chart or its bands in your output. It contributes colour VALUES only."
       : "",
     safeSpec
       ? `CREATIVE SPEC (follow for visual style, brand aesthetic, and composition):\n${safeSpec}`
@@ -4331,13 +4355,20 @@ serve(async (req: Request) => {
       // generation refs (hero/product — the actual subject), and drop the competitor images.
       // Untouched for every client with a real profile: non-proxy brand posts still go through
       // exactly as tuned.
-      if (brandPostsAreProxy && brandRefCountInBg > siteRefCount) {
-        const keptBrand = companyRefImages.slice(0, siteRefCount);
-        const dropped = brandRefCountInBg - keptBrand.length;
-        bgRefImages = [...keptBrand, ...refImagesForGen].slice(0, 5);
-        brandRefCountInBg = keptBrand.length;
-        genRefCountInBg = Math.max(0, bgRefImages.length - keptBrand.length);
-        console.log(`[refs] job=${jobId ?? "?"} proxy mode: dropped ${dropped} competitor post image(s) from the image model (structure comes from the brief); kept ${keptBrand.length} client-site ref(s)`);
+      // The client's own SITE CAPTURE goes too, for the same reason. It was the colour source
+      // here, but it is a web PAGE: the header carries the brand's logo and the hero carries a
+      // full-size headline ("Unlock your Business's Potential…"). The model drew that header logo
+      // into the background, beside the real one composited on top. Cropping the header would only
+      // move the problem to the headline — a site is made of text. Colour no longer needs those
+      // pixels: the palette swatch below states primary/secondary/accent EXACTLY, and mood is
+      // already carried in prose by the brief. So in proxy mode the image model receives no
+      // photograph of anyone's marketing material — only the swatch and the ad's own subject.
+      if (brandPostsAreProxy && brandRefCountInBg > 0) {
+        const dropped = brandRefCountInBg;
+        bgRefImages = [...refImagesForGen].slice(0, 5);
+        brandRefCountInBg = 0;
+        genRefCountInBg = bgRefImages.length;
+        console.log(`[refs] job=${jobId ?? "?"} proxy mode: dropped ${dropped} reference image(s) (competitor posts + client site) from the image model — structure comes from the brief, colour from the palette swatch`);
       }
       // Whether any competitor IMAGE is still attached, so the prompt's role sentences stay true to
       // what the model can actually see. Always true off the proxy path (real brand posts).
@@ -4357,10 +4388,14 @@ serve(async (req: Request) => {
       // is scrubbed from it and a colour name only approximates (#fee701 → "vivid yellow" → #dcb744
       // on the canvas). Non-fatal: if the hex is missing or malformed the swatch is simply skipped.
       let hasColourSwatch = false;
-      const swatchHex = String((campaignData as any).primaryColor || "").trim();
-      if (swatchHex) {
+      const swatchHexes = [
+        String((campaignData as any).primaryColor || "").trim(),
+        String((campaignData as any).secondaryColor || "").trim(),
+        String((campaignData as any).accentColor || "").trim(),
+      ].filter(Boolean);
+      if (swatchHexes.length) {
         try {
-          const swatchB64 = await makeSolidColourPng(swatchHex);
+          const swatchB64 = await makeSolidColourPng(swatchHexes);
           if (swatchB64) {
             bgRefImages = [...bgRefImages, { data: swatchB64, mimeType: "image/png" }];
             hasColourSwatch = true;
