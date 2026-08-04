@@ -4307,9 +4307,15 @@ serve(async (req: Request) => {
       // companyRefImages: fetch every composeCompanyRefs URL. When auto-mode set the Pexels photo as
       // referenceImageUrl above, that URL is already FIRST in composeCompanyRefs → it is fetched here
       // as companyRefImages[0], byte-identical to a caller-sent reference_image (no special-casing).
-      const companyRefImages = (await Promise.all(
-        companyRefUrls.map((url) => fetchImageAsBase64(url).catch(() => null))
-      )).filter((r): r is { mimeType: string; data: string } => Boolean(r?.data));
+      // Each fetched ref keeps its SOURCE URL. The proxy filter below must tell a competitor post
+      // apart from the caller's own reference_image, and position cannot do that safely — the
+      // caller's image is composeCompanyRefs[0], the very slot a position-based rule would eat.
+      const companyRefFetched = (await Promise.all(
+        companyRefUrls.map((url) =>
+          fetchImageAsBase64(url).then((r) => (r ? { ...r, url } : null)).catch(() => null)
+        )
+      )).filter((r): r is { mimeType: string; data: string; url: string } => Boolean(r?.data));
+      const companyRefImages = companyRefFetched.map(({ data, mimeType }) => ({ data, mimeType }));
 
       let bgRefImages: { data: string; mimeType: string }[];
       let brandRefCountInBg = 0; // how many brand-post images are in bgRefImages
@@ -4363,12 +4369,26 @@ serve(async (req: Request) => {
       // pixels: the palette swatch below states primary/secondary/accent EXACTLY, and mood is
       // already carried in prose by the brief. So in proxy mode the image model receives no
       // photograph of anyone's marketing material — only the swatch and the ad's own subject.
-      if (brandPostsAreProxy && brandRefCountInBg > 0) {
-        const dropped = brandRefCountInBg;
-        bgRefImages = [...refImagesForGen].slice(0, 5);
-        brandRefCountInBg = 0;
-        genRefCountInBg = bgRefImages.length;
-        console.log(`[refs] job=${jobId ?? "?"} proxy mode: dropped ${dropped} reference image(s) (competitor posts + client site) from the image model — structure comes from the brief, colour from the palette swatch`);
+      //
+      // ⚠️ DROP BY IDENTITY, NEVER BY POSITION. The stored marketing material is exactly the
+      // mirrored brand-post/site files under the company's assets folder. Everything else in
+      // composeCompanyRefs belongs to THIS generation — above all the caller's
+      // `campaign.reference_image`, which PHP puts FIRST in the list. An earlier version of this
+      // filter dropped the whole company-ref array and silently threw that image away, so a
+      // caller-sent reference stopped influencing the ad at all.
+      if (brandPostsAreProxy) {
+        const isStoredMarketingRef = (u: string) => /\/(brand-post|site)-[^/]*$/i.test(u);
+        const keptRefs = companyRefFetched.filter((r) => !isStoredMarketingRef(r.url));
+        const dropped = companyRefFetched.length - keptRefs.length;
+        if (dropped > 0) {
+          bgRefImages = [
+            ...keptRefs.map(({ data, mimeType }) => ({ data, mimeType })),
+            ...refImagesForGen,
+          ].slice(0, 5);
+          brandRefCountInBg = 0;  // nothing left here is a brand/market post
+          genRefCountInBg = bgRefImages.length;
+          console.log(`[refs] job=${jobId ?? "?"} proxy mode: dropped ${dropped} stored marketing image(s) (competitor posts + client site); kept ${bgRefImages.length} generation ref(s) incl. any caller reference_image`);
+        }
       }
       // Whether any competitor IMAGE is still attached, so the prompt's role sentences stay true to
       // what the model can actually see. Always true off the proxy path (real brand posts).
