@@ -4,7 +4,7 @@
 - [Ad image model 3.1-flash](ad-image-model-3.1-flash.md) — ad images run on gemini-3.1-flash-image via Supabase secret GEMINI_IMAGE_MODELS
 - [Deploy API to both servers](deploy-api-both-servers.md) — PHP/API changes deploy to BOTH test (deploy-ftp.ps1) and live (deploy-live.ps1)
 - [External Ads API test procedure](external-ads-api-test-procedure.md) — how to submit/poll/download an ads generation test (LIVE endpoint, strip quotes from .env key)
-- [Ads test run counter](ads-test-run-counter.md) — incrementing label for ad-tests files; next run = 267
+- [Ads test run counter](ads-test-run-counter.md) — incrementing label for ad-tests files; next run = 269
 - [Gemini testing key is free tier](gemini-testing-key-free-tier.md) — GEMINI_API_KEY_TESTING free tier → image gen 429; PRODUCTION is paid
 - [Brief full only for company calls](brief-full-only-for-company-calls.md) — full brief only for company-assets; ad generation caps it so ref images/brand posts drive the visual
 - [Gemini stores são project-scoped](gemini-stores-sao-project-scoped.md) — trocar a key invalida todo gemini_store_name (403); precisa limpar as colunas p/ recriar
