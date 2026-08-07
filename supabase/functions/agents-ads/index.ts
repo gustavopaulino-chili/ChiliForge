@@ -816,9 +816,13 @@ async function pickCalmTextZone(
   try {
     // Gemini 3 Pro decides placement — best vision/reasoning for finding the calm zone. Reverted
     // from gemini-2.5-flash (2026-07-08): 2.5 read the calm zone poorly and text landed on busy
-    // areas / the hero. 3-pro is worth the extra cost for correct text placement. thinkingBudget 0
-    // keeps it a fast one-word answer; maxTokens 64 leaves room for the minimal thinking.
-    const res = await callGemini(SYSTEM, USER, "gemini-3-pro-preview", 0, 64, apiKey, undefined, [bgRef], { ...opts, thinkingBudget: 0, timeoutMs: 25000 });
+    // areas / the hero. 3-pro is worth the extra cost for correct text placement.
+    // 2026-08-07: this call was silently dead since the revert — it passed `thinkingBudget: 0`,
+    // which callGemini only forwards to gemini-2.5 models, so 3-pro fell back to default (high)
+    // thinking and the 64-token cap was consumed before any answer. Zero gemini-3-pro-preview rows
+    // in the gemini_usage ledger proved it never returned 200. Gemini 3 takes `thinkingLevel`
+    // (same as backgroundHasText above), and maxTokens must leave room for the thinking tokens.
+    const res = await callGemini(SYSTEM, USER, "gemini-3-pro-preview", 0, 512, apiKey, undefined, [bgRef], { ...opts, thinkingLevel: "low", timeoutMs: 25000 });
     const word = String(res.text || "").toLowerCase().match(/top|bottom|left|right|center/)?.[0];
     const layout = word ? (CALM_ZONE_TO_LAYOUT[word] ?? null) : null;
     if (word && layout) console.log(`[calm-zone] job=${opts.jobId ?? "?"} → ${word} (${layout})`);
