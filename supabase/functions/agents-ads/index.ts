@@ -2633,11 +2633,20 @@ function buildBackgroundPrompt(
   // build the same authentic UGC "scene of success". Used when the external-API auto-mode picked
   // 'ugc' but Pexels was unavailable. Only fires when there is genuinely no hero reference image.
   if (ugcNoRef && !heroRef) {
-    sourceBlock = [
-      "████ BACKGROUND SOURCE: UGC SCENE — INVENT A REAL PERSON ████",
-      "No reference image was provided. Create an AUTHENTIC, candid UGC-style 'scene of success' featuring a REAL, believable person (invent them) who fits the campaign's audience.",
-      "• The person is the clear focal point — sharp, well-lit, filling a large part of the frame, with natural candid energy. NOT a stiff corporate headshot and NOT a flat studio cut-out on a plain colour field.",
-      "• ⭐ THE SCENE MUST BE ABOUT THE PRODUCT/CAMPAIGN (see CAMPAIGN CONTEXT): show the person actually doing/using/benefiting from what is advertised, in the exact context of the offer — it must instantly read as 'this is about THAT product/service'.",
+    // APPEND, never replace. The branches above already defined the ROLE of whatever is attached —
+    // "company brand posts = style reference only", and in proxy mode the block that stops the ad
+    // from taking the competitor's colours (the 04/08 bug). Overwriting sourceBlock here would
+    // silently drop those. This block only adds the missing piece: WHAT the ad depicts.
+    const themeHeroBlock = [
+      "████ BACKGROUND SOURCE: THE CAMPAIGN'S THEME IS THE REFERENCE ████",
+      "No reference image was sent for this generation, so the campaign's own theme scene IS the reference — treat the scene described below exactly as you would treat a photograph handed to you, and build this ad as a real photograph shot for THIS campaign.",
+      // The subject line comes FIRST and is the loudest thing in this block: with no source block at
+      // all the model used to adopt whatever was attached (a website screenshot, a brand post) as
+      // the subject. The attached images are demoted to identity right after.
+      scene ? `⭐⭐ THIS IS THE SUBJECT — IT IS YOUR REFERENCE, BUILD EXACTLY THIS: ${scene}` : "",
+      "• ⛔ THE ATTACHED IMAGES ARE NOT THE SUBJECT. They are this brand's own material — its website and its posts — and they are here for IDENTITY ONLY: palette, lighting mood, and the graphic design language the brand uses. Never reproduce their content, their layout, their screenshots, their crops or the people in them as the subject of this ad. Take COLOUR and STYLE from them; take WHAT IS DEPICTED from the scene above.",
+      "• The subject of that scene is the clear focal point — sharp, well-lit, filling a large part of the frame, with natural candid energy. NOT a stiff corporate headshot and NOT a flat studio cut-out on a plain colour field.",
+      "• If the scene naturally involves a person, invent a real, believable one who fits the campaign's audience and show them genuinely doing the activity. If the scene is about an object or a place, that object or place is the hero and no person is needed.",
       "• Real depth with foreground/background layers, natural light, photographic realism.",
       "• Light and colour-grade the whole scene in THIS brand's palette so the brand colours clearly dominate the environment.",
       // Describe the DESIRED STATE — never spell out the placeholder strings. Naming them hands
@@ -2647,8 +2656,10 @@ function buildBackgroundPrompt(
       "• ⛔⛔ THE BRAND MARK IS ADDED BY US, ONCE, ON TOP AFTERWARDS — anything mark-like you draw becomes a duplicate and ruins the ad. Every surface in the scene that would normally carry a mark or lettering — laptop screen, TV, monitor, phone, tablet, slide, wall, poster, sign, badge, lanyard, mug, notebook, packaging, clothing — must be shown BLANK: clean bare material, plain colour, no emblem, no monogram, no lettering, and no empty framed rectangle standing in for one. Screens and monitors show only soft abstract light, gradients or flowing shapes. This is the #1 failure mode of this pipeline.",
       "• ⛔ ZERO TEXT & ABSTRACT SCREENS: any screen, monitor, TV, phone, tablet, dashboard, graph or chart shows ONLY an abstract wavy line, soft glow or plain coloured shapes — NO slide layout, NO title/header, NO bullet points, NO text, numbers, labels, axis titles, legends or captions. If you can't render a screen without adding a logo or bullet text, make it a blank/off screen or a soft colour glow instead. Also never draw the word 'agency', a tagline or any wordmark on walls or props. The real logo and all copy are composited on top afterwards, so anything you draw appears twice and ruins the ad.",
       "• Recompose for this aspect ratio; keep the reserved text-safe zone calm and uncluttered.",
-      scene ? `⭐ THE SCENE (derived from THIS campaign's topic) — build exactly this around the invented person, in the brand's colors/lighting: ${scene}` : "",
+      // The scene is stated once, at the top of this block, as the subject. Repeating it here as a
+      // trailing note used to be the only mention; now it would just dilute the lead.
     ].filter(Boolean).join("\n");
+    sourceBlock = sourceBlock ? `${sourceBlock}\n\n${themeHeroBlock}` : themeHeroBlock;
   }
 
   // Convey the brand palette as color NAMES (never raw hex) and scrub every code/URL/CSS
@@ -4020,6 +4031,21 @@ serve(async (req: Request) => {
           if (bgSource === "reference") bgSource = "creative";
         }
         console.log(`[ugc-auto] job=${jobId ?? "?"} pexQuery="${pexQuery}" pexels=${pexUrl ? "as-ref" : "miss->invent"}`);
+      }
+
+      // THEME-AS-HERO. When the caller sent no reference image and no stock hero was fetched, the
+      // only images attached are the brand's OWN material — its mirrored site, its posts, or the
+      // competitor posts used as category reference. None of those is the ad's subject, but with no
+      // source block declaring a subject the model treated whatever it was given as one: run 278
+      // reached the image model with composeCompanyRefs[0] = a screenshot of the client's website.
+      // The campaign's derived theme scene is the right reference here — it is the only input that
+      // describes what this specific ad is ABOUT. Flagging ugcNoRef turns on the source block that
+      // states the theme IS the subject and demotes the attached images to identity only.
+      // Explicit 'creative'/'shapes' callers asked for a different look, so they are left alone.
+      if (isExternalApi && !heroRef && !hasProductRef && !callerSentBgUrl
+          && explicitBgSource !== "creative" && explicitBgSource !== "shapes" && !ugcNoRef) {
+        ugcNoRef = true;
+        console.log(`[theme-as-hero] job=${jobId ?? "?"} no caller ref and no stock hero → the campaign theme is the reference; attached site/brand posts are identity only`);
       }
 
       // ── Store-derived brand brief (compose) ───────────────────────────────
