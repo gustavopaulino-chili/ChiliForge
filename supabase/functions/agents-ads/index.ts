@@ -2644,7 +2644,12 @@ function buildBackgroundPrompt(
       // all the model used to adopt whatever was attached (a website screenshot, a brand post) as
       // the subject. The attached images are demoted to identity right after.
       scene ? `⭐⭐ THIS IS THE SUBJECT — IT IS YOUR REFERENCE, BUILD EXACTLY THIS: ${scene}` : "",
-      "• ⛔ THE ATTACHED IMAGES ARE NOT THE SUBJECT. They are this brand's own material — its website and its posts — and they are here for IDENTITY ONLY: palette, lighting mood, and the graphic design language the brand uses. Never reproduce their content, their layout, their screenshots, their crops or the people in them as the subject of this ad. Take COLOUR and STYLE from them; take WHAT IS DEPICTED from the scene above.",
+      // Do NOT restate where colour comes from here. The blocks above already assigned each
+      // attached image its role, and in proxy mode the posts belong to a COMPETITOR — colour must
+      // come only from the BRAND COLORS line. An earlier version of this bullet said "take colour
+      // and style from them", which contradicted that and produced a coral ad for an amber brand
+      // (run 279) — the exact competitor-colour leak the proxy rules exist to prevent.
+      "• ⛔ THE ATTACHED IMAGES ARE NOT THE SUBJECT. Whatever role the block above assigned them still holds, and none of those roles is 'the thing this ad depicts'. Never reproduce their content, their layout, their screenshots, their crops or the people in them as the subject of this ad. WHAT IS DEPICTED comes from the scene above; the palette comes from the BRAND COLORS line below and from nowhere else.",
       "• The subject of that scene is the clear focal point — sharp, well-lit, filling a large part of the frame, with natural candid energy. NOT a stiff corporate headshot and NOT a flat studio cut-out on a plain colour field.",
       "• If the scene naturally involves a person, invent a real, believable one who fits the campaign's audience and show them genuinely doing the activity. If the scene is about an object or a place, that object or place is the hero and no person is needed.",
       "• Real depth with foreground/background layers, natural light, photographic realism.",
