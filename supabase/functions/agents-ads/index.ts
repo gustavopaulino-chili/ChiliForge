@@ -4076,13 +4076,25 @@ serve(async (req: Request) => {
             campaignFactsImg.slice(0, 1600),
             "gemini-2.5-flash",
             0.4,
-            220,
+            320,
             apiKey,
             undefined,
             undefined,
-            { jobId, costAcc },
+            // thinkingBudget:0 is MANDATORY here. gemini-2.5 thinks by default and those tokens
+            // come out of maxOutputTokens, so without it the scene came back CUT MID-SENTENCE —
+            // run 275 shipped with themeScene = "Em um escritório moderno e bem iluminado," (note
+            // the trailing comma): no service, no props, no action. That fragment is injected in
+            // three places in the background prompt, so every ad became a generic office and the
+            // whole point of deriving a scene from the campaign was lost.
+            { jobId, costAcc, thinkingBudget: 0 },
           );
           themeScene = String(sceneRes.text || "").trim().slice(0, 500);
+          // A scene that ends mid-clause is a truncation, not a description — better to drop it
+          // and let the prompt's own theme guidance work than to lock the model onto a fragment.
+          if (/[,;:]$/.test(themeScene)) {
+            console.warn(`[theme-scene] job=${jobId ?? "?"} TRUNCATED, discarding: ${themeScene}`);
+            themeScene = "";
+          }
           if (themeScene) console.log(`[theme-scene] job=${jobId ?? "?"} ${themeScene.slice(0, 160)}`);
         } catch (_) { /* non-fatal — fall through with generic theme guidance in the prompt */ }
       }
