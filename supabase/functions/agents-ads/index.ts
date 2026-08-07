@@ -348,7 +348,11 @@ async function backgroundHasText(
     // (n8n batch) or free-tier, the call 429'd/timed-out, the catch returned "no text" (silent pass)
     // and texty/logo backgrounds slipped through. Trying BOTH keys means a healthy key on either side
     // still produces a real verdict. Only a clean 'no' from a key that ACTUALLY answered = pass.
-    // gemini-3-pro-preview is far more reliable at catching burned-in text/logos than 2.5-flash.
+    // A Gemini 3 tier is far more reliable at catching burned-in text/logos than 2.5-flash.
+    // 2026-08-07: was "gemini-3-pro-preview", retired by Google → generateContent 404s. Since this
+    // validator FAILS OPEN (any error → `return false` = "clean"), re-enabling VALIDATE_BACKGROUND
+    // with the dead model would have silently approved every background. Swapped to the model this
+    // pipeline proves alive each run, and raised maxTokens (10 left no room for thinking tokens).
     const validatorKey = env?.get("GEMINI_API_KEY_PRODUCTION") || env?.get("GEMINI_API_KEY_TESTING") || "";
     const keyChain = [...new Set([validatorKey, apiKey].filter((k): k is string => Boolean(k)))];
     const VSYS = "You are a strict image quality validator for advertising backgrounds. A background MUST be completely free of any text, logo, wordmark, OR drawn icon/pictogram graphic (megaphone, speech bubble, thumbs-up, heart, etc.) — the real text and logo are added later in a separate layer, and flat icon graphics never belong in a photographic background.";
@@ -356,7 +360,7 @@ async function backgroundHasText(
     let answer = "";
     for (const k of keyChain) {
       try {
-        const result = await callGemini(VSYS, VQ, "gemini-3-pro-preview", 0.0, 10, k, undefined,
+        const result = await callGemini(VSYS, VQ, "gemini-3.5-flash", 0.0, 128, k, undefined,
           [{ data: b64, mimeType: mime, label: "Ad background" }], { ...opts, thinkingLevel: "low", timeoutMs: 25000 });
         answer = String(result?.text || "").trim().toLowerCase();
         if (answer) break;
@@ -814,15 +818,19 @@ async function pickCalmTextZone(
     "Pick the region with the most breathing room for text. Answer with EXACTLY ONE word, lowercase, no punctuation: top, bottom, left, right, or center.",
   ].join("\n");
   try {
-    // Gemini 3 Pro decides placement — best vision/reasoning for finding the calm zone. Reverted
-    // from gemini-2.5-flash (2026-07-08): 2.5 read the calm zone poorly and text landed on busy
-    // areas / the hero. 3-pro is worth the extra cost for correct text placement.
-    // 2026-08-07: this call was silently dead since the revert — it passed `thinkingBudget: 0`,
-    // which callGemini only forwards to gemini-2.5 models, so 3-pro fell back to default (high)
-    // thinking and the 64-token cap was consumed before any answer. Zero gemini-3-pro-preview rows
-    // in the gemini_usage ledger proved it never returned 200. Gemini 3 takes `thinkingLevel`
-    // (same as backgroundHasText above), and maxTokens must leave room for the thinking tokens.
-    const res = await callGemini(SYSTEM, USER, "gemini-3-pro-preview", 0, 512, apiKey, undefined, [bgRef], { ...opts, thinkingLevel: "low", timeoutMs: 25000 });
+    // A vision model decides placement. gemini-2.5-flash read the calm zone poorly (2026-07-08:
+    // text landed on busy areas / the hero), so this needs a Gemini 3 tier.
+    // 2026-08-07 — WAS DEAD, DIAGNOSED: this called "gemini-3-pro-preview", which Google retired.
+    // generateContent answers 404 "This model is no longer available" (models.get still returns
+    // metadata for it — that is NOT proof a model is callable). The catch below swallowed it, so
+    // since the retirement every ad shipped with calmZone=null and no text-placement analysis.
+    // Found by diffing the models the code calls against SELECT model FROM gemini_usage: a model
+    // the code calls that NEVER appears in the ledger is a dead call.
+    // gemini-3.5-flash is the Gemini 3 model this pipeline already proves alive every run (it is
+    // the interpret_image model, 1 ledger row per generation). thinkingLevel is the Gemini 3 knob
+    // (thinkingBudget is silently dropped for non-2.5 models in callGemini), and maxOutputTokens
+    // must leave room for the thinking tokens — 64 was not enough for a model that always thinks.
+    const res = await callGemini(SYSTEM, USER, "gemini-3.5-flash", 0, 512, apiKey, undefined, [bgRef], { ...opts, thinkingLevel: "low", timeoutMs: 25000 });
     const word = String(res.text || "").toLowerCase().match(/top|bottom|left|right|center/)?.[0];
     const layout = word ? (CALM_ZONE_TO_LAYOUT[word] ?? null) : null;
     if (word && layout) console.log(`[calm-zone] job=${opts.jobId ?? "?"} → ${word} (${layout})`);
