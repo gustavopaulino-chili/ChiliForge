@@ -847,7 +847,7 @@ async function generateAdImage(
   apiKey: string,
   aspectRatio?: string,
   opts: GenerateAdImageOptions = {},
-): Promise<{ url: string; rec: ComposeTextRec | null } | null> {
+): Promise<{ url: string; rec: ComposeTextRec | null; model?: string } | null> {
   const { maxAttempts = 3, timeoutMs = 100000, singleConfig = false } = opts;
   // Reference images come FIRST — when the imagen model sees images before text it treats
   // them as the visual basis to work from. Images after text = ignored context. This order
@@ -920,7 +920,15 @@ async function generateAdImage(
               if (opts.costAcc) { opts.costAcc.usd += total; opts.costAcc.images += 1; }
               logGeminiUsage("agents-ads-image", model, u, opts.costAcc?.jobId);
             } catch (_) { /* logging must never break generation */ }
-            return { url, rec: parseComposeTextRec(extractTextFromGeminiPayload(data)) };
+            // Report the model that ACTUALLY produced the image. The loop above silently falls
+            // back down GEMINI_IMAGE_MODELS when the preferred one errors, and `debug.model` used
+            // to echo GEMINI_IMAGE_MODELS[0] — so a run that quietly degraded to the cheap
+            // fallback still claimed the premium model. Run 277 was billed on the fallback while
+            // debug said otherwise; only the gemini_usage ledger told the truth.
+            if (model !== GEMINI_IMAGE_MODELS[0]) {
+              console.warn(`[image-fallback]${opts.costAcc?.jobId ? ` job=${opts.costAcc.jobId}` : ""} preferred=${GEMINI_IMAGE_MODELS[0]} FAILED, produced by=${model}. Last error: ${lastError.slice(0, 300)}`);
+            }
+            return { url, rec: parseComposeTextRec(extractTextFromGeminiPayload(data)), model };
           }
           lastError = `Gemini image ${model} returned no image part: ${summarizeGeminiImagePayload(data)}`;
           break;
@@ -4340,7 +4348,8 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
+            ...(debug ? { // gen?.model = the model that actually produced this image (see the fallback note above)
+            debug: { mode: "compose", model: (gen as any)?.model || GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(abComposeFns, 1);
@@ -4458,7 +4467,8 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, overlayFromGemini: Boolean(bg.overlayHtml), overlayDiag: bg.overlayDiag ?? null, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
+            ...(debug ? { // gen?.model = the model that actually produced this image (see the fallback note above)
+            debug: { mode: "compose", model: (gen as any)?.model || GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, overlayFromGemini: Boolean(bg.overlayHtml), overlayDiag: bg.overlayDiag ?? null, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(composeFns, 4);
