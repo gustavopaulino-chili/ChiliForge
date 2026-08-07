@@ -631,6 +631,7 @@ async function buildOverlayHtmlFromGemini(
     "",
     "2. Scrim: a LIGHT dark gradient covering ALL text zone(s). rgba(0,0,0,0.30–0.45) max. Background must remain visible.",
     "   Direction: zone at bottom → 'to top' | top → 'to bottom' | center → radial. Stretch scrim to cover both zones if OPTION A.",
+    "   ⛔ THE SCRIM MUST BE INVISIBLE AS AN OBJECT — it is a fade, never a shape. It spans the FULL canvas width edge-to-edge (left:0; right:0), and its far end must reach fully transparent (rgba(0,0,0,0)) so no boundary is perceptible. FORBIDDEN: a rounded rectangle, card, box, sheet or frosted/blurred panel sitting behind the text with visible edges or corners; any border-radius on the scrim; any backdrop-filter; any uniform semi-opaque fill with a hard edge. If a viewer can point at where the darkening starts and stops, it is wrong — soften it until they cannot.",
     "",
     "3. OPTION A — SPLIT LAYOUT (hero in center/middle, calm space above AND below):",
     "   • GROUP 1: position:absolute; display:flex; flex-direction:column; z-index:25 — anchored in the UPPER calm zone → contains HEADLINE ONLY.",
