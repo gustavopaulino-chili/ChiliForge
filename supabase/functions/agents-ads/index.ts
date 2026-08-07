@@ -2003,11 +2003,17 @@ const BACKGROUND_DIRECTIONS = [
 // person photo as base64. The compose re-lights/re-composes the person into the brand scene, so
 // the exact stock photo only needs to provide a believable human subject. Returns null on any
 // failure so the caller falls back to an invented-person prompt.
+// Last-resort query when the model-written one is unavailable. It leads with what is being SOLD,
+// because the previous version used only industry+audience and ended in "happy person candid
+// lifestyle portrait" — a phrase that returns the same smiling-stranger stock photo for every
+// campaign on earth. Whenever this fallback fires the ad is grounded in whatever it names, so it
+// must at least name the topic.
 function buildUgcPersonQuery(data: AgentsAdsPayload["campaignData"]): string {
+  const product  = String((data as any).productName || "").trim();
   const industry = String((data as any).businessCategory || "").trim();
   const audience = String((data as any).targetAudience || "").trim();
-  const base = [industry, audience].filter(Boolean).join(" ").slice(0, 60);
-  return (base ? base + " " : "") + "happy person candid lifestyle portrait";
+  const base = [product, industry, audience].filter(Boolean).join(" ").slice(0, 60);
+  return (base ? base + " " : "") + "person at work candid photo";
 }
 
 // Context-aware Pexels query: turn the campaign into a short stock-photo search phrase for a REAL
@@ -2030,11 +2036,16 @@ async function pexelsQueryForCampaign(
       facts.slice(0, 1200),
       "gemini-2.5-flash",
       0.3,
-      20,
+      64,
       apiKey,
       undefined,
       undefined,
-      opts,
+      // thinkingBudget:0 is MANDATORY. gemini-2.5 thinks by default and those tokens come out of
+      // maxOutputTokens — with the old budget of 20 the thinking consumed everything, callGemini
+      // threw on the empty response, the catch returned "" and EVERY no-reference ad silently fell
+      // back to buildUgcPersonQuery's generic "happy person" portrait. That is the whole reason
+      // no-ref ads looked generic: they were never grounded in a photo of the campaign's topic.
+      { ...opts, thinkingBudget: 0 },
     );
     return String(res.text || "").trim().replace(/^["']+|["']+$/g, "").replace(/[\r\n]+/g, " ").slice(0, 60);
   } catch (_) {
