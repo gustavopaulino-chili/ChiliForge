@@ -2706,7 +2706,7 @@ function buildBackgroundPrompt(
   // colorLine would otherwise be "" — no colour instruction at all — and the proxy posts would
   // drive the palette by omission, defeating the flag in exactly the case it exists for. Hence
   // the third branch: an explicit prohibition with no colour to lock onto.
-  const colorLine = (hasBrandPosts && !brandPostsAreProxy)
+  const colorLineBase = (hasBrandPosts && !brandPostsAreProxy)
     ? `BRAND COLORS — ⛔ SOURCE OF TRUTH = THE BRAND-POST REFERENCE IMAGES: the real brand palette is whatever DOMINANT, RECURRING colours appear across the attached brand Instagram posts. STUDY those posts, identify the brand's signature colour(s), and light + colour-grade the WHOLE scene so those post colours clearly DOMINATE the canvas as the main brand field. Do NOT take the palette from any hero/product/person reference (e.g. that model's clothing colour) and do NOT invent a colour — if the hero image has a different colour, RE-GRADE it into the brand-post palette. ${primaryName ? `(As a rough hint the saved brand colour is around ${primaryName}, but if the brand posts disagree, the BRAND POSTS WIN.)` : ""} Never write any color name, code, hex or # as text.`
     : primaryName
     ? `BRAND COLORS — the DOMINANT background color is ${primaryName}: it should fill MOST of the canvas as the main, vivid brand field (do not mute, grey-out or darken it into a dull mix).${accentNames.length ? ` Use ${accentNames.join(", ")} only as smaller accents and contrast.` : ""} ⛔ COLOUR-SOURCE LOCK: the palette comes ONLY from the brand. Any attached product/reference image is used for its SUBJECT and SHAPE, NEVER its colours — if that image has a different colour (e.g. blue), RE-LIGHT and COLOUR-GRADE the entire scene into ${primaryName} and the brand accents regardless. The product may keep its own material, but the surrounding scene, lighting and overall colour grade MUST be unmistakably the brand's, not the reference image's. Never write any color name, code, hex or # as text.`
@@ -2715,6 +2715,15 @@ function buildBackgroundPrompt(
     : (hasBrandPosts && brandPostsAreProxy)
     ? `BRAND COLORS — ⛔ THE ATTACHED BRAND-POST REFERENCE IMAGES ARE NOT THIS BRAND: they are market/category reference material. Do NOT take ANY colour from them — not their palette, not their colour grade, not their background tint. No brand colour is known for this brand yet, so do NOT invent a loud signature colour either: use a restrained, NEUTRAL background treatment (soft neutral tones, natural light, low saturation) that stays out of the way. Never write any color name, code, hex or # as text.`
     : "";
+  // PROXY GUARD — APPENDED, never a branch of the chain above. It used to be the 4th arm of that
+  // ternary, which made it unreachable for any company that has a colour name (i.e. almost all of
+  // them): the chain stopped at `primaryName` and the model was never told that the attached posts
+  // belong to a COMPETITOR. That is how the competitor palette kept leaking in (run 279 went coral
+  // on an amber brand) and why the brand colour read as a weak, source-less label.
+  const colorLine = (hasBrandPosts && brandPostsAreProxy)
+    ? `${colorLineBase}
+⛔ THE ATTACHED POST IMAGES ARE NOT THIS BRAND: they are market/category reference material showing how this KIND of business posts. Take ZERO colour from them — not their palette, not their grade, not their background tint.${hasSiteIdentity ? " The client's OWN website is among the attached images — that one, plus the colour named above, is the brand." : ""} Their value to you is structure and composition only.`
+    : colorLineBase;
   const safeSpec = scrubBgPromptText(spec);
   // Background-only: drop the verbatim COPY lines (headline, subheadline, CTA, offer, brand and
   // product/service names) from the campaign facts before they reach the image model. These short,
