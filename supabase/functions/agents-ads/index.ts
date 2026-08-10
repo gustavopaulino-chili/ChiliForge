@@ -2405,6 +2405,11 @@ function scrubBgPromptText(text: string): string {
     // Generic CSS declarations carrying units (font-size:48px, top:60px, width:30%, etc.).
     .replace(/\b[a-z-]{3,}\s*:\s*[^;\n}]*?\d(?:px|%|em|rem|deg|vh|vw|fr|cqw|cqh)[^;\n}]*/gi, "")
     .replace(/#[0-9a-f]{3,8}\b/gi, "")
+    // Layout notes written for the HTML layer. They survive the CSS-syntax scrubs above because
+    // they are plain prose ("Anti-clone: ... anchored by a dark gradient scrim, featuring a flat
+    // typographic CTA"), and the image model draws that prose as words on a wall (run 281).
+    .replace(/^\s*Anti-clone\b[^\n]*/gim, "")
+    .replace(/[^\n]*\b(?:scrim|typographic|text stack|ad copy|caption-style)\b[^\n]*/gi, "")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -2715,6 +2720,14 @@ function buildBackgroundPrompt(
         // It is re-injected separately as a "visual mood" hint (see productMoodHint below).
         if (/^Product\/Service\s*:/i.test(t)) return null;
         if (/^(Campaign|Brand|Value prop|CTA|Offer|Price|Discount|Guarantee|Scarcity|headline|subheadline|cta)\s*:/i.test(t)) return null;
+        // Instructions meant for the COPY and LAYOUT layers, which the image model cannot act on
+        // and therefore renders as literal text. Run 281 burned "Pt-Br ad copy", "typographic" and
+        // "scrim" onto a wall — every one of those words traced back to lines like these sitting in
+        // the image prompt. The image model never writes copy, so it never needs to be told which
+        // language the copy is in, how the CTA should be phrased, or how the text stack is anchored.
+        if (/LANGUAGE MANDATE|SPELLING & GRAMMAR|MUST be written in|No mixing of languages/i.test(t)) return null;
+        if (/^Anti-clone\b/i.test(t)) return null;
+        if (/\b(scrim|typograph\w*|text stack|ad copy|caption-style|link in bio)\b/i.test(t)) return null;
         return ln;
       })
       .filter((ln): ln is string => ln !== null)
