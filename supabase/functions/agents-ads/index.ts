@@ -4007,6 +4007,14 @@ serve(async (req: Request) => {
       // Marks a hero that came from the AUTO-Pexels stock fetch (NOT a caller-chosen reference). A
       // stock full-scene photo must be RE-STAGED creatively in the brand's style (castingRef=true),
       // whereas a caller's own image (Diego) is reproduced faithfully (castingRef=false).
+      // Marks a hero fetched from Pexels rather than sent by the caller. It NO LONGER switches the
+      // prompt into "casting / re-stage" mode (2026-08-10): that made the two paths receive
+      // different source blocks — a caller reference got "FEATURE THIS PERSON", the auto photo got
+      // "RE-STAGE THIS PERSON IN A BRAND-DESIGNED SCENE" — so one path reproduced and the other
+      // reinvented, and no-reference ads never matched the quality of ads with one. The user's own
+      // July test had already concluded this: a Pexels photo treated EXACTLY like a caller
+      // reference_image was the winning configuration. The flag is kept because it still gates the
+      // text-elimination safety net, which needs to know the hero is expendable stock.
       let pexelsAuto = false;
       const isExternalApi = Boolean(String((campaignData as any).externalApiContract || "").trim());
       const callerSentBgUrl = String(campaignData.backgroundImageUrl || "").startsWith("http");
@@ -4140,7 +4148,9 @@ serve(async (req: Request) => {
           : [
               "You are an advertising art director. From the campaign facts, describe ONE concrete, literal 'scene of success' for the ad's hero — the exact SETTING, PROPS and ACTION/POSE that make THIS campaign's topic instantly recognizable from the image alone, with no text.",
               "STRICT RULES:",
-              "• ⭐ DEPICT THE LITERAL WORK/DELIVERABLE OF THE EXACT PRODUCT OR SERVICE NAMED IN THE FACTS — the specific thing the customer is buying, shown being done with its real, correct tools. Read the service name carefully and match the ACTUAL activity, not a loose word-association. (e.g. social-media management → a marketer at a desk mid-task, phone in one hand, sticky notes fanned across the desk and a large monitor angled to the side; accounting → an organised desk, calculator in use, folders stacked and closed; catering → plated food being finished on a banquet table.)",
+              "• ⭐⭐ SHOW THE BUYER'S WORLD, NOT THE SELLER'S DESK. The hero is the campaign's TARGET AUDIENCE in their own real environment, living the RESULT of what is being sold — not the provider performing the service. Read who the audience is and put them in the place they actually are. (e.g. social-media management sold to small businesses → the shop owner behind a busy counter serving a queue of customers; accounting → the owner relaxed at the till at closing time, the shop calm and orderly; catering → guests around a full, lively table.)",
+              "• The provider at a desk with a monitor is the LAST RESORT — use it ONLY when the service genuinely has no customer-side scene to show. It is the most generic image in advertising and every campaign drifts toward it, so reach for the buyer's world first.",
+              "• ⛔ Still match the ACTUAL service named in the facts — no loose word-association, no adjacent-industry cliché. Showing the buyer's world means changing WHOSE side of the transaction we see, never changing what is being sold.",
               // The examples above are deliberately free of screens-with-content, dashboards,
               // spreadsheets, calendars-with-dates and invoices. The previous version named exactly
               // those, the scene dutifully echoed them ('painel de controle com gráficos de
@@ -4342,7 +4352,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), /* castingRef: OFF — see note at pexelsAuto */ false, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -4429,7 +4439,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), /* castingRef: OFF — see note at pexelsAuto */ false, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
