@@ -659,7 +659,12 @@ async function buildOverlayHtmlFromGemini(
     `     Style it with the CTA treatment below. ⛔ The CTA and the subheadline must NEVER share the same line or overlap — there must ALWAYS be a clear vertical gap between them. Never float the CTA loose in the middle of the image.`,
     "",
     "4. Headline typography:",
-    "   • font-size:5.5–8cqw; font-weight:900.",
+    // The size band used to be a flat "5.5–8cqw" regardless of how long the headline was, so a
+    // 35-character headline took the top of the band, wrapped to three lines and swallowed a third
+    // of the canvas (run 291). Type size has to fall as the copy grows — the band below is computed
+    // from THIS headline's length so the model cannot pick the biggest option for the longest copy.
+    `   • font-size:${headline.length <= 22 ? "7–8cqw" : headline.length <= 34 ? "5.5–6.5cqw" : "4.5–5.5cqw"}; font-weight:900. This range was chosen for the length of THIS headline (${headline.length} characters) — do not go above it.`,
+    "   • SIZE SANITY CHECK: the headline block must occupy AT MOST ~25% of the canvas height and never more than 3 lines. If it exceeds either, drop the font-size until it fits — a headline that dominates the frame reads as a template, not as an ad.",
     "   • LINE BREAK: if headline is longer than 22 chars, add an explicit <br> at the most natural semantic split — after a colon, before a key verb — so both visual lines have roughly equal weight. Never rely on CSS auto-wrap.",
     hasBrandHex
       ? `   • ACCENT TREATMENT (do this — it's what makes the ad feel branded, not generic): give the SINGLE most impactful headline word a branded accent. ⭐ USE EXACTLY THIS TECHNIQUE FOR THIS AD: . It was picked for you so consecutive ads don't look identical — do NOT substitute a different one, even if another would look safer. Use the brand hex ${accentHexForSpan}/${accentHexSecondary}, or a strong vivid colour actually present IN THIS background (a lamp glow, a coloured surface) that harmonises better while staying in the brand family. Repertoire (never stack two on one word):
