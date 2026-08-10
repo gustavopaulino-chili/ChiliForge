@@ -549,6 +549,14 @@ async function buildOverlayHtmlFromGemini(
     .filter(isHex);
   const hasBrandHex = brandHexCandidates.length > 0;
   const accentHexForSpan = brandHexCandidates[0] || "#ffffff";
+  // The accent technique is CHOSEN HERE, not by the model. The list below used to end with
+  // "rotate for variety" while one option was starred as "the signature look you want" — so the
+  // model picked the starred gradient chip every single time and every ad came out with the same
+  // highlighted word treatment. Asking a model to vary while telling it which one you prefer gets
+  // you the preference, never the variety. Rotating by jobId is the same trick LAYOUT_KEYS already
+  // uses, and it makes consecutive ads differ by construction instead of by hope.
+  const ACCENT_TECHNIQUES = ["COLOURED WORD", "GRADIENT CHIP", "HIGHLIGHTER SWEEP", "MARKER UNDERLINE", "OUTLINE WORD"] as const;
+  const accentPick = ACCENT_TECHNIQUES[(Number(opts.jobId) || 0) % ACCENT_TECHNIQUES.length];
   const accentHexSecondary = brandHexCandidates[1] || accentHexForSpan;
 
   // Style variant, rotated by jobId — see OVERLAY_STYLE_VARIANTS comment. Decorrelated from the
@@ -606,7 +614,11 @@ async function buildOverlayHtmlFromGemini(
   // busy hero. Strong steer, not an absolute lock (the model may still split when it makes sense).
   const calmZone = String(opts.calmZone || "").toLowerCase().trim();
   const calmZoneLine = calmZone
-    ? `⭐ CALM-ZONE VERDICT: a dedicated vision model analyzed THIS exact background and found the emptiest, most text-safe region is the **${calmZone.toUpperCase()}**. Anchor the main text block in the ${calmZone} region. Only override this if that region is clearly occupied by the visual hero. If you choose OPTION A (split), keep the HEADLINE group in or next to the ${calmZone} region.`
+    // No escape hatch. The old wording ended with "only override this if that region is clearly
+    // occupied by the visual hero", and the model took the exit often enough that headlines kept
+    // landing on faces and busy props. The verdict comes from a vision model that looked at THIS
+    // exact image — it is better evidence than the layout model's guess, so it binds.
+    ? `⛔ CALM-ZONE VERDICT — THIS IS MEASURED, NOT A SUGGESTION: a vision model analysed THIS exact background and found the emptiest, most text-safe region is the **${calmZone.toUpperCase()}**. The main text block goes in the ${calmZone} region. You may shift it within that region to breathe, but you may NOT move it to a different side, and you may NOT place headline, subheadline or CTA over the main subject, a face, or a detailed prop. If you choose OPTION A (split), the HEADLINE group stays in or next to the ${calmZone} region. If the ${calmZone} region looks tight for the copy, shrink the type rather than relocating it.`
     : "";
 
   const USER = [
@@ -650,9 +662,9 @@ async function buildOverlayHtmlFromGemini(
     "   • font-size:5.5–8cqw; font-weight:900.",
     "   • LINE BREAK: if headline is longer than 22 chars, add an explicit <br> at the most natural semantic split — after a colon, before a key verb — so both visual lines have roughly equal weight. Never rely on CSS auto-wrap.",
     hasBrandHex
-      ? `   • ACCENT TREATMENT (do this — it's what makes the ad feel branded, not generic): give the SINGLE most impactful headline word a branded accent. ROTATE the technique across ads for variety — pick ONE that fits the DESIGN DIRECTION. Use the brand hex ${accentHexForSpan}/${accentHexSecondary}, or a strong vivid colour actually present IN THIS background (a lamp glow, a coloured surface) that harmonises better while staying in the brand family. Repertoire (never stack two on one word):
+      ? `   • ACCENT TREATMENT (do this — it's what makes the ad feel branded, not generic): give the SINGLE most impactful headline word a branded accent. ⭐ USE EXACTLY THIS TECHNIQUE FOR THIS AD: . It was picked for you so consecutive ads don't look identical — do NOT substitute a different one, even if another would look safer. Use the brand hex ${accentHexForSpan}/${accentHexSecondary}, or a strong vivid colour actually present IN THIS background (a lamp glow, a coloured surface) that harmonises better while staying in the brand family. Repertoire (never stack two on one word):
        – COLOURED WORD: <span style="color:${accentHexForSpan}">word</span> — simplest.
-       – ⭐ GRADIENT CHIP (favour this often — it's the signature look you want): a filled rounded chip that HUGS the word, white text on it: <span style="background:linear-gradient(135deg,${accentHexForSpan},${accentHexSecondary});color:#fff;padding:0.15cqh 0.9cqw;border-radius:0.6cqw;box-shadow:0 0.5cqh 1.6cqh rgba(0,0,0,0.22);box-decoration-break:clone;-webkit-box-decoration-break:clone">word</span>. Tight padding, soft radius — it hugs the word, never a big block.
+       – GRADIENT CHIP: a filled rounded chip that HUGS the word, white text on it: <span style="background:linear-gradient(135deg,${accentHexForSpan},${accentHexSecondary});color:#fff;padding:0.15cqh 0.9cqw;border-radius:0.6cqw;box-shadow:0 0.5cqh 1.6cqh rgba(0,0,0,0.22);box-decoration-break:clone;-webkit-box-decoration-break:clone">word</span>. Tight padding, soft radius — it hugs the word, never a big block.
        – HIGHLIGHTER SWEEP: a translucent marker stroke behind the word, text stays white: <span style="background:linear-gradient(180deg,transparent 52%,${accentHexForSpan}A6 52%);padding:0 0.3cqw;box-decoration-break:clone;-webkit-box-decoration-break:clone">word</span> — like a highlighter pen, lighter than a full chip.
        – MARKER UNDERLINE: keep the word white/plain and add a thick rounded accent stroke UNDER it (a child <div style="height:0.55cqh;background:${accentHexForSpan};border-radius:999px;transform:rotate(-1.5deg);margin-top:0.3cqh"></div>).
        – OUTLINE WORD: <span style="color:transparent;-webkit-text-stroke:0.3cqw ${accentHexForSpan}">word</span> — bold editorial stroke.
