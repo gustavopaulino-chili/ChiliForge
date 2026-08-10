@@ -2395,7 +2395,12 @@ function describeHexColor(hex: string): string {
   const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
   if (s < 0.12) return l < 0.22 ? "near-black" : l < 0.45 ? "charcoal gray" : l > 0.82 ? "off-white" : "light gray";
   const light = l < 0.22 ? "very dark " : l < 0.4 ? "dark " : l > 0.82 ? "very light " : l > 0.62 ? "light " : "";
-  const hue = (h < 15 || h >= 345) ? "red" : h < 45 ? "orange" : h < 70 ? "amber" : h < 160 ? "green" : h < 200 ? "teal" : h < 255 ? "blue" : h < 290 ? "violet" : h < 330 ? "magenta" : "pink";
+  // 45–70° used to be one band called "amber", so a vivid yellow like #fee701 (hue 54.5) was
+  // handed to the image model as "amber" — and the model rendered a faithful burnt orange, which
+  // read as "the ad has none of my brand colour". Amber only really lives below ~52°; above that
+  // it is yellow, and above ~62° it is a greenish/lime yellow. Splitting the band is the whole fix:
+  // the name is the ONLY colour signal the image model gets, since hex never reaches it.
+  const hue = (h < 15 || h >= 345) ? "red" : h < 45 ? "orange" : h < 52 ? "amber" : h < 63 ? "yellow" : h < 70 ? "lime yellow" : h < 160 ? "green" : h < 200 ? "teal" : h < 255 ? "blue" : h < 290 ? "violet" : h < 330 ? "magenta" : "pink";
   return (light + hue).trim();
 }
 
