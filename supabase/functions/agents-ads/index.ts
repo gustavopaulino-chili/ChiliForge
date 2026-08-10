@@ -618,7 +618,7 @@ async function buildOverlayHtmlFromGemini(
     // occupied by the visual hero", and the model took the exit often enough that headlines kept
     // landing on faces and busy props. The verdict comes from a vision model that looked at THIS
     // exact image — it is better evidence than the layout model's guess, so it binds.
-    ? `⛔ CALM-ZONE VERDICT — THIS IS MEASURED, NOT A SUGGESTION: a vision model analysed THIS exact background and found the emptiest, most text-safe region is the **${calmZone.toUpperCase()}**. The main text block goes in the ${calmZone} region. You may shift it within that region to breathe, but you may NOT move it to a different side, and you may NOT place headline, subheadline or CTA over the main subject, a face, or a detailed prop. If you choose OPTION A (split), the HEADLINE group stays in or next to the ${calmZone} region. If the ${calmZone} region looks tight for the copy, shrink the type rather than relocating it.`
+    ? `⛔ CALM-ZONE VERDICT — THIS IS MEASURED, NOT A SUGGESTION: a vision model analysed THIS exact background and found the emptiest, most text-safe region is the **${calmZone.toUpperCase()}**. ALL THREE elements — headline, subheadline AND CTA — live inside the ${calmZone} region. The subheadline and the CTA are not free to roam: they sit under the headline, share its left edge, and NEVER extend wider than the headline block, so they cannot run out of the calm region into a screen, a face or any detailed prop. None of the three may sit over the main subject. If you choose OPTION A (split), the HEADLINE group stays in or next to the ${calmZone} region and the second group stays inside the other calm zone under the same width rule. If the ${calmZone} region looks tight, shrink the type or wrap earlier — never widen the column and never relocate it.`
     : "";
 
   const USER = [
@@ -649,7 +649,11 @@ async function buildOverlayHtmlFromGemini(
     "   • GROUP 1: position:absolute; display:flex; flex-direction:column; z-index:25 — anchored in the UPPER calm zone → contains HEADLINE ONLY.",
     "   • GROUP 2: position:absolute; display:flex; flex-direction:column; gap:2.5cqh; z-index:25 — anchored in the LOWER calm zone → contains SUBHEADLINE as first child, then CTA as second child.",
     `   • CTA child in GROUP 2: align-self:flex-start; font-size:3cqw — style it EXACTLY as the CTA treatment defined below (plain text, no container/border/background of any kind).`,
-    "   • Both groups: left:6%; right:6%; keep ≥6% margin from all edges.",
+    // left:6%;right:6% pins every group to the full canvas width, so a short subheadline still
+    // stretches edge to edge and walks straight into whatever busy thing sits on the far side —
+    // run 293 ran its subheadline across a monitor and lost all contrast. The text column may be
+    // narrower than the canvas; it just may not start anywhere else.
+    "   • Both groups start at left:6% and keep ≥6% margin from all edges. The column does NOT have to reach the opposite edge: set right: (or max-width:) so the text stops before any busy area, and let the lines wrap earlier instead of crossing it.",
     "",
     "   OPTION B — SINGLE ZONE (calm space concentrated in one area):",
     "   • ONE flex div (z-index:25): position:absolute; display:flex; flex-direction:column; gap:≥3cqh — contains headline and subheadline.",
