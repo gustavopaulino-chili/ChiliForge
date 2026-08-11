@@ -854,6 +854,30 @@ async function buildOverlayHtmlFromGemini(
       }
       return out;
     };
+    // O chip do realce deve abracar UMA palavra. Quando o modelo embrulha uma frase inteira e ela
+    // quebra de linha, o box-decoration-break:clone gera UMA CAIXA POR LINHA — o job 394 saiu com
+    // duas caixas amarelas empilhadas, uma sob a outra. A regra ja pede "a UNICA palavra mais
+    // impactante" e foi ignorada, entao aqui a frase e' reduzida a uma palavra e o chip ganha
+    // nowrap, o que torna a caixa dupla impossivel em vez de improvavel.
+    const singleWordAccent = (h: string): string =>
+      h.replace(/<span style="([^"]*background[^"]*)"([^>]*)>([^<]{1,120})<\/span>/gi,
+        (full: string, style: string, rest: string, text: string) => {
+          const words = text.trim().split(/\s+/);
+          if (words.length <= 1) {
+            return /white-space\s*:\s*nowrap/i.test(style) ? full : full.replace(style, style + ";white-space:nowrap");
+          }
+          // A palavra mais longa e' a proxy para "a mais impactante" — em pt-BR as curtas tendem a
+          // ser artigo, numero ou preposicao. Empate fica com a primeira.
+          const bare = (w: string) => w.replace(/[.,;:!?]+$/, "");
+          let best = words[0];
+          for (const w of words) if (bare(w).length > bare(best).length) best = w;
+          const idx = words.indexOf(best);
+          const before = words.slice(0, idx).join(" ");
+          const after = words.slice(idx + 1).join(" ");
+          const styleNW = /white-space\s*:\s*nowrap/i.test(style) ? style : style + ";white-space:nowrap";
+          console.warn(`[accent-chip] job=${opts.jobId ?? "?"} chip reduzido de "${text.trim()}" para "${best}"`);
+          return (before ? before + " " : "") + '<span style="' + styleNW + '"' + rest + ">" + best + "</span>" + (after ? " " + after : "");
+        });
     // Passe deterministico da tinta, POR ELEMENTO. A tabela de faixas acima e' instrucao, e o
     // modelo de layout ja provou hoje que ignora instrucao (poe headline no topo e CTA no rodape
     // apesar da regra que manda os tres blocos ficarem na regiao calma). Aqui a cor e' CORRIGIDA
@@ -931,7 +955,7 @@ async function buildOverlayHtmlFromGemini(
           if (raw2 && headlinePresent(raw2)) {
             console.log(`[overlay-critique] retry accepted job=${opts.jobId ?? "?"}`);
             const styleTag2 = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-            setDiag("ok-retry"); return styleTag2 + enforceBandInk(repairCopyTypos(dedupeLogo(enforceLogoOppositeBand(ensureScrim(raw2), logoUrl), logoUrl), [headline, sub, ctaRaw].filter(Boolean)));
+            setDiag("ok-retry"); return styleTag2 + singleWordAccent(enforceBandInk(repairCopyTypos(dedupeLogo(enforceLogoOppositeBand(ensureScrim(raw2), logoUrl), logoUrl), [headline, sub, ctaRaw].filter(Boolean))));
           }
         }
       }
@@ -939,7 +963,7 @@ async function buildOverlayHtmlFromGemini(
     html = dedupeLogo(enforceLogoOppositeBand(html, logoUrl), logoUrl);
     console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${html.length} font=${_fontName ?? "none"}`);
     const styleTag = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-    setDiag("ok"); return styleTag + enforceBandInk(repairCopyTypos(html, [headline, sub, ctaRaw].filter(Boolean)));
+    setDiag("ok"); return styleTag + singleWordAccent(enforceBandInk(repairCopyTypos(html, [headline, sub, ctaRaw].filter(Boolean))));
   } catch (err) {
     console.warn(`[overlay-html] failed job=${opts.jobId ?? "?"}: ${err}`);
     setDiag(`exception:${String(err).slice(0, 80)}`); return null;
