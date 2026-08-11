@@ -492,7 +492,7 @@ async function buildOverlayHtmlFromGemini(
   cssVars: string,
   apiKey: string,
   rec?: ComposeTextRec | null,
-  opts: { jobId?: number; costAcc?: { usd: number }; calmZone?: string | null; diag?: { reason?: string }; brandDevices?: boolean } = {}
+  opts: { jobId?: number; costAcc?: { usd: number }; calmZone?: string | null; calmTone?: "light" | "dark" | null; diag?: { reason?: string }; brandDevices?: boolean } = {}
 ): Promise<string | null> {
   const setDiag = (r: string) => { if (opts.diag) opts.diag.reason = r; };
   // Accept either a base64 data URL or a public HTTPS URL (e.g. Supabase Storage).
@@ -633,6 +633,18 @@ async function buildOverlayHtmlFromGemini(
   // anchors text on the calm zone instead of guessing — guessing routinely landed text on the
   // busy hero. Strong steer, not an absolute lock (the model may still split when it makes sense).
   const calmZone = String(opts.calmZone || "").toLowerCase().trim();
+  // INK POLARITY. The copy was hardcoded white over a dark scrim, which is right over a dark
+  // photo and wrong over a bright one: on a white wall or a blown-out window the ad had to be
+  // darkened just to keep the text readable, so the brightest, airiest backgrounds came out
+  // muddiest. The calm-zone pass already looks at the image, so it now also reports whether the
+  // chosen region is light or dark — one extra word, same call, no extra cost — and the ink and
+  // the scrim flip together. Flipping only one of them would be worse than not flipping at all.
+  const inkOnLight = opts.calmTone === "light";
+  const INK_HEX    = inkOnLight ? "#101317" : "#ffffff";
+  const INK_SHADOW = inkOnLight
+    ? "0 1px 2px rgba(255,255,255,0.55)"
+    : "0 2px 10px rgba(0,0,0,0.65),0 1px 3px rgba(0,0,0,0.45)";
+  const SCRIM_RGB  = inkOnLight ? "255,255,255" : "0,0,0";
   const calmZoneLine = calmZone
     // No escape hatch. The old wording ended with "only override this if that region is clearly
     // occupied by the visual hero", and the model took the exit often enough that headlines kept
@@ -661,7 +673,7 @@ async function buildOverlayHtmlFromGemini(
     "   b. Identify all calm/low-contrast zones available for text.",
     "   c. DECIDE: is there usable calm space BOTH ABOVE AND BELOW the hero → use OPTION A (SPLIT). Otherwise → use OPTION B (SINGLE ZONE).",
     "",
-    "2. Scrim: a LIGHT dark gradient covering ALL text zone(s). rgba(0,0,0,0.30–0.45) max. Background must remain visible.",
+    `2. Scrim: a LIGHT ${inkOnLight ? "WHITE" : "dark"} gradient covering ALL text zone(s). rgba(${SCRIM_RGB},0.30–0.45) max. Background must remain visible.${inkOnLight ? " It lifts the bright area so the dark copy separates from it — never a dark scrim under dark text." : ""}`,
     "   Direction: zone at bottom → 'to top' | top → 'to bottom' | center → radial. Stretch scrim to cover both zones if OPTION A.",
     "   ⛔ THE SCRIM MUST BE INVISIBLE AS AN OBJECT — it is a fade, never a shape. It spans the FULL canvas width edge-to-edge (left:0; right:0), and its far end must reach fully transparent (rgba(0,0,0,0)) so no boundary is perceptible. FORBIDDEN: a rounded rectangle, card, box, sheet or frosted/blurred panel sitting behind the text with visible edges or corners; any border-radius on the scrim; any backdrop-filter; any uniform semi-opaque fill with a hard edge. If a viewer can point at where the darkening starts and stops, it is wrong — soften it until they cannot.",
     "",
@@ -717,7 +729,7 @@ async function buildOverlayHtmlFromGemini(
     `• Parent container has container-type:size → 1cqw = ${(W / 100).toFixed(1)}px | 1cqh = ${(H / 100).toFixed(1)}px`,
     "• Positions: % only (no px for top/left/right/bottom). Font sizes: cqw or cqh only. Logo width/max-height: % only.",
     `• Font: ${fontFamily}`,
-    "• Text: color:#ffffff | text-shadow:0 2px 10px rgba(0,0,0,0.65),0 1px 3px rgba(0,0,0,0.45)",
+    `• Text: color:${INK_HEX} | text-shadow:${INK_SHADOW}${inkOnLight ? " — the calm region is BRIGHT, so the copy is near-black ink on it. Do NOT use white text anywhere in the overlay, and do NOT darken the photo to make white work." : ""}`,
     "• Scrim: position:absolute; z-index:1; pointer-events:none",
     brandDevicesLine ? "• Brand design devices: position:absolute; z-index:15; pointer-events:none; blank brand-colour shapes only, in EMPTY areas — never over face/text/logo/hero." : "",
     "• Logo img: position:absolute; object-fit:contain; z-index:20",
@@ -733,11 +745,11 @@ async function buildOverlayHtmlFromGemini(
     brandDevicesLine ? `<div style="position:absolute;bottom:6%;right:5%;width:16%;height:16%;background-image:radial-gradient(${accentHexForSpan} 22%,transparent 23%);background-size:14% 14%;z-index:15;pointer-events:none"></div>` : "",
     logoUrl ? `<img src="${logoUrl}" style="position:absolute;top:4%;left:5%;width:24%;max-height:12%;object-fit:contain;z-index:20" alt="logo" />` : "",
     "<div style=\"position:absolute;top:6%;left:6%;right:6%;display:flex;flex-direction:column;z-index:25\">",
-    "  <div style=\"font-size:7cqw;font-weight:900;color:#ffffff;...\">Headline <br> split here</div>",
+    "  <div style=\"font-size:7cqw;font-weight:900;color:" + INK_HEX + ";...\">Headline <br> split here</div>",
     "</div>",
     "<div style=\"position:absolute;bottom:7%;left:6%;right:6%;display:flex;flex-direction:column;gap:2.5cqh;z-index:25\">",
-    "  <div style=\"font-size:3cqw;font-weight:400;color:#ffffff;...\">Subheadline text</div>",
-    ctaRaw ? "  <div style=\"align-self:flex-start;font-size:3.2cqw;font-weight:800;color:#ffffff;text-shadow:0 2px 10px rgba(0,0,0,0.6)\">CTA Text <span>&#8594;</span><div style=\"height:0.4cqh;width:55%;background:#e63946;border-radius:999px;margin-top:0.8cqh\"></div></div>" : "",
+    "  <div style=\"font-size:3cqw;font-weight:400;color:" + INK_HEX + ";...\">Subheadline text</div>",
+    ctaRaw ? "  <div style=\"align-self:flex-start;font-size:3.2cqw;font-weight:800;color:" + INK_HEX + ";text-shadow:" + INK_SHADOW + "\">CTA Text <span>&#8594;</span><div style=\"height:0.4cqh;width:55%;background:#e63946;border-radius:999px;margin-top:0.8cqh\"></div></div>" : "",
     "</div>",
   ].filter(Boolean).join("\n");
 
@@ -787,7 +799,7 @@ async function buildOverlayHtmlFromGemini(
     const ensureScrim = (h: string): string =>
       /z-index\s*:\s*1\b/.test(h)
         ? h
-        : `<div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.52) 0%,rgba(0,0,0,0.18) 45%,rgba(0,0,0,0) 75%);z-index:1;pointer-events:none"></div>\n` + h;
+        : `<div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(${SCRIM_RGB},0.52) 0%,rgba(${SCRIM_RGB},0.18) 45%,rgba(${SCRIM_RGB},0) 75%);z-index:1;pointer-events:none"></div>\n` + h;
     let html = ensureScrim(raw);
     // Autocrítica: Flash reviews its own output against the background image — retry once if poor.
     if (CRITIQUE_OVERLAY && (bgDataUrl.startsWith("http://") || bgDataUrl.startsWith("https://"))) {
@@ -835,7 +847,7 @@ async function pickCalmTextZone(
   bgUrl: string,
   apiKey: string,
   opts: { jobId?: number; costAcc?: { usd: number; images: number; jobId?: string } } = {},
-): Promise<{ zone: string; layout: string } | null> {
+): Promise<{ zone: string; layout: string; tone: "light" | "dark" } | null> {
   let bgRef: ReferenceImage;
   try {
     if (/^https?:\/\//.test(bgUrl)) {
@@ -854,10 +866,11 @@ async function pickCalmTextZone(
 
   const SYSTEM = "You analyze advertising background images to find the best place to overlay text.";
   const USER = [
-    "The attached image is an ad BACKGROUND. A white headline + subheadline + CTA will be composited ON TOP of it afterwards.",
+    "The attached image is an ad BACKGROUND. A headline + subheadline + CTA will be composited ON TOP of it afterwards.",
     "Find the ONE region that is the EMPTIEST and FLATTEST — a plain wall, shadow, sky, blur or solid color field with the LOWEST detail and NO important content.",
     "HARD RULE: never choose a region occupied by the main subject, a laptop, phone, screen, monitor, person, product, plant, or dense graphics/charts/icons. If one large area is dark/flat/empty while the rest is busy, choose that empty area — even if it is a whole side.",
-    "Pick the region with the most breathing room for text. Answer with EXACTLY ONE word, lowercase, no punctuation: top, bottom, left, right, or center.",
+    "Then judge how BRIGHT that region is, so the copy can be inked to contrast with it: 'light' if it is a pale surface where white text would wash out (bright wall, sky, snow, white desk, blown-out window), 'dark' otherwise.",
+    "Answer with EXACTLY TWO lowercase words separated by one space and nothing else: first the region (top, bottom, left, right, center), then the brightness (light or dark). Example answer format: bottom dark",
   ].join("\n");
   try {
     // A vision model decides placement. gemini-2.5-flash read the calm zone poorly (2026-07-08:
@@ -873,10 +886,14 @@ async function pickCalmTextZone(
     // (thinkingBudget is silently dropped for non-2.5 models in callGemini), and maxOutputTokens
     // must leave room for the thinking tokens — 64 was not enough for a model that always thinks.
     const res = await callGemini(SYSTEM, USER, "gemini-3.5-flash", 0, 512, apiKey, undefined, [bgRef], { ...opts, thinkingLevel: "low", timeoutMs: 25000 });
-    const word = String(res.text || "").toLowerCase().match(/top|bottom|left|right|center/)?.[0];
+    const answer = String(res.text || "").toLowerCase();
+    const word = answer.match(/top|bottom|left|right|center/)?.[0];
+    // Default dark: the overlay has always been white-on-scrim, so an unreadable answer keeps
+    // today's behaviour instead of flipping the ad to black text on a hunch.
+    const tone: "light" | "dark" = /\blight\b/.test(answer) ? "light" : "dark";
     const layout = word ? (CALM_ZONE_TO_LAYOUT[word] ?? null) : null;
-    if (word && layout) console.log(`[calm-zone] job=${opts.jobId ?? "?"} → ${word} (${layout})`);
-    return word && layout ? { zone: word, layout } : null;
+    if (word && layout) console.log(`[calm-zone] job=${opts.jobId ?? "?"} → ${word} (${layout}) tone=${tone}`);
+    return word && layout ? { zone: word, layout, tone } : null;
   } catch (err) {
     console.warn(`[calm-zone] failed job=${opts.jobId ?? "?"}: ${err}`);
     return null;
@@ -4455,7 +4472,7 @@ serve(async (req: Request) => {
             // so it rendered off-brand (blue) devices from a stored accent hex. The brand's real design
             // assets are now handled by the image model (which sees the posts and matches their devices +
             // colours), conditional on the brand actually using them. See the heroRef design-asset rule.
-            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, brandDevices: false })
+            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, calmTone: calm?.tone ?? null, brandDevices: false })
             : null;
           bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay });
         }
@@ -4573,7 +4590,7 @@ serve(async (req: Request) => {
           const geminiOverlay = bgForZone
             // brandDevices (CSS overlay device) DISABLED — see note at the other call site. Design
             // assets now come from the image model, matched to the brand posts, conditional on usage.
-            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, diag: overlayDiag, brandDevices: false })
+            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, calmTone: calm?.tone ?? null, diag: overlayDiag, brandDevices: false })
             : null;
           bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay, overlayDiag: overlayDiag.reason });
         }
