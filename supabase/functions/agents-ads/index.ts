@@ -4245,7 +4245,10 @@ serve(async (req: Request) => {
       // e este anuncio" — a query saia dos fatos crus da campanha e a cena vinha 86 linhas
       // depois. O run 302 pediu gestao de redes sociais e ancorou numa foto de cadernos.
       let themeScene = "";
-      const wantsThemeScene = heroRef || ugcNoRef || hasProductRef ||
+      // "inspired" faltava nesta lista, entao esse caminho NUNCA derivava cena — e sem cena nao ha
+      // trava de tema no prompt nem query decente para a foto. Foi assim que uma campanha de
+      // armarios planejados saiu ilustrada com um wrap de comida (job 395).
+      const wantsThemeScene = heroRef || ugcNoRef || hasProductRef || bgSource === "inspired" ||
         bgSource === "creative" || (bgSource === "company" && !heroRef);
       if (wantsThemeScene && campaignFactsImg.trim()) {
         // The hero is a PRODUCT (object) when a product image was sent; otherwise a PERSON
