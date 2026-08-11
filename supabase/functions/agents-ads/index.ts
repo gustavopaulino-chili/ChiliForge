@@ -854,27 +854,66 @@ async function buildOverlayHtmlFromGemini(
       }
       return out;
     };
-    // Passe deterministico: a tabela acima e' uma instrucao, e instrucao o modelo pode ignorar —
-    // hoje mesmo ignorou a regra que mandava os tres blocos ficarem na regiao calma. Aqui a tinta
-    // e' CORRIGIDA depois do fato, lendo a posicao real de cada bloco no CSS que ele escreveu.
-    // So' mexe nas duas cores de tinta que nos definimos: a cor de destaque da marca no <span> do
-    // realce nunca e' tocada, porque nao esta nessa lista.
-    const enforceBandInk = (h: string): string =>
-      h.replace(/style="([^"]*)"/gi, (full, style: string) => {
+    // Passe deterministico da tinta, POR ELEMENTO. A tabela de faixas acima e' instrucao, e o
+    // modelo de layout ja provou hoje que ignora instrucao (poe headline no topo e CTA no rodape
+    // apesar da regra que manda os tres blocos ficarem na regiao calma). Aqui a cor e' CORRIGIDA
+    // depois do fato, lendo a posicao real no CSS que ele escreveu.
+    //
+    // Percorre as tags mantendo uma pilha, porque na estrutura real quem posiciona e o CONTEINER e
+    // quem pinta e o FILHO: a primeira versao casava posicao e cor dentro do mesmo atributo style e
+    // por isso nao corrigia nada (job 393 saiu com o CTA escuro no rodape escuro, de novo).
+    //
+    // Duas protecoes: so' reescreve as duas tintas que nos definimos — a cor da marca no realce
+    // nunca entra nessa lista — e pula qualquer elemento com preenchimento proprio, porque o texto
+    // do chip se relaciona com o chip, nao com a foto.
+    const VOID_TAGS = /^(img|br|hr|input|meta|link|source)$/i;
+    const inkForBand = (b: "light" | "dark") => (b === "light" ? "#101317" : "#ffffff");
+    const shadowForBand = (b: "light" | "dark") => (b === "light"
+      ? "0 1px 2px rgba(255,255,255,0.55)"
+      : "0 2px 10px rgba(0,0,0,0.65),0 1px 3px rgba(0,0,0,0.45)");
+    const bandIndexFor = (topPct: number) => (topPct < 33 ? 0 : topPct < 66 ? 1 : 2);
+    const enforceBandInk = (html: string): string => {
+      const stack: { tag: string; band: "light" | "dark" | null }[] = [];
+      let out = "";
+      let cursor = 0;
+      const tagRe = /<\/?([a-zA-Z][\w-]*)([^>]*)>/g;
+      let m: RegExpExecArray | null;
+      let fixes = 0;
+      while ((m = tagRe.exec(html)) !== null) {
+        out += html.slice(cursor, m.index);
+        cursor = m.index + m[0].length;
+        const whole = m[0], tag = m[1], attrs = m[2];
+        if (whole.startsWith("</")) {
+          if (stack.length && stack[stack.length - 1].tag.toLowerCase() === tag.toLowerCase()) stack.pop();
+          out += whole;
+          continue;
+        }
+        const styleM = attrs.match(/style="([^"]*)"/i);
+        const style = styleM ? styleM[1] : "";
         const top = style.match(/(?:^|;)\s*top\s*:\s*([\d.]+)%/i);
         const bottom = style.match(/(?:^|;)\s*bottom\s*:\s*([\d.]+)%/i);
-        if (!top && !bottom) return full;
-        const topPct = top ? parseFloat(top[1]) : 100 - parseFloat(bottom![1]);
-        if (!Number.isFinite(topPct)) return full;
-        const band = BANDS[bandIndexFor(topPct)];
-        const wantInk = inkForBand(band);
-        let next = style.replace(/color\s*:\s*(#ffffff|#fff|#101317)\b/gi, "color:" + wantInk);
-        if (next !== style) {
-          next = next.replace(/text-shadow\s*:\s*[^;]+/i, "text-shadow:" + shadowForBand(band));
-          console.warn(`[band-ink] job=${opts.jobId ?? "?"} bloco em top=${Math.round(topPct)}% → faixa ${band}, tinta ${wantInk}`);
+        let band: "light" | "dark" | null = stack.length ? stack[stack.length - 1].band : null;
+        if (top || bottom) {
+          const topPct = top ? parseFloat(top[1]) : 100 - parseFloat(bottom![1]);
+          if (Number.isFinite(topPct)) band = BANDS[bandIndexFor(topPct)];
         }
-        return 'style="' + next + '"';
-      });
+        let newWhole = whole;
+        const hasOwnFill = /(^|;)\s*background(-color)?\s*:/i.test(style);
+        if (style && band && !hasOwnFill && /color\s*:\s*(#ffffff|#fff|#101317)\b/i.test(style)) {
+          let next = style.replace(/color\s*:\s*(#ffffff|#fff|#101317)\b/gi, "color:" + inkForBand(band));
+          if (next !== style) {
+            next = next.replace(/text-shadow\s*:\s*[^;]+/i, "text-shadow:" + shadowForBand(band));
+            fixes++;
+          }
+          newWhole = whole.replace('style="' + style + '"', 'style="' + next + '"');
+        }
+        out += newWhole;
+        if (!(whole.endsWith("/>") || VOID_TAGS.test(tag))) stack.push({ tag, band });
+      }
+      out += html.slice(cursor);
+      if (fixes) console.warn(`[band-ink] job=${opts.jobId ?? "?"} ${fixes} bloco(s) retingido(s) pela faixa — bands=${BANDS.join("/")}`);
+      return out;
+    };
     const ensureScrim = (h: string): string =>
       /z-index\s*:\s*1\b/.test(h)
         ? h
