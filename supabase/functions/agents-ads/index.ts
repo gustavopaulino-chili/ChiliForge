@@ -555,7 +555,27 @@ async function buildOverlayHtmlFromGemini(
   // highlighted word treatment. Asking a model to vary while telling it which one you prefer gets
   // you the preference, never the variety. Rotating by jobId is the same trick LAYOUT_KEYS already
   // uses, and it makes consecutive ads differ by construction instead of by hope.
-  const ACCENT_TECHNIQUES = ["COLOURED WORD", "GRADIENT CHIP", "HIGHLIGHTER SWEEP", "MARKER UNDERLINE", "OUTLINE WORD"] as const;
+  // A filled highlight only works when the brand colour is an actual colour. When the brand is
+  // white or black, the chip and the marker sweep are the two that fall apart: a white chip under
+  // white type is an invisible slab, a black one is a heavy blob over the photo, and both read as
+  // a mistake rather than as branding. The techniques that survive a monochrome brand are the ones
+  // that draw a LINE or an OUTLINE instead of a FILL, so those are all that stays in the rotation.
+  const hexLuminance = (hex: string): number => {
+    const h = hex.replace("#", "");
+    const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h.slice(0, 6);
+    const n = parseInt(full, 16);
+    if (!Number.isFinite(n)) return 0.5;
+    const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const isMonochromeBrand = ((): boolean => {
+    if (!hasBrandHex) return true;                    // no brand hex → the chip would be white
+    const lum = hexLuminance(accentHexForSpan);
+    return lum > 0.88 || lum < 0.10;                  // near-white or near-black
+  })();
+  const ACCENT_TECHNIQUES = isMonochromeBrand
+    ? ["COLOURED WORD", "MARKER UNDERLINE", "OUTLINE WORD"] as const
+    : ["COLOURED WORD", "GRADIENT CHIP", "HIGHLIGHTER SWEEP", "MARKER UNDERLINE", "OUTLINE WORD"] as const;
   const accentPick = ACCENT_TECHNIQUES[(Number(opts.jobId) || 0) % ACCENT_TECHNIQUES.length];
   const accentHexSecondary = brandHexCandidates[1] || accentHexForSpan;
 
@@ -673,8 +693,8 @@ async function buildOverlayHtmlFromGemini(
     hasBrandHex
       ? `   • ACCENT TREATMENT (do this — it's what makes the ad feel branded, not generic): give the SINGLE most impactful headline word a branded accent. ⭐ USE EXACTLY THIS TECHNIQUE FOR THIS AD: . It was picked for you so consecutive ads don't look identical — do NOT substitute a different one, even if another would look safer. Use the brand hex ${accentHexForSpan}/${accentHexSecondary}, or a strong vivid colour actually present IN THIS background (a lamp glow, a coloured surface) that harmonises better while staying in the brand family. Repertoire (never stack two on one word):
        – COLOURED WORD: <span style="color:${accentHexForSpan}">word</span> — simplest.
-       – GRADIENT CHIP: a filled rounded chip that HUGS the word, white text on it: <span style="background:linear-gradient(135deg,${accentHexForSpan},${accentHexSecondary});color:#fff;padding:0.15cqh 0.9cqw;border-radius:0.6cqw;box-shadow:0 0.5cqh 1.6cqh rgba(0,0,0,0.22);box-decoration-break:clone;-webkit-box-decoration-break:clone">word</span>. Tight padding, soft radius — it hugs the word, never a big block.
-       – HIGHLIGHTER SWEEP: a translucent marker stroke behind the word, text stays white: <span style="background:linear-gradient(180deg,transparent 52%,${accentHexForSpan}A6 52%);padding:0 0.3cqw;box-decoration-break:clone;-webkit-box-decoration-break:clone">word</span> — like a highlighter pen, lighter than a full chip.
+       ${isMonochromeBrand ? "" : `– GRADIENT CHIP: a filled rounded chip that HUGS the word, white text on it: <span style="background:linear-gradient(135deg,${accentHexForSpan},${accentHexSecondary});color:#fff;padding:0.15cqh 0.9cqw;border-radius:0.6cqw;box-shadow:0 0.5cqh 1.6cqh rgba(0,0,0,0.22);box-decoration-break:clone;-webkit-box-decoration-break:clone">word</span>. Tight padding, soft radius — it hugs the word, never a big block.`}
+       ${isMonochromeBrand ? "" : `– HIGHLIGHTER SWEEP: a translucent marker stroke behind the word, text stays white: <span style="background:linear-gradient(180deg,transparent 52%,${accentHexForSpan}A6 52%);padding:0 0.3cqw;box-decoration-break:clone;-webkit-box-decoration-break:clone">word</span> — like a highlighter pen, lighter than a full chip.`}
        – MARKER UNDERLINE: keep the word white/plain and add a thick rounded accent stroke UNDER it (a child <div style="height:0.55cqh;background:${accentHexForSpan};border-radius:999px;transform:rotate(-1.5deg);margin-top:0.3cqh"></div>).
        – OUTLINE WORD: <span style="color:transparent;-webkit-text-stroke:0.3cqw ${accentHexForSpan}">word</span> — bold editorial stroke.
        Never leave this word plain white/black/grey. Skip a highlighted word only if the brand colour is already prominent elsewhere (eyebrow/underline/bar).`

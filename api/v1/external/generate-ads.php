@@ -246,6 +246,13 @@ function ext_map_campaign(array $cam, array $formats): array {
         // Per-generation font override. Without this mapping the field was accepted by the
         // endpoint and then silently dropped, so sending it did nothing.
         'fontFamily'            => $first(['font_family', 'font', 'typeface']),
+        // ...and this is what makes the override actually WIN. The engine builds --font-headline
+        // and its own Google Fonts link from `customHeadingFontName || headingFont`, and it does
+        // that before any PHP-side injection — so a campaign font that only lived in fontFamily
+        // lost to the persisted headingFont every time (measured: job 381 asked for another family
+        // and still rendered the stored Poppins). Sanitised here because it reaches the engine as
+        // a CSS value.
+        'customHeadingFontName' => ext_sanitize_font_family($first(['font_family', 'font', 'typeface'])),
         'preferredLogoStrategy' => $str('logo_strategy'),
         // Logo corner: explicit logo_position, or parsed from the logo_strategy text.
         'logoPosition'          => (function () use ($cam) {
