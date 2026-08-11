@@ -4107,6 +4107,85 @@ serve(async (req: Request) => {
       // against burned text. The site and brand posts are NOT lost — the Pexels URL is PREPENDED to
       // composeCompanyRefs, so they still travel as identity behind it.
       const skipPexels = explicitBgSource === "creative" || explicitBgSource === "shapes";
+      // ORDEM IMPORTA. A cena do tema e derivada AQUI, antes da busca no Pexels, porque a foto
+      // buscada e a ancora de todo o anuncio: com castingRef desligado ela e reproduzida
+      // fielmente, entao uma foto fora do assunto produz um anuncio fora do assunto por mais
+      // que a cena diga outra coisa. Antes eram duas respostas independentes para "sobre o que
+      // e este anuncio" — a query saia dos fatos crus da campanha e a cena vinha 86 linhas
+      // depois. O run 302 pediu gestao de redes sociais e ancorou numa foto de cadernos.
+      let themeScene = "";
+      const wantsThemeScene = heroRef || ugcNoRef || hasProductRef ||
+        bgSource === "creative" || (bgSource === "company" && !heroRef);
+      if (wantsThemeScene && campaignFactsImg.trim()) {
+        // The hero is a PRODUCT (object) when a product image was sent; otherwise a PERSON
+        // (reference person, invented UGC person, or brand scene). The derived scene must keep
+        // the correct hero: a product scene FEATURES the object; a person scene places the person.
+        const sceneSystem = hasProductRef
+          ? [
+              "You are an advertising art director. A physical PRODUCT (an object) is the hero of this ad and MUST be featured prominently — large in the frame and in sharp focus. From the campaign facts, describe ONE concrete scene that SHOWCASES THIS product in the real, literal context of the campaign's topic.",
+              "STRICT RULES:",
+              "• The product itself is the clear focal point (fills a large part of the frame). Around it add ONLY the real environment, surface and props that THIS topic implies (e.g. running shoes resting on a forest trail or being laced up trailside; a coffee bag on a rustic café counter beside a fresh cup; a watch on a marble surface in warm light).",
+              "• Derive the context from THIS topic only. Do NOT default to a content-creation / social-media / ring-light / phone-filming setup.",
+              "• A person may appear ONLY partially (hands, legs) to interact with the product if the topic calls for it — the PRODUCT stays the hero and is never replaced by a full person or a wide lifestyle scene where the product is small or absent.",
+              "• Describe ONLY the product's placement, the setting, props and lighting mood — NO text or logos on any surface.",
+              "• Output ONE or TWO sentences, concrete and vivid. No preamble, no lists.",
+            ]
+          : [
+              "You are an advertising art director. From the campaign facts, describe ONE concrete, literal 'scene of success' for the ad's hero — the exact SETTING, PROPS and ACTION/POSE that make THIS campaign's topic instantly recognizable from the image alone, with no text.",
+              "STRICT RULES:",
+              "• ⭐⭐ THE SCENE MUST BE ABOUT THE THING BEING SOLD. Show a person visibly DOING something that belongs to this exact service, or a single object that unmistakably belongs to it. Whose side of the transaction it is — the provider working or the customer benefiting — is yours to choose; what is not negotiable is that the service itself is what the picture is about.",
+              "• ⛔ TWO WAYS THIS GOES WRONG, AVOID BOTH: (a) drifting to the customer's unrelated daily life, where the scene shows their business or routine but nothing that involves this service; (b) settling for a person at a desk with a monitor, which could illustrate any company on earth. Both read as off-topic.",
+              "• ⭐ SELF-CHECK BEFORE YOU ANSWER: imagine a stranger seeing ONLY your scene, with no text at all. Would they name the exact service from the facts? If they would say something vaguer, or something different, rewrite the scene until they would.",
+              // The examples above are deliberately free of screens-with-content, dashboards,
+              // spreadsheets, calendars-with-dates and invoices. The previous version named exactly
+              // those, the scene dutifully echoed them ('painel de controle com gráficos de
+              // engajamento, calendário editorial detalhado') and the image model drew the words —
+              // run 276 shipped with 'Editorial calendar' legible in the frame. An example in a
+              // prompt becomes output; an example made of text-only artifacts becomes burned text.
+              "• ⛔ NEVER DESCRIBE WHAT IS ON A SCREEN, PAGE, SIGN, LABEL OR PACKAGE. Name the object when the activity needs it, but never its content: write 'a large monitor angled on the desk', never 'a monitor showing an engagement dashboard'; 'an open planner', never 'a calendar filled with dates'; 'a labelled jar' is wrong, 'a plain glass jar' is right. Every such surface is rendered BLANK later, so content you describe can only come out as unwanted lettering.",
+              "• ⭐ THE TOPIC MUST BE READABLE FROM THE ACTION, THE TOOLS AND THE ENVIRONMENT ALONE — never from anything written inside the frame. Test your own sentence: if the topic is only clear because of words printed on something, rewrite it around what the person is DOING with their hands and body instead.",
+              // The old version of this bullet ended with "when in doubt, show the service's real
+              // back-office/desk work" — a concrete default that beat every abstract rule above it
+              // and produced a person at a desk with a monitor for every campaign (runs 276-283,
+              // and again in 286 after the newer rules were added). The guard against adjacent-
+              // industry clichés is real and stays; the desk default is gone, and the tie-break is
+              // now the self-check, which points at the service instead of at a piece of furniture.
+              "• ⛔ DO NOT DRIFT TO AN ADJACENT-INDUSTRY CLICHÉ: a DJ booth, a music or audio mixing console, a recording/podcast studio, a soundboard, a radio booth or a film set belong ONLY to services that literally produce audio, music or film. If this service is not one of those, none of them belongs here. When in doubt, return to the SELF-CHECK and choose the action that names THIS service most directly.",
+              "• Do NOT default to a generic content-creation / filming / ring-light / streaming setup UNLESS the service ITSELF is about content, social media, video or photography — when it is, that world IS the topic and the scene should live in it (someone producing, capturing, reviewing or planning that content, or the tools of it). The ban applies to services with nothing to do with content — finance, health, skincare/beauty, food, retail, education, fitness, real estate and the like — where a ring light or phone-filming scene is WRONG.",
+              "• Name the real environment and the real prop/action (e.g. skincare → bright bathroom vanity, applying cream, dewy skin; a budgeting app → calm kitchen table or café, glancing at a phone at chest height, notebook and coffee; fitness → gym floor mid-exercise with real equipment).",
+              "• If the topic has no natural connection to a phone or screen, there must be NO phone/screen in the scene.",
+              "• Describe ONLY setting, props, action and lighting mood — NOT the person's identity/appearance (a real person is supplied separately) and NO text or logos.",
+              "• Output ONE or TWO sentences, concrete and vivid. No preamble, no lists.",
+            ];
+        try {
+          const sceneRes = await callGemini(
+            sceneSystem.join("\n"),
+            campaignFactsImg.slice(0, 1600),
+            "gemini-2.5-flash",
+            0.4,
+            320,
+            apiKey,
+            undefined,
+            undefined,
+            // thinkingBudget:0 is MANDATORY here. gemini-2.5 thinks by default and those tokens
+            // come out of maxOutputTokens, so without it the scene came back CUT MID-SENTENCE —
+            // run 275 shipped with themeScene = "Em um escritório moderno e bem iluminado," (note
+            // the trailing comma): no service, no props, no action. That fragment is injected in
+            // three places in the background prompt, so every ad became a generic office and the
+            // whole point of deriving a scene from the campaign was lost.
+            { jobId, costAcc, thinkingBudget: 0 },
+          );
+          themeScene = String(sceneRes.text || "").trim().slice(0, 500);
+          // A scene that ends mid-clause is a truncation, not a description — better to drop it
+          // and let the prompt's own theme guidance work than to lock the model onto a fragment.
+          if (/[,;:]$/.test(themeScene)) {
+            console.warn(`[theme-scene] job=${jobId ?? "?"} TRUNCATED, discarding: ${themeScene}`);
+            themeScene = "";
+          }
+          if (themeScene) console.log(`[theme-scene] job=${jobId ?? "?"} ${themeScene.slice(0, 160)}`);
+        } catch (_) { /* non-fatal — fall through with generic theme guidance in the prompt */ }
+      }
+
       if (isExternalApi && !heroRef && !hasProductRef && !callerSentBgUrl && !skipPexels) {
         // ALWAYS try to ground the generation in a REAL Pexels photo (no more jobId coin-flip). A
         // real reference scene makes the model REPRODUCE reality instead of INVENTING — the invented
@@ -4114,7 +4193,7 @@ serve(async (req: Request) => {
         // CONTEXT-aware query (a person with a phone, a coffee cup, a gym…) so the fetched photo
         // actually matches the ad's topic, not a generic portrait. Brand posts still layer in as
         // style below. Fall back to an invented scene only if Pexels has no key / no result.
-        const pexQuery = (await pexelsQueryForCampaign(campaignFactsImg, apiKey, { jobId, costAcc }))
+        const pexQuery = (await pexelsQueryForCampaign(themeScene || campaignFactsImg, apiKey, { jobId, costAcc }))
           || buildUgcPersonQuery(campaignData);
         const pexUrl = await fetchPexelsUrl(pexQuery, imageAspectRatioForFormat(formats[0]));
         if (pexUrl) {
@@ -4200,78 +4279,6 @@ serve(async (req: Request) => {
       // identity still comes from the reference image; this only dictates the SETTING, PROPS and
       // ACTION around them. Only runs for the photographic person/subject paths (skip abstract
       // 'shapes' and the reference short-path, which don't build a topic scene).
-      let themeScene = "";
-      const wantsThemeScene = heroRef || ugcNoRef || hasProductRef ||
-        bgSource === "creative" || (bgSource === "company" && !heroRef);
-      if (wantsThemeScene && campaignFactsImg.trim()) {
-        // The hero is a PRODUCT (object) when a product image was sent; otherwise a PERSON
-        // (reference person, invented UGC person, or brand scene). The derived scene must keep
-        // the correct hero: a product scene FEATURES the object; a person scene places the person.
-        const sceneSystem = hasProductRef
-          ? [
-              "You are an advertising art director. A physical PRODUCT (an object) is the hero of this ad and MUST be featured prominently — large in the frame and in sharp focus. From the campaign facts, describe ONE concrete scene that SHOWCASES THIS product in the real, literal context of the campaign's topic.",
-              "STRICT RULES:",
-              "• The product itself is the clear focal point (fills a large part of the frame). Around it add ONLY the real environment, surface and props that THIS topic implies (e.g. running shoes resting on a forest trail or being laced up trailside; a coffee bag on a rustic café counter beside a fresh cup; a watch on a marble surface in warm light).",
-              "• Derive the context from THIS topic only. Do NOT default to a content-creation / social-media / ring-light / phone-filming setup.",
-              "• A person may appear ONLY partially (hands, legs) to interact with the product if the topic calls for it — the PRODUCT stays the hero and is never replaced by a full person or a wide lifestyle scene where the product is small or absent.",
-              "• Describe ONLY the product's placement, the setting, props and lighting mood — NO text or logos on any surface.",
-              "• Output ONE or TWO sentences, concrete and vivid. No preamble, no lists.",
-            ]
-          : [
-              "You are an advertising art director. From the campaign facts, describe ONE concrete, literal 'scene of success' for the ad's hero — the exact SETTING, PROPS and ACTION/POSE that make THIS campaign's topic instantly recognizable from the image alone, with no text.",
-              "STRICT RULES:",
-              "• ⭐⭐ THE SCENE MUST BE ABOUT THE THING BEING SOLD. Show a person visibly DOING something that belongs to this exact service, or a single object that unmistakably belongs to it. Whose side of the transaction it is — the provider working or the customer benefiting — is yours to choose; what is not negotiable is that the service itself is what the picture is about.",
-              "• ⛔ TWO WAYS THIS GOES WRONG, AVOID BOTH: (a) drifting to the customer's unrelated daily life, where the scene shows their business or routine but nothing that involves this service; (b) settling for a person at a desk with a monitor, which could illustrate any company on earth. Both read as off-topic.",
-              "• ⭐ SELF-CHECK BEFORE YOU ANSWER: imagine a stranger seeing ONLY your scene, with no text at all. Would they name the exact service from the facts? If they would say something vaguer, or something different, rewrite the scene until they would.",
-              // The examples above are deliberately free of screens-with-content, dashboards,
-              // spreadsheets, calendars-with-dates and invoices. The previous version named exactly
-              // those, the scene dutifully echoed them ('painel de controle com gráficos de
-              // engajamento, calendário editorial detalhado') and the image model drew the words —
-              // run 276 shipped with 'Editorial calendar' legible in the frame. An example in a
-              // prompt becomes output; an example made of text-only artifacts becomes burned text.
-              "• ⛔ NEVER DESCRIBE WHAT IS ON A SCREEN, PAGE, SIGN, LABEL OR PACKAGE. Name the object when the activity needs it, but never its content: write 'a large monitor angled on the desk', never 'a monitor showing an engagement dashboard'; 'an open planner', never 'a calendar filled with dates'; 'a labelled jar' is wrong, 'a plain glass jar' is right. Every such surface is rendered BLANK later, so content you describe can only come out as unwanted lettering.",
-              "• ⭐ THE TOPIC MUST BE READABLE FROM THE ACTION, THE TOOLS AND THE ENVIRONMENT ALONE — never from anything written inside the frame. Test your own sentence: if the topic is only clear because of words printed on something, rewrite it around what the person is DOING with their hands and body instead.",
-              // The old version of this bullet ended with "when in doubt, show the service's real
-              // back-office/desk work" — a concrete default that beat every abstract rule above it
-              // and produced a person at a desk with a monitor for every campaign (runs 276-283,
-              // and again in 286 after the newer rules were added). The guard against adjacent-
-              // industry clichés is real and stays; the desk default is gone, and the tie-break is
-              // now the self-check, which points at the service instead of at a piece of furniture.
-              "• ⛔ DO NOT DRIFT TO AN ADJACENT-INDUSTRY CLICHÉ: a DJ booth, a music or audio mixing console, a recording/podcast studio, a soundboard, a radio booth or a film set belong ONLY to services that literally produce audio, music or film. If this service is not one of those, none of them belongs here. When in doubt, return to the SELF-CHECK and choose the action that names THIS service most directly.",
-              "• Do NOT default to a generic content-creation / filming / ring-light / streaming setup UNLESS the service ITSELF is about content, social media, video or photography — when it is, that world IS the topic and the scene should live in it (someone producing, capturing, reviewing or planning that content, or the tools of it). The ban applies to services with nothing to do with content — finance, health, skincare/beauty, food, retail, education, fitness, real estate and the like — where a ring light or phone-filming scene is WRONG.",
-              "• Name the real environment and the real prop/action (e.g. skincare → bright bathroom vanity, applying cream, dewy skin; a budgeting app → calm kitchen table or café, glancing at a phone at chest height, notebook and coffee; fitness → gym floor mid-exercise with real equipment).",
-              "• If the topic has no natural connection to a phone or screen, there must be NO phone/screen in the scene.",
-              "• Describe ONLY setting, props, action and lighting mood — NOT the person's identity/appearance (a real person is supplied separately) and NO text or logos.",
-              "• Output ONE or TWO sentences, concrete and vivid. No preamble, no lists.",
-            ];
-        try {
-          const sceneRes = await callGemini(
-            sceneSystem.join("\n"),
-            campaignFactsImg.slice(0, 1600),
-            "gemini-2.5-flash",
-            0.4,
-            320,
-            apiKey,
-            undefined,
-            undefined,
-            // thinkingBudget:0 is MANDATORY here. gemini-2.5 thinks by default and those tokens
-            // come out of maxOutputTokens, so without it the scene came back CUT MID-SENTENCE —
-            // run 275 shipped with themeScene = "Em um escritório moderno e bem iluminado," (note
-            // the trailing comma): no service, no props, no action. That fragment is injected in
-            // three places in the background prompt, so every ad became a generic office and the
-            // whole point of deriving a scene from the campaign was lost.
-            { jobId, costAcc, thinkingBudget: 0 },
-          );
-          themeScene = String(sceneRes.text || "").trim().slice(0, 500);
-          // A scene that ends mid-clause is a truncation, not a description — better to drop it
-          // and let the prompt's own theme guidance work than to lock the model onto a fragment.
-          if (/[,;:]$/.test(themeScene)) {
-            console.warn(`[theme-scene] job=${jobId ?? "?"} TRUNCATED, discarding: ${themeScene}`);
-            themeScene = "";
-          }
-          if (themeScene) console.log(`[theme-scene] job=${jobId ?? "?"} ${themeScene.slice(0, 160)}`);
-        } catch (_) { /* non-fatal — fall through with generic theme guidance in the prompt */ }
-      }
 
       // User-uploaded reference images (the ads/visuals the caller wants to look like) arrive
       // in composeCompanyRefs. ONLY fetch+decode them for the sources that actually consume
