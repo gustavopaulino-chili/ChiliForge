@@ -4227,7 +4227,37 @@ serve(async (req: Request) => {
             themeScene = "";
           }
           if (themeScene) console.log(`[theme-scene] job=${jobId ?? "?"} ${themeScene.slice(0, 160)}`);
-        } catch (_) { /* non-fatal — fall through with generic theme guidance in the prompt */ }
+        } catch (err) {
+          console.warn(`[theme-scene] job=${jobId ?? "?"} FAILED: ${err}`);
+        }
+        // The scene is LOAD-BEARING TWICE now: it drives the theme lock in the image prompt AND
+        // the Pexels query that anchors the whole ad. When it comes back empty the generation does
+        // not fail — it quietly degrades on both fronts at once, which is exactly what run 304 was:
+        // no theme lock in the prompt and a stock photo of a garden wall for a social-media
+        // campaign. One retry costs a fraction of a cent against an ad that costs 14 cents.
+        if (!themeScene) {
+          console.warn(`[theme-scene] job=${jobId ?? "?"} empty on first pass — retrying once`);
+          try {
+            const retryRes = await callGemini(
+              sceneSystem.join("\n"),
+              campaignFactsImg.slice(0, 1600),
+              "gemini-2.5-flash",
+              0.5,
+              320,
+              apiKey,
+              undefined,
+              undefined,
+              { jobId, costAcc, thinkingBudget: 0 },
+            );
+            const retryScene = String(retryRes.text || "").trim().slice(0, 500);
+            if (retryScene && !/[,;:]$/.test(retryScene)) themeScene = retryScene;
+          } catch (err2) {
+            console.warn(`[theme-scene] job=${jobId ?? "?"} retry also failed: ${err2}`);
+          }
+        }
+        if (!themeScene) {
+          console.warn(`[theme-scene] job=${jobId ?? "?"} NO SCENE — prompt loses the theme lock and the Pexels query falls back to raw campaign facts`);
+        }
       }
 
       if (isExternalApi && !heroRef && !hasProductRef && !callerSentBgUrl && !skipPexels) {
