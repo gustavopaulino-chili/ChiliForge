@@ -912,7 +912,8 @@ async function pickCalmTextZone(
     "The attached image is an ad BACKGROUND. A headline + subheadline + CTA will be composited ON TOP of it afterwards.",
     "Find the ONE region that is the EMPTIEST and FLATTEST — a plain wall, shadow, sky, blur or solid color field with the LOWEST detail and NO important content.",
     "HARD RULE: never choose a region occupied by the main subject, a laptop, phone, screen, monitor, person, product, plant, or dense graphics/charts/icons. If one large area is dark/flat/empty while the rest is busy, choose that empty area — even if it is a whole side.",
-    "Then judge how BRIGHT that region is, so the copy can be inked to contrast with it: 'light' if it is a pale surface where white text would wash out (bright wall, sky, snow, white desk, blown-out window), 'dark' otherwise.",
+    "Then judge the brightness of that region so the copy can be inked against it. Answer 'light' ONLY if the region is UNIFORMLY pale edge to edge — an unbroken bright surface with nothing dark crossing it. If ANY dark object passes through it (a tripod, a camera, a chair, a cable, a dark garment, a shadow, a doorway, dark hair), answer 'dark', even when most of the area is bright.",
+    "That asymmetry is deliberate: white copy over a dark scrim stays readable on a mixed region, while dark copy disappears wherever something dark crosses it. When in doubt, answer 'dark'.",
     "Answer with EXACTLY TWO lowercase words separated by one space and nothing else: first the region (top, bottom, left, right, center), then the brightness (light or dark). Example answer format: bottom dark",
   ].join("\n");
   try {
