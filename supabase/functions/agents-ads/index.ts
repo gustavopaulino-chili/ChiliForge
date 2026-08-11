@@ -796,6 +796,49 @@ async function buildOverlayHtmlFromGemini(
     // Legibility scrim: a real browser renders everything, so DON'T reject an overlay that lacks
     // the exact z-index:1 scrim (the model now often uses a glass/blur panel instead). Just inject
     // a default gradient scrim when none is present — guarantees legible white text either way.
+    // COPY REPAIR. The overlay model RETYPES the headline instead of pasting it, so it can drop a
+    // letter — run 303 shipped "Resultados Redis nas Redes Sociais" for a campaign whose headline
+    // said "Reais". The prompt has said "COPY THIS TEXT VERBATIM, WORD-FOR-WORD" for months and it
+    // still happens, because a written rule cannot beat a generation slip. This does not argue with
+    // the model: it diffs the rendered words against the copy we actually sent and puts the right
+    // one back. Word-level on purpose — the accent treatment legitimately wraps a word in a <span>
+    // and the headline legitimately breaks with <br>, so any whole-string comparison would report a
+    // mismatch on perfectly good HTML. Only near-misses are touched (edit distance <= 2, same first
+    // letter, 4+ letters), so a real rewrite is left alone rather than half-corrected.
+    const editDistance = (a: string, b: string): number => {
+      const m = a.length, n = b.length;
+      if (Math.abs(m - n) > 2) return 99;
+      let prev = Array.from({ length: n + 1 }, (_, j) => j);
+      for (let i = 1; i <= m; i++) {
+        const cur = [i];
+        for (let j = 1; j <= n; j++) {
+          cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        }
+        prev = cur;
+      }
+      return prev[n];
+    };
+    const repairCopyTypos = (h: string, expected: string[]): string => {
+      let out = h;
+      const rendered = out.replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ");
+      const renderedWords = (rendered.match(/[\p{L}\p{N}]{4,}/gu) || []);
+      for (const phrase of expected) {
+        for (const want of (phrase.match(/[\p{L}\p{N}]{4,}/gu) || [])) {
+          const wl = want.toLowerCase();
+          if (renderedWords.some((w) => w.toLowerCase() === wl)) continue; // already correct
+          const wrong = renderedWords.find((w) =>
+            w.toLowerCase() !== wl &&
+            w[0]?.toLowerCase() === want[0]?.toLowerCase() &&
+            editDistance(w.toLowerCase(), wl) <= 2);
+          if (!wrong) continue;
+          const re = new RegExp("(>[^<]*?)\\b" + wrong.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "g");
+          const before = out;
+          out = out.replace(re, (_m, lead) => lead + want);
+          if (out !== before) console.warn(`[copy-repair] job=${opts.jobId ?? "?"} "${wrong}" → "${want}"`);
+        }
+      }
+      return out;
+    };
     const ensureScrim = (h: string): string =>
       /z-index\s*:\s*1\b/.test(h)
         ? h
@@ -813,7 +856,7 @@ async function buildOverlayHtmlFromGemini(
           if (raw2 && headlinePresent(raw2)) {
             console.log(`[overlay-critique] retry accepted job=${opts.jobId ?? "?"}`);
             const styleTag2 = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-            setDiag("ok-retry"); return styleTag2 + dedupeLogo(enforceLogoOppositeBand(ensureScrim(raw2), logoUrl), logoUrl);
+            setDiag("ok-retry"); return styleTag2 + repairCopyTypos(dedupeLogo(enforceLogoOppositeBand(ensureScrim(raw2), logoUrl), logoUrl), [headline, sub, ctaRaw].filter(Boolean));
           }
         }
       }
@@ -821,7 +864,7 @@ async function buildOverlayHtmlFromGemini(
     html = dedupeLogo(enforceLogoOppositeBand(html, logoUrl), logoUrl);
     console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${html.length} font=${_fontName ?? "none"}`);
     const styleTag = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-    setDiag("ok"); return styleTag + html;
+    setDiag("ok"); return styleTag + repairCopyTypos(html, [headline, sub, ctaRaw].filter(Boolean));
   } catch (err) {
     console.warn(`[overlay-html] failed job=${opts.jobId ?? "?"}: ${err}`);
     setDiag(`exception:${String(err).slice(0, 80)}`); return null;
