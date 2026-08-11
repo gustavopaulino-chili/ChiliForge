@@ -492,7 +492,7 @@ async function buildOverlayHtmlFromGemini(
   cssVars: string,
   apiKey: string,
   rec?: ComposeTextRec | null,
-  opts: { jobId?: number; costAcc?: { usd: number }; calmZone?: string | null; calmTone?: "light" | "dark" | null; diag?: { reason?: string }; brandDevices?: boolean } = {}
+  opts: { jobId?: number; costAcc?: { usd: number }; calmZone?: string | null; calmTone?: "light" | "dark" | null; calmBands?: ("light" | "dark")[] | null; diag?: { reason?: string }; brandDevices?: boolean } = {}
 ): Promise<string | null> {
   const setDiag = (r: string) => { if (opts.diag) opts.diag.reason = r; };
   // Accept either a base64 data URL or a public HTTPS URL (e.g. Supabase Storage).
@@ -645,6 +645,20 @@ async function buildOverlayHtmlFromGemini(
     ? "0 1px 2px rgba(255,255,255,0.55)"
     : "0 2px 10px rgba(0,0,0,0.65),0 1px 3px rgba(0,0,0,0.45)";
   const SCRIM_RGB  = inkOnLight ? "255,255,255" : "0,0,0";
+  // POR ELEMENTO, NAO POR PECA. O veredito de tom vale para a regiao calma escolhida, mas o
+  // overlay nao fica todo nela: no run 392 a headline ficou no topo claro e o CTA foi para o
+  // rodape, uma faixa com 58% de pixels escuros, e a tinta escura sumiu la. A analise agora
+  // devolve o brilho das tres faixas horizontais e cada bloco de texto e' tingido pela faixa
+  // onde ele realmente caiu.
+  const BANDS: ("light" | "dark")[] = Array.isArray(opts.calmBands) && opts.calmBands.length === 3
+    ? opts.calmBands
+    : ["dark", "dark", "dark"];
+  const inkForBand = (b: "light" | "dark") => (b === "light" ? "#101317" : "#ffffff");
+  const shadowForBand = (b: "light" | "dark") => (b === "light"
+    ? "0 1px 2px rgba(255,255,255,0.55)"
+    : "0 2px 10px rgba(0,0,0,0.65),0 1px 3px rgba(0,0,0,0.45)");
+  const bandIndexFor = (topPct: number) => (topPct < 33 ? 0 : topPct < 66 ? 1 : 2);
+  const BAND_TABLE = `INK BY BAND (measured on THIS background): top third → ${inkForBand(BANDS[0])}, middle third → ${inkForBand(BANDS[1])}, bottom third → ${inkForBand(BANDS[2])}. Every text block takes the ink of the band it actually sits in — a headline at the top and a CTA at the bottom do NOT have to share a colour.`;
   const calmZoneLine = calmZone
     // No escape hatch. The old wording ended with "only override this if that region is clearly
     // occupied by the visual hero", and the model took the exit often enough that headlines kept
@@ -729,7 +743,8 @@ async function buildOverlayHtmlFromGemini(
     `• Parent container has container-type:size → 1cqw = ${(W / 100).toFixed(1)}px | 1cqh = ${(H / 100).toFixed(1)}px`,
     "• Positions: % only (no px for top/left/right/bottom). Font sizes: cqw or cqh only. Logo width/max-height: % only.",
     `• Font: ${fontFamily}`,
-    `• Text: color:${INK_HEX} | text-shadow:${INK_SHADOW}${inkOnLight ? " — the calm region is BRIGHT, so the copy is near-black ink on it. Do NOT use white text anywhere in the overlay, and do NOT darken the photo to make white work." : ""}`,
+    `• Text: color:${INK_HEX} | text-shadow:${INK_SHADOW}`,
+    `• ${BAND_TABLE}`,
     "• Scrim: position:absolute; z-index:1; pointer-events:none",
     brandDevicesLine ? "• Brand design devices: position:absolute; z-index:15; pointer-events:none; blank brand-colour shapes only, in EMPTY areas — never over face/text/logo/hero." : "",
     "• Logo img: position:absolute; object-fit:contain; z-index:20",
@@ -839,6 +854,27 @@ async function buildOverlayHtmlFromGemini(
       }
       return out;
     };
+    // Passe deterministico: a tabela acima e' uma instrucao, e instrucao o modelo pode ignorar —
+    // hoje mesmo ignorou a regra que mandava os tres blocos ficarem na regiao calma. Aqui a tinta
+    // e' CORRIGIDA depois do fato, lendo a posicao real de cada bloco no CSS que ele escreveu.
+    // So' mexe nas duas cores de tinta que nos definimos: a cor de destaque da marca no <span> do
+    // realce nunca e' tocada, porque nao esta nessa lista.
+    const enforceBandInk = (h: string): string =>
+      h.replace(/style="([^"]*)"/gi, (full, style: string) => {
+        const top = style.match(/(?:^|;)\s*top\s*:\s*([\d.]+)%/i);
+        const bottom = style.match(/(?:^|;)\s*bottom\s*:\s*([\d.]+)%/i);
+        if (!top && !bottom) return full;
+        const topPct = top ? parseFloat(top[1]) : 100 - parseFloat(bottom![1]);
+        if (!Number.isFinite(topPct)) return full;
+        const band = BANDS[bandIndexFor(topPct)];
+        const wantInk = inkForBand(band);
+        let next = style.replace(/color\s*:\s*(#ffffff|#fff|#101317)\b/gi, "color:" + wantInk);
+        if (next !== style) {
+          next = next.replace(/text-shadow\s*:\s*[^;]+/i, "text-shadow:" + shadowForBand(band));
+          console.warn(`[band-ink] job=${opts.jobId ?? "?"} bloco em top=${Math.round(topPct)}% → faixa ${band}, tinta ${wantInk}`);
+        }
+        return 'style="' + next + '"';
+      });
     const ensureScrim = (h: string): string =>
       /z-index\s*:\s*1\b/.test(h)
         ? h
@@ -856,7 +892,7 @@ async function buildOverlayHtmlFromGemini(
           if (raw2 && headlinePresent(raw2)) {
             console.log(`[overlay-critique] retry accepted job=${opts.jobId ?? "?"}`);
             const styleTag2 = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-            setDiag("ok-retry"); return styleTag2 + repairCopyTypos(dedupeLogo(enforceLogoOppositeBand(ensureScrim(raw2), logoUrl), logoUrl), [headline, sub, ctaRaw].filter(Boolean));
+            setDiag("ok-retry"); return styleTag2 + enforceBandInk(repairCopyTypos(dedupeLogo(enforceLogoOppositeBand(ensureScrim(raw2), logoUrl), logoUrl), [headline, sub, ctaRaw].filter(Boolean)));
           }
         }
       }
@@ -864,7 +900,7 @@ async function buildOverlayHtmlFromGemini(
     html = dedupeLogo(enforceLogoOppositeBand(html, logoUrl), logoUrl);
     console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${html.length} font=${_fontName ?? "none"}`);
     const styleTag = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-    setDiag("ok"); return styleTag + repairCopyTypos(html, [headline, sub, ctaRaw].filter(Boolean));
+    setDiag("ok"); return styleTag + enforceBandInk(repairCopyTypos(html, [headline, sub, ctaRaw].filter(Boolean)));
   } catch (err) {
     console.warn(`[overlay-html] failed job=${opts.jobId ?? "?"}: ${err}`);
     setDiag(`exception:${String(err).slice(0, 80)}`); return null;
@@ -890,7 +926,7 @@ async function pickCalmTextZone(
   bgUrl: string,
   apiKey: string,
   opts: { jobId?: number; costAcc?: { usd: number; images: number; jobId?: string } } = {},
-): Promise<{ zone: string; layout: string; tone: "light" | "dark" } | null> {
+): Promise<{ zone: string; layout: string; tone: "light" | "dark"; bands: ("light" | "dark")[] } | null> {
   let bgRef: ReferenceImage;
   try {
     if (/^https?:\/\//.test(bgUrl)) {
@@ -912,9 +948,10 @@ async function pickCalmTextZone(
     "The attached image is an ad BACKGROUND. A headline + subheadline + CTA will be composited ON TOP of it afterwards.",
     "Find the ONE region that is the EMPTIEST and FLATTEST — a plain wall, shadow, sky, blur or solid color field with the LOWEST detail and NO important content.",
     "HARD RULE: never choose a region occupied by the main subject, a laptop, phone, screen, monitor, person, product, plant, or dense graphics/charts/icons. If one large area is dark/flat/empty while the rest is busy, choose that empty area — even if it is a whole side.",
-    "Then judge the brightness of that region so the copy can be inked against it. Answer 'light' ONLY if the region is UNIFORMLY pale edge to edge — an unbroken bright surface with nothing dark crossing it. If ANY dark object passes through it (a tripod, a camera, a chair, a cable, a dark garment, a shadow, a doorway, dark hair), answer 'dark', even when most of the area is bright.",
-    "That asymmetry is deliberate: white copy over a dark scrim stays readable on a mixed region, while dark copy disappears wherever something dark crosses it. When in doubt, answer 'dark'.",
-    "Answer with EXACTLY TWO lowercase words separated by one space and nothing else: first the region (top, bottom, left, right, center), then the brightness (light or dark). Example answer format: bottom dark",
+    "Then judge brightness for THREE horizontal bands of the image — the TOP third, the MIDDLE third and the BOTTOM third — because the headline, the subheadline and the CTA can each land in a different one.",
+    "For each band answer 'light' ONLY if that band is UNIFORMLY pale edge to edge, with nothing dark crossing it. If ANY dark object passes through it (a tripod, a chair, a cable, a dark garment, a shadow, a doorway, dark hair, a wooden floor), answer 'dark' — even when most of the band is bright.",
+    "That asymmetry is deliberate: white copy over a dark scrim stays readable on a mixed band, while dark copy disappears wherever something dark crosses it. When in doubt, answer 'dark'.",
+    "Answer with EXACTLY FOUR lowercase words separated by single spaces and nothing else: the region (top, bottom, left, right, center), then the brightness of the top band, of the middle band and of the bottom band. Example answer format: bottom light dark dark",
   ].join("\n");
   try {
     // A vision model decides placement. gemini-2.5-flash read the calm zone poorly (2026-07-08:
@@ -932,12 +969,16 @@ async function pickCalmTextZone(
     const res = await callGemini(SYSTEM, USER, "gemini-3.5-flash", 0, 512, apiKey, undefined, [bgRef], { ...opts, thinkingLevel: "low", timeoutMs: 25000 });
     const answer = String(res.text || "").toLowerCase();
     const word = answer.match(/top|bottom|left|right|center/)?.[0];
+    // Uma leitura por faixa. Faltando qualquer uma, ela cai em "dark" — a opcao que funciona
+    // em faixa clara E em faixa mista, entao um erro de leitura nunca produz texto ilegivel.
+    const toneWords = (answer.match(/\b(light|dark)\b/g) || []).slice(0, 3);
+    const bands: ("light" | "dark")[] = [0, 1, 2].map((i) => (toneWords[i] === "light" ? "light" : "dark"));
     // Default dark: the overlay has always been white-on-scrim, so an unreadable answer keeps
     // today's behaviour instead of flipping the ad to black text on a hunch.
     const tone: "light" | "dark" = /\blight\b/.test(answer) ? "light" : "dark";
     const layout = word ? (CALM_ZONE_TO_LAYOUT[word] ?? null) : null;
-    if (word && layout) console.log(`[calm-zone] job=${opts.jobId ?? "?"} → ${word} (${layout}) tone=${tone}`);
-    return word && layout ? { zone: word, layout, tone } : null;
+    if (word && layout) console.log(`[calm-zone] job=${opts.jobId ?? "?"} → ${word} (${layout}) tone=${tone} bands=${bands.join("/")}`);
+    return word && layout ? { zone: word, layout, tone: bands.includes("dark") && bands.every((b) => b === "dark") ? "dark" : tone, bands } : null;
   } catch (err) {
     console.warn(`[calm-zone] failed job=${opts.jobId ?? "?"}: ${err}`);
     return null;
@@ -4559,7 +4600,7 @@ serve(async (req: Request) => {
             // so it rendered off-brand (blue) devices from a stored accent hex. The brand's real design
             // assets are now handled by the image model (which sees the posts and matches their devices +
             // colours), conditional on the brand actually using them. See the heroRef design-asset rule.
-            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, calmTone: calm?.tone ?? null, brandDevices: false })
+            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, calmTone: calm?.tone ?? null, calmBands: calm?.bands ?? null, brandDevices: false })
             : null;
           bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay });
         }
@@ -4677,7 +4718,7 @@ serve(async (req: Request) => {
           const geminiOverlay = bgForZone
             // brandDevices (CSS overlay device) DISABLED — see note at the other call site. Design
             // assets now come from the image model, matched to the brand posts, conditional on usage.
-            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, calmTone: calm?.tone ?? null, diag: overlayDiag, brandDevices: false })
+            ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, calmTone: calm?.tone ?? null, calmBands: calm?.bands ?? null, diag: overlayDiag, brandDevices: false })
             : null;
           bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay, overlayDiag: overlayDiag.reason });
         }
