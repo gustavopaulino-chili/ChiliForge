@@ -4134,23 +4134,6 @@ serve(async (req: Request) => {
       let pexelsAuto = false;
       const isExternalApi = Boolean(String((campaignData as any).externalApiContract || "").trim());
       const callerSentBgUrl = String(campaignData.backgroundImageUrl || "").startsWith("http");
-      // External API with NO reference image → randomly (seeded by jobId) decide whether to feature
-      // a REAL PERSON (pulled from Pexels, a different one each time) or a PERSON-FREE brand scene.
-      // This variety keeps the API's ads from all looking the same. 'creative' stays OUT of the
-      // rotation (too generic); the person-free branch uses the brand's own world ('company') when
-      // brand posts exist, else abstract brand shapes. Caller-supplied ref images are untouched.
-      // Caller opt-out: if they explicitly asked for a 'creative' (invented) or 'shapes' (abstract)
-      // background, DON'T fetch a Pexels photo — honour the request and let the model invent/abstract.
-      // 2026-08-10: hasSiteIdentity NO LONGER opts out of Pexels. The original reason was that a
-      // RANDOM stock hero would throw away the client's site — but the query is now derived from
-      // the campaign (it was returning empty until the truncation fix, which is what made those
-      // heroes random in the first place), so the fetched photo depicts THIS ad's topic. Keeping
-      // the opt-out meant every site-identity company generated its scene from pure invention, and
-      // invention is what burns fake text/UI into the background: runs 276, 281 and 282 all leaked
-      // words on that path. Grounding in a real photo is the strongest lever we have measured
-      // against burned text. The site and brand posts are NOT lost — the Pexels URL is PREPENDED to
-      // composeCompanyRefs, so they still travel as identity behind it.
-      const skipPexels = explicitBgSource === "creative" || explicitBgSource === "shapes";
       // ORDEM IMPORTA. A cena do tema e derivada AQUI, antes da busca no Pexels, porque a foto
       // buscada e a ancora de todo o anuncio: com castingRef desligado ela e reproduzida
       // fielmente, entao uma foto fora do assunto produz um anuncio fora do assunto por mais
@@ -4260,6 +4243,29 @@ serve(async (req: Request) => {
         }
       }
 
+      // External API with NO reference image → randomly (seeded by jobId) decide whether to feature
+      // a REAL PERSON (pulled from Pexels, a different one each time) or a PERSON-FREE brand scene.
+      // This variety keeps the API's ads from all looking the same. 'creative' stays OUT of the
+      // rotation (too generic); the person-free branch uses the brand's own world ('company') when
+      // brand posts exist, else abstract brand shapes. Caller-supplied ref images are untouched.
+      // Caller opt-out: if they explicitly asked for a 'creative' (invented) or 'shapes' (abstract)
+      // background, DON'T fetch a Pexels photo — honour the request and let the model invent/abstract.
+      // 2026-08-10: hasSiteIdentity NO LONGER opts out of Pexels. The original reason was that a
+      // RANDOM stock hero would throw away the client's site — but the query is now derived from
+      // the campaign (it was returning empty until the truncation fix, which is what made those
+      // heroes random in the first place), so the fetched photo depicts THIS ad's topic. Keeping
+      // the opt-out meant every site-identity company generated its scene from pure invention, and
+      // invention is what burns fake text/UI into the background: runs 276, 281 and 282 all leaked
+      // words on that path. Grounding in a real photo is the strongest lever we have measured
+      // against burned text. The site and brand posts are NOT lost — the Pexels URL is PREPENDED to
+      // composeCompanyRefs, so they still travel as identity behind it.
+      // Sem cena derivada, NAO busque foto. A foto do Pexels e reproduzida fielmente (castingRef
+      // desligado), entao ela vira o anuncio: assunto, enquadramento e ate a paleta. Buscar a partir
+      // dos fatos crus quando a cena falhou foi o que produziu um muro com trepadeira e uma camera
+      // de vigilancia numa campanha de gestao de redes sociais (run 304), com a cor indo atras da
+      // foto. Sem cena e melhor cair no mundo da propria marca (posts + site), que erra o assunto
+      // mas nao erra a identidade.
+      const skipPexels = explicitBgSource === "creative" || explicitBgSource === "shapes" || !themeScene;
       if (isExternalApi && !heroRef && !hasProductRef && !callerSentBgUrl && !skipPexels) {
         // ALWAYS try to ground the generation in a REAL Pexels photo (no more jobId coin-flip). A
         // real reference scene makes the model REPRODUCE reality instead of INVENTING — the invented
