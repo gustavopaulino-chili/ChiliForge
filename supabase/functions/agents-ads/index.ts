@@ -4227,14 +4227,12 @@ serve(async (req: Request) => {
       // Marks a hero that came from the AUTO-Pexels stock fetch (NOT a caller-chosen reference). A
       // stock full-scene photo must be RE-STAGED creatively in the brand's style (castingRef=true),
       // whereas a caller's own image (Diego) is reproduced faithfully (castingRef=false).
-      // Marks a hero fetched from Pexels rather than sent by the caller. It NO LONGER switches the
-      // prompt into "casting / re-stage" mode (2026-08-10): that made the two paths receive
-      // different source blocks — a caller reference got "FEATURE THIS PERSON", the auto photo got
-      // "RE-STAGE THIS PERSON IN A BRAND-DESIGNED SCENE" — so one path reproduced and the other
-      // reinvented, and no-reference ads never matched the quality of ads with one. The user's own
-      // July test had already concluded this: a Pexels photo treated EXACTLY like a caller
-      // reference_image was the winning configuration. The flag is kept because it still gates the
-      // text-elimination safety net, which needs to know the hero is expendable stock.
+      // Marca um heroi vindo do Pexels em vez de enviado pelo chamador. Ele LIGA o modo casting:
+      // a foto de estoque nao vira o fundo, ela vira ELENCO — o modelo reconstroi a cena no mundo da
+      // marca. Uma foto de banco reproduzida fielmente sai com cara de foto de banco com logo por
+      // cima, e foi isso que o usuario apontou. A referencia enviada pelo CHAMADOR continua sendo
+      // reproduzida fielmente: ele escolheu aquela imagem, entao ela e assunto, nao elenco.
+      // Paridade aqui e de QUALIDADE, nao de tratamento — os dois casos nao tem a mesma origem.
       let pexelsAuto = false;
       const isExternalApi = Boolean(String((campaignData as any).externalApiContract || "").trim());
       const callerSentBgUrl = String(campaignData.backgroundImageUrl || "").startsWith("http");
@@ -4624,7 +4622,7 @@ serve(async (req: Request) => {
           const visualDirection = BACKGROUND_DIRECTIONS[(Number(jobId) || 0) % BACKGROUND_DIRECTIONS.length];
           const taskBrandSpec = specForFormat(brandSpec, task.format);
 
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), /* castingRef: OFF — see note at pexelsAuto */ false, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), /* castingRef: so para o heroi de estoque — ver nota em pexelsAuto */ pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
@@ -4711,7 +4709,7 @@ serve(async (req: Request) => {
           const taskBrandSpec = specForFormat(brandSpec, task.format);
           const layoutHint = userLayout ?? LAYOUT_KEYS[((jobId ?? 0) + taskIndex + ratioIndex) % LAYOUT_KEYS.length];
           const visualDirection = BACKGROUND_DIRECTIONS[((jobId ?? 0) + taskIndex + ratioIndex * 3) % BACKGROUND_DIRECTIONS.length];
-          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), /* castingRef: OFF — see note at pexelsAuto */ false, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg);
+          const bgPrompt = buildBackgroundPrompt(taskBrandSpec, campaignFactsImg, task.format, aspectRatio, layoutHint, visualDirection, Boolean(userLayout), bgSource, bgRefImages.length > 0, visualBriefForPrompt, heroRef, (hasProductRef || refAsSubject), ugcNoRef, (refAsSubject ? "" : themeScene), /* castingRef: so para o heroi de estoque — ver nota em pexelsAuto */ pexelsAuto, brandRefCountInBg > 0, brandPostsAreProxy, hasSiteInBg, siteRefsInBg);
           // maxAttempts:1 + outer 500-retry: a 500 from Gemini means the server rejected the
           // request in ~2s (not a slow hang), so retrying once is safe within the wall-clock
           // budget. A timeout (105s hang) is NOT retried here to avoid 105+105s > 150s.
