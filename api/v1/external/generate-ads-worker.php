@@ -74,7 +74,7 @@ if (!function_exists('ext_force_visual_assets')) {
 }
 
 if (!function_exists('ext_force_minimum_copy')) {
-    function ext_force_minimum_copy(string $html, array $campaignData, int $width = 1080, int $height = 1080): string {
+    function ext_force_minimum_copy(string $html, array $campaignData, int $width = 1080, int $height = 1080, string $fontStack = 'Arial,sans-serif'): string {
         $plain = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')));
         if (mb_strlen($plain) >= 18) return $html;
 
@@ -85,8 +85,8 @@ if (!function_exists('ext_force_minimum_copy')) {
         $ctaSize = $isStrip ? max(10, min(14, (int)round($height * 0.13))) : max(13, min(20, (int)round($height * 0.028)));
         $ctaPadding = $isStrip ? '5px 10px' : '10px 16px';
         $ctaRadius = $isStrip ? '4px' : '12px';
-        $copy = '<div style="position:absolute;left:7%;top:12%;width:72%;z-index:30;color:#fff;font-family:Arial,sans-serif;font-size:' . $headlineSize . 'px;line-height:1.02;font-weight:900;text-shadow:0 3px 12px rgba(0,0,0,.55);">' . $headline . '</div>'
-            . '<div class="ad-cta" style="position:absolute;left:7%;bottom:8%;z-index:40;background:#fff;color:#111;padding:' . $ctaPadding . ';border-radius:' . $ctaRadius . ';font-family:Arial,sans-serif;font-size:' . $ctaSize . 'px;font-weight:800;line-height:1;white-space:nowrap;max-width:44%;">' . $cta . '</div>';
+        $copy = '<div style="position:absolute;left:7%;top:12%;width:72%;z-index:30;color:#fff;font-family:' . $fontStack . ';font-size:' . $headlineSize . 'px;line-height:1.02;font-weight:900;text-shadow:0 3px 12px rgba(0,0,0,.55);">' . $headline . '</div>'
+            . '<div class="ad-cta" style="position:absolute;left:7%;bottom:8%;z-index:40;background:#fff;color:#111;padding:' . $ctaPadding . ';border-radius:' . $ctaRadius . ';font-family:' . $fontStack . ';font-size:' . $ctaSize . 'px;font-weight:800;line-height:1;white-space:nowrap;max-width:44%;">' . $cta . '</div>';
 
         return preg_replace('/(<div\b[^>]*class=["\'][^"\']*\bad-banner\b[^"\']*["\'][^>]*>)/i', '$1' . $copy, $html, 1) ?: $html;
     }
@@ -829,6 +829,15 @@ try {
                     $fmtH     = (int)($fmt['height'] ?? ($banner['height'] ?? 1080));
                     $sortOrd  = count($allCreatives);
                     $bannerHtml = (string)($banner['html'] ?? '');
+                    // Image ads: the overlay HTML comes from the engine, so it never passed
+                    // through ext_force_minimum_copy. Inject the brand font here too, otherwise
+                    // the feature would only ever show up on the HTML generation type. Both
+                    // renderers benefit — Browserless reads the <link>, and the GD compositor
+                    // parses the same URL to download the TTF.
+                    $composeFont = ext_resolve_brand_font($campaignFormData, $companyFormData);
+                    if ($composeFont !== '') {
+                        $bannerHtml = ext_inject_font_head($bannerHtml, $composeFont);
+                    }
                     if (trim($bannerHtml) === '') continue;
 
                     agents_reconnect_mysqli_if_needed($conn);
@@ -860,6 +869,9 @@ try {
                     // debug:true → persist the final image prompt + aspectRatio + refs
                     // returned by the engine into ads_creatives.metadata (surfaced by job-status).
                     if (!empty($banner['debug'])) {
+                        // Which family actually made it into the HTML. Without this there is no
+                        // way to tell a working font from a silent fallback by looking at the job.
+                        $banner['debug']['fontApplied'] = $composeFont !== '' ? $composeFont : 'Arial (fallback)';
                         $metaJson = json_encode(['debug' => $banner['debug']], JSON_UNESCAPED_UNICODE);
                         agents_reconnect_mysqli_if_needed($conn);
                         $updMeta = $conn->prepare("UPDATE ads_creatives SET metadata = ? WHERE id = ?");
@@ -982,7 +994,18 @@ try {
                 $sortOrd  = count($allCreatives);
                 $snippetHtml = (string)$snippetHtml;
                 $snippetHtml = ext_force_visual_assets($snippetHtml, $campaignFormData);
-                $snippetHtml = ext_force_minimum_copy($snippetHtml, $campaignFormData, $fmtW, $fmtH);
+                // Brand font: resolved once here (campaign override -> company payload -> the family
+                // company-assets.php persisted). Empty resolves to Arial, which is also the CSS
+                // fallback, so a family that fails to load never costs us the ad.
+                $brandFont = ext_resolve_brand_font($campaignFormData, $companyFormData);
+                $snippetHtml = ext_force_minimum_copy($snippetHtml, $campaignFormData, $fmtW, $fmtH, ext_font_css_stack($brandFont));
+                // The <link> has to travel with the HTML or headless Chrome renders the fallback.
+                // It is also how the GD renderer learns the family — extgd_compose parses it back
+                // out of this exact googleapis URL.
+                $snippetHtml = ext_inject_font_head($snippetHtml, $brandFont);
+                if ($brandFont === '') {
+                    error_log('[ext_font] no usable brand font — falling back to Arial');
+                }
 
                 agents_reconnect_mysqli_if_needed($conn);
                 $insC = $conn->prepare(

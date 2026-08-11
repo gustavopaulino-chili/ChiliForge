@@ -61,6 +61,12 @@ if (!function_exists('browserless_render_html_to_jpeg')) {
             ],
             'viewport'    => ['width' => $width, 'height' => $height, 'deviceScaleFactor' => 1],
             'gotoOptions' => ['waitUntil' => 'networkidle2', 'timeout' => 25000],
+            // networkidle2 waits for the font FILE, not for the browser to finish applying it —
+            // so a brand font could arrive a beat late and the shot would catch Arial instead.
+            // document.fonts.ready is the explicit signal that every declared face is usable.
+            // Bounded and non-fatal: if it times out Browserless still shoots, and a banner in
+            // the fallback font is far better than a generation that fails.
+            'waitForFunction' => ['fn' => 'document.fonts.ready.then(() => true)', 'timeout' => 5000],
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         if ($payload === false) return false;

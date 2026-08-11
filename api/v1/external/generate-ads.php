@@ -186,7 +186,9 @@ function ext_map_company(array $c): array {
         'accentColor'         => $str('accent_color'),
         'backgroundColor'     => $str('background_color'),
         'textColor'           => $str('text_color'),
-        'headingFont'         => $str('heading_font'),
+        // font_family is what Fullstop sends (detected from the client's website); heading_font
+        // is the older name. Same slot either way — the generation reads headingFont.
+        'headingFont'         => ($str('heading_font') !== '' ? $str('heading_font') : $str('font_family')),
         'bodyFont'            => $str('body_font'),
         'sourceWebsite'       => $str('website'),
         'services'            => $arr('services'),
@@ -241,6 +243,9 @@ function ext_map_campaign(array $cam, array $formats): array {
         // Sets bgSource='inspired' so the model can creatively interpret it, not just copy it.
         'referenceImageUrl'     => $first(['reference_image', 'reference_image_url', 'creative_reference', 'inspiration_image']),
         'preferredStyle'        => $str('preferred_style'),
+        // Per-generation font override. Without this mapping the field was accepted by the
+        // endpoint and then silently dropped, so sending it did nothing.
+        'fontFamily'            => $first(['font_family', 'font', 'typeface']),
         'preferredLogoStrategy' => $str('logo_strategy'),
         // Logo corner: explicit logo_position, or parsed from the logo_strategy text.
         'logoPosition'          => (function () use ($cam) {
@@ -516,7 +521,7 @@ function ext_force_visual_assets(string $html, array $campaignData): string {
     return preg_replace('/(<div\b[^>]*class=["\'][^"\']*\bad-banner\b[^"\']*["\'][^>]*>)/i', '$1' . $img, $html, 1) ?: $html;
 }
 
-function ext_force_minimum_copy(string $html, array $campaignData, int $width = 1080, int $height = 1080): string {
+function ext_force_minimum_copy(string $html, array $campaignData, int $width = 1080, int $height = 1080, string $fontStack = 'Arial,sans-serif'): string {
     $plain = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')));
     if (mb_strlen($plain) >= 18) return $html;
 
@@ -527,8 +532,8 @@ function ext_force_minimum_copy(string $html, array $campaignData, int $width = 
     $ctaSize = $isStrip ? max(10, min(14, (int)round($height * 0.13))) : max(13, min(20, (int)round($height * 0.028)));
     $ctaPadding = $isStrip ? '5px 10px' : '10px 16px';
     $ctaRadius = $isStrip ? '4px' : '12px';
-    $copy = '<div style="position:absolute;left:7%;top:12%;width:72%;z-index:30;color:#fff;font-family:Arial,sans-serif;font-size:' . $headlineSize . 'px;line-height:1.02;font-weight:900;text-shadow:0 3px 12px rgba(0,0,0,.55);">' . $headline . '</div>'
-        . '<div class="ad-cta" style="position:absolute;left:7%;bottom:8%;z-index:40;background:#fff;color:#111;padding:' . $ctaPadding . ';border-radius:' . $ctaRadius . ';font-family:Arial,sans-serif;font-size:' . $ctaSize . 'px;font-weight:800;line-height:1;white-space:nowrap;max-width:44%;">' . $cta . '</div>';
+    $copy = '<div style="position:absolute;left:7%;top:12%;width:72%;z-index:30;color:#fff;font-family:' . $fontStack . ';font-size:' . $headlineSize . 'px;line-height:1.02;font-weight:900;text-shadow:0 3px 12px rgba(0,0,0,.55);">' . $headline . '</div>'
+        . '<div class="ad-cta" style="position:absolute;left:7%;bottom:8%;z-index:40;background:#fff;color:#111;padding:' . $ctaPadding . ';border-radius:' . $ctaRadius . ';font-family:' . $fontStack . ';font-size:' . $ctaSize . 'px;font-weight:800;line-height:1;white-space:nowrap;max-width:44%;">' . $cta . '</div>';
 
     return preg_replace('/(<div\b[^>]*class=["\'][^"\']*\bad-banner\b[^"\']*["\'][^>]*>)/i', '$1' . $copy, $html, 1) ?: $html;
 }
@@ -1476,7 +1481,18 @@ try {
                 $sortOrd  = count($allCreatives);
                 $snippetHtml = (string)$snippetHtml;
                 $snippetHtml = ext_force_visual_assets($snippetHtml, $campaignFormData);
-                $snippetHtml = ext_force_minimum_copy($snippetHtml, $campaignFormData, $fmtW, $fmtH);
+                // Brand font: resolved once here (campaign override -> company payload -> the family
+                // company-assets.php persisted). Empty resolves to Arial, which is also the CSS
+                // fallback, so a family that fails to load never costs us the ad.
+                $brandFont = ext_resolve_brand_font($campaignFormData, $companyFormData);
+                $snippetHtml = ext_force_minimum_copy($snippetHtml, $campaignFormData, $fmtW, $fmtH, ext_font_css_stack($brandFont));
+                // The <link> has to travel with the HTML or headless Chrome renders the fallback.
+                // It is also how the GD renderer learns the family — extgd_compose parses it back
+                // out of this exact googleapis URL.
+                $snippetHtml = ext_inject_font_head($snippetHtml, $brandFont);
+                if ($brandFont === '') {
+                    error_log('[ext_font] no usable brand font — falling back to Arial');
+                }
 
                 agents_reconnect_mysqli_if_needed($conn);
                 $insC = $conn->prepare(

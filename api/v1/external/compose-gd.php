@@ -14,6 +14,94 @@
  *     $fmt ['width','height'] — fallback dimensions if the HTML omits them.
  */
 
+/* ── Brand font for ad copy ────────────────────────────────────────────────────
+ * The family is detected from the client's website by Fullstop and persisted by
+ * company-assets.php into company_form_data['headingFont']. These three helpers are the
+ * ONLY place that decides which family to use, sanitises it, and turns it into markup —
+ * generate-ads.php and generate-ads-worker.php both include this file and call them, so
+ * the two duplicated overlay builders cannot drift apart.
+ */
+
+if (!function_exists('ext_sanitize_font_family')) {
+    /**
+     * The name comes from a third-party website read by a script, and it is interpolated into
+     * both an HTML attribute and a URL — so it is untrusted input on two fronts. Google Fonts
+     * families are letters, digits and spaces, nothing else; anything richer than that is
+     * either not a Google family or an injection attempt. Returns '' when it does not pass,
+     * and '' always means "use Arial".
+     */
+    function ext_sanitize_font_family($raw): string {
+        $s = trim((string) $raw);
+        if ($s === '') return '';
+        if (mb_strlen($s) > 60) return '';
+        if (!preg_match('/^[A-Za-z0-9 ]+$/', $s)) return '';
+        $s = trim(preg_replace('/\s+/', ' ', $s));
+        // A bare number is never a family name and would produce a nonsense Google Fonts URL.
+        if ($s === '' || preg_match('/^[0-9 ]+$/', $s)) return '';
+        return $s;
+    }
+}
+
+if (!function_exists('ext_resolve_brand_font')) {
+    /**
+     * Precedence: per-generation override → company payload → what company-assets.php already
+     * persisted. The third case is the one that happens in practice: the font is registered
+     * once alongside the logo and every later generation reads it from the stored company data,
+     * exactly like the logo does. Missing everywhere → '' → Arial.
+     */
+    function ext_resolve_brand_font(array $campaignData = [], array $companyData = []): string {
+        $candidates = [
+            $campaignData['fontFamily'] ?? '',
+            $companyData['fontFamily']  ?? '',
+            $companyData['headingFont'] ?? '',
+        ];
+        foreach ($candidates as $c) {
+            $clean = ext_sanitize_font_family($c);
+            if ($clean !== '') return $clean;
+        }
+        return '';
+    }
+}
+
+if (!function_exists('ext_font_css_stack')) {
+    // Arial always stays as the fallback: if the family fails to load for any reason the ad
+    // still renders with legible copy instead of a default serif or, worse, nothing.
+    function ext_font_css_stack(string $family): string {
+        $clean = ext_sanitize_font_family($family);
+        if ($clean === '') return 'Arial,sans-serif';
+        return "'" . $clean . "',Arial,sans-serif";
+    }
+}
+
+if (!function_exists('ext_font_head_links')) {
+    /**
+     * Without this the browser renders the fallback and the whole feature is invisible.
+     * It doubles as the signal for the GD path: extgd_compose parses the family straight out
+     * of this googleapis URL, so injecting the link is all the GD renderer needs too.
+     */
+    function ext_font_head_links(string $family): string {
+        $clean = ext_sanitize_font_family($family);
+        if ($clean === '') return '';
+        $href = 'https://fonts.googleapis.com/css2?family=' . rawurlencode($clean) . ':wght@400;700;800;900&display=swap';
+        return '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+            . '<link href="' . htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" rel="stylesheet">';
+    }
+}
+
+if (!function_exists('ext_inject_font_head')) {
+    // Prepends the font links to a banner snippet, once. Safe to call on any HTML: a fragment
+    // gets them at the top, a full document gets them inside <head>.
+    function ext_inject_font_head(string $html, string $family): string {
+        $links = ext_font_head_links($family);
+        if ($links === '' || $html === '') return $html;
+        if (stripos($html, 'fonts.googleapis.com') !== false) return $html; // already carries a family
+        if (preg_match('/<head\b[^>]*>/i', $html, $m)) {
+            return preg_replace('/(<head\b[^>]*>)/i', '$1' . $links, $html, 1) ?: $html;
+        }
+        return $links . $html;
+    }
+}
+
 if (!function_exists('extgd_font_override_store')) {
     // Stores a custom font family (downloaded from Google Fonts) for the current request.
     // Call with an array to set; call with no args to read.
