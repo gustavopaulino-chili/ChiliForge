@@ -2705,12 +2705,6 @@ function buildBackgroundPrompt(
   // reference person, when heroRef) is put INTO a scene that matches THIS ad's theme, instead
   // of defaulting to the same content-creator / ring-light scene for every campaign.
   const scene = String(themeScene || "").trim();
-  // Mesmo canto que o compositor escolhe depois. As duas decisoes precisam concordar, senao o
-  // modelo limpa um canto e nos ancoramos noutro.
-  const logoCornerName = (() => {
-    const l = String(layoutKey || "").toLowerCase();
-    return (l.includes("top") || l.includes("headline-first") || l.includes("editorial")) ? "bottom-right" : "top-right";
-  })();
 
   // ── SHORT PATH: reference mode with actual reference images ─────────────
   // When the caller sent reference images to match, the model needs a SHORT focused prompt —
@@ -3093,12 +3087,6 @@ function buildBackgroundPrompt(
     "WITHIN the text zone: keep it calm, clean and low-contrast so the white overlay text stays perfectly legible. OUTSIDE it: the hero subject, sharp and well-lit, against simple, uncluttered surroundings.",
     "",
     "████ TEXT-SAFE ZONE — KEEP IT CLEAN, DRAW NOTHING HERE ████",
-    // O canto do logo era descrito de forma ABSTRATA ("deixe o canto do logo limpo") e o modelo
-    // nao sabia qual era — entao reservava um canto qualquer e, pior, as vezes DESENHAVA a marca
-    // no canto que julgava ser "o do logo": o job 414 saiu com um "Chili" desenhado colado no
-    // logo real. Nomear o canto transforma uma proibicao abstrata numa instrucao ESPACIAL, que e
-    // o tipo que esse modelo obedece — a zona de texto ja funciona assim.
-    `████ RESERVED LOGO CORNER: ${logoCornerName.toUpperCase()} ████ That exact corner must be EMPTY — flat, calm, uncluttered surface, no object, no pattern, no mark, and above all NO logo or wordmark of any kind. Our real logo is composited there afterwards, so anything you place in that corner ends up buried under it or duplicated beside it.`,
     "The logo and copy are composited ON TOP afterwards in a separate layer — you do NOT draw them. Simply leave the logo corner and the main text zone as calm, low-contrast, uncluttered negative space (see the reserved-zone guidance below). ⛔ Do NOT render any positioning/CSS jargon, bracketed coordinates, or percentage/measurement values as pixels — those are instructions, never content.",
     "⚠️ DOUBLE-TEXT/LOGO WARNING: If you draw ANY text, slogan, wordmark, logo or UI inside those zones, the final ad shows it TWICE and looks broken. Those zones MUST stay completely TEXT-FREE and LOGO-FREE.",
     `In the text-block zone: ${spaceGuide}`,
