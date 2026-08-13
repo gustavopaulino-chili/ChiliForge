@@ -931,7 +931,10 @@ async function buildOverlayHtmlFromGemini(
     // branco. So' age quando a tinta e' BRANCA e so' no proprio scrim (z-index:1); blocos de
     // texto e chips ficam intactos.
     const enforceScrimFloor = (h: string): string => {
-      if (inkOnLight) return h;
+      // Olha o HTML PRONTO, nao o tom global. A tinta e decidida POR FAIXA: uma peca pode ter tom
+      // global "claro" e mesmo assim um bloco branco numa faixa escura — foi assim que o run 419
+      // saiu com tinta branca e scrim 0.45, abaixo do piso, sem o reforco disparar.
+      if (!/colors*:s*(#ffffff|#fff)/i.test(h)) return h;
       const FLOOR = 0.55;
       let changed = 0;
       const out = h.replace(/style="([^"]*z-index\s*:\s*1\b[^"]*)"/gi, (full: string, style: string) => {
@@ -4576,7 +4579,12 @@ serve(async (req: Request) => {
         // Bumped 4→5 so the model has 4 brand-post examples to judge whether the brand uses design
         // assets and, if so, mirror their exact devices + colours (results were too generic / weak
         // on brand identity with only 3).
-        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, 5);
+        // TETO DE REFERENCIAS. 5 imagens (heroi + site + 3 posts) e o que a identidade quer, mas
+        // cada uma vive em base64 na memoria do worker junto com a imagem gerada. Depois que o
+        // heroi do Pexels passou a ser buscado tambem para companies com site, apareceram 546
+        // WORKER_RESOURCE_LIMIT. Com heroi automatico o teto cai para 4 — perde-se um post de
+        // marca, ganha-se o anuncio existir. Sem heroi automatico segue 5.
+        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, pexelsAuto ? 4 : 5);
         brandRefCountInBg = Math.min(companyRefImages.length, bgRefImages.length);
       }
 
