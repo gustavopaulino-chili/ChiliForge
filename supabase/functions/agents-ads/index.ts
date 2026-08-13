@@ -427,41 +427,76 @@ Answer ONLY with the single word "ok" (layout works) or "fix" (clear problem fou
 // keeps failing intermittently — this parses the actual HTML and, if the logo's anchor (top or
 // bottom) matches any z-index:25/26 group's anchor, flips the logo to the OPPOSITE band. Cheap,
 // deterministic, and doesn't depend on the model's spatial reasoning being right every time.
+// Mantem a logo LONGE do texto — por geometria, nao por faixa. A versao anterior so' comparava
+// topo/rodape: dava falso positivo quando logo e CTA estavam lado a lado no mesmo rodape (e jogava
+// a logo para cima sem necessidade) e falso NEGATIVO quando o bloco de texto atravessava a largura
+// inteira, que e' justamente o caso em que a logo acaba embaixo do texto. Agora calcula as caixas
+// e so' move quando elas realmente se sobrepoem; ao mover, tenta primeiro o outro canto da MESMA
+// faixa, que e' menos disruptivo que trocar de faixa.
+function overlayBoxOf(style: string): { band: "top" | "bottom"; x0: number; x1: number; y0: number; y1: number; top: number | null; bottom: number | null; left: number | null; right: number | null } | null {
+  const num = (re: RegExp): number | null => { const m = style.match(re); return m ? parseFloat(m[1]) : null; };
+  const top = num(/(?:^|;)\s*top\s*:\s*([\d.]+)%/);
+  const bottom = num(/(?:^|;)\s*bottom\s*:\s*([\d.]+)%/);
+  const left = num(/(?:^|;)\s*left\s*:\s*([\d.]+)%/);
+  const right = num(/(?:^|;)\s*right\s*:\s*([\d.]+)%/);
+  const width = num(/(?:^|;)\s*width\s*:\s*([\d.]+)%/);
+  const maxH = num(/(?:^|;)\s*max-height\s*:\s*([\d.]+)%/);
+  if (top === null && bottom === null) return null;
+  const band: "top" | "bottom" = top !== null ? "top" : "bottom";
+  let x0: number, x1: number;
+  if (left !== null && right !== null) { x0 = left; x1 = 100 - right; }
+  else if (left !== null) { x0 = left; x1 = width !== null ? left + width : 100; }
+  else if (right !== null) { x1 = 100 - right; x0 = width !== null ? x1 - width : 0; }
+  else { x0 = 0; x1 = 100; }
+  // Altura do bloco de texto e' desconhecida sem renderizar; 14% e' uma aproximacao conservadora
+  // (headline de 2 linhas), que erra para o lado de detectar colisao em vez de ignorar.
+  const h = maxH !== null ? maxH : 14;
+  const y0 = band === "top" ? (top as number) : 100 - (bottom as number) - h;
+  return { band, x0, x1, y0, y1: y0 + h, top, bottom, left, right };
+}
+
 function enforceLogoOppositeBand(html: string, logoUrl: string): string {
   if (!logoUrl) return html;
-  const escapedUrl = logoUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // NOTE: style attributes are always double-quoted by this codebase's HTML generator, but often
-  // contain single-quoted values INSIDE them (e.g. font-family:'Raleway'). A char class of
-  // [^"'] would stop at that embedded single quote and truncate the match — so these regexes
-  // must delimit on " specifically and exclude only " (not ') from the captured content.
+  // contain single-quoted values INSIDE them (e.g. font-family:'Raleway') — so the char class must
+  // exclude only the double quote.
+  const escapedUrl = logoUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const imgRe = new RegExp(`(<img[^>]*src="${escapedUrl}"[^>]*style=")([^"]*)("[^>]*>)`, "i");
   const imgMatch = html.match(imgRe);
   if (!imgMatch) return html;
   const logoStyle = imgMatch[2];
-  const logoTop = logoStyle.match(/(?:^|;)\s*top\s*:\s*([\d.]+)%/);
-  const logoBottom = logoStyle.match(/(?:^|;)\s*bottom\s*:\s*([\d.]+)%/);
-  if (!logoTop && !logoBottom) return html; // can't determine anchor — leave as-is
-  const logoBand: "top" | "bottom" = logoTop ? "top" : "bottom";
+  const logo = overlayBoxOf(logoStyle);
+  if (!logo) return html;
 
-  const groupRe = /<div\b[^>]*style="([^"]*z-index\s*:\s*2[56][^"]*)"[^>]*>/gi;
-  let m: RegExpExecArray | null;
-  let conflict = false;
-  while ((m = groupRe.exec(html))) {
-    const gs = m[1];
-    const hasTop = /(?:^|;)\s*top\s*:\s*[\d.]+%/.test(gs);
-    const hasBottom = /(?:^|;)\s*bottom\s*:\s*[\d.]+%/.test(gs);
-    if ((logoBand === "top" && hasTop) || (logoBand === "bottom" && hasBottom)) { conflict = true; break; }
+  const groups = [...html.matchAll(/<div\b[^>]*style="([^"]*)"[^>]*>/gi)]
+    .map((m) => m[1])
+    .filter((st) => /position\s*:\s*absolute/.test(st) && !/z-index\s*:\s*1\b/.test(st) && /(top|bottom)\s*:\s*[\d.]+%/.test(st))
+    .map(overlayBoxOf)
+    .filter((b): b is NonNullable<ReturnType<typeof overlayBoxOf>> => b !== null);
+
+  const hits = (cand: { x0: number; x1: number; y0: number; y1: number }) =>
+    groups.some((g) => cand.x0 < g.x1 - 2 && g.x0 < cand.x1 - 2 && cand.y0 < g.y1 - 2 && g.y0 < cand.y1 - 2);
+
+  if (!hits(logo)) return html;
+
+  const logoW = logo.x1 - logo.x0;
+  const flipH = { ...logo };
+  if (logo.left !== null) { flipH.x1 = 100 - logo.left; flipH.x0 = flipH.x1 - logoW; }
+  else { flipH.x0 = logo.right ?? 6; flipH.x1 = flipH.x0 + logoW; }
+  if (!hits(flipH)) {
+    const moved = logo.left !== null
+      ? logoStyle.replace(/(?:^|;)\s*left\s*:\s*[\d.]+%/, (mm) => (mm.startsWith(";") ? ";right:" : "right:") + logo.left + "%")
+      : logoStyle.replace(/(?:^|;)\s*right\s*:\s*[\d.]+%/, (mm) => (mm.startsWith(";") ? ";left:" : "left:") + logo.right + "%");
+    console.log(`[overlay-html] logo colidia com o texto → movida para o outro canto da mesma faixa`);
+    return html.replace(imgRe, `$1${moved}$3`);
   }
-  if (!conflict) return html;
 
-  const offset = (logoBand === "top" ? logoTop![1] : logoBottom![1]);
-  const newBand = logoBand === "top" ? "bottom" : "top";
-  const newLogoStyle = logoStyle.replace(
-    logoBand === "top" ? /(?:^|;)\s*top\s*:\s*[\d.]+%/ : /(?:^|;)\s*bottom\s*:\s*[\d.]+%/,
-    (mm) => (mm.startsWith(";") ? `;${newBand}:${offset}%` : `${newBand}:${offset}%`)
-  );
-  console.log(`[overlay-html] logo band conflict detected → flipped logo to ${newBand}`);
-  return html.replace(imgRe, `$1${newLogoStyle}$3`);
+  const off = logo.band === "top" ? logo.top : logo.bottom;
+  const moved = logo.band === "top"
+    ? logoStyle.replace(/(?:^|;)\s*top\s*:\s*[\d.]+%/, (mm) => (mm.startsWith(";") ? ";bottom:" : "bottom:") + off + "%")
+    : logoStyle.replace(/(?:^|;)\s*bottom\s*:\s*[\d.]+%/, (mm) => (mm.startsWith(";") ? ";top:" : "top:") + off + "%");
+  console.log(`[overlay-html] logo colidia com o texto nos dois cantos → trocada de faixa`);
+  return html.replace(imgRe, `$1${moved}$3`);
 }
 
 // Deterministic safety net for a second recurring bug: despite the "emit EXACTLY ONE logo
