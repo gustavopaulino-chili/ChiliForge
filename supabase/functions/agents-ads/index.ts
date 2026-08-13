@@ -281,7 +281,13 @@ function parseComposeTextRec(text: string): ComposeTextRec | null {
 // NAO roda em toda geracao: o gate por-geracao logo abaixo o restringe as que trazem posts de
 // marca anexados, que e' a condicao em que o defeito aparece (legenda de post tracada para o
 // fundo). Nas demais o custo continua zero.
-const VALIDATE_BACKGROUND = true;  // background text detection + retry (ver gate por-geracao)
+// DESLIGADO DE NOVO em 2026-08-10, poucos minutos depois de religar: apareceram 546
+// WORKER_RESOURCE_LIMIT em jobs isolados (nao so em paralelo). O detector decodifica a imagem
+// inteira em base64 e faz mais uma chamada de visao, num caminho que hoje ja soma 7-8 chamadas
+// por anuncio. Anuncio que NAO SAI e pior que anuncio com texto queimado, entao ele volta a
+// ficar desligado ate a folga de recursos ser medida. O diagnostico bgValidate no debug FICA:
+// quando religar, da para saber se rodou em vez de deduzir pelo silencio.
+const VALIDATE_BACKGROUND = false;  // background text detection + retry (ver gate por-geracao)
 const CRITIQUE_OVERLAY    = true;  // Flash self-reviews its overlay and retries once if poor
 
 // Appended to the bg prompt when a regeneration is triggered because the first attempt leaked
@@ -436,13 +442,16 @@ Answer ONLY with the single word "ok" (layout works) or "fix" (clear problem fou
 // keeps failing intermittently — this parses the actual HTML and, if the logo's anchor (top or
 // bottom) matches any z-index:25/26 group's anchor, flips the logo to the OPPOSITE band. Cheap,
 // deterministic, and doesn't depend on the model's spatial reasoning being right every time.
-// Mantem a logo LONGE do texto — por geometria, nao por faixa. A versao anterior so' comparava
-// topo/rodape: dava falso positivo quando logo e CTA estavam lado a lado no mesmo rodape (e jogava
-// a logo para cima sem necessidade) e falso NEGATIVO quando o bloco de texto atravessava a largura
-// inteira, que e' justamente o caso em que a logo acaba embaixo do texto. Agora calcula as caixas
-// e so' move quando elas realmente se sobrepoem; ao mover, tenta primeiro o outro canto da MESMA
-// faixa, que e' menos disruptivo que trocar de faixa.
-function overlayBoxOf(style: string): { band: "top" | "bottom"; x0: number; x1: number; y0: number; y1: number; top: number | null; bottom: number | null; left: number | null; right: number | null } | null {
+// ANCORA a logo num canto livre, em vez de "detectar colisao e mover".
+// O job 413 saiu com o CTA escrito POR CIMA da logo mesmo com a deteccao de colisao instalada:
+// mover depende de casar a tag, ler as caixas e acertar o destino; ancorar depende so' de saber
+// onde o texto esta. Menos coisas para dar errado, e o resultado e' o mesmo quando tudo funciona.
+//
+// Duas correcoes que os testes pegaram antes do deploy: (1) um bloco ancorado so' pela esquerda
+// NAO ocupa a largura inteira — assumir isso fazia todos os cantos parecerem ocupados; (2) quando
+// nenhum canto esta realmente livre (texto no topo E no rodape), escolhe o de MENOR sobreposicao
+// em vez do primeiro da lista, que era exatamente como a logo ia parar em cima do CTA.
+function overlayBoxOf(style: string): { x0: number; x1: number; y0: number; y1: number } | null {
   const num = (re: RegExp): number | null => { const m = style.match(re); return m ? parseFloat(m[1]) : null; };
   const top = num(/(?:^|;)\s*top\s*:\s*([\d.]+)%/);
   const bottom = num(/(?:^|;)\s*bottom\s*:\s*([\d.]+)%/);
@@ -451,17 +460,14 @@ function overlayBoxOf(style: string): { band: "top" | "bottom"; x0: number; x1: 
   const width = num(/(?:^|;)\s*width\s*:\s*([\d.]+)%/);
   const maxH = num(/(?:^|;)\s*max-height\s*:\s*([\d.]+)%/);
   if (top === null && bottom === null) return null;
-  const band: "top" | "bottom" = top !== null ? "top" : "bottom";
+  const h = maxH !== null ? maxH : 16;
+  const y0 = top !== null ? top : 100 - (bottom as number) - h;
   let x0: number, x1: number;
   if (left !== null && right !== null) { x0 = left; x1 = 100 - right; }
-  else if (left !== null) { x0 = left; x1 = width !== null ? left + width : 100; }
+  else if (left !== null) { x0 = left; x1 = width !== null ? left + width : Math.min(100, left + 55); }
   else if (right !== null) { x1 = 100 - right; x0 = width !== null ? x1 - width : 0; }
   else { x0 = 0; x1 = 100; }
-  // Altura do bloco de texto e' desconhecida sem renderizar; 14% e' uma aproximacao conservadora
-  // (headline de 2 linhas), que erra para o lado de detectar colisao em vez de ignorar.
-  const h = maxH !== null ? maxH : 14;
-  const y0 = band === "top" ? (top as number) : 100 - (bottom as number) - h;
-  return { band, x0, x1, y0, y1: y0 + h, top, bottom, left, right };
+  return { x0, x1, y0, y1: y0 + h };
 }
 
 function enforceLogoOppositeBand(html: string, logoUrl: string): string {
@@ -471,41 +477,35 @@ function enforceLogoOppositeBand(html: string, logoUrl: string): string {
   // exclude only the double quote.
   const escapedUrl = logoUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const imgRe = new RegExp(`(<img[^>]*src="${escapedUrl}"[^>]*style=")([^"]*)("[^>]*>)`, "i");
-  const imgMatch = html.match(imgRe);
-  if (!imgMatch) return html;
-  const logoStyle = imgMatch[2];
-  const logo = overlayBoxOf(logoStyle);
-  if (!logo) return html;
+  const im = html.match(imgRe);
+  if (!im) { console.warn("[overlay-html] logo <img> nao casou o padrao — posicao mantida"); return html; }
+  const style = im[2];
+  const W = parseFloat((style.match(/(?:^|;)\s*width\s*:\s*([\d.]+)%/) || [, "20"])[1] as string);
+  const H = parseFloat((style.match(/(?:^|;)\s*max-height\s*:\s*([\d.]+)%/) || [, "10"])[1] as string);
 
-  const groups = [...html.matchAll(/<div\b[^>]*style="([^"]*)"[^>]*>/gi)]
+  const texts = [...html.matchAll(/<div\b[^>]*style="([^"]*)"[^>]*>/gi)]
     .map((m) => m[1])
     .filter((st) => /position\s*:\s*absolute/.test(st) && !/z-index\s*:\s*1\b/.test(st) && /(top|bottom)\s*:\s*[\d.]+%/.test(st))
     .map(overlayBoxOf)
     .filter((b): b is NonNullable<ReturnType<typeof overlayBoxOf>> => b !== null);
 
-  const hits = (cand: { x0: number; x1: number; y0: number; y1: number }) =>
-    groups.some((g) => cand.x0 < g.x1 - 2 && g.x0 < cand.x1 - 2 && cand.y0 < g.y1 - 2 && g.y0 < cand.y1 - 2);
+  const corners = [
+    { css: "bottom:5%;right:5%", box: { x0: 95 - W, x1: 95, y0: 95 - H, y1: 95 } },
+    { css: "top:5%;right:5%",    box: { x0: 95 - W, x1: 95, y0: 5, y1: 5 + H } },
+    { css: "top:5%;left:5%",     box: { x0: 5, x1: 5 + W, y0: 5, y1: 5 + H } },
+    { css: "bottom:5%;left:5%",  box: { x0: 5, x1: 5 + W, y0: 95 - H, y1: 95 } },
+  ];
+  const area = (a: { x0: number; x1: number; y0: number; y1: number }, b: { x0: number; x1: number; y0: number; y1: number }) =>
+    Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+  const cost = (c: typeof corners[number]) => texts.reduce((acc, t) => acc + area(c.box, t), 0);
+  const chosen = corners.slice().sort((a, b) => cost(a) - cost(b))[0];
 
-  if (!hits(logo)) return html;
-
-  const logoW = logo.x1 - logo.x0;
-  const flipH = { ...logo };
-  if (logo.left !== null) { flipH.x1 = 100 - logo.left; flipH.x0 = flipH.x1 - logoW; }
-  else { flipH.x0 = logo.right ?? 6; flipH.x1 = flipH.x0 + logoW; }
-  if (!hits(flipH)) {
-    const moved = logo.left !== null
-      ? logoStyle.replace(/(?:^|;)\s*left\s*:\s*[\d.]+%/, (mm) => (mm.startsWith(";") ? ";right:" : "right:") + logo.left + "%")
-      : logoStyle.replace(/(?:^|;)\s*right\s*:\s*[\d.]+%/, (mm) => (mm.startsWith(";") ? ";left:" : "left:") + logo.right + "%");
-    console.log(`[overlay-html] logo colidia com o texto → movida para o outro canto da mesma faixa`);
-    return html.replace(imgRe, `$1${moved}$3`);
-  }
-
-  const off = logo.band === "top" ? logo.top : logo.bottom;
-  const moved = logo.band === "top"
-    ? logoStyle.replace(/(?:^|;)\s*top\s*:\s*[\d.]+%/, (mm) => (mm.startsWith(";") ? ";bottom:" : "bottom:") + off + "%")
-    : logoStyle.replace(/(?:^|;)\s*bottom\s*:\s*[\d.]+%/, (mm) => (mm.startsWith(";") ? ";top:" : "top:") + off + "%");
-  console.log(`[overlay-html] logo colidia com o texto nos dois cantos → trocada de faixa`);
-  return html.replace(imgRe, `$1${moved}$3`);
+  const withoutPos = style
+    .replace(/(?:^|;)\s*(top|bottom|left|right)\s*:\s*[\d.]+%/g, "")
+    .replace(/;;+/g, ";").replace(/^;|;$/g, "");
+  const next = "position:absolute;" + chosen.css + ";" + withoutPos.replace(/^position\s*:\s*absolute;?/, "");
+  console.log(`[overlay-html] logo ancorada em ${chosen.css} (sobreposicao ${cost(chosen).toFixed(1)})`);
+  return html.replace(imgRe, `$1${next}$3`);
 }
 
 // Deterministic safety net for a second recurring bug: despite the "emit EXACTLY ONE logo
