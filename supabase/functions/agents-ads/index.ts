@@ -685,9 +685,12 @@ async function buildOverlayHtmlFromGemini(
   // the scrim flip together. Flipping only one of them would be worse than not flipping at all.
   const inkOnLight = opts.calmTone === "light";
   const INK_HEX    = inkOnLight ? "#101317" : "#ffffff";
+  // A sombra da tinta branca precisa funcionar sobre fundo CLARO tambem: as duas primeiras
+  // camadas sao difusas (profundidade sobre foto), a terceira e' um contorno curto e opaco que
+  // segura a letra quando o fundo por baixo e' quase branco — o caso que o usuario reportou.
   const INK_SHADOW = inkOnLight
     ? "0 1px 2px rgba(255,255,255,0.55)"
-    : "0 2px 10px rgba(0,0,0,0.65),0 1px 3px rgba(0,0,0,0.45)";
+    : "0 2px 10px rgba(0,0,0,0.65),0 1px 3px rgba(0,0,0,0.45),0 0 2px rgba(0,0,0,0.85)";
   const SCRIM_RGB  = inkOnLight ? "255,255,255" : "0,0,0";
   // POR ELEMENTO, NAO POR PECA. O veredito de tom vale para a regiao calma escolhida, mas o
   // overlay nao fica todo nela: no run 392 a headline ficou no topo claro e o CTA foi para o
@@ -731,7 +734,7 @@ async function buildOverlayHtmlFromGemini(
     "   b. Identify all calm/low-contrast zones available for text.",
     "   c. DECIDE: is there usable calm space BOTH ABOVE AND BELOW the hero → use OPTION A (SPLIT). Otherwise → use OPTION B (SINGLE ZONE).",
     "",
-    `2. Scrim: a LIGHT ${inkOnLight ? "WHITE" : "dark"} gradient covering ALL text zone(s). rgba(${SCRIM_RGB},0.30–0.45) max. Background must remain visible.${inkOnLight ? " It lifts the bright area so the dark copy separates from it — never a dark scrim under dark text." : ""}`,
+    `2. Scrim: a ${inkOnLight ? "WHITE" : "dark"} gradient covering ALL text zone(s), rgba(${SCRIM_RGB},0.30–0.45) over a normal photo. ⛔ CONTRAST FLOOR: the copy has to survive the WORST case, not the average one — if the area under the text is already ${inkOnLight ? "dark" : "bright"} (a white wall, snow, an overexposed window, a pale product), push the scrim to 0.55–0.70 there. White copy over a pale surface with a weak scrim is unreadable, and that is the one failure this scrim exists to prevent.${inkOnLight ? " It lifts the bright area so the dark copy separates from it — never a dark scrim under dark text." : ""}`,
     "   Direction: zone at bottom → 'to top' | top → 'to bottom' | center → radial. Stretch scrim to cover both zones if OPTION A.",
     "   ⛔ THE SCRIM MUST BE INVISIBLE AS AN OBJECT — it is a fade, never a shape. It spans the FULL canvas width edge-to-edge (left:0; right:0), and its far end must reach fully transparent (rgba(0,0,0,0)) so no boundary is perceptible. FORBIDDEN: a rounded rectangle, card, box, sheet or frosted/blurred panel sitting behind the text with visible edges or corners; any border-radius on the scrim; any backdrop-filter; any uniform semi-opaque fill with a hard edge. If a viewer can point at where the darkening starts and stops, it is wrong — soften it until they cannot.",
     "",
@@ -922,6 +925,29 @@ async function buildOverlayHtmlFromGemini(
           console.warn(`[accent-chip] job=${opts.jobId ?? "?"} chip reduzido de "${text.trim()}" para "${best}"`);
           return (before ? before + " " : "") + '<span style="' + styleNW + '"' + rest + ">" + best + "</span>" + (after ? " " + after : "");
         });
+    // PISO DE CONTRASTE DO SCRIM. A regra em prosa acima pede um scrim mais forte sobre area
+    // clara; isto garante. O modelo emite 0.30, que basta sobre foto normal e some sobre fundo
+    // quase branco — foi exatamente assim que saiu texto branco ilegivel num anuncio quase todo
+    // branco. So' age quando a tinta e' BRANCA e so' no proprio scrim (z-index:1); blocos de
+    // texto e chips ficam intactos.
+    const enforceScrimFloor = (h: string): string => {
+      if (inkOnLight) return h;
+      const FLOOR = 0.55;
+      let changed = 0;
+      const out = h.replace(/style="([^"]*z-index\s*:\s*1\b[^"]*)"/gi, (full: string, style: string) => {
+        if (!/rgba\(/i.test(style)) return full;
+        let maxA = 0;
+        style.replace(/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)\s*\)/gi, (_m: string, a: string) => { maxA = Math.max(maxA, parseFloat(a)); return _m; });
+        if (maxA >= FLOOR) return full;
+        const scale = FLOOR / (maxA || FLOOR);
+        const next = style.replace(/rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/gi,
+          (_m: string, r: string, g: string, b: string, a: string) => `rgba(${r},${g},${b},${Math.min(0.85, parseFloat(a) * scale).toFixed(2)})`);
+        changed++;
+        return 'style="' + next + '"';
+      });
+      if (changed) console.warn(`[scrim-floor] job=${opts.jobId ?? "?"} scrim fraco sob tinta branca → reforcado`);
+      return changed ? out : h;
+    };
     // Passe deterministico da tinta, POR ELEMENTO. A tabela de faixas acima e' instrucao, e o
     // modelo de layout ja provou hoje que ignora instrucao (poe headline no topo e CTA no rodape
     // apesar da regra que manda os tres blocos ficarem na regiao calma). Aqui a cor e' CORRIGIDA
@@ -985,7 +1011,7 @@ async function buildOverlayHtmlFromGemini(
     const ensureScrim = (h: string): string =>
       /z-index\s*:\s*1\b/.test(h)
         ? h
-        : `<div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(${SCRIM_RGB},0.52) 0%,rgba(${SCRIM_RGB},0.18) 45%,rgba(${SCRIM_RGB},0) 75%);z-index:1;pointer-events:none"></div>\n` + h;
+        : `<div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(${SCRIM_RGB},0.62) 0%,rgba(${SCRIM_RGB},0.24) 45%,rgba(${SCRIM_RGB},0) 75%);z-index:1;pointer-events:none"></div>\n` + h;
     let html = ensureScrim(raw);
     // Autocrítica: Flash reviews its own output against the background image — retry once if poor.
     if (CRITIQUE_OVERLAY && (bgDataUrl.startsWith("http://") || bgDataUrl.startsWith("https://"))) {
@@ -999,7 +1025,7 @@ async function buildOverlayHtmlFromGemini(
           if (raw2 && headlinePresent(raw2)) {
             console.log(`[overlay-critique] retry accepted job=${opts.jobId ?? "?"}`);
             const styleTag2 = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-            setDiag("ok-retry"); return styleTag2 + singleWordAccent(enforceBandInk(repairCopyTypos(dedupeLogo(enforceLogoOppositeBand(ensureScrim(raw2), logoUrl), logoUrl), [headline, sub, ctaRaw].filter(Boolean))));
+            setDiag("ok-retry"); return styleTag2 + enforceScrimFloor(singleWordAccent(enforceBandInk(repairCopyTypos(dedupeLogo(enforceLogoOppositeBand(ensureScrim(raw2), logoUrl), logoUrl), [headline, sub, ctaRaw].filter(Boolean)))));
           }
         }
       }
@@ -1007,7 +1033,7 @@ async function buildOverlayHtmlFromGemini(
     html = dedupeLogo(enforceLogoOppositeBand(html, logoUrl), logoUrl);
     console.log(`[overlay-html] ok job=${opts.jobId ?? "?"} len=${html.length} font=${_fontName ?? "none"}`);
     const styleTag = fontImportUrl ? `<style>@import url('${fontImportUrl}');</style>` : "";
-    setDiag("ok"); return styleTag + singleWordAccent(enforceBandInk(repairCopyTypos(html, [headline, sub, ctaRaw].filter(Boolean))));
+    setDiag("ok"); return styleTag + enforceScrimFloor(singleWordAccent(enforceBandInk(repairCopyTypos(html, [headline, sub, ctaRaw].filter(Boolean)))));
   } catch (err) {
     console.warn(`[overlay-html] failed job=${opts.jobId ?? "?"}: ${err}`);
     setDiag(`exception:${String(err).slice(0, 80)}`); return null;
