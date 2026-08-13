@@ -272,7 +272,16 @@ function parseComposeTextRec(text: string): ComposeTextRec | null {
 // (extra image gens per texty banner) was a real cost drain AND not reliable — text still slipped
 // through. Turned off by request: if a rare banner comes with text, the client regenerates it.
 // Set back to true to re-enable the backgroundHasText validation + retry + shapes fallback.
-const VALIDATE_BACKGROUND = false;  // background text detection + retry
+// Religado em 2026-08-10 a pedido do usuario, que reportou "muito post saindo com texto no
+// fundo e com placeholder de logo" em producao. Ficou desligado desde 08/07 por custo — e nesse
+// periodo ele nao teria funcionado de qualquer jeito: apontava para o gemini-3-pro-preview, que
+// o Google aposentou, e como o detector FALHA PARA "LIMPO" ele teria aprovado tudo em silencio.
+// O modelo foi corrigido hoje de manha.
+//
+// NAO roda em toda geracao: o gate por-geracao logo abaixo o restringe as que trazem posts de
+// marca anexados, que e' a condicao em que o defeito aparece (legenda de post tracada para o
+// fundo). Nas demais o custo continua zero.
+const VALIDATE_BACKGROUND = true;  // background text detection + retry (ver gate por-geracao)
 const CRITIQUE_OVERLAY    = true;  // Flash self-reviews its overlay and retries once if poor
 
 // Appended to the bg prompt when a regeneration is triggered because the first attempt leaked
@@ -4673,7 +4682,7 @@ serve(async (req: Request) => {
           });
           // Validate background for text/logos; retry once if detected (VALIDATE_BACKGROUND flag).
           // Also validates the retry — if both fail, uses whichever was cleaner (the retry).
-          if (VALIDATE_BACKGROUND && gen?.url) {
+          if (VALIDATE_BACKGROUND && brandRefCountInBg > 0 && gen?.url) {
             const hasText = await backgroundHasText(gen.url, apiKey, { jobId, costAcc });
             if (hasText) {
               console.warn(`[bg-validate] retrying background generation job=${jobId ?? "?"}`);
@@ -4760,7 +4769,7 @@ serve(async (req: Request) => {
           });
           // Validate background for text/logos; retry once if detected (VALIDATE_BACKGROUND flag).
           // Also validates the retry — if both fail, uses whichever was cleaner (the retry).
-          if (VALIDATE_BACKGROUND && gen?.url) {
+          if (VALIDATE_BACKGROUND && brandRefCountInBg > 0 && gen?.url) {
             const hasText = await backgroundHasText(gen.url, apiKey, { jobId, costAcc });
             if (hasText) {
               console.warn(`[bg-validate] retrying background generation job=${jobId ?? "?"}`);
