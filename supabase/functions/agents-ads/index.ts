@@ -4680,10 +4680,20 @@ serve(async (req: Request) => {
             }
             throw err;
           });
+          // bgDiag viaja junto do resultado ate o debug do creative, pelo mesmo caminho que o
+          // overlayDiag ja usa. Sem isso nao da' para saber se o detector rodou, passou ou falhou:
+          // ele FALHA PARA "LIMPO", entao "nao reprovou" e "nao rodou" produzem exatamente o mesmo
+          // resultado visivel — foi assim que ele passou meses desligado na pratica sem ninguem ver.
+          let bgDiag: string = "off";
           // Validate background for text/logos; retry once if detected (VALIDATE_BACKGROUND flag).
           // Also validates the retry — if both fail, uses whichever was cleaner (the retry).
+          if (!VALIDATE_BACKGROUND) bgDiag = "flag-off";
+          else if (!(brandRefCountInBg > 0)) bgDiag = "sem-brand-posts";
+          else if (!gen?.url) bgDiag = "sem-imagem";
           if (VALIDATE_BACKGROUND && brandRefCountInBg > 0 && gen?.url) {
+            bgDiag = "rodou";
             const hasText = await backgroundHasText(gen.url, apiKey, { jobId, costAcc });
+            bgDiag = hasText ? "reprovou" : "aprovou";
             if (hasText) {
               console.warn(`[bg-validate] retrying background generation job=${jobId ?? "?"}`);
               // Retry with shapes-only prompt so abstract geometry can't reproduce the same text artifacts.
@@ -4710,7 +4720,7 @@ serve(async (req: Request) => {
             // colours), conditional on the brand actually using them. See the heroRef design-asset rule.
             ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, calmTone: calm?.tone ?? null, calmBands: calm?.bands ?? null, brandDevices: false })
             : null;
-          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay });
+          bgByVariantRatio.set(`${task.variantIndex}:${aspectRatio}`, { url: bgHosted, bgDiag, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay });
         }
 
         const abComposeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -4767,10 +4777,20 @@ serve(async (req: Request) => {
             }
             throw err;
           });
+          // bgDiag viaja junto do resultado ate o debug do creative, pelo mesmo caminho que o
+          // overlayDiag ja usa. Sem isso nao da' para saber se o detector rodou, passou ou falhou:
+          // ele FALHA PARA "LIMPO", entao "nao reprovou" e "nao rodou" produzem exatamente o mesmo
+          // resultado visivel — foi assim que ele passou meses desligado na pratica sem ninguem ver.
+          let bgDiag: string = "off";
           // Validate background for text/logos; retry once if detected (VALIDATE_BACKGROUND flag).
           // Also validates the retry — if both fail, uses whichever was cleaner (the retry).
+          if (!VALIDATE_BACKGROUND) bgDiag = "flag-off";
+          else if (!(brandRefCountInBg > 0)) bgDiag = "sem-brand-posts";
+          else if (!gen?.url) bgDiag = "sem-imagem";
           if (VALIDATE_BACKGROUND && brandRefCountInBg > 0 && gen?.url) {
+            bgDiag = "rodou";
             const hasText = await backgroundHasText(gen.url, apiKey, { jobId, costAcc });
+            bgDiag = hasText ? "reprovou" : "aprovou";
             if (hasText) {
               console.warn(`[bg-validate] retrying background generation job=${jobId ?? "?"}`);
               const retry = await generateAdImage(bgPrompt + NO_TEXT_RETRY_REMINDER, bgRefImages, apiKey, aspectRatio, { maxAttempts: 1, timeoutMs: 105000, singleConfig: true, costAcc }).catch(() => null);
@@ -4828,7 +4848,7 @@ serve(async (req: Request) => {
             // assets now come from the image model, matched to the brand posts, conditional on usage.
             ? await buildOverlayHtmlFromGemini(bgForZone, campaignData, task.format, cssVars, apiKey, gen?.rec ?? null, { jobId, costAcc, calmZone: calm?.zone ?? null, calmTone: calm?.tone ?? null, calmBands: calm?.bands ?? null, diag: overlayDiag, brandDevices: false })
             : null;
-          bgByRatio.set(aspectRatio, { url: bgHosted, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay, overlayDiag: overlayDiag.reason });
+          bgByRatio.set(aspectRatio, { url: bgHosted, bgDiag, rec: gen?.rec ?? null, prompt: bgPrompt, refCount: bgRefImages.length, layout: calm?.layout ?? layoutHint, overlayHtml: geminiOverlay, overlayDiag: overlayDiag.reason });
         }
 
         const composeFns = imageTasks.map((task, taskIndex) => async () => {
@@ -4852,7 +4872,7 @@ serve(async (req: Request) => {
             width: format.width || 1080,
             height: format.height || 1080,
             variant: variantLabel || null,
-            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgSource, layout: layoutHint, overlayFromGemini: Boolean(bg.overlayHtml), overlayDiag: bg.overlayDiag ?? null, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
+            ...(debug ? { debug: { mode: "compose", model: GEMINI_IMAGE_MODELS[0] || null, bgValidate: (bg as any).bgDiag ?? "n/a", bgSource, layout: layoutHint, overlayFromGemini: Boolean(bg.overlayHtml), overlayDiag: bg.overlayDiag ?? null, aspectRatio, prompt: bg.prompt || "", bgRefImagesSent: bg.refCount || 0, composeCompanyRefs: ((campaignData as any).composeCompanyRefs || []), refImagesForGenCount: refImagesForGen.length, refs: refDebug, storeBriefUsed: Boolean(visualBrief && !String((campaignData as any).brandVisualBrief || "").trim()), note: "Logo & copy are composited on top afterwards — not drawn by the image model." } } : {}),
           };
         });
         banners = await runWithConcurrency(composeFns, 4);
