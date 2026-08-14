@@ -22,7 +22,6 @@ include __DIR__ . '/../../site_helpers.php';
 include __DIR__ . '/../../_render.php';
 include __DIR__ . '/../../_browserless.php';
 include __DIR__ . '/compose-gd.php';
-include __DIR__ . '/compose-layers.php';
 
 if (!function_exists('ext_escape_attr')) {
     function ext_escape_attr(string $value): string {
@@ -847,11 +846,17 @@ try {
                     // contrast the ink really gets, and resize the gradient to the minimum that
                     // works. On a dark or calm photo that is zero and the fade is deleted, which
                     // is the single biggest reason every creative looked like the same template.
-                    // Guarded: compose-depth.php is include'd, not require'd, so a missing or
+                    // Behind the beta flag: these run on the live server, so an unreviewed change
+                    // must not reach real clients. Without `beta_variedade` in the payload the
+                    // output is byte-for-byte what it is today. Flip the default once the new
+                    // look has been approved.
+                    $betaVisual = !empty($campaignFormData['betaVariedade']);
+
+                    // Guarded: compose-layers.php is include'd, not require'd, so a missing or
                     // half-uploaded file must degrade to today's behaviour instead of fatalling
                     // a job. (It already bit us once during deploy.)
                     $scrimDiag = [];
-                    $tuned = function_exists('extd_tune_scrim')
+                    $tuned = ($betaVisual && function_exists('extd_tune_scrim'))
                         ? extd_tune_scrim($bannerHtml, $fmtW, $fmtH, $scrimDiag)
                         : $bannerHtml;
                     if (is_string($tuned) && trim($tuned) !== '') $bannerHtml = $tuned;
@@ -872,6 +877,7 @@ try {
                     // it is only used if it really has transparency or a keyable studio backdrop.
                     $depthRaw = trim((string)($campaignFormData['depthLayerUrl'] ?? ''));
                     if ($depthRaw === '') $depthRaw = trim((string)($campaignFormData['productImageUrl'] ?? ''));
+                    if (!$betaVisual) $depthRaw = '';
                     if ($depthRaw !== '' && function_exists('extd_prepare_cutout')) {
                         $cutout = extd_prepare_cutout($depthRaw);
                         if ($cutout !== '') {
