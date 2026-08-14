@@ -871,9 +871,14 @@ async function buildOverlayHtmlFromGemini(
     try {
       res = await chamaOverlay(40000);
     } catch (primeiroErro) {
-      const foiTempo = /timeout|aborted|signal/i.test(String((primeiroErro as any)?.name ?? "") + String(primeiroErro));
-      if (!foiTempo) throw primeiroErro;
-      console.warn(`[overlay-html] job=${opts.jobId ?? "?"} estourou o tempo — segunda tentativa antes de cair no molde fixo`);
+      // Vale a segunda chamada em qualquer falha PASSAGEIRA, nao so' em tempo esgotado: o job
+      // 436 caiu no molde por um 503 do proprio Gemini ("overloaded"), que some sozinho na
+      // tentativa seguinte. Erro permanente — 400, chave invalida, cota estourada — continua
+      // falhando na hora, porque repetir so' queima chamada.
+      const txt = String((primeiroErro as any)?.name ?? "") + " " + String(primeiroErro);
+      const passageiro = /timeout|aborted|signal|\b50[23]\b|\b529\b|overloaded|UNAVAILABLE|ECONNRESET/i.test(txt);
+      if (!passageiro) throw primeiroErro;
+      console.warn(`[overlay-html] job=${opts.jobId ?? "?"} falha passageira (${txt.slice(0, 60)}) — segunda tentativa antes de cair no molde fixo`);
       res = await chamaOverlay(35000);
     }
     const raw = String(res.text || "").trim()
