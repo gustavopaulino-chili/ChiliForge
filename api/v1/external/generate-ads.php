@@ -854,20 +854,52 @@ try {
     // brand's pushes and its generation always resolve to the SAME company row when duplicates
     // exist. The id DESC tie-break makes it deterministic even when two rows share a created_at.
     // Reusable resolver — also used to recover from a lost INSERT race below.
+    // O telefone chega em formatos diferentes conforme o fluxo que chamou. "+5511943239843" e
+    // "5511943239843" sao a MESMA empresa para qualquer humano, mas para o lookup eram duas — e a
+    // que nao existia era criada na hora, vazia: sem logo, sem cor, sem posts. O anuncio saia
+    // generico e NINGUEM era avisado. Aconteceu de verdade em 14/08 e custou uma tarde de teste.
+    //
+    // A busca agora tem dois passos, nessa ordem de proposito: primeiro o telefone EXATO, para
+    // que nenhuma resolucao que funciona hoje mude de resultado; so' se nada casar, tenta de novo
+    // ignorando '+', espaco, hifen e parenteses dos dois lados. E' estritamente aditivo — o
+    // segundo passo so' roda onde antes se criava empresa duplicada.
     $resolveCompany = function () use ($conn, $userId, $phone) {
-        $s = $conn->prepare(
+        $buscar = function (string $sql, string $valor) use ($conn, $userId) {
+            $s = $conn->prepare($sql);
+            if (!$s) throw new RuntimeException($conn->error);
+            $s->bind_param('is', $userId, $valor);
+            $s->execute();
+            $s->bind_result($id, $store, $fd, $folder, $pub);
+            $ok = $s->fetch();
+            $s->close();
+            return $ok ? ['id' => (int)$id, 'store' => $store, 'fd' => $fd, 'folder' => $folder, 'pub' => $pub] : null;
+        };
+
+        $achado = $buscar(
             "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
              FROM projects
              WHERE user_id = ? AND phone = ? AND project_type = 'project'
-             ORDER BY created_at DESC, id DESC LIMIT 1"
+             ORDER BY created_at DESC, id DESC LIMIT 1",
+            $phone
         );
-        if (!$s) throw new RuntimeException($conn->error);
-        $s->bind_param('is', $userId, $phone);
-        $s->execute();
-        $s->bind_result($id, $store, $fd, $folder, $pub);
-        $ok = $s->fetch();
-        $s->close();
-        return $ok ? ['id' => (int)$id, 'store' => $store, 'fd' => $fd, 'folder' => $folder, 'pub' => $pub] : null;
+        if ($achado) return $achado;
+
+        $soDigitos = preg_replace('/\D+/', '', (string)$phone);
+        if ($soDigitos === '' || $soDigitos === $phone) return null;
+
+        $achado = $buscar(
+            "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
+             FROM projects
+             WHERE user_id = ?
+               AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone,'+',''),' ',''),'-',''),'(',''),')','') = ?
+               AND project_type = 'project'
+             ORDER BY created_at DESC, id DESC LIMIT 1",
+            $soDigitos
+        );
+        if ($achado) {
+            error_log("[company] telefone '{$phone}' nao casou exato; encontrado por digitos como '{$soDigitos}' -> projeto {$achado['id']}");
+        }
+        return $achado;
     };
 
     $existingCompanyFolderPath = null;

@@ -148,18 +148,46 @@ try {
     // = same row on both sides. (The real cure is one row per phone — see the dedupe SQL / unique
     // index; this keeps the two endpoints agreeing until then and forever after.)
     // Reusable resolver — also used to recover from a lost INSERT race below.
+    // Mesmo problema e mesma cura do generate-ads.php: "+5511943239843" e "5511943239843" sao a
+    // mesma empresa, mas o lookup exato tratava como duas e criava a que faltava — vazia, sem
+    // logo nem cor, sem avisar ninguem. Os DOIS endpoints precisam concordar nisso, senao um cria
+    // a empresa que o outro nao acha. Exato primeiro (nada que funciona hoje muda), digitos depois.
     $resolveCompany = function () use ($conn, $userId, $phone) {
-        $s = $conn->prepare(
+        $buscar = function (string $sql, string $valor) use ($conn, $userId) {
+            $s = $conn->prepare($sql);
+            if (!$s) return null;
+            $s->bind_param('is', $userId, $valor);
+            $s->execute();
+            $s->bind_result($id, $store, $fd, $folder, $pub);
+            $ok = $s->fetch();
+            $s->close();
+            return $ok ? ['id' => (int)$id, 'store' => (string)$store, 'fd' => (string)$fd, 'folder' => (string)$folder, 'pub' => (string)$pub] : null;
+        };
+
+        $achado = $buscar(
             "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
              FROM projects WHERE user_id = ? AND phone = ? AND project_type = 'project'
-             ORDER BY created_at DESC, id DESC LIMIT 1"
+             ORDER BY created_at DESC, id DESC LIMIT 1",
+            $phone
         );
-        $s->bind_param('is', $userId, $phone);
-        $s->execute();
-        $s->bind_result($id, $store, $fd, $folder, $pub);
-        $ok = $s->fetch();
-        $s->close();
-        return $ok ? ['id' => (int)$id, 'store' => (string)$store, 'fd' => (string)$fd, 'folder' => (string)$folder, 'pub' => (string)$pub] : null;
+        if ($achado) return $achado;
+
+        $soDigitos = preg_replace('/\D+/', '', (string)$phone);
+        if ($soDigitos === '' || $soDigitos === $phone) return null;
+
+        $achado = $buscar(
+            "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
+             FROM projects
+             WHERE user_id = ?
+               AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone,'+',''),' ',''),'-',''),'(',''),')','') = ?
+               AND project_type = 'project'
+             ORDER BY created_at DESC, id DESC LIMIT 1",
+            $soDigitos
+        );
+        if ($achado) {
+            error_log("[company-assets] telefone '{$phone}' nao casou exato; encontrado por digitos como '{$soDigitos}' -> projeto {$achado['id']}");
+        }
+        return $achado;
     };
 
     $row = $resolveCompany();
