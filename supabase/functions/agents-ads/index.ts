@@ -970,8 +970,15 @@ async function buildOverlayHtmlFromGemini(
     // duas caixas amarelas empilhadas, uma sob a outra. A regra ja pede "a UNICA palavra mais
     // impactante" e foi ignorada, entao aqui a frase e' reduzida a uma palavra e o chip ganha
     // nowrap, o que torna a caixa dupla impossivel em vez de improvavel.
+    // O modelo escreve <span>voce</span>. — com o ponto FORA do chip. Como o chip tem
+    // preenchimento, o ponto fica boiando a uns pixels da caixa, parecendo erro de composicao
+    // (visivel nos runs 334 e 335). Puxar a pontuacao para dentro resolve sem tocar no texto.
+    const pontuacaoParaDentroDoChip = (h: string): string =>
+      h.replace(/(<span style="[^"]*background[^"]*"[^>]*>)([^<]{1,120}?)(<\/span>)\s*([.,!?;:]+)/gi,
+        (_m: string, abre: string, texto: string, fecha: string, pont: string) => abre + texto + pont + fecha);
+
     const singleWordAccent = (h: string): string =>
-      h.replace(/<span style="([^"]*background[^"]*)"([^>]*)>([^<]{1,120})<\/span>/gi,
+      pontuacaoParaDentroDoChip(h).replace(/<span style="([^"]*background[^"]*)"([^>]*)>([^<]{1,120})<\/span>/gi,
         (full: string, style: string, rest: string, text: string) => {
           const words = text.trim().split(/\s+/);
           if (words.length <= 1) {
