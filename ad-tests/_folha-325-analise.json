@@ -1,0 +1,32 @@
+[
+  {
+    "run": 325,
+    "job": 424,
+    "arq": "run325-job424.jpg",
+    "html": "https://forge.chili.pa/projects/unica-3/folha-de-variacoes-agosto-325/392/index.html",
+    "scrim": "0.642 (rgb 0,0,0)",
+    "headlineCqw": 4.8,
+    "registro": "EDITORIAL",
+    "profundidade": "nao"
+  },
+  {
+    "run": 327,
+    "job": 426,
+    "arq": "run327-job426.jpg",
+    "html": "https://forge.chili.pa/projects/unica-3/folha-de-variacoes-agosto-327/393/index.html",
+    "scrim": "0.696 (rgb 0,0,0)",
+    "headlineCqw": 0,
+    "registro": "LEGENDA",
+    "profundidade": "nao"
+  },
+  {
+    "run": 326,
+    "job": 425,
+    "arq": "run326-job425.jpg",
+    "html": "https://forge.chili.pa/projects/unica-3/folha-de-variacoes-agosto-326/394/index.html",
+    "scrim": "0.652 (rgb 0,0,0)",
+    "headlineCqw": 0,
+    "registro": "LEGENDA",
+    "profundidade": "nao"
+  }
+]
