@@ -164,30 +164,41 @@ try {
             return $ok ? ['id' => (int)$id, 'store' => (string)$store, 'fd' => (string)$fd, 'folder' => (string)$folder, 'pub' => (string)$pub] : null;
         };
 
-        $achado = $buscar(
+        // Mesmo criterio do generate-ads.php: o que decide nao e' exato-versus-normalizado, e'
+        // empresa COM marca versus casca vazia. Registro sem logo e sem cor e' casca criada por
+        // engano, e enquanto ela existir o telefone exato continuaria caindo nela para sempre.
+        $temMarca = static function ($fd): bool {
+            $s = (string)$fd;
+            return $s !== '' && (str_contains($s, 'logoUrl') || str_contains($s, 'primaryColor'));
+        };
+
+        $exato = $buscar(
             "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
              FROM projects WHERE user_id = ? AND phone = ? AND project_type = 'project'
              ORDER BY created_at DESC, id DESC LIMIT 1",
             $phone
         );
-        if ($achado) return $achado;
+        if ($exato && $temMarca($exato['fd'])) return $exato;
 
         $soDigitos = preg_replace('/\D+/', '', (string)$phone);
-        if ($soDigitos === '' || $soDigitos === $phone) return null;
-
-        $achado = $buscar(
-            "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
-             FROM projects
-             WHERE user_id = ?
-               AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone,'+',''),' ',''),'-',''),'(',''),')','') = ?
-               AND project_type = 'project'
-             ORDER BY created_at DESC, id DESC LIMIT 1",
-            $soDigitos
-        );
-        if ($achado) {
-            error_log("[company-assets] telefone '{$phone}' nao casou exato; encontrado por digitos como '{$soDigitos}' -> projeto {$achado['id']}");
+        if ($soDigitos !== '') {
+            $comMarca = $buscar(
+                "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
+                 FROM projects
+                 WHERE user_id = ?
+                   AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone,'+',''),' ',''),'-',''),'(',''),')','') = ?
+                   AND project_type = 'project'
+                   AND (company_form_data LIKE '%logoUrl%' OR company_form_data LIKE '%primaryColor%')
+                 ORDER BY (company_form_data LIKE '%logoUrl%') DESC, created_at DESC, id DESC LIMIT 1",
+                $soDigitos
+            );
+            if ($comMarca && (!$exato || (int)$comMarca['id'] !== (int)$exato['id'])) {
+                $de = $exato ? "casca vazia {$exato['id']}" : "nenhum registro exato";
+                error_log("[company-assets] telefone '{$phone}': {$de}; usando o projeto {$comMarca['id']}, que tem marca gravada");
+                return $comMarca;
+            }
         }
-        return $achado;
+        return $exato;
     };
 
     $row = $resolveCompany();

@@ -875,31 +875,45 @@ try {
             return $ok ? ['id' => (int)$id, 'store' => $store, 'fd' => $fd, 'folder' => $folder, 'pub' => $pub] : null;
         };
 
-        $achado = $buscar(
+        // Uma empresa "de verdade" tem pelo menos logo ou cor gravada. Uma casca criada por
+        // engano nao tem nem uma nem outra — e' exatamente esse o sintoma que o cliente ve.
+        $temMarca = static function ($fd): bool {
+            $s = (string)$fd;
+            return $s !== '' && (str_contains($s, 'logoUrl') || str_contains($s, 'primaryColor'));
+        };
+
+        $exato = $buscar(
             "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
              FROM projects
              WHERE user_id = ? AND phone = ? AND project_type = 'project'
              ORDER BY created_at DESC, id DESC LIMIT 1",
             $phone
         );
-        if ($achado) return $achado;
+        if ($exato && $temMarca($exato['fd'])) return $exato;
 
+        // Chegou aqui: ou nao existe registro com esse telefone exato, ou existe e esta VAZIO.
+        // O segundo caso e' o que quebrava de verdade — a casca ja criada continuava sendo
+        // encontrada para sempre, e nenhum "normalizado depois" salvava. Procura entao um
+        // registro com o mesmo numero em digitos que tenha marca, e prefere o que tem logo.
         $soDigitos = preg_replace('/\D+/', '', (string)$phone);
-        if ($soDigitos === '' || $soDigitos === $phone) return null;
-
-        $achado = $buscar(
-            "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
-             FROM projects
-             WHERE user_id = ?
-               AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone,'+',''),' ',''),'-',''),'(',''),')','') = ?
-               AND project_type = 'project'
-             ORDER BY created_at DESC, id DESC LIMIT 1",
-            $soDigitos
-        );
-        if ($achado) {
-            error_log("[company] telefone '{$phone}' nao casou exato; encontrado por digitos como '{$soDigitos}' -> projeto {$achado['id']}");
+        if ($soDigitos !== '') {
+            $comMarca = $buscar(
+                "SELECT id, gemini_store_name, company_form_data, folder_path, public_url
+                 FROM projects
+                 WHERE user_id = ?
+                   AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone,'+',''),' ',''),'-',''),'(',''),')','') = ?
+                   AND project_type = 'project'
+                   AND (company_form_data LIKE '%logoUrl%' OR company_form_data LIKE '%primaryColor%')
+                 ORDER BY (company_form_data LIKE '%logoUrl%') DESC, created_at DESC, id DESC LIMIT 1",
+                $soDigitos
+            );
+            if ($comMarca && (!$exato || (int)$comMarca['id'] !== (int)$exato['id'])) {
+                $de = $exato ? "casca vazia {$exato['id']}" : "nenhum registro exato";
+                error_log("[company] telefone '{$phone}': {$de}; usando o projeto {$comMarca['id']}, que tem marca gravada");
+                return $comMarca;
+            }
         }
-        return $achado;
+        return $exato;
     };
 
     $existingCompanyFolderPath = null;
