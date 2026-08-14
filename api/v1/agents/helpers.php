@@ -38,9 +38,26 @@ if (!function_exists('gemini_calc_usd')) {
         $P = gemini_pricing_table(); $rate = [0.30, 2.50];
         foreach ($P as $k => $v) { if (strpos($model, $k) === 0) { $rate = $v; break; } }
         $u = is_array($usage) ? $usage : [];
-        $in    = (int)($u['promptTokenCount']    ?? $u['prompt_token_count']     ?? 0);
         $out   = (int)($u['candidatesTokenCount'] ?? $u['candidates_token_count'] ?? 0);
         $think = (int)($u['thoughtsTokenCount']   ?? $u['thoughts_token_count']   ?? 0); // billed at output rate
+
+        // ENTRADA DERIVADA DO TOTAL, quando o Google manda o total.
+        //
+        // A linha de cima afirmava que promptTokenCount ja inclui o retrieval do File Search. Isso
+        // e' uma SUPOSICAO, e as duas chamadas mais caras do sistema (interpret e interpret_image,
+        // ambas em gemini-3.5-flash a US$ 1,50/1M de entrada) rodam justamente com File Search
+        // ligado. Se a suposicao estiver errada, o retrieval e' cobrado pelo Google e nao aparece
+        // aqui — que e' exatamente o formato do buraco do dia 07/08: a fatura acusou milhoes de
+        // tokens em 3.5-flash e a tabela registrou uma fracao.
+        //
+        // Derivar a entrada de totalTokenCount torna a conta CORRETA NOS DOIS CASOS: se o
+        // retrieval ja estava dentro do prompt, total - saida - pensamento devolve o mesmo numero
+        // de antes; se estava de fora, ele entra. Sem total, cai no comportamento antigo somando
+        // o toolUse explicitamente.
+        $total    = (int)($u['totalTokenCount']         ?? $u['total_token_count']            ?? 0);
+        $prompt   = (int)($u['promptTokenCount']        ?? $u['prompt_token_count']           ?? 0);
+        $toolUse  = (int)($u['toolUsePromptTokenCount'] ?? $u['tool_use_prompt_token_count']  ?? 0);
+        $in = $total > 0 ? max($prompt, $total - $out - $think) : ($prompt + $toolUse);
         $imgRate = gemini_image_out_per_1m($model);
         $inUsd  = ($in / 1000000) * $rate[0];
         $outUsd = $imgRate > 0
