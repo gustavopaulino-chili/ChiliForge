@@ -836,7 +836,26 @@ async function buildOverlayHtmlFromGemini(
   ].filter(Boolean).join("\n");
 
   try {
-    const res = await callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.35, 2600, apiKey, undefined, [bgRef], { ...opts, thinkingBudget: 0, timeoutMs: 25000 });
+    // ESTA e' a chamada que decide se o anuncio sai DESENHADO ou no molde fixo. Quando ela
+    // falha, o buildCompositionHtml assume com um template deterministico — mesmo tamanho de
+    // fonte, mesma pilha no rodape, sem chip nem destaque. E' literalmente a causa do "todos
+    // saem iguais": nao e' gosto do modelo, e' o fallback.
+    //
+    // Estava com 25s (o padrao da casa e' 130s) e SEM retry, entao uma unica resposta lenta
+    // custava o anuncio inteiro — medido no job 433: "exception:TimeoutError". Agora tem folga
+    // e uma segunda chance, mas SO' em timeout: erro de verdade (400, chave, cota) nao merece
+    // segunda chamada, e o teto somado fica em ~75s para nao empurrar o worker para o 504.
+    const chamaOverlay = (ms: number) =>
+      callGemini(SYSTEM, USER, "gemini-2.5-flash", 0.35, 2600, apiKey, undefined, [bgRef], { ...opts, thinkingBudget: 0, timeoutMs: ms });
+    let res;
+    try {
+      res = await chamaOverlay(40000);
+    } catch (primeiroErro) {
+      const foiTempo = /timeout|aborted|signal/i.test(String((primeiroErro as any)?.name ?? "") + String(primeiroErro));
+      if (!foiTempo) throw primeiroErro;
+      console.warn(`[overlay-html] job=${opts.jobId ?? "?"} estourou o tempo — segunda tentativa antes de cair no molde fixo`);
+      res = await chamaOverlay(35000);
+    }
     const raw = String(res.text || "").trim()
       .replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
 
