@@ -581,7 +581,7 @@ async function buildOverlayHtmlFromGemini(
     : REGISTROS[1];
   const bandaBase: [number, number] = headline.length <= 22 ? [7, 8] : headline.length <= 34 ? [5.5, 6.5] : [4.5, 5.5];
   const bandaHeadline = `${(bandaBase[0] * registro.mult).toFixed(1)}–${(bandaBase[1] * registro.mult).toFixed(1)}cqw`;
-  if (variedadeBeta) console.warn(`[registro-tipografico] job=${opts.jobId ?? "?"} registro=${registro.key} banda=${bandaHeadline}`);
+
   const primaryColor = extractCssVarColor(cssVars, "--primary") || "#1a1a2e";
   const fontFamily   = extractCssVarFont(cssVars) || "'Inter','Helvetica Neue',Arial,sans-serif";
   // Derive Google Fonts URL so GD can download the TTF for the overlay render.
@@ -705,6 +705,23 @@ async function buildOverlayHtmlFromGemini(
   // the scrim flip together. Flipping only one of them would be worse than not flipping at all.
   const inkOnLight = opts.calmTone === "light";
   const INK_HEX    = inkOnLight ? "#101317" : "#ffffff";
+  // DISPOSITIVO TIPOGRAFICO. O registro resolve a ESCALA, mas dentro do bloco o texto continua
+  // sendo um bloco: peso unico, linhas paralelas, nada acontecendo. E' o que sobra da queixa de
+  // "sem dinamismo". Aqui entra a ESTRUTURA — uma palavra dominando as outras, metade vazada,
+  // linhas escalonadas, etiqueta girada.
+  //
+  // Escolhido em CODIGO e entregue como CSS PRONTO, nao como pedido em prosa. Ja aprendi nesse
+  // projeto que "varie o tratamento" o modelo obedece uma vez e esquece na geracao seguinte;
+  // um exemplo concreto ele copia. Mesmo mecanismo do ACCENT_TECHNIQUES logo abaixo.
+  const DISPOSITIVOS = [
+    { key: "palavra-gigante", css: `wrap the single strongest word in <span style="display:block;font-size:2.05em;line-height:0.88;letter-spacing:-0.03em">WORD</span> so it TOWERS over the rest of the headline, which stays small above and/or below it` },
+    { key: "metade-vazada",   css: `set the FIRST half of the headline solid and the SECOND half hollow: <span style="color:transparent;-webkit-text-stroke:0.16cqw ${INK_HEX}">these words</span> — two textures in one sentence` },
+    { key: "escada",          css: `stagger the lines: put each line in its own <div> and indent them progressively (margin-left:0, then 6%, then 12%), so the block reads as a descending staircase instead of a rectangle` },
+    { key: "etiqueta-girada", css: `add a small rotated sticker near the headline: <div style="position:absolute;transform:rotate(-7deg);background:${accentHexForSpan || INK_HEX};color:#fff;padding:0.6cqh 1.4cqw;font-size:1.9cqw;font-weight:800;letter-spacing:0.08em;text-transform:uppercase">2–3 words</div> — tilted, never aligned to the grid` },
+    { key: "peso-partido",    css: `split the headline between two weights on the SAME line: <span style="font-weight:300">light words</span> next to <span style="font-weight:900">heavy words</span>, same size, so the contrast comes from weight alone` },
+  ];
+  const dispositivo = DISPOSITIVOS[(((opts.jobId ?? 0) + W) % DISPOSITIVOS.length + DISPOSITIVOS.length) % DISPOSITIVOS.length];
+  if (variedadeBeta) console.warn(`[tipografia] job=${opts.jobId ?? "?"} registro=${registro.key} banda=${bandaHeadline} dispositivo=${dispositivo.key}`);
   // A sombra da tinta branca precisa funcionar sobre fundo CLARO tambem: as duas primeiras
   // camadas sao difusas (profundidade sobre foto), a terceira e' um contorno curto e opaco que
   // segura a letra quando o fundo por baixo e' quase branco — o caso que o usuario reportou.
@@ -781,6 +798,9 @@ async function buildOverlayHtmlFromGemini(
     // of the canvas (run 291). Type size has to fall as the copy grows — the band below is computed
     // from THIS headline's length so the model cannot pick the biggest option for the longest copy.
     `   • font-size:${bandaHeadline}; font-weight:900. This range was chosen for the length of THIS headline (${headline.length} characters) and for the ${registro.key.toUpperCase()} typographic register of this ad — do not go above it.`,
+    variedadeBeta
+      ? `   • ⭐ STRUCTURAL DEVICE FOR THIS AD — ${dispositivo.key.toUpperCase()}: ${dispositivo.css}. This is an instruction, not a menu: apply THIS device to the headline. Without it the headline is a plain rectangle of type, which is exactly what makes every ad look like the same template. If the accent treatment below also targets a word, put it on a DIFFERENT word than the device.`
+      : "",
     `   • SIZE SANITY CHECK: the headline block must occupy AT MOST ~${registro.capPct}% of the canvas height and never more than ${registro.maxLines} lines.` + " If it exceeds either, drop the font-size until it fits — a headline that dominates the frame reads as a template, not as an ad.",
     "   • LINE BREAK: if headline is longer than 22 chars, add an explicit <br> at the most natural semantic split — after a colon, before a key verb — so both visual lines have roughly equal weight. Never rely on CSS auto-wrap.",
     hasBrandHex
