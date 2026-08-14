@@ -3173,7 +3173,7 @@ function buildBackgroundPrompt(
     "████ ART DIRECTION — CLEAN, FOCUSED, PREMIUM ████",
     "Design a restrained, premium ad background built around ONE clear hero subject in sharp focus. Think modern brand campaign — calm, confident, lots of breathing room. LESS IS MORE.",
     "• Focal subject: a single, clearly defined hero subject (product, object, or scene) that is SHARP and IN FOCUS. Do NOT blur the entire image — shallow depth-of-field is allowed ONLY as a soft falloff directly behind the in-focus subject. A fully blurred, nothing-in-focus image is a FAILED background.",
-    "• Decoration density FOLLOWS THE BRAND'S OWN POSTS, not a fixed cap: if the attached brand posts are clean/minimal, use at most ONE subtle brand accent motif (a small dot cluster OR a single brand-color shape) and keep lots of calm space. BUT if the brand's own posts are richly decorated with a busy floating design-asset layer (scattered dots, particles, confetti, halftone, blobs, floating icons/shapes), MATCH that abundance here so the ad camouflages into the brand's feed — see the brand design-language rule above; the 'at most one motif' cap applies ONLY when the brand's posts are clean. Either way, no device may cut through or obscure the logo or the headline/CTA text.",
+    "• Decoration density: TWO devices maximum, three only if the brand is unusually decorative — and they live in the EMPTY margins (a corner, a strip of wall), never scattered across the frame and never stacked on top of one another. Read the brand posts for WHICH device is theirs (dot cluster, blob, ring, halftone, line icon) and use that vocabulary, but do NOT copy their quantity: a feed post competes for attention in a scroll, while this ad already has a headline doing that work, so the same density that reads as lively there reads as cluttered here. When in doubt, remove one. Calm space around the subject is what makes the piece look designed rather than busy. No device may cut through or obscure the logo, the headline or the CTA.",
     "• Color: use the brand color as a tasteful ACCENT and overall mood — NOT a heavy single-color wash or tint flooding the whole frame. Keep the subject's natural colors and realistic lighting. Never lay a translucent colored sheet over the entire image.",
     "• Texture & light: subtle and tasteful only — a gentle gradient or soft natural light, optional fine grain. NO light leaks, lens flares, glow overload, or heavy vignettes.",
     "• Depth comes from a real subject sitting in clean space — not from piling on decorative elements or layers.",
@@ -4648,7 +4648,13 @@ serve(async (req: Request) => {
         // heroi do Pexels passou a ser buscado tambem para companies com site, apareceram 546
         // WORKER_RESOURCE_LIMIT. Com heroi automatico o teto cai para 4 — perde-se um post de
         // marca, ganha-se o anuncio existir. Sem heroi automatico segue 5.
-        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, pexelsAuto ? 4 : 5);
+        // 14/08: desce mais um degrau, 4→3 com heroi automatico e 5→4 sem. Duas razoes que
+        // apontam para o mesmo lado. (1) O usuario reportou anuncio "cheio de coisa de design uma
+        // em cima da outra": quanto mais post de marca entra, mais o modelo COLAGEIA elementos de
+        // cada um em vez de destilar a linguagem — o brief em texto ja carrega o que e' constante.
+        // (2) Cada referencia vive em base64 na memoria do worker junto com a imagem gerada, e o
+        // 546 WORKER_RESOURCE_LIMIT ainda derruba cerca de um job em tres.
+        bgRefImages = [...companyRefImages, ...refImagesForGen].slice(0, pexelsAuto ? 3 : 4);
         brandRefCountInBg = Math.min(companyRefImages.length, bgRefImages.length);
       }
 
@@ -4806,6 +4812,12 @@ serve(async (req: Request) => {
             }
           }
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
+          // Libera o base64 da imagem gerada assim que ela existe como URL. Ate aqui gen.url
+          // carregava a imagem inteira em base64 (megabytes) e continuava viva no escopo junto
+          // com as referencias e o buffer da proxima chamada — combinacao que produz o 546
+          // WORKER_RESOURCE_LIMIT. Apontar gen.url para a URL hospedada mantem todo uso
+          // posterior funcionando e deixa o coletor recolher o blob.
+          if (bgHosted && gen?.url && gen.url.startsWith("data:")) gen.url = bgHosted;
           const bgForZone = bgHosted || gen?.url || "";
           // Sequential, not parallel: detect the calm zone FIRST, then hand it to the overlay
           // generator so the Flash anchors text on the calm region instead of guessing. Costs
@@ -4934,6 +4946,12 @@ serve(async (req: Request) => {
             }
           }
           const bgHosted = gen ? (await uploadImageToStorage(gen.url, true, (payload as any).storageKey)) ?? "" : "";
+          // Libera o base64 da imagem gerada assim que ela existe como URL. Ate aqui gen.url
+          // carregava a imagem inteira em base64 (megabytes) e continuava viva no escopo junto
+          // com as referencias e o buffer da proxima chamada — combinacao que produz o 546
+          // WORKER_RESOURCE_LIMIT. Apontar gen.url para a URL hospedada mantem todo uso
+          // posterior funcionando e deixa o coletor recolher o blob.
+          if (bgHosted && gen?.url && gen.url.startsWith("data:")) gen.url = bgHosted;
           const bgForZone = bgHosted || gen?.url || "";
           // Sequential, not parallel: detect the calm zone FIRST, then feed it to the overlay
           // generator so the Flash anchors text on the calm region instead of guessing. Costs
