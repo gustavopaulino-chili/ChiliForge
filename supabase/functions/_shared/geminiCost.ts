@@ -29,6 +29,12 @@ export function logGeminiCost(fn: string, model: string, usage: any, extra?: { i
     const imgs = extra?.images ?? 0;
     const usd = (i / 1e6) * p.in + (o / 1e6) * p.out + imgs * GEMINI_IMAGE_PRICE_PER_IMAGE;
     console.log(`[cost-estimate] fn=${fn} model=${model} in=${i} out=${o}${tool ? ` tool=${tool}` : ""}${imgs ? ` images=${imgs}` : ""} ~=$${usd.toFixed(5)}`);
+    // E TAMBEM grava no ledger. Ate 14/08 esta funcao so escrevia no console, entao doze edge
+    // functions — inclusive as que geram IMAGEM (generate-images, generate-ad-creatives) e as
+    // que usam gemini-2.5-pro (agents-lp, generate-landing) — gastavam sem deixar linha na
+    // tabela. O ledger enxergava so o caminho externo de anuncios, e por isso mostrava R$ 26
+    // num dia em que a fatura cobrou R$ 150. O nome da funcao vira a coluna source.
+    logGeminiUsage(fn, model, usage);
   } catch (_) { /* logging must never break a generation */ }
 }
 

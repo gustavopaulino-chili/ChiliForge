@@ -1259,6 +1259,24 @@ async function generateAdImage(
             console.log(`[token-usage] IMAGE model=${model} inputImgs=${parts.length - 1} prompt=${u.promptTokenCount ?? "?"} candidates=${u.candidatesTokenCount ?? "?"} total=${u.totalTokenCount ?? "?"}`);
           } catch (_) { /* never break generation on logging */ }
           const url = data ? extractImageDataUrl(data) : null;
+
+          // O REGISTRO VEM ANTES DO SUCESSO. Ate 14/08 o logGeminiUsage vivia dentro do if(url)
+          // abaixo, entao toda resposta 200 que o Google COBRA e nao devolve imagem — modelo que
+          // erra e cai para o proximo da fila, bloqueio de conteudo, resposta vazia — sumia do
+          // ledger. E' o cenario mais comum justamente no dia de trocar de modelo de imagem, que
+          // foi 07/08: a fatura cobrou R$ 150 e a tabela registrou R$ 26. Fonte separada de
+          // proposito, para dar para medir o desperdicio em vez de so' diluir no total.
+          if (!url) {
+            try {
+              const inTok  = Number(u.promptTokenCount ?? u.prompt_token_count ?? 0);
+              const outTok = Number(u.candidatesTokenCount ?? u.candidates_token_count ?? 0);
+              const perdido = (inTok / 1_000_000) * pricingFor(model).in + (outTok / 1_000_000) * imageOutPricePer1M(model);
+              console.warn(`[imagem-perdida]${opts.costAcc?.jobId ? ` job=${opts.costAcc.jobId}` : ""} model=${model} cobrado ~$${perdido.toFixed(5)} sem imagem de volta`);
+              if (opts.costAcc) opts.costAcc.usd += perdido;
+              logGeminiUsage("agents-ads-image-perdida", model, u, opts.costAcc?.jobId);
+            } catch (_) { /* logging must never break generation */ }
+          }
+
           if (url) {
             try {
               const inTok  = Number(u.promptTokenCount ?? u.prompt_token_count ?? 0);

@@ -259,7 +259,7 @@ async function callGemini(payload: ReforgePayload, model: string, apiKey: string
   // Persist the RAW usageMetadata to the PHP ledger (single pricing authority — counts thinking
   // and lands in gemini_usage). Fire-and-forget; the empty SELECT earlier was because reforge
   // never did this.
-  logGeminiUsage("agents-lp-reforge", model, data?.usageMetadata);
+  // (o logGeminiCost logo acima ja grava no ledger desde 14/08 — chamar aqui contaria duas vezes)
   const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
   if (!text.trim()) throw new Error(`Gemini ${model} returned empty response`);
   const u = data?.usageMetadata ?? data?.usage_metadata ?? {};

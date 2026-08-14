@@ -1,4 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// 14/08: esta funcao usa gemini-2.5-pro e nao gravava NADA no ledger — era um dos
+// caminhos invisiveis que explicam a diferenca entre a tabela e a fatura.
+import { logGeminiUsage } from "../_shared/geminiCost.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -144,6 +147,7 @@ async function callGemini(
     const outTok = Number(u.candidatesTokenCount ?? u.candidates_token_count ?? 0);
     console.log(`[token-usage] model=${model} stores=${fileSearchStores?.length ?? 0} prompt=${promptTok || "?"} candidates=${outTok || "?"} toolUse=${u.toolUsePromptTokenCount ?? u.tool_use_prompt_token_count ?? 0} total=${u.totalTokenCount ?? u.total_token_count ?? "?"}`);
     logCostEstimate(model, promptTok, outTok);
+    logGeminiUsage("agents-lp", model, u);
   } catch (_) { /* logging must never break generation */ }
   const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
   if (!text.trim()) throw new Error(`Gemini ${model} returned empty response`);
