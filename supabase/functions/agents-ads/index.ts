@@ -562,6 +562,26 @@ async function buildOverlayHtmlFromGemini(
   const headline = String(data.mainHeadline || "").trim();
   const sub      = String(data.subheadline || (data as any).offer || "").trim();
   const ctaRaw   = String((data as any).ctaText || "").trim();
+
+  // REGISTRO TIPOGRAFICO. Os 10 layouts so' mudam ONDE o bloco de texto fica; a ESCALA e' sempre
+  // a mesma, e por isso todo anuncio tem o mesmo peso visual. Aqui a escala vira uma decisao
+  // propria: cartaz (tipo dominando a tela), editorial (o de hoje) e legenda (imagem dominando,
+  // texto pequeno). Sao NUMEROS, nao pedido em prosa — regra escrita some na proxima geracao,
+  // numero no skeleton nao some. A banda continua derivada do comprimento do headline, entao
+  // copy longa segue encolhendo dentro de qualquer registro.
+  // Fica atras de flag: sem `beta_variedade` no payload, o comportamento e' exatamente o de hoje.
+  const REGISTROS = [
+    { key: "cartaz",    mult: 1.55, capPct: 42, maxLines: 4, sub: "2–2.6cqw" },
+    { key: "editorial", mult: 1.00, capPct: 25, maxLines: 3, sub: "2.5–4cqw" },
+    { key: "legenda",   mult: 0.68, capPct: 16, maxLines: 2, sub: "1.9–2.4cqw" },
+  ] as const;
+  const variedadeBeta = (data as any)?.betaVariedade === true;
+  const registro = variedadeBeta
+    ? REGISTROS[(((opts.jobId ?? 0) + W + H) % REGISTROS.length + REGISTROS.length) % REGISTROS.length]
+    : REGISTROS[1];
+  const bandaBase: [number, number] = headline.length <= 22 ? [7, 8] : headline.length <= 34 ? [5.5, 6.5] : [4.5, 5.5];
+  const bandaHeadline = `${(bandaBase[0] * registro.mult).toFixed(1)}–${(bandaBase[1] * registro.mult).toFixed(1)}cqw`;
+  if (variedadeBeta) console.warn(`[registro-tipografico] job=${opts.jobId ?? "?"} registro=${registro.key} banda=${bandaHeadline}`);
   const primaryColor = extractCssVarColor(cssVars, "--primary") || "#1a1a2e";
   const fontFamily   = extractCssVarFont(cssVars) || "'Inter','Helvetica Neue',Arial,sans-serif";
   // Derive Google Fonts URL so GD can download the TTF for the overlay render.
@@ -760,8 +780,8 @@ async function buildOverlayHtmlFromGemini(
     // 35-character headline took the top of the band, wrapped to three lines and swallowed a third
     // of the canvas (run 291). Type size has to fall as the copy grows — the band below is computed
     // from THIS headline's length so the model cannot pick the biggest option for the longest copy.
-    `   • font-size:${headline.length <= 22 ? "7–8cqw" : headline.length <= 34 ? "5.5–6.5cqw" : "4.5–5.5cqw"}; font-weight:900. This range was chosen for the length of THIS headline (${headline.length} characters) — do not go above it.`,
-    "   • SIZE SANITY CHECK: the headline block must occupy AT MOST ~25% of the canvas height and never more than 3 lines. If it exceeds either, drop the font-size until it fits — a headline that dominates the frame reads as a template, not as an ad.",
+    `   • font-size:${bandaHeadline}; font-weight:900. This range was chosen for the length of THIS headline (${headline.length} characters) and for the ${registro.key.toUpperCase()} typographic register of this ad — do not go above it.`,
+    `   • SIZE SANITY CHECK: the headline block must occupy AT MOST ~${registro.capPct}% of the canvas height and never more than ${registro.maxLines} lines.` + " If it exceeds either, drop the font-size until it fits — a headline that dominates the frame reads as a template, not as an ad.",
     "   • LINE BREAK: if headline is longer than 22 chars, add an explicit <br> at the most natural semantic split — after a colon, before a key verb — so both visual lines have roughly equal weight. Never rely on CSS auto-wrap.",
     hasBrandHex
       ? `   • ACCENT TREATMENT (do this — it's what makes the ad feel branded, not generic): give the SINGLE most impactful headline word a branded accent. ⭐ USE EXACTLY THIS TECHNIQUE FOR THIS AD: . It was picked for you so consecutive ads don't look identical — do NOT substitute a different one, even if another would look safer. Use the brand hex ${accentHexForSpan}/${accentHexSecondary}, or a strong vivid colour actually present IN THIS background (a lamp glow, a coloured surface) that harmonises better while staying in the brand family. Repertoire (never stack two on one word):
@@ -774,7 +794,7 @@ async function buildOverlayHtmlFromGemini(
       : `   • ACCENT TREATMENT: no brand colour was provided — pick a strong, vivid colour actually visible in THIS background (a lamp glow, a coloured surface) for the single most impactful headline word (a coloured word, a translucent highlighter sweep behind it, or a thick underline stroke), or keep it plain white if nothing suitable stands out.`,
     "   • text-align: center or left based on composition.",
     "",
-    "5. Subheadline: font-size:2.5–4cqw; font-weight:400. Placed in GROUP 2 (OPTION A) or inside the single flex block (OPTION B).",
+    `5. Subheadline: font-size:${registro.sub}; font-weight:400.` + " Placed in GROUP 2 (OPTION A) or inside the single flex block (OPTION B).",
     "   • LEGIBILITY: the subheadline must read as easily as the headline — keep it on the calm / scrim-covered zone. If it must cross a busy or light-detailed area, give it its OWN subtle backing so it never goes low-contrast: PREFER extending the main scrim gradient under it, or bumping its text-shadow. If you add a local backing it MUST be a soft gradient that FADES to transparent (e.g. background:linear-gradient(90deg,rgba(0,0,0,0.32),transparent)) hugging the text — ⛔ never a solid/evenly-tinted fill, never a rounded or pill-shaped bar (that reads as a container/button), and ⛔ NEVER extend any backing behind the CTA. The CTA itself always stays completely container-free (see its rule).",
     "",
     "6. " + ctaMenu,

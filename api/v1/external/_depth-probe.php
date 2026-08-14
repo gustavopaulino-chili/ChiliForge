@@ -1,0 +1,3 @@
+<?php
+// sonda
+echo "ok";

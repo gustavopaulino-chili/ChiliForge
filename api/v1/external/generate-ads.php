@@ -237,6 +237,12 @@ function ext_map_campaign(array $cam, array $formats): array {
         'urgencyLevel'          => $str('urgency_level'),
         'creativeStrategy'      => $str('creative_strategy'),
         'productImageUrl'       => $first(['product_image_url', 'product_image', 'image_url', 'creative_image_url']),
+        // Cut-out subject composited ABOVE the copy (depth layer). Optional: when absent the
+        // product image is tried, and it is only used if it is genuinely cut-outable.
+        'depthLayerUrl'         => $first(['depth_layer_url', 'cutout_url', 'foreground_image_url']),
+        // Beta: varies the typographic register (poster / editorial / caption). Off unless the
+        // caller asks for it, so production output is byte-for-byte what it is today.
+        'betaVariedade'         => $bool('beta_variedade', false),
         'backgroundImageUrl'    => $first(['background_image_url', 'background_image', 'hero_image_url']),
         // Creative reference image for this specific generation. Sent to the image model with
         // full creative freedom — Gemini decides how to use it (composition, mood, texture, etc.).

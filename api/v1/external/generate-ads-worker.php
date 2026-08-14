@@ -22,6 +22,7 @@ include __DIR__ . '/../../site_helpers.php';
 include __DIR__ . '/../../_render.php';
 include __DIR__ . '/../../_browserless.php';
 include __DIR__ . '/compose-gd.php';
+include __DIR__ . '/compose-layers.php';
 
 if (!function_exists('ext_escape_attr')) {
     function ext_escape_attr(string $value): string {
@@ -839,6 +840,54 @@ try {
                         $bannerHtml = ext_inject_font_head($bannerHtml, $composeFont);
                     }
                     if (trim($bannerHtml) === '') continue;
+
+                    // MEASURED SCRIM. The engine writes the darkening gradient blind — it never
+                    // sees the photo — so it emits roughly the same fade on every ad. Here the
+                    // JPEG is in hand: sample what is actually under the copy, compute the
+                    // contrast the ink really gets, and resize the gradient to the minimum that
+                    // works. On a dark or calm photo that is zero and the fade is deleted, which
+                    // is the single biggest reason every creative looked like the same template.
+                    // Guarded: compose-depth.php is include'd, not require'd, so a missing or
+                    // half-uploaded file must degrade to today's behaviour instead of fatalling
+                    // a job. (It already bit us once during deploy.)
+                    $scrimDiag = [];
+                    $tuned = function_exists('extd_tune_scrim')
+                        ? extd_tune_scrim($bannerHtml, $fmtW, $fmtH, $scrimDiag)
+                        : $bannerHtml;
+                    if (is_string($tuned) && trim($tuned) !== '') $bannerHtml = $tuned;
+                    if (!empty($scrimDiag['ran'])) {
+                        error_log('[scrim-medido] creative=' . $sortOrd . ' acao=' . ($scrimDiag['action'] ?? '?')
+                            . ' need=' . ($scrimDiag['need'] ?? '?')
+                            . ' antes=' . ($scrimDiag['peakBefore'] ?? '-') . ' depois=' . ($scrimDiag['peakAfter'] ?? '-'));
+                    } else {
+                        error_log('[scrim-medido] creative=' . $sortOrd . ' NAO rodou: ' . ($scrimDiag['reason'] ?? '?'));
+                    }
+                    if (isset($banner['debug']) && is_array($banner['debug'])) {
+                        $banner['debug']['scrimMedido'] = $scrimDiag;
+                    }
+
+                    // DEPTH LAYER. Until now the copy sat above every pixel of the ad, so no
+                    // scene element could ever pass in front of it — the flat, caption-on-a-photo
+                    // look. An explicit cut-out wins; otherwise the product photo is tried, and
+                    // it is only used if it really has transparency or a keyable studio backdrop.
+                    $depthRaw = trim((string)($campaignFormData['depthLayerUrl'] ?? ''));
+                    if ($depthRaw === '') $depthRaw = trim((string)($campaignFormData['productImageUrl'] ?? ''));
+                    if ($depthRaw !== '' && function_exists('extd_prepare_cutout')) {
+                        $cutout = extd_prepare_cutout($depthRaw);
+                        if ($cutout !== '') {
+                            $depthDiag = [];
+                            $withDepth = extd_add_depth_layer($bannerHtml, $cutout, $fmtW, $fmtH, $depthDiag);
+                            if (!empty($depthDiag['ran'])) {
+                                $bannerHtml = $withDepth;
+                                error_log('[camada-profundidade] creative=' . $sortOrd . ' lado=' . ($depthDiag['side'] ?? '?'));
+                            } else {
+                                error_log('[camada-profundidade] creative=' . $sortOrd . ' nao injetou: ' . ($depthDiag['reason'] ?? '?'));
+                            }
+                            if (isset($banner['debug']) && is_array($banner['debug'])) $banner['debug']['camadaProfundidade'] = $depthDiag;
+                        } else {
+                            error_log('[camada-profundidade] creative=' . $sortOrd . ' fonte nao recortavel: ' . substr($depthRaw, 0, 80));
+                        }
+                    }
 
                     agents_reconnect_mysqli_if_needed($conn);
                     $insC = $conn->prepare(
