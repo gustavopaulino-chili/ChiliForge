@@ -775,7 +775,62 @@ try {
             $updR = $conn->prepare("UPDATE ad_generation_job_batches SET status = 'running', attempts = attempts + 1 WHERE job_id = ? AND batch_index = ?");
             if ($updR) { $updR->bind_param('ii', $jobId, $bIdx); $updR->execute(); $updR->close(); }
         }
-        $composeResults = agents_call_edge_function_multi('agents-ads', $composePayloads, $passKey);
+        // ── CAMINHO C ────────────────────────────────────────────────────────────────────
+        // Quando o payload pede motor_imagem=openai, a peca inteira sai de UMA chamada ao
+        // modelo de imagem da OpenAI, com as referencias da marca anexadas e as cores vindas
+        // do cadastro. O Gemini nem e' acionado. Qualquer batch que falhar aqui cai de volta
+        // no fluxo normal, entao o pior caso e' o comportamento de hoje.
+        $motorOpenai = strtolower(trim((string)($campaignFormData['motorImagem'] ?? ''))) === 'openai';
+        $chaveOpenai = trim((string)($campaignFormData['openaiApiKey'] ?? ''));
+        if ($chaveOpenai === '' && function_exists('agents_env_value')) {
+            $chaveOpenai = trim((string)agents_env_value('OPENAI_API_KEY', ''));
+        }
+
+        if ($motorOpenai && $chaveOpenai !== '' && function_exists('extc_openai_gerar')) {
+            $refs = is_array($campaignFormData['composeCompanyRefs'] ?? null) ? $campaignFormData['composeCompanyRefs'] : [];
+            $logoC = trim((string)($companyFormData['logoUrl'] ?? ($campaignFormData['logoUrl'] ?? '')));
+            $promptC = extc_openai_prompt($campaignFormData, $companyFormData);
+            $qualC = strtolower(trim((string)($campaignFormData['qualidadeImagem'] ?? 'medium')));
+            if (!in_array($qualC, ['low', 'medium', 'high'], true)) $qualC = 'medium';
+            error_log('[caminho-c] job=' . $jobId . ' ligado; refs=' . count($refs) . ' qualidade=' . $qualC);
+
+            foreach ($batches as $bIdx => $b) {
+                $bannersC = [];
+                foreach (($b['formats'] ?? []) as $iF => $fmtC) {
+                    $wC = (int)($fmtC['width'] ?? 1080);
+                    $hC = (int)($fmtC['height'] ?? 1080);
+                    $bytesC = extc_openai_gerar($chaveOpenai, $refs, $promptC, $qualC, extc_tamanho_openai($wC, $hC));
+                    if ($bytesC === null) { $bannersC = []; break; }
+                    $bytesC = extc_poe_logo($bytesC, $logoC);
+                    $tmpC = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'cforge-c-' . $jobId . '-' . $bIdx . '-' . $iF . '.jpg';
+                    if (@file_put_contents($tmpC, $bytesC) === false) { $bannersC = []; break; }
+                    $bannersC[] = [
+                        // HTML minimo so' para o registro: a peca ja' esta' pronta em pixels.
+                        'html'          => '<div class="ad-banner" data-motor="openai"></div>',
+                        'imagemPronta'  => $tmpC,
+                        'platform'      => (string)($fmtC['platform'] ?? 'other'),
+                        'format'        => (string)($fmtC['format'] ?? 'ad'),
+                        'label'         => (string)($fmtC['label'] ?? ($wC . 'x' . $hC)),
+                        'debug'         => ['motor' => 'openai', 'qualidade' => $qualC, 'refs' => count($refs), 'tamanho' => extc_tamanho_openai($wC, $hC)],
+                    ];
+                }
+                if ($bannersC) {
+                    $composeResults[$bIdx] = ['ok' => true, 'data' => ['banners' => $bannersC]];
+                } else {
+                    error_log('[caminho-c] batch ' . $bIdx . ' falhou; esse batch volta para o Gemini');
+                }
+            }
+
+            // Os batches que o caminho C nao cobriu seguem pelo fluxo normal.
+            $faltando = array_diff(array_keys($composePayloads), array_keys($composeResults));
+            if ($faltando) {
+                $resto = agents_call_edge_function_multi('agents-ads', array_intersect_key($composePayloads, array_flip($faltando)), $passKey);
+                foreach ($resto as $k => $v) $composeResults[$k] = $v;
+            }
+        } else {
+            if ($motorOpenai) error_log('[caminho-c] pedido, mas sem chave da OpenAI; seguindo pelo Gemini');
+            $composeResults = agents_call_edge_function_multi('agents-ads', $composePayloads, $passKey);
+        }
         agents_reconnect_mysqli_if_needed($conn);
     }
 
@@ -955,7 +1010,22 @@ try {
                         // fall back to the PHP/GD compositor on any failure so an outage or a
                         // missing token never breaks generation.
                         $rendered = false;
-                        if (function_exists('browserless_enabled') && browserless_enabled()) {
+
+                        // Caminho C: a peca ja' veio pronta em pixels. Nao ha' o que rasterizar —
+                        // e' so' mover o arquivo para o lugar do banner.
+                        $prontaC = (string)($banner['imagemPronta'] ?? '');
+                        if ($prontaC !== '' && is_file($prontaC)) {
+                            if (@copy($prontaC, $jpgFilePath)) {
+                                $imageUrl = '/projects/' . $creativeRelPath . '/banner.jpg';
+                                $rendered = true;
+                                @unlink($prontaC);
+                                error_log('[caminho-c] creative=' . $creativeId . ' peca gravada sem rasterizacao');
+                            } else {
+                                error_log('[caminho-c] creative=' . $creativeId . ' falha ao copiar ' . $prontaC);
+                            }
+                        }
+
+                        if (!$rendered && function_exists('browserless_enabled') && browserless_enabled()) {
                             try {
                                 if (browserless_render_html_to_jpeg($bannerHtml, $fmtW, $fmtH, $jpgFilePath)) {
                                     $imageUrl = '/projects/' . $creativeRelPath . '/banner.jpg';

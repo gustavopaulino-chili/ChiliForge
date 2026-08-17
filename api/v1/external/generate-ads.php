@@ -243,6 +243,12 @@ function ext_map_campaign(array $cam, array $formats): array {
         // Beta: varies the typographic register (poster / editorial / caption). Off unless the
         // caller asks for it, so production output is byte-for-byte what it is today.
         'betaVariedade'         => $bool('beta_variedade', false),
+        // CAMINHO C — a peça inteira pelo modelo de imagem da OpenAI, numa chamada só.
+        // Sem `motor_imagem: "openai"` nada muda: o Gemini segue sendo o caminho padrão.
+        // A chave pode vir aqui (quem chama paga, como já é com a Gemini) ou do servidor.
+        'motorImagem'           => strtolower($str('motor_imagem')),
+        'openaiApiKey'          => $first(['openai_api_key', 'openaiApiKey']),
+        'qualidadeImagem'       => strtolower($first(['qualidade_imagem', 'image_quality'])),
         'backgroundImageUrl'    => $first(['background_image_url', 'background_image', 'hero_image_url']),
         // Creative reference image for this specific generation. Sent to the image model with
         // full creative freedom — Gemini decides how to use it (composition, mood, texture, etc.).
