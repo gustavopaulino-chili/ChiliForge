@@ -1575,3 +1575,239 @@ if (!function_exists('extd_lum')) {
         }
     }
 }
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════
+   CAMINHO C — o anuncio inteiro pelo modelo de imagem da OpenAI, numa chamada so'.
+
+   O Gemini continua sendo o caminho padrao. Este entra apenas quando o payload pede, e cai
+   de volta no fluxo normal em qualquer falha. O que ele faz de diferente:
+
+   - a COR vem sempre do cadastro, em hexadecimal, com o papel de cada uma declarado. So' se
+     o campo estiver vazio e' que a paleta sai das referencias. Medido: nomear a cor derruba
+     a variacao entre geracoes de 15 graus de matiz para 1.
+   - as REFERENCIAS entram com o papel explicito. Em modo proxy os posts sao de concorrente,
+     e o modelo e' avisado de que nao pode tirar identidade deles — testado numa marca cujas
+     referencias eram azuis e vermelhas e cujo resultado saiu 96% na cor propria.
+   - a LOGO nunca e' desenhada: entra por cima, em PNG, no canto que a imagem pronta deixar
+     mais calmo.
+   - as unicas travas criativas sao a copy exata e a legibilidade.
+   ═════════════════════════════════════════════════════════════════════════════════════════ */
+
+if (!function_exists('extc_openai_prompt')) {
+
+    /** Papel de cada cor cadastrada. Vazio quando nao ha' cor — e' o sinal para o modelo
+     *  tirar a paleta das referencias, que e' a regra combinada. */
+    function extc_openai_paleta(array $company): string {
+        $hex = function ($v) {
+            $v = trim((string)$v);
+            return preg_match('/^#[0-9a-f]{6}$/i', $v) ? strtolower($v) : '';
+        };
+        $p = $hex($company['primaryColor'] ?? '');
+        $a = $hex($company['accentColor'] ?? '');
+        $s = $hex($company['secondaryColor'] ?? '');
+        if ($p === '') {
+            return "BRAND COLOURS: this client has no colour registered. Read the palette from the attached brand references and stay strictly inside it — do not invent a colour that is not visibly theirs.";
+        }
+        $l = ["BRAND COLOURS - these come from the client's registered brand fields, not from your reading of the references, and they are not negotiable:"];
+        $l[] = "- PRIMARY {$p}. This is the dominant colour of the piece: the large fields, the panels, the mood.";
+        if ($a !== '') $l[] = "- ACCENT {$a}. Use it sparingly - a highlighted word, a small device, the button.";
+        if ($s !== '') $l[] = "- SECONDARY {$s}. Use it for a contrasting block, a card, or the button when the piece needs weight.";
+        $l[] = "These are the entire palette. Introduce NO other brand colour. If a reference image pulls you elsewhere, ignore it - those are variations in a feed, not the brand.";
+        return implode("\n", $l);
+    }
+
+    /** O prompt completo. Duas travas apenas: copy exata e legibilidade. */
+    function extc_openai_prompt(array $campaign, array $company): string {
+        $head = trim((string)($campaign['mainHeadline'] ?? ''));
+        $sub  = trim((string)($campaign['subheadline'] ?? ''));
+        $cta  = trim((string)($campaign['ctaText'] ?? ''));
+        $prod = trim((string)($campaign['productName'] ?? ($campaign['valueProposition'] ?? '')));
+        $pub  = trim((string)($campaign['targetAudience'] ?? ''));
+        $lang = trim((string)($campaign['language'] ?? 'pt-BR'));
+        $proxy = !empty($company['brandPostsAreProxy']);
+        $fonte = trim((string)($company['headingFont'] ?? ''));
+
+        $refs = $proxy
+            ? "ABOUT THE ATTACHED IMAGES: this client has NO posts of its own yet. They are posts by OTHER companies in the same market, attached ONLY so you can see the conventions of the category. Take NO identity from them - not their colour, not their logo style, not their typography, not their graphic devices. They are a briefing about the market, never a style guide."
+            : "ABOUT THE ATTACHED IMAGES: these are the brand's OWN posts and, where present, a screenshot of its website. They are the source of truth for this brand's graphic vocabulary - its devices, its photographic treatment, its rhythm. Match that language.";
+
+        $tipo = $fonte !== ''
+            ? "TYPEFACE: set the text in {$fonte}, or the closest possible match to it."
+            : "TYPEFACE: choose a typeface that belongs to this brand's world, and stay with one family throughout.";
+
+        $copy = '';
+        if ($head !== '') $copy .= "\"{$head}\"\n";
+        if ($sub !== '')  $copy .= "\"{$sub}\"\n";
+        if ($cta !== '')  $copy .= "\"{$cta}\"";
+
+        $partes = [
+            "You are a senior art director at a top creative agency. Create a finished square advertisement"
+                . ($prod !== '' ? " for {$prod}" : '') . ($pub !== '' ? ", sold to {$pub}" : '') . ".",
+            $refs,
+            extc_openai_paleta($company),
+            "Make the best advertisement you can for this theme. You have complete freedom over the scene, composition, cropping, lighting, staging, typography, scale, and how and where the copy lives in the image. Integrate the type with the scene however serves the idea - in front of it, behind it, cut out of it, on a surface. Surprise me.",
+            "FIRST RULE, absolute: these texts must appear EXACTLY as written, character for character, in {$lang}, every accent intact. Not paraphrased, not translated, nothing added or dropped:\n" . $copy,
+            "SECOND RULE, and it outranks every creative instinct: LEGIBILITY.\n"
+                . "- Every text must read INSTANTLY at thumbnail size, scrolling past on a phone. That is how this ad will be seen.\n"
+                . "- Contrast between the type and whatever sits behind it must be unmistakable. Judge it by the colour actually behind each word: over a light field use dark type, over a dark field use light type.\n"
+                . "- No letter swallowed by a busy area, a highlight, a face, or a colour close to its own.\n"
+                . "- The headline is the loudest thing in the frame.",
+            $tipo,
+            "Invent no other words: no watermark, no signature, no fake logo, no brand name, no text on props.\nLeave the TOP-RIGHT corner free of anything that would be ruined by a logo placed over it afterwards.",
+        ];
+        return implode("\n\n", array_filter($partes, 'strlen'));
+    }
+
+    /**
+     * Converte o formato pedido num tamanho que a API aceita: lados multiplos de 16,
+     * proporcao ate 3:1, e total de pixels entre 655.360 e 8.294.400. Preserva a proporcao
+     * original o mais perto possivel — 1080x1080 vira 1024x1024, e 1080x1920 vira 1152x2048,
+     * que e 9:16 exato.
+     */
+    function extc_tamanho_openai(int $w, int $h): string {
+        $w = max(1, $w);
+        $h = max(1, $h);
+        $prop = $w / $h;
+        if ($prop > 3) $prop = 3.0;
+        if ($prop < 1 / 3) $prop = 1 / 3;
+        $alvo = 1400000; // area confortavel dentro da faixa permitida
+        $nw = sqrt($alvo * $prop);
+        $nh = $nw / $prop;
+        $arred = function (float $v): int { return max(512, (int)(round($v / 16) * 16)); };
+        $nw = $arred($nw);
+        $nh = $arred($nh);
+        $px = $nw * $nh;
+        if ($px < 655360 || $px > 8294400) return '1024x1024';
+        return $nw . 'x' . $nh;
+    }
+    /**
+     * Gera a peca. Devolve os bytes da imagem, ou null em qualquer problema — nunca lanca,
+     * porque a falha aqui tem que cair de volta no caminho do Gemini sem derrubar o job.
+     */
+    function extc_openai_gerar(string $apiKey, array $refUrls, string $prompt, string $qualidade = 'medium', string $tamanho = '1024x1024'): ?string {
+        if ($apiKey === '' || !function_exists('curl_init')) return null;
+
+        $nl = "\r\n";
+        $bound = '----chiliforge' . bin2hex(random_bytes(8));
+        $campo = function (string $nome, string $valor) use ($bound, $nl): string {
+            return '--' . $bound . $nl . 'Content-Disposition: form-data; name="' . $nome . '"' . $nl . $nl . $valor . $nl;
+        };
+
+        $corpo  = $campo('model', 'gpt-image-2');
+        $corpo .= $campo('prompt', $prompt);
+        $corpo .= $campo('size', $tamanho);
+        $corpo .= $campo('quality', $qualidade);
+        $corpo .= $campo('n', '1');
+
+        $anexadas = 0;
+        foreach (array_slice(array_values($refUrls), 0, 6) as $u) {
+            $bytes = extgd_fetch_bytes((string)$u);
+            if ($bytes === '') continue;
+            $png = (stripos((string)$u, '.png') !== false);
+            $corpo .= '--' . $bound . $nl
+                . 'Content-Disposition: form-data; name="image[]"; filename="ref' . $anexadas . ($png ? '.png' : '.jpg') . '"' . $nl
+                . 'Content-Type: ' . ($png ? 'image/png' : 'image/jpeg') . $nl . $nl
+                . $bytes . $nl;
+            $anexadas++;
+        }
+        if ($anexadas === 0) { error_log('[caminho-c] nenhuma referencia baixou; abortando'); return null; }
+        $corpo .= '--' . $bound . '--' . $nl;
+
+        $ch = curl_init('https://api.openai.com/v1/images/edits');
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $corpo,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 240,
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer ' . $apiKey,
+                'Content-Type: multipart/form-data; boundary=' . $bound,
+            ],
+        ]);
+        $resp = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($resp === false || $code < 200 || $code >= 300) {
+            error_log('[caminho-c] OpenAI HTTP ' . $code . ': ' . substr((string)$resp, 0, 300));
+            return null;
+        }
+        $j = json_decode((string)$resp, true);
+        $b64 = is_array($j) ? ($j['data'][0]['b64_json'] ?? '') : '';
+        if (!is_string($b64) || $b64 === '') { error_log('[caminho-c] resposta sem imagem'); return null; }
+
+        // Custo real, lido do proprio campo de uso da chamada.
+        $u = is_array($j) ? ($j['usage'] ?? []) : [];
+        $inTxt = (int)($u['input_tokens_details']['text_tokens'] ?? 0);
+        $inImg = (int)($u['input_tokens_details']['image_tokens'] ?? 0);
+        $out   = (int)($u['output_tokens'] ?? 0);
+        $usd   = ($inTxt / 1000000) * 5 + ($inImg / 1000000) * 8 + ($out / 1000000) * 30;
+        error_log(sprintf('[caminho-c] ok refs=%d in_txt=%d in_img=%d out=%d ~USD %.4f', $anexadas, $inTxt, $inImg, $out, $usd));
+
+        $bytes = base64_decode($b64, true);
+        return ($bytes === false || $bytes === '') ? null : $bytes;
+    }
+
+    /**
+     * Poe a logo REAL no canto mais calmo da imagem pronta. Mede uma caixa MAIOR que a logo
+     * de proposito: sem essa folga, um canto liso vizinho de um bloco de texto e' escolhido
+     * como "calmo" e a logo encosta na primeira letra — aconteceu no teste.
+     */
+    function extc_poe_logo(string $imgBytes, string $logoUrl, int $q = 92): string {
+        if ($logoUrl === '' || !function_exists('imagecreatetruecolor')) return $imgBytes;
+        try {
+            $base = extgd_image_from_bytes($imgBytes);
+            if ($base === false) return $imgBytes;
+            $lb = extgd_fetch_bytes($logoUrl);
+            if ($lb === '') { imagedestroy($base); return $imgBytes; }
+            $logo = extgd_image_from_bytes($lb);
+            if ($logo === false) { imagedestroy($base); return $imgBytes; }
+            imagealphablending($logo, true);
+            imagesavealpha($logo, true);
+
+            $W = imagesx($base); $H = imagesy($base);
+            $lw = imagesx($logo); $lh = imagesy($logo);
+            if ($lw < 4 || $lh < 4) { imagedestroy($base); imagedestroy($logo); return $imgBytes; }
+
+            $esc = ($W * 0.19) / $lw;
+            $nw = max(1, (int)round($lw * $esc));
+            $nh = max(1, (int)round($lh * $esc));
+            $m = (int)round($W * 0.05);
+            $folga = (int)round($W * 0.06);
+
+            $cantos = [
+                [$W - $m - $nw, $m], [$m, $m],
+                [$W - $m - $nw, $H - $m - $nh], [$m, $H - $m - $nh],
+            ];
+            $melhor = $cantos[0];
+            $mv = INF;
+            foreach ($cantos as $c) {
+                $x = $c[0]; $y = $c[1];
+                $s2 = 0.0; $n = 0;
+                for ($yy = max(0, $y - $folga); $yy < min($H, $y + $nh + $folga) - 1; $yy += 3) {
+                    for ($xx = max(0, $x - $folga); $xx < min($W, $x + $nw + $folga) - 1; $xx += 3) {
+                        $c1 = imagecolorat($base, $xx, $yy);
+                        $c2 = imagecolorat($base, $xx + 1, $yy + 1);
+                        $l1 = (($c1 >> 16 & 255) * 0.21 + ($c1 >> 8 & 255) * 0.72 + ($c1 & 255) * 0.07);
+                        $l2 = (($c2 >> 16 & 255) * 0.21 + ($c2 >> 8 & 255) * 0.72 + ($c2 & 255) * 0.07);
+                        $g = abs($l1 - $l2);
+                        $s2 += $g * $g; $n++;
+                    }
+                }
+                $v = $n ? sqrt($s2 / $n) : INF;
+                if ($v < $mv) { $mv = $v; $melhor = [$x, $y]; }
+            }
+
+            imagealphablending($base, true);
+            imagecopyresampled($base, $logo, $melhor[0], $melhor[1], 0, 0, $nw, $nh, $lw, $lh);
+            ob_start();
+            imagejpeg($base, null, $q);
+            $saida = (string)ob_get_clean();
+            imagedestroy($base);
+            imagedestroy($logo);
+            return $saida !== '' ? $saida : $imgBytes;
+        } catch (Throwable $e) {
+            error_log('[caminho-c] logo nao composta: ' . $e->getMessage());
+            return $imgBytes;
+        }
+    }
+}
