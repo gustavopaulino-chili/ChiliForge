@@ -789,7 +789,7 @@ try {
         if ($motorOpenai && $chaveOpenai !== '' && function_exists('extc_openai_gerar')) {
             $refs = is_array($campaignFormData['composeCompanyRefs'] ?? null) ? $campaignFormData['composeCompanyRefs'] : [];
             $logoC = trim((string)($companyFormData['logoUrl'] ?? ($campaignFormData['logoUrl'] ?? '')));
-            $promptC = extc_openai_prompt($campaignFormData, $companyFormData);
+            
             $qualC = strtolower(trim((string)($campaignFormData['qualidadeImagem'] ?? 'medium')));
             if (!in_array($qualC, ['low', 'medium', 'high'], true)) $qualC = 'medium';
             error_log('[caminho-c] job=' . $jobId . ' ligado; refs=' . count($refs) . ' qualidade=' . $qualC);
@@ -799,6 +799,7 @@ try {
                 foreach (($b['formats'] ?? []) as $iF => $fmtC) {
                     $wC = (int)($fmtC['width'] ?? 1080);
                     $hC = (int)($fmtC['height'] ?? 1080);
+                    $promptC = extc_openai_prompt($campaignFormData, $companyFormData, $fmtC);
                     $bytesC = extc_openai_gerar($chaveOpenai, $refs, $promptC, $qualC, extc_tamanho_openai($wC, $hC));
                     if ($bytesC === null) { $bannersC = []; break; }
                     $bytesC = extc_poe_logo($bytesC, $logoC);

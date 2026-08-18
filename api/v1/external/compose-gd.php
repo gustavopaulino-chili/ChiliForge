@@ -1616,8 +1616,33 @@ if (!function_exists('extc_openai_prompt')) {
         return implode("\n", $l);
     }
 
+    /**
+     * Descreve ONDE a peca vai aparecer. A deteccao e' pela PROPORCAO, nunca pelo nome do
+     * preset: o 4:5 do chamador chega como objeto customizado, sem nome conhecido, e casar
+     * por nome deixaria a maioria dos posts sem esse bloco — que e' justamente o que impede
+     * o botao falso.
+     */
+    function extc_bloco_rede(array $fmt): string {
+        $w = max(1, (int)($fmt['width'] ?? 1080));
+        $h = max(1, (int)($fmt['height'] ?? 1080));
+        $r = $w / $h;
+        $rede = trim((string)($fmt['platform'] ?? ''));
+        $rede = $rede !== '' ? ucfirst($rede) : 'the social network';
+
+        if ($r >= 1.7)        $onde = 'a wide landscape slot in a feed, seen small';
+        elseif ($r >= 0.95)   $onde = 'a square post in a feed, scrolling on a phone';
+        elseif ($r >= 0.72)   $onde = 'a tall portrait post in a feed — it fills more of the screen than a square, so it has more room vertically';
+        else                  $onde = 'a full-screen vertical story or reel, tapped through in seconds';
+
+        return "WHERE THIS WILL BE SEEN: {$onde}, on {$rede}. Around your image the platform draws its own interface — profile name above, caption below, and its own real call-to-action button under the image. Design for that context:\n"
+            . "- ⛔ Do NOT draw a user-interface button inside the image: no rounded rectangle with a label inside it, no pill, no chip that looks tappable. The platform already puts a real button right below; a second, fake one reads as a screenshot of an app instead of an advertisement.\n"
+            . "- The call to action lives as TYPE: a short confident line, set apart by weight, or underlined, or followed by a small arrow. Never boxed.\n"
+            . "- Keep the outer edges and corners clear of anything essential — the platform crops and overlays there.\n"
+            . "- It competes against friends' photos in a scroll. The headline has to land in under a second.";
+    }
+
     /** O prompt completo. Duas travas apenas: copy exata e legibilidade. */
-    function extc_openai_prompt(array $campaign, array $company): string {
+    function extc_openai_prompt(array $campaign, array $company, array $fmt = []): string {
         $head = trim((string)($campaign['mainHeadline'] ?? ''));
         $sub  = trim((string)($campaign['subheadline'] ?? ''));
         $cta  = trim((string)($campaign['ctaText'] ?? ''));
@@ -1646,6 +1671,7 @@ if (!function_exists('extc_openai_prompt')) {
             $refs,
             extc_openai_paleta($company),
             "Make the best advertisement you can for this theme. You have complete freedom over the scene, composition, cropping, lighting, staging, typography, scale, and how and where the copy lives in the image. Integrate the type with the scene however serves the idea - in front of it, behind it, cut out of it, on a surface. Surprise me.",
+            extc_bloco_rede($fmt),
             "FIRST RULE, absolute: these texts must appear EXACTLY as written, character for character, in {$lang}, every accent intact. Not paraphrased, not translated, nothing added or dropped:\n" . $copy,
             "SECOND RULE, and it outranks every creative instinct: LEGIBILITY.\n"
                 . "- Every text must read INSTANTLY at thumbnail size, scrolling past on a phone. That is how this ad will be seen.\n"
