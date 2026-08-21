@@ -631,15 +631,29 @@ try {
     // the brief worker and by any content-bearing call; a poll has no business touching it.
     $storeWarning = null;
     if ($hasNewContent) {
-        $passKey = agents_env_value('GEMINI_API_KEY_PRODUCTION') ?: agents_env_value('GEMINI_API_KEY_TESTING') ?: null;
-        try {
-            $storeName = agents_sync_company_store(
-                $conn, $companyId, $formData, $accountType, $userId, ($storeName ?: null), $passKey,
-                CAA_WEB_EDGE_TIMEOUT
-            );
-        } catch (Throwable $se) {
-            $storeWarning = $se->getMessage();
-            error_log('[company-assets] store sync failed: ' . $se->getMessage());
+        // A chave TEM que ser a de quem chamou. File Search store e' escopado por PROJETO do
+        // Google: um store criado com a chave do servidor e' ilegivel para a chave que gera o
+        // anuncio depois, e toda leitura volta 403 PERMISSION_DENIED. Aconteceu em producao —
+        // job 91, 20/08/2026, store company520brandguide. Indexar com uma chave e ler com outra
+        // e' pagar para montar uma base que ninguem consegue abrir: o custo sai, o RAG nao entra.
+        //
+        // A versao anterior usava a chave PRODUCTION do servidor de proposito, para fugir do
+        // limite de free tier na indexacao. O raciocinio do free tier estava certo; o do escopo
+        // nao. Sem chave do chamador nao existe store possivel — pular sai mais barato e mais
+        // honesto que criar um inutil.
+        if ($geminiApiKey === '') {
+            $storeWarning = 'store nao sincronizado: gemini_api_key ausente no payload';
+            error_log('[company-assets] store pulado para company ' . $companyId . ': sem gemini_api_key do chamador');
+        } else {
+            try {
+                $storeName = agents_sync_company_store(
+                    $conn, $companyId, $formData, $accountType, $userId, ($storeName ?: null), $geminiApiKey,
+                    CAA_WEB_EDGE_TIMEOUT
+                );
+            } catch (Throwable $se) {
+                $storeWarning = $se->getMessage();
+                error_log('[company-assets] store sync failed: ' . $se->getMessage());
+            }
         }
     }
 

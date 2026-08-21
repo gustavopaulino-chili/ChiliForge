@@ -709,6 +709,16 @@ try {
         }
     }
 
+    // Decidido aqui, antes do interpret, de proposito: o caminho C monta o prompt direto de
+    // campanha + company (extc_openai_prompt) e NAO le batchSpecs. Saber com antecedencia que
+    // ele vai rodar e' o que permite nao pagar um planejamento que seria descartado.
+    $motorOpenai = strtolower(trim((string)($campaignFormData['motorImagem'] ?? ''))) === 'openai';
+    $chaveOpenai = trim((string)($campaignFormData['openaiApiKey'] ?? ''));
+    if ($chaveOpenai === '' && function_exists('agents_env_value')) {
+        $chaveOpenai = trim((string)agents_env_value('OPENAI_API_KEY', ''));
+    }
+    $vaiTentarC = $generateAsImage && $motorOpenai && $chaveOpenai !== '' && function_exists('extc_openai_gerar');
+
     // ── 9. Interpret ──────────────────────────────────────────────────────
 
     // Interpret is a planning aid, not a hard requirement for COMPOSE (image): the
@@ -716,24 +726,43 @@ try {
     // and each batch is a separate edge call. A transient Gemini/edge 503 here must
     // not nuke the whole image job — only the optional per-creative spec is lost.
     // HTML render genuinely needs the spec, so for that path the failure rethrows.
+    // O interpret e' a chamada mais cara do job: gemini-3.5-flash (US$ 1,50/1M de entrada)
+    // com File Search ligado e ate' 8.000 tokens de saida — medido em 20/08, ~90% do custo
+    // Gemini de cada job. Quem consome o resultado dele e' o FLUXO ANTIGO, via creativePlan.
+    // O caminho C ignora. Entao ele passa a rodar SOB DEMANDA: so' se algum batch cair de
+    // volta no fluxo antigo, que e' quem de fato usa o spec.
     $batchSpecs = [];
-    try {
-        $interpretResult = agents_call_edge_function('agents-ads', [
-            'mode'                     => 'interpret',
-            'jobId'                    => $jobId,
-            'agentConfig'              => $agentConfig,
-            'globalStoreName'          => $globalAdsStore,
-            'globalReferenceStoreName' => $globalRefStore ?: null,
-            'imageReferenceStoreName'  => $globalImageRefStore ?: null,
-            'companyStoreName'         => $companyStoreName,
-            'campaignData'             => $campaignFormData,
-        ], $passKey);
-        agents_reconnect_mysqli_if_needed($conn);
-        $batchSpecs = is_array($interpretResult['batchSpecs'] ?? null) ? $interpretResult['batchSpecs'] : [];
-    } catch (Throwable $interpretErr) {
-        if (!$generateAsImage) throw $interpretErr;
-        error_log('[generate-ads-worker] interpret failed (non-fatal for image/compose): ' . $interpretErr->getMessage());
-        agents_reconnect_mysqli_if_needed($conn);
+    $interpretJaRodou = false;
+    $rodarInterpret = function () use (
+        &$batchSpecs, &$interpretJaRodou, $conn, $jobId, $agentConfig, $globalAdsStore,
+        $globalRefStore, $globalImageRefStore, $companyStoreName, $campaignFormData,
+        $passKey, $generateAsImage
+    ) {
+        if ($interpretJaRodou) return;
+        $interpretJaRodou = true;
+        try {
+            $interpretResult = agents_call_edge_function('agents-ads', [
+                'mode'                     => 'interpret',
+                'jobId'                    => $jobId,
+                'agentConfig'              => $agentConfig,
+                'globalStoreName'          => $globalAdsStore,
+                'globalReferenceStoreName' => $globalRefStore ?: null,
+                'imageReferenceStoreName'  => $globalImageRefStore ?: null,
+                'companyStoreName'         => $companyStoreName,
+                'campaignData'             => $campaignFormData,
+            ], $passKey);
+            agents_reconnect_mysqli_if_needed($conn);
+            $batchSpecs = is_array($interpretResult['batchSpecs'] ?? null) ? $interpretResult['batchSpecs'] : [];
+        } catch (Throwable $interpretErr) {
+            if (!$generateAsImage) throw $interpretErr;
+            error_log('[generate-ads-worker] interpret failed (non-fatal for image/compose): ' . $interpretErr->getMessage());
+            agents_reconnect_mysqli_if_needed($conn);
+        }
+    };
+    if ($vaiTentarC) {
+        error_log('[generate-ads-worker] interpret adiado: caminho C nao usa o spec');
+    } else {
+        $rodarInterpret();
     }
 
     // ── 10. Render each batch ────────────────────────────────────────────────
@@ -743,7 +772,9 @@ try {
     $failedBatches    = 0;
     $batchErrors      = [];
 
-    $resolveBatchSpec = function (array $batch, $batchIdx) use ($batchSpecs): string {
+    // Por REFERENCIA: com o interpret sob demanda, $batchSpecs pode ser preenchido depois
+    // desta closure ser criada. Uma copia por valor devolveria spec vazio para sempre.
+    $resolveBatchSpec = function (array $batch, $batchIdx) use (&$batchSpecs): string {
         foreach ($batchSpecs as $bs) {
             if (strcasecmp(trim((string)($bs['label'] ?? '')), (string)$batch['label']) === 0) {
                 return (string)($bs['spec'] ?? '');
@@ -780,13 +811,8 @@ try {
         // modelo de imagem da OpenAI, com as referencias da marca anexadas e as cores vindas
         // do cadastro. O Gemini nem e' acionado. Qualquer batch que falhar aqui cai de volta
         // no fluxo normal, entao o pior caso e' o comportamento de hoje.
-        $motorOpenai = strtolower(trim((string)($campaignFormData['motorImagem'] ?? ''))) === 'openai';
-        $chaveOpenai = trim((string)($campaignFormData['openaiApiKey'] ?? ''));
-        if ($chaveOpenai === '' && function_exists('agents_env_value')) {
-            $chaveOpenai = trim((string)agents_env_value('OPENAI_API_KEY', ''));
-        }
-
-        if ($motorOpenai && $chaveOpenai !== '' && function_exists('extc_openai_gerar')) {
+        // $motorOpenai / $chaveOpenai / $vaiTentarC ja' foram resolvidos antes da secao 9.
+        if ($vaiTentarC) {
             $refs = is_array($campaignFormData['composeCompanyRefs'] ?? null) ? $campaignFormData['composeCompanyRefs'] : [];
             $logoC = trim((string)($companyFormData['logoUrl'] ?? ($campaignFormData['logoUrl'] ?? '')));
             
@@ -825,7 +851,15 @@ try {
             // Os batches que o caminho C nao cobriu seguem pelo fluxo normal.
             $faltando = array_diff(array_keys($composePayloads), array_keys($composeResults));
             if ($faltando) {
-                $resto = agents_call_edge_function_multi('agents-ads', array_intersect_key($composePayloads, array_flip($faltando)), $passKey);
+                // Agora o spec faz falta de verdade. Roda o interpret que foi adiado e reabastece
+                // o creativePlan SO' dos batches que voltaram — os payloads foram montados antes
+                // dele existir, entao estao com o campo vazio.
+                $rodarInterpret();
+                $pendentes = array_intersect_key($composePayloads, array_flip($faltando));
+                foreach ($pendentes as $k => $pl) {
+                    $pendentes[$k]['creativePlan'] = $resolveBatchSpec($batches[$k], $k);
+                }
+                $resto = agents_call_edge_function_multi('agents-ads', $pendentes, $passKey);
                 foreach ($resto as $k => $v) $composeResults[$k] = $v;
             }
         } else {

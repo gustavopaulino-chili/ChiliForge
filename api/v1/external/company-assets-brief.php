@@ -177,15 +177,17 @@ if (!function_exists('caa_run_brief_job')) {
         }
 
         // ── Re-sync the Gemini company store (best effort) ────────────────────
-        // Use the server's paid PRODUCTION key for the store (embeddings), falling back to the
-        // caller key — matches the inline path and avoids free-tier limits on the store sync.
-        try {
-            $passKey = agents_env_value('GEMINI_API_KEY_PRODUCTION')
-                ?: (agents_env_value('GEMINI_API_KEY_TESTING') ?: ($geminiApiKey ?: null));
-            agents_reconnect_mysqli_if_needed($conn);
-            agents_sync_company_store($conn, $companyId, $formData, $accountType, $userId, ($storeName ?: null), $passKey);
-        } catch (Throwable $se) {
-            error_log('[company-assets-worker] store sync failed for job ' . $jobId . ': ' . $se->getMessage());
+        // Mesma regra do caminho inline: o store PRECISA nascer na chave de quem chamou, senao
+        // a geracao le 403. Ver a nota longa em company-assets.php.
+        if ($geminiApiKey === '') {
+            error_log('[company-assets-worker] store pulado no job ' . $jobId . ': sem gemini_api_key do chamador');
+        } else {
+            try {
+                agents_reconnect_mysqli_if_needed($conn);
+                agents_sync_company_store($conn, $companyId, $formData, $accountType, $userId, ($storeName ?: null), $geminiApiKey);
+            } catch (Throwable $se) {
+                error_log('[company-assets-worker] store sync failed for job ' . $jobId . ': ' . $se->getMessage());
+            }
         }
 
         // ── Finalize the job row (drop the stored key for hygiene) ────────────
