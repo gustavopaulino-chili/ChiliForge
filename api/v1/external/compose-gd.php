@@ -1673,16 +1673,37 @@ if (!function_exists('extc_openai_prompt')) {
         if ($sub !== '')  $copy .= "\"{$sub}\"\n";
         if ($cta !== '')  $copy .= "\"{$cta}\"";
 
-        // Direcao de arte pedida pelo cliente. Os dois campos ja' chegavam mapeados ate' aqui e
+        // Direcao de arte. Os dois campos ja' chegavam mapeados ate' aqui e
         // nunca eram lidos — mandar "minimal" ou "bold" dava exatamente a mesma peca. Entra logo
         // depois do paragrafo de liberdade total para qualifica-lo, em vez de ser engolido por ele.
         $estilo     = trim((string)($campaign['preferredStyle'] ?? ''));
         $estrategia = trim((string)($campaign['creativeStrategy'] ?? ''));
 
+        // De onde veio o estilo muda o peso da frase. creativeStrategy so' existe se alguem
+        // digitou no payload — e' sempre pedido. preferredStyle nao: o scrapeWebsite.php o
+        // DEDUZ do site do cliente e o cadastro guarda isso, entao o enrich (helpers.php,
+        // setIfEmpty) pode preencher o campo sem ninguem ter pedido nada. Mandar o modelo
+        // obedecer "o que o cliente pediu" quando o dado e' um palpite de scraper e' mentira
+        // justamente no caso em que ele e' mais fraco.
+        // is_array antes de indexar: 'theme' vem de JSON de terceiro. Em PHP 8 indexar uma
+        // string com chave de texto e' TypeError, e uma excecao aqui derruba o batch inteiro.
+        $temaDaEmpresa = is_array($company['theme'] ?? null) ? $company['theme'] : [];
+        $estiloDoCadastro = trim((string)(
+            (is_string($temaDaEmpresa['style'] ?? null) ? $temaDaEmpresa['style'] : null)
+            ?? (is_string($company['preferredStyle'] ?? null) ? $company['preferredStyle'] : '')
+        ));
+        $estiloPedido = $estilo !== '' && strcasecmp($estilo, $estiloDoCadastro) !== 0;
+
         $direcao = '';
         if ($estilo !== '' || $estrategia !== '') {
-            $l = ['ART DIRECTION requested by the client. It outranks your own instinct:'];
-            if ($estilo !== '')     { $l[] = "- Visual style: {$estilo}."; }
+            $l = [($estrategia !== '' || $estiloPedido)
+                ? 'ART DIRECTION requested by the client. It outranks your own instinct:'
+                : "ART DIRECTION read from this brand's own material - nobody asked for it. Treat it as a strong hint, not an order: follow it unless the idea is clearly better without it:"];
+            if ($estilo !== '') {
+                $l[] = $estiloPedido
+                    ? "- Visual style: {$estilo}."
+                    : "- Visual style: {$estilo} (read from the brand, not requested).";
+            }
             if ($estrategia !== '') { $l[] = "- Creative strategy: {$estrategia}."; }
             $direcao = implode("\n", $l);
         }
