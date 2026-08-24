@@ -1650,7 +1650,15 @@ if (!function_exists('extc_openai_prompt')) {
         $pub  = trim((string)($campaign['targetAudience'] ?? ''));
         $lang = trim((string)($campaign['language'] ?? 'pt-BR'));
         $proxy = !empty($company['brandPostsAreProxy']);
-        $fonte = trim((string)($company['headingFont'] ?? ''));
+        // A fonte pedida NESTA geracao vence a que esta' persistida na empresa — e' exatamente
+        // para isso que customHeadingFontName existe no ext_map_campaign(). O Caminho C lia so'
+        // a da empresa, entao pedir outra familia por peca nao tinha efeito nenhum aqui.
+        $fonte = trim((string)(
+            $campaign['customHeadingFontName']
+            ?? $campaign['fontFamily']
+            ?? $company['headingFont']
+            ?? ''
+        ));
 
         $refs = $proxy
             ? "ABOUT THE ATTACHED IMAGES: this client has NO posts of its own yet. They are posts by OTHER companies in the same market, attached ONLY so you can see the conventions of the category. Take NO identity from them - not their colour, not their logo style, not their typography, not their graphic devices. They are a briefing about the market, never a style guide."
@@ -1665,12 +1673,39 @@ if (!function_exists('extc_openai_prompt')) {
         if ($sub !== '')  $copy .= "\"{$sub}\"\n";
         if ($cta !== '')  $copy .= "\"{$cta}\"";
 
+        // Direcao de arte pedida pelo cliente. Os dois campos ja' chegavam mapeados ate' aqui e
+        // nunca eram lidos — mandar "minimal" ou "bold" dava exatamente a mesma peca. Entra logo
+        // depois do paragrafo de liberdade total para qualifica-lo, em vez de ser engolido por ele.
+        $estilo     = trim((string)($campaign['preferredStyle'] ?? ''));
+        $estrategia = trim((string)($campaign['creativeStrategy'] ?? ''));
+
+        $direcao = '';
+        if ($estilo !== '' || $estrategia !== '') {
+            $l = ['ART DIRECTION requested by the client. It outranks your own instinct:'];
+            if ($estilo !== '')     { $l[] = "- Visual style: {$estilo}."; }
+            if ($estrategia !== '') { $l[] = "- Creative strategy: {$estrategia}."; }
+            $direcao = implode("\n", $l);
+        }
+
+        // O canto que o prompt manda deixar livre tem de ser o MESMO que o extc_poe_logo() vai
+        // carimbar, senao o modelo limpa um canto e a logo cai noutro. Sem pedido no payload,
+        // BOTTOM-RIGHT: o carimbo escolhe o canto mais calmo, e o canto reservado e' o candidato
+        // mais calmo por construcao.
+        $mapaCanto = [
+            'top-left'     => 'TOP-LEFT',    'top-right'    => 'TOP-RIGHT',
+            'top-center'   => 'TOP-CENTRE',  'bottom-left'  => 'BOTTOM-LEFT',
+            'bottom-right' => 'BOTTOM-RIGHT',
+        ];
+        $canto = $mapaCanto[trim((string)($campaign['logoPosition'] ?? ''))]
+                 ?? 'BOTTOM-RIGHT';
+
         $partes = [
             "You are a senior art director at a top creative agency. Create a finished square advertisement"
                 . ($prod !== '' ? " for {$prod}" : '') . ($pub !== '' ? ", sold to {$pub}" : '') . ".",
             $refs,
             extc_openai_paleta($company),
             "Make the best advertisement you can for this theme. You have complete freedom over the scene, composition, cropping, lighting, staging, typography, scale, and how and where the copy lives in the image. Integrate the type with the scene however serves the idea - in front of it, behind it, cut out of it, on a surface. Surprise me.",
+            $direcao,
             extc_bloco_rede($fmt),
             "FIRST RULE, absolute: these texts must appear EXACTLY as written, character for character, in {$lang}, every accent intact. Not paraphrased, not translated, nothing added or dropped:\n" . $copy,
             "SECOND RULE, and it outranks every creative instinct: LEGIBILITY.\n"
@@ -1679,7 +1714,7 @@ if (!function_exists('extc_openai_prompt')) {
                 . "- No letter swallowed by a busy area, a highlight, a face, or a colour close to its own.\n"
                 . "- The headline is the loudest thing in the frame.",
             $tipo,
-            "Invent no other words: no watermark, no signature, no fake logo, no brand name, no text on props.\nLeave the TOP-RIGHT corner free of anything that would be ruined by a logo placed over it afterwards.",
+            "Invent no other words: no watermark, no signature, no fake logo, no brand name, no text on props.\nLeave the {$canto} corner free of anything that would be ruined by a logo placed over it afterwards.",
         ];
         return implode("\n\n", array_filter($partes, 'strlen'));
     }
@@ -1778,7 +1813,7 @@ if (!function_exists('extc_openai_prompt')) {
      * de proposito: sem essa folga, um canto liso vizinho de um bloco de texto e' escolhido
      * como "calmo" e a logo encosta na primeira letra — aconteceu no teste.
      */
-    function extc_poe_logo(string $imgBytes, string $logoUrl, int $q = 92): string {
+    function extc_poe_logo(string $imgBytes, string $logoUrl, int $q = 92, string $canto = ''): string {
         if ($logoUrl === '' || !function_exists('imagecreatetruecolor')) return $imgBytes;
         try {
             $base = extgd_image_from_bytes($imgBytes);
@@ -1804,6 +1839,21 @@ if (!function_exists('extc_openai_prompt')) {
                 [$W - $m - $nw, $m], [$m, $m],
                 [$W - $m - $nw, $H - $m - $nh], [$m, $H - $m - $nh],
             ];
+
+            // Canto pedido no payload: e' o mesmo que o prompt mandou reservar, entao a logo cai
+            // onde o modelo deixou espaco de proposito. Vira o UNICO candidato — a pontuacao por
+            // agitacao continua rodando igual, so' que sem concorrente. Payload sem logoPosition
+            // nao passa por aqui e a escolha automatica entre os quatro cantos fica intacta.
+            $pedidos = [
+                'top-left'     => [$m, $m],
+                'top-right'    => [$W - $m - $nw, $m],
+                'top-center'   => [(int)round(($W - $nw) / 2), $m],
+                'bottom-left'  => [$m, $H - $m - $nh],
+                'bottom-right' => [$W - $m - $nw, $H - $m - $nh],
+            ];
+            $pedido = strtolower(trim($canto));
+            if (isset($pedidos[$pedido])) $cantos = [$pedidos[$pedido]];
+
             $melhor = $cantos[0];
             $mv = INF;
             foreach ($cantos as $c) {

@@ -815,6 +815,9 @@ try {
         if ($vaiTentarC) {
             $refs = is_array($campaignFormData['composeCompanyRefs'] ?? null) ? $campaignFormData['composeCompanyRefs'] : [];
             $logoC = trim((string)($companyFormData['logoUrl'] ?? ($campaignFormData['logoUrl'] ?? '')));
+            // Canto pedido no payload (logo_position / logo_strategy). Vazio = o carimbo segue
+            // escolhendo sozinho o canto mais calmo, exatamente como sempre fez.
+            $cantoC = trim((string)($campaignFormData['logoPosition'] ?? ''));
             
             $qualC = strtolower(trim((string)($campaignFormData['qualidadeImagem'] ?? 'medium')));
             if (!in_array($qualC, ['low', 'medium', 'high'], true)) $qualC = 'medium';
@@ -828,7 +831,7 @@ try {
                     $promptC = extc_openai_prompt($campaignFormData, $companyFormData, $fmtC);
                     $bytesC = extc_openai_gerar($chaveOpenai, $refs, $promptC, $qualC, extc_tamanho_openai($wC, $hC));
                     if ($bytesC === null) { $bannersC = []; break; }
-                    $bytesC = extc_poe_logo($bytesC, $logoC);
+                    $bytesC = extc_poe_logo($bytesC, $logoC, 92, $cantoC);
                     $tmpC = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'cforge-c-' . $jobId . '-' . $bIdx . '-' . $iF . '.jpg';
                     if (@file_put_contents($tmpC, $bytesC) === false) { $bannersC = []; break; }
                     $bannersC[] = [
