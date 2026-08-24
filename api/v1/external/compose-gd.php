@@ -1774,169 +1774,9 @@ if (!function_exists('extc_openai_prompt')) {
     }
 
     /**
-     * Recorta a moldura transparente da logo. Sem isso o tamanho otico varia por cliente:
-     * um PNG com 20% de margem vazia entrega uma marca visivelmente menor que outro do
-     * mesmo tamanho de arquivo.
-     */
-    function extc_logo_recorta($logo) {
-        $w = imagesx($logo); $h = imagesy($logo);
-        $x0 = $w; $y0 = $h; $x1 = -1; $y1 = -1;
-        $passo = max(1, (int)floor(min($w, $h) / 240));
-        for ($y = 0; $y < $h; $y += $passo) {
-            for ($x = 0; $x < $w; $x += $passo) {
-                if (((imagecolorat($logo, $x, $y) >> 24) & 0x7F) > 100) continue;
-                if ($x < $x0) $x0 = $x;
-                if ($y < $y0) $y0 = $y;
-                if ($x > $x1) $x1 = $x;
-                if ($y > $y1) $y1 = $y;
-            }
-        }
-        if ($x1 < $x0 || $y1 < $y0) return $logo;                 // sem alpha: nada a recortar
-        $x0 = max(0, $x0 - $passo); $y0 = max(0, $y0 - $passo);
-        $x1 = min($w - 1, $x1 + $passo); $y1 = min($h - 1, $y1 + $passo);
-        if ($x0 === 0 && $y0 === 0 && $x1 === $w - 1 && $y1 === $h - 1) return $logo;
-        $nw = $x1 - $x0 + 1; $nh = $y1 - $y0 + 1;
-        $out = imagecreatetruecolor($nw, $nh);
-        imagealphablending($out, false); imagesavealpha($out, true);
-        imagefilledrectangle($out, 0, 0, $nw, $nh, imagecolorallocatealpha($out, 0, 0, 0, 127));
-        imagecopy($out, $logo, 0, 0, $x0, $y0, $nw, $nh);
-        imagedestroy($logo);
-        return $out;
-    }
-
-    /**
-     * A luminancia da BORDA da logo, nao a media dela.
-     *
-     * O que faz a marca sumir e' a SILHUETA se fundir no fundo. O cracha da Unica e' um
-     * circulo amarelo com um "C" preto no meio: pela media ele parece ter luminancia media
-     * e passaria em qualquer fundo, mas quem encosta no fundo e' so' o amarelo. Medido nas
-     * 10 pecas de 18/08, o circulo amarelo deu contraste 1.2-1.6 contra o fundo amarelo em
-     * 10 de 10 pecas — invisivel — enquanto a media da logo sugeria folga.
-     */
-    function extc_logo_borda_lum($logo): float {
-        $w = imagesx($logo); $h = imagesy($logo);
-        $passo = max(1, (int)floor(min($w, $h) / 120));
-        $soma = 0.0; $n = 0;
-        $opaco = static function ($img, $x, $y) { return ((imagecolorat($img, $x, $y) >> 24) & 0x7F) <= 40; };
-        for ($y = 0; $y < $h; $y += $passo) {
-            for ($x = 0; $x < $w; $x += $passo) {
-                if (!$opaco($logo, $x, $y)) continue;
-                $borda = false;
-                foreach ([[$passo, 0], [-$passo, 0], [0, $passo], [0, -$passo]] as $d) {
-                    $vx = $x + $d[0]; $vy = $y + $d[1];
-                    if ($vx < 0 || $vy < 0 || $vx >= $w || $vy >= $h) { $borda = true; break; }
-                    if (!$opaco($logo, $vx, $vy)) { $borda = true; break; }
-                }
-                if (!$borda) continue;
-                $c = imagecolorat($logo, $x, $y);
-                $soma += extd_lum(($c >> 16) & 255, ($c >> 8) & 255, $c & 255); $n++;
-            }
-        }
-        if ($n >= 8) return $soma / $n;
-        // Logo totalmente opaca (JPG, ou PNG sem transparencia): a silhueta e' o retangulo.
-        $soma = 0.0; $n = 0;
-        $anel = max(1, (int)round(min($w, $h) * 0.06));
-        for ($y = 0; $y < $h; $y += $passo) {
-            for ($x = 0; $x < $w; $x += $passo) {
-                if ($x > $anel && $y > $anel && $x < $w - $anel && $y < $h - $anel) continue;
-                $c = imagecolorat($logo, $x, $y);
-                $soma += extd_lum(($c >> 16) & 255, ($c >> 8) & 255, $c & 255); $n++;
-            }
-        }
-        return $n ? $soma / $n : 0.5;
-    }
-
-    /**
-     * Contorno que segue a forma da propria logo, por distancia ate' a silhueta.
-     *
-     * Preferi isso a uma placa retangular atras da marca: a placa vira adesivo e apaga a
-     * silhueta, que costuma ser justamente o que o cliente reconhece. O halo preserva a forma.
-     *
-     * Duas coisas que a primeira versao errou e da' para ver a olho num logo circular:
-     *   - dilatacao por janela quadrada chanfra os cantos (soma de Minkowski com um quadrado).
-     *     Aqui a distancia e' chamfer 3-4, que e' redonda o bastante e continua O(n).
-     *   - desenhar so' dentro da caixa da logo CORTA o contorno reto nas bordas. Por isso a
-     *     mascara e' montada num quadro com folga de $pad em volta.
-     */
-    function extc_logo_halo($base, $peq, int $px, int $py, float $lumHalo): void {
-        $w = imagesx($peq); $h = imagesy($peq);
-        $r = max(3.0, min($w, $h) * 0.055);
-        $rSuave = $r * 1.9;
-        $pad = (int)ceil($rSuave) + 2;
-        $mw = $w + 2 * $pad; $mh = $h + 2 * $pad;
-        $INF = 1.0e9;
-
-        $d = [];
-        for ($y = 0; $y < $mh; $y++) {
-            $lin = array_fill(0, $mw, $INF);
-            if ($y >= $pad && $y < $pad + $h) {
-                $sy = $y - $pad;
-                for ($x = 0; $x < $w; $x++) {
-                    if ((((imagecolorat($peq, $x, $sy) >> 24) & 0x7F)) <= 60) $lin[$x + $pad] = 0.0;
-                }
-            }
-            $d[$y] = $lin;
-        }
-        for ($y = 0; $y < $mh; $y++) {
-            for ($x = 0; $x < $mw; $x++) {
-                $v = $d[$y][$x];
-                if ($v === 0.0) continue;
-                if ($y > 0) {
-                    if ($d[$y - 1][$x] + 3 < $v) $v = $d[$y - 1][$x] + 3;
-                    if ($x > 0 && $d[$y - 1][$x - 1] + 4 < $v) $v = $d[$y - 1][$x - 1] + 4;
-                    if ($x < $mw - 1 && $d[$y - 1][$x + 1] + 4 < $v) $v = $d[$y - 1][$x + 1] + 4;
-                }
-                if ($x > 0 && $d[$y][$x - 1] + 3 < $v) $v = $d[$y][$x - 1] + 3;
-                $d[$y][$x] = $v;
-            }
-        }
-        for ($y = $mh - 1; $y >= 0; $y--) {
-            for ($x = $mw - 1; $x >= 0; $x--) {
-                $v = $d[$y][$x];
-                if ($v === 0.0) continue;
-                if ($y < $mh - 1) {
-                    if ($d[$y + 1][$x] + 3 < $v) $v = $d[$y + 1][$x] + 3;
-                    if ($x < $mw - 1 && $d[$y + 1][$x + 1] + 4 < $v) $v = $d[$y + 1][$x + 1] + 4;
-                    if ($x > 0 && $d[$y + 1][$x - 1] + 4 < $v) $v = $d[$y + 1][$x - 1] + 4;
-                }
-                if ($x < $mw - 1 && $d[$y][$x + 1] + 3 < $v) $v = $d[$y][$x + 1] + 3;
-                $d[$y][$x] = $v;
-            }
-        }
-
-        $tom = (int)round(extd_lum_to_srgb($lumHalo));
-        $tom = max(0, min(255, $tom));
-        $W = imagesx($base); $H = imagesy($base);
-        $cache = [];
-        for ($y = 0; $y < $mh; $y++) {
-            $by = $py - $pad + $y;
-            if ($by < 0 || $by >= $H) continue;
-            for ($x = 0; $x < $mw; $x++) {
-                $dist = $d[$y][$x] / 3.0;
-                if ($dist <= 0.0 || $dist > $rSuave) continue;   // dentro da logo, ou longe demais
-                $bx = $px - $pad + $x;
-                if ($bx < 0 || $bx >= $W) continue;
-                $op = $dist <= $r ? 1.0 : 1.0 - ($dist - $r) / ($rSuave - $r);
-                $a = (int)round(127 * (1 - 0.90 * $op));
-                if ($a >= 127) continue;
-                if (!isset($cache[$a])) $cache[$a] = imagecolorallocatealpha($base, $tom, $tom, $tom, $a);
-                imagesetpixel($base, $bx, $by, $cache[$a]);
-            }
-        }
-    }
-
-    /**
-     * Poe a logo REAL na imagem pronta.
-     *
-     * Sao dois problemas diferentes e cada um tem o seu mecanismo:
-     *   POSICAO  resolve COLISAO      — escolhe o ponto mais vazio entre 6 candidatos.
-     *   CONTORNO resolve VISIBILIDADE — se a silhueta nao separa do fundo, desenha um halo.
-     *
-     * Antes so' existia o primeiro, e por isso a logo saia invisivel: medindo as 10 pecas de
-     * 18/08, o cracha amarelo nao alcancava contraste 3.0 em NENHUM dos 4 cantos, em 10 de
-     * 10 pecas. Nao era escolha ruim de canto — era que canto bom nao existia, porque o
-     * modelo pinta o fundo na cor da marca e a logo E' da cor da marca. Procurar mais nao
-     * resolveria; so' o halo resolve.
+     * Poe a logo REAL no canto mais calmo da imagem pronta. Mede uma caixa MAIOR que a logo
+     * de proposito: sem essa folga, um canto liso vizinho de um bloco de texto e' escolhido
+     * como "calmo" e a logo encosta na primeira letra — aconteceu no teste.
      */
     function extc_poe_logo(string $imgBytes, string $logoUrl, int $q = 92): string {
         if ($logoUrl === '' || !function_exists('imagecreatetruecolor')) return $imgBytes;
@@ -1947,106 +1787,49 @@ if (!function_exists('extc_openai_prompt')) {
             if ($lb === '') { imagedestroy($base); return $imgBytes; }
             $logo = extgd_image_from_bytes($lb);
             if ($logo === false) { imagedestroy($base); return $imgBytes; }
-            if (function_exists('imagepalettetotruecolor')) imagepalettetotruecolor($logo);
-            imagealphablending($logo, false);
+            imagealphablending($logo, true);
             imagesavealpha($logo, true);
-            $logo = extc_logo_recorta($logo);
 
             $W = imagesx($base); $H = imagesy($base);
             $lw = imagesx($logo); $lh = imagesy($logo);
             if ($lw < 4 || $lh < 4) { imagedestroy($base); imagedestroy($logo); return $imgBytes; }
 
-            // Tamanho pela MENOR aresta, nao pela largura: 19% da largura num banner 1.91:1
-            // entrega uma logo gigante, e num story a mesma conta entrega uma miuda. Para
-            // logo quadrada em peca retrato ou quadrada da exatamente o mesmo de antes.
-            $S = min($W, $H);
-            $esc = min($S * 0.30 / $lw, $S * 0.19 / $lh);
+            $esc = ($W * 0.19) / $lw;
             $nw = max(1, (int)round($lw * $esc));
             $nh = max(1, (int)round($lh * $esc));
-            $m = (int)round($S * 0.05);
-            $folga = (int)round($S * 0.06);
+            $m = (int)round($W * 0.05);
+            $folga = (int)round($W * 0.06);
 
-            $meioX = (int)round(($W - $nw) / 2);
-            // O vies existe porque assinatura de anuncio mora embaixo; o topo disputa com a
-            // manchete. Nao e' proibicao: um topo bem mais vazio ainda ganha de um rodape cheio.
             $cantos = [
-                'inf-dir'    => [$W - $m - $nw, $H - $m - $nh, 1.00],
-                'inf-esq'    => [$m,            $H - $m - $nh, 1.00],
-                'inf-centro' => [$meioX,        $H - $m - $nh, 1.08],
-                'sup-dir'    => [$W - $m - $nw, $m,            1.30],
-                'sup-esq'    => [$m,            $m,            1.30],
-                'sup-centro' => [$meioX,        $m,            1.60],
+                [$W - $m - $nw, $m], [$m, $m],
+                [$W - $m - $nw, $H - $m - $nh], [$m, $H - $m - $nh],
             ];
-
-            $melhorNome = 'inf-dir'; $melhor = null; $mv = INF; $lumFundo = 0.5;
-            foreach ($cantos as $nome => $c) {
-                $x = $c[0]; $y = $c[1]; $vies = $c[2];
-                $s2 = 0.0; $n = 0; $tinta = 0; $soma = 0.0; $np = 0;
-                $x0 = max(0, $x - $folga); $x1 = min($W, $x + $nw + $folga) - 1;
-                $y0 = max(0, $y - $folga); $y1 = min($H, $y + $nh + $folga) - 1;
-                for ($yy = $y0; $yy < $y1; $yy += 3) {
-                    for ($xx = $x0; $xx < $x1; $xx += 3) {
+            $melhor = $cantos[0];
+            $mv = INF;
+            foreach ($cantos as $c) {
+                $x = $c[0]; $y = $c[1];
+                $s2 = 0.0; $n = 0;
+                for ($yy = max(0, $y - $folga); $yy < min($H, $y + $nh + $folga) - 1; $yy += 3) {
+                    for ($xx = max(0, $x - $folga); $xx < min($W, $x + $nw + $folga) - 1; $xx += 3) {
                         $c1 = imagecolorat($base, $xx, $yy);
                         $c2 = imagecolorat($base, $xx + 1, $yy + 1);
                         $l1 = (($c1 >> 16 & 255) * 0.21 + ($c1 >> 8 & 255) * 0.72 + ($c1 & 255) * 0.07);
                         $l2 = (($c2 >> 16 & 255) * 0.21 + ($c2 >> 8 & 255) * 0.72 + ($c2 & 255) * 0.07);
                         $g = abs($l1 - $l2);
                         $s2 += $g * $g; $n++;
-                        if ($g > 25) $tinta++;                    // borda forte = texto ou objeto
                     }
                 }
-                for ($yy = $y; $yy < min($H, $y + $nh); $yy += 3) {
-                    for ($xx = $x; $xx < min($W, $x + $nw); $xx += 3) {
-                        $c3 = imagecolorat($base, $xx, $yy);
-                        $soma += extd_lum(($c3 >> 16) & 255, ($c3 >> 8) & 255, $c3 & 255); $np++;
-                    }
-                }
-                $rms = $n ? sqrt($s2 / $n) : INF;
-                $frac = $n ? $tinta / $n : 1.0;
-                // O RMS sozinho perdoa uma caixa quase lisa com uma linha de texto atravessada;
-                // a fracao de bordas fortes e' quem denuncia esse caso.
-                $v = $rms * (1 + 2 * $frac) * $vies;
-                if ($v < $mv) {
-                    $mv = $v; $melhor = [$x, $y]; $melhorNome = $nome;
-                    $lumFundo = $np ? $soma / $np : 0.5;
-                }
+                $v = $n ? sqrt($s2 / $n) : INF;
+                if ($v < $mv) { $mv = $v; $melhor = [$x, $y]; }
             }
-            if ($melhor === null) { imagedestroy($base); imagedestroy($logo); return $imgBytes; }
-
-            $peq = imagecreatetruecolor($nw, $nh);
-            imagealphablending($peq, false); imagesavealpha($peq, true);
-            imagefilledrectangle($peq, 0, 0, $nw, $nh, imagecolorallocatealpha($peq, 0, 0, 0, 127));
-            imagecopyresampled($peq, $logo, 0, 0, 0, 0, $nw, $nh, $lw, $lh);
-
-            $lumLogo = extc_logo_borda_lum($peq);
-            $contraste = extd_contrast($lumLogo, $lumFundo);
 
             imagealphablending($base, true);
-            $comHalo = $contraste < 4.0;
-            if ($comHalo) {
-                // 3.5 e nao 3.0: o contraste aqui e uma previsao pela media da caixa, e na
-                // peca #8 do teste de 18/08 ela errou para cima em ~20%: previu 3.56 e a
-                // silhueta renderizada mediu 2.90. O alvo real e 3.0 (WCAG para grafico);
-                // disparar em 4.0 cobre esse erro de estimativa com folga.
-                // O halo vai para o polo OPOSTO ao da borda da logo, que e' o que garante
-                // separacao. Medido: a placa branca falhou em 10/10 justamente porque o fundo
-                // dessas pecas ja' e' claro — o que separa de fundo claro e' escuro, nao branco.
-                $lumHalo = $lumLogo > 0.35 ? 0.02 : 0.92;
-                extc_logo_halo($base, $peq, $melhor[0], $melhor[1], $lumHalo);
-            }
-            imagecopy($base, $peq, $melhor[0], $melhor[1], 0, 0, $nw, $nh);
-
-            error_log(sprintf(
-                '[caminho-c] logo em %s contraste=%.2f halo=%s tam=%dx%d',
-                $melhorNome, $contraste, $comHalo ? 'sim' : 'nao', $nw, $nh
-            ));
-
+            imagecopyresampled($base, $logo, $melhor[0], $melhor[1], 0, 0, $nw, $nh, $lw, $lh);
             ob_start();
             imagejpeg($base, null, $q);
             $saida = (string)ob_get_clean();
             imagedestroy($base);
             imagedestroy($logo);
-            imagedestroy($peq);
             return $saida !== '' ? $saida : $imgBytes;
         } catch (Throwable $e) {
             error_log('[caminho-c] logo nao composta: ' . $e->getMessage());
