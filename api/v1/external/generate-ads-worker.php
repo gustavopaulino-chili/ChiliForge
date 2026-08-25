@@ -627,7 +627,10 @@ try {
         ? array_values(array_filter(array_map('strval', $companyFormData['brandPostImages'])))
         : [];
 
-    if (!empty($storedSiteImages) || !empty($storedBrandPosts)) {
+    // ignore_references = true: nem o site nem os brand posts entram. Sem esta trava o bloqueio
+    // feito la' no generate-ads.php nao valeria nada — esta injecao remonta o conjunto inteiro a
+    // partir do cadastro, e a peca sairia com todo o eco visual que o cliente pediu para tirar.
+    if ((!empty($storedSiteImages) || !empty($storedBrandPosts)) && empty($campaignFormData['ignoreReferences'])) {
         $existingComposeRefs = is_array($campaignFormData['composeCompanyRefs'] ?? null)
             ? $campaignFormData['composeCompanyRefs'] : [];
         // When the caller sent an explicit reference_image_url (composeHeroRef), that image is

@@ -1597,7 +1597,7 @@ if (!function_exists('extc_openai_prompt')) {
 
     /** Papel de cada cor cadastrada. Vazio quando nao ha' cor — e' o sinal para o modelo
      *  tirar a paleta das referencias, que e' a regra combinada. */
-    function extc_openai_paleta(array $company): string {
+    function extc_openai_paleta(array $company, array $campaign = []): string {
         $hex = function ($v) {
             $v = trim((string)$v);
             return preg_match('/^#[0-9a-f]{6}$/i', $v) ? strtolower($v) : '';
@@ -1605,13 +1605,32 @@ if (!function_exists('extc_openai_prompt')) {
         $p = $hex($company['primaryColor'] ?? '');
         $a = $hex($company['accentColor'] ?? '');
         $s = $hex($company['secondaryColor'] ?? '');
+        // A cor de FUNDO. Ela atravessava o sistema inteiro e morria aqui: o company-assets
+        // grava backgroundColor, o brandBridge leva ate' a campanha, e esta funcao so' lia
+        // primary/accent/secondary — pedir um fundo nao mudava um pixel. O da CAMPANHA vence o
+        // do cadastro: e' a escolha daquela peca contra o padrao da marca.
+        $bg = $hex($campaign['backgroundColor'] ?? '') ?: $hex($company['backgroundColor'] ?? '');
+        $linhaFundo = $bg !== ''
+            ? "- BACKGROUND {$bg}. The dominant field of the piece sits on this colour."
+            : '';
         if ($p === '') {
+            // Sem cor primaria o texto de sempre manda ler a paleta das referencias. Duas
+            // situacoes novas o tornam falso, e cada uma ganha o seu proprio: nao ha' referencia
+            // nenhuma anexada (ignore_references), ou ha' fundo registrado e a frase generica
+            // contradiz a linha do fundo. Sem nenhuma das duas, o texto sai byte a byte igual.
+            if (!empty($campaign['ignoreReferences'])) {
+                return trim("BRAND COLOURS: this client has no colour registered and no reference image is attached. Choose a restrained palette of two or three colours yourself and hold to it across the whole piece.\n" . $linhaFundo);
+            }
+            if ($linhaFundo !== '') {
+                return "BRAND COLOURS: the background below is registered by the client and is not negotiable. Read the REST of the palette from the attached brand references and stay strictly inside what is visibly theirs.\n" . $linhaFundo;
+            }
             return "BRAND COLOURS: this client has no colour registered. Read the palette from the attached brand references and stay strictly inside it — do not invent a colour that is not visibly theirs.";
         }
         $l = ["BRAND COLOURS - these come from the client's registered brand fields, not from your reading of the references, and they are not negotiable:"];
         $l[] = "- PRIMARY {$p}. This is the dominant colour of the piece: the large fields, the panels, the mood.";
         if ($a !== '') $l[] = "- ACCENT {$a}. Use it sparingly - a highlighted word, a small device, the button.";
         if ($s !== '') $l[] = "- SECONDARY {$s}. Use it for a contrasting block, a card, or the button when the piece needs weight.";
+        if ($linhaFundo !== '') $l[] = $linhaFundo;
         $l[] = "These are the entire palette. Introduce NO other brand colour. If a reference image pulls you elsewhere, ignore it - those are variations in a feed, not the brand.";
         return implode("\n", $l);
     }
@@ -1660,9 +1679,14 @@ if (!function_exists('extc_openai_prompt')) {
             ?? ''
         ));
 
-        $refs = $proxy
+        // Terceiro caso: ignore_references pediu a peca do zero, sem anexo nenhum. Sem esta
+        // ramificacao o prompt continua afirmando que ha' imagens anexadas quando nao ha', e o
+        // modelo passa a descrever referencias que nunca recebeu.
+        $refs = !empty($campaign['ignoreReferences'])
+            ? "NO REFERENCE IMAGES are attached for this piece, on purpose. Build it from the brand fields alone - the colours, the typeface and the direction above. Do not imitate any particular look you might assume this brand has."
+            : ($proxy
             ? "ABOUT THE ATTACHED IMAGES: this client has NO posts of its own yet. They are posts by OTHER companies in the same market, attached ONLY so you can see the conventions of the category. Take NO identity from them - not their colour, not their logo style, not their typography, not their graphic devices. They are a briefing about the market, never a style guide."
-            : "ABOUT THE ATTACHED IMAGES: these are the brand's OWN posts and, where present, a screenshot of its website. They are the source of truth for this brand's graphic vocabulary - its devices, its photographic treatment, its rhythm. Match that language.";
+            : "ABOUT THE ATTACHED IMAGES: these are the brand's OWN posts and, where present, a screenshot of its website. They are the source of truth for this brand's graphic vocabulary - its devices, its photographic treatment, its rhythm. Match that language.");
 
         $tipo = $fonte !== ''
             ? "TYPEFACE: set the text in {$fonte}, or the closest possible match to it."
@@ -1708,6 +1732,27 @@ if (!function_exists('extc_openai_prompt')) {
             $direcao = implode("\n", $l);
         }
 
+        // O que a imagem MOSTRA. Eixo independente do preferredStyle, que governa o TRATAMENTO:
+        // "minimal lifestyle" e "minimal flat lay" sao pecas muito diferentes, e ate' aqui nao
+        // havia controle nenhum sobre esse eixo. Entra logo depois da direcao de arte porque e'
+        // o mais concreto dos dois.
+        $generos = [
+            'lifestyle'     => 'a real person using or benefiting from this, in a natural everyday setting',
+            'product'       => 'the product or service artefact itself as the hero, studio-lit, no people',
+            'flat_lay'      => 'an overhead flat-lay arrangement of objects on a surface',
+            'behind_scenes' => 'a candid, unpolished behind-the-scenes moment of the team at work',
+            'illustration'  => 'an illustration or graphic composition, not a photograph',
+            'typographic'   => 'type as the image itself: no photography, the composition is built from the words',
+            'place'         => 'the physical place or environment where this business operates',
+        ];
+        // Valor desconhecido cai no vazio de proposito: o array_filter(..., 'strlen') do return
+        // apaga o bloco, e um genero digitado errado nao vira instrucao sem sentido no prompt.
+        $g = strtolower(trim((string)($campaign['imageGenre'] ?? '')));
+        $blocoGenero = isset($generos[$g])
+            ? ("WHAT THE IMAGE SHOWS, chosen by the client: {$generos[$g]}.\n"
+               . "This decides the subject. You still decide the styling, the crop and the light.")
+            : '';
+
         // O canto que o prompt manda deixar livre tem de ser o MESMO que o extc_poe_logo() vai
         // carimbar, senao o modelo limpa um canto e a logo cai noutro. Sem pedido no payload,
         // BOTTOM-RIGHT: o carimbo escolhe o canto mais calmo, e o canto reservado e' o candidato
@@ -1724,9 +1769,10 @@ if (!function_exists('extc_openai_prompt')) {
             "You are a senior art director at a top creative agency. Create a finished square advertisement"
                 . ($prod !== '' ? " for {$prod}" : '') . ($pub !== '' ? ", sold to {$pub}" : '') . ".",
             $refs,
-            extc_openai_paleta($company),
+            extc_openai_paleta($company, $campaign),
             "Make the best advertisement you can for this theme. You have complete freedom over the scene, composition, cropping, lighting, staging, typography, scale, and how and where the copy lives in the image. Integrate the type with the scene however serves the idea - in front of it, behind it, cut out of it, on a surface. Surprise me.",
             $direcao,
+            $blocoGenero,
             extc_bloco_rede($fmt),
             "FIRST RULE, absolute: these texts must appear EXACTLY as written, character for character, in {$lang}, every accent intact. Not paraphrased, not translated, nothing added or dropped:\n" . $copy,
             "SECOND RULE, and it outranks every creative instinct: LEGIBILITY.\n"
@@ -1792,10 +1838,32 @@ if (!function_exists('extc_openai_prompt')) {
                 . $bytes . $nl;
             $anexadas++;
         }
-        if ($anexadas === 0) { error_log('[caminho-c] nenhuma referencia baixou; abortando'); return null; }
+        // Sem NENHUMA referencia pedida (ignore_references) a peca nasce do zero — e o
+        // /images/edits exige pelo menos um image[], entao esse caso tem de ir para
+        // /images/generations, que so' aceita JSON. Sem esta troca o "cria do zero" abortava
+        // aqui e o batch caia de volta no Gemini, que anexa as referencias de novo: o pedido
+        // do cliente virava exatamente o oposto do que ele pediu.
+        // Se referencias FORAM pedidas e nenhuma baixou, o aborto de sempre continua valendo —
+        // ali e' falha de download, nao escolha de quem chamou.
+        $doZero = empty($refUrls);
+        if ($anexadas === 0 && !$doZero) { error_log('[caminho-c] nenhuma referencia baixou; abortando'); return null; }
         $corpo .= '--' . $bound . '--' . $nl;
 
-        $ch = curl_init('https://api.openai.com/v1/images/edits');
+        $url   = 'https://api.openai.com/v1/images/edits';
+        $ctype = 'multipart/form-data; boundary=' . $bound;
+        if ($doZero) {
+            $url   = 'https://api.openai.com/v1/images/generations';
+            $ctype = 'application/json';
+            $corpo = json_encode([
+                'model'   => 'gpt-image-2',
+                'prompt'  => $prompt,
+                'size'    => $tamanho,
+                'quality' => $qualidade,
+                'n'       => 1,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+
+        $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $corpo,
@@ -1803,7 +1871,7 @@ if (!function_exists('extc_openai_prompt')) {
             CURLOPT_TIMEOUT        => 240,
             CURLOPT_HTTPHEADER     => [
                 'Authorization: Bearer ' . $apiKey,
-                'Content-Type: multipart/form-data; boundary=' . $bound,
+                'Content-Type: ' . $ctype,
             ],
         ]);
         $resp = curl_exec($ch);

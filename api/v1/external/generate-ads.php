@@ -255,6 +255,17 @@ function ext_map_campaign(array $cam, array $formats): array {
         // Sets bgSource='inspired' so the model can creatively interpret it, not just copy it.
         'referenceImageUrl'     => $first(['reference_image', 'reference_image_url', 'creative_reference', 'inspiration_image']),
         'preferredStyle'        => $str('preferred_style'),
+        // O GENERO da imagem: o que a peca MOSTRA. Eixo independente do preferredStyle, que
+        // governa o TRATAMENTO (minimal, bold, premium) e nao diz se a peca e' uma foto de
+        // alguem usando o produto, um flat lay ou uma composicao tipografica.
+        'imageGenre'            => $first(['image_genre', 'genre', 'image_subject']),
+        // Cor de fundo POR PECA. Sem esta linha so' existia a do cadastro (que chega ate' aqui
+        // pelo brandBridge), entao mandar background_color na campanha nao fazia nada.
+        'backgroundColor'       => $str('background_color'),
+        // "Cria do zero, sem se basear em nada": nenhuma referencia anexada. Ate' aqui elas eram
+        // SEMPRE anexadas e nao havia como sair do proprio padrao do cliente. false por omissao,
+        // e false sobrevive ao array_filter do final (so' '', null e array vazio caem).
+        'ignoreReferences'      => $bool('ignore_references', false),
         // Per-generation font override. Without this mapping the field was accepted by the
         // endpoint and then silently dropped, so sending it did nothing.
         'fontFamily'            => $first(['font_family', 'font', 'typeface']),
@@ -394,7 +405,9 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
     $addRef($allRefs, $campaignData['productImageUrl'] ?? '');                      // campaign.product_image_url
     $addRef($allRefs, $campaignData['backgroundImageUrl'] ?? '');                   // campaign.background_image_url
     $allRefs = array_values(array_unique($allRefs));
-    if (!empty($allRefs)) {
+    // ignore_references = true: o conjunto nao e' montado. E' a unica forma de pedir uma peca
+    // que nao ecoa o proprio padrao do cliente — ate' aqui as referencias eram sempre anexadas.
+    if (!empty($allRefs) && empty($campaignData['ignoreReferences'])) {
         $campaignData['composeCompanyRefs'] = array_slice($allRefs, 0, 5);
     }
 
