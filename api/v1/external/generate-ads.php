@@ -259,9 +259,14 @@ function ext_map_campaign(array $cam, array $formats): array {
         // governa o TRATAMENTO (minimal, bold, premium) e nao diz se a peca e' uma foto de
         // alguem usando o produto, um flat lay ou uma composicao tipografica.
         'imageGenre'            => $first(['image_genre', 'genre', 'image_subject']),
-        // Cor de fundo POR PECA. Sem esta linha so' existia a do cadastro (que chega ate' aqui
-        // pelo brandBridge), entao mandar background_color na campanha nao fazia nada.
-        'backgroundColor'       => $str('background_color'),
+        // Cor de fundo PEDIDA nesta peca. Chave propria, e nao 'backgroundColor', de proposito:
+        // o brandBridge (ext_enrich_campaign_for_generation) copia o backgroundColor do cadastro
+        // para dentro da campanha quando ela esta' vazia, entao 'backgroundColor' nunca diz se
+        // alguem pediu ou se e' o padrao da marca. E o padrao da marca aqui e' quase sempre ruido:
+        // o formulario do frontend nasce com '#FFFFFF' (src/types/businessForm.ts), entao usar o
+        // cadastro mandaria "o campo dominante da peca fica nesta cor" em branco para toda company
+        // criada pelo wizard, sem ninguem ter pedido. So' o payload preenche esta chave.
+        'backgroundColorRequested' => $str('background_color'),
         // "Cria do zero, sem se basear em nada": nenhuma referencia anexada. Ate' aqui elas eram
         // SEMPRE anexadas e nao havia como sair do proprio padrao do cliente. false por omissao,
         // e false sobrevive ao array_filter do final (so' '', null e array vazio caem).

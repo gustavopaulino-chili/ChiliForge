@@ -1607,9 +1607,15 @@ if (!function_exists('extc_openai_prompt')) {
         $s = $hex($company['secondaryColor'] ?? '');
         // A cor de FUNDO. Ela atravessava o sistema inteiro e morria aqui: o company-assets
         // grava backgroundColor, o brandBridge leva ate' a campanha, e esta funcao so' lia
-        // primary/accent/secondary — pedir um fundo nao mudava um pixel. O da CAMPANHA vence o
-        // do cadastro: e' a escolha daquela peca contra o padrao da marca.
-        $bg = $hex($campaign['backgroundColor'] ?? '') ?: $hex($company['backgroundColor'] ?? '');
+        // primary/accent/secondary — pedir um fundo nao mudava um pixel.
+        // So' o PEDIDO vale. O fundo do cadastro NAO entra, ao contrario do primary/accent, e a
+        // razao e' que ele nao e' uma escolha: o formulario do frontend nasce com '#FFFFFF'
+        // (src/types/businessForm.ts), entao toda company criada pelo wizard carrega um hex que
+        // ninguem escolheu — e "the dominant field of the piece sits on this colour" em branco
+        // achataria a peca inteira. Por isso a chave e' backgroundColorRequested, que o
+        // brandBridge nao preenche: 'backgroundColor' chega com o valor do cadastro e nao
+        // distingue pedido de padrao.
+        $bg = $hex($campaign['backgroundColorRequested'] ?? '');
         $linhaFundo = $bg !== ''
             ? "- BACKGROUND {$bg}. The dominant field of the piece sits on this colour."
             : '';
@@ -1622,7 +1628,7 @@ if (!function_exists('extc_openai_prompt')) {
                 return trim("BRAND COLOURS: this client has no colour registered and no reference image is attached. Choose a restrained palette of two or three colours yourself and hold to it across the whole piece.\n" . $linhaFundo);
             }
             if ($linhaFundo !== '') {
-                return "BRAND COLOURS: the background below is registered by the client and is not negotiable. Read the REST of the palette from the attached brand references and stay strictly inside what is visibly theirs.\n" . $linhaFundo;
+                return "BRAND COLOURS: the background below was requested by the client for this piece and is not negotiable. Read the REST of the palette from the attached brand references and stay strictly inside what is visibly theirs.\n" . $linhaFundo;
             }
             return "BRAND COLOURS: this client has no colour registered. Read the palette from the attached brand references and stay strictly inside it — do not invent a colour that is not visibly theirs.";
         }
