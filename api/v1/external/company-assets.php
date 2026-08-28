@@ -617,45 +617,24 @@ try {
         }
     }
 
-    // ── Re-sync the Gemini company store — NEVER on a bare poll ──────────────
-    // A bare poll ({api_key, phone}) carries no new content, so there is nothing to sync and it
-    // must stay a pure read: the n8n loop polls this up to 10x and any upstream call here is
-    // charged 10x in both latency and cost.
+    // ── Gemini company store: NAO sincronizado mais por aqui ─────────────────
+    // Ate' aqui este endpoint criava/atualizava o store (Gemini File Search) da empresa
+    // com a chave que o CHAMADOR (n8n) manda no payload. Isso e' exatamente o problema que
+    // o comentario antigo desta secao descrevia (job 91, 20/08/2026, store
+    // company520brandguide): "indexar com uma chave e ler com outra e' pagar para montar
+    // uma base que ninguem consegue abrir". So' que agora o leitor errado nao e' mais a
+    // geracao da API externa (que nao le store nenhum desde que interpret/compose/render
+    // Gemini foram aposentados) — e' o editor interno do ChiliForge, que usa uma chave
+    // Gemini DIFERENTE da do n8n. Pre-criar o store aqui deixaria ele travado pra sempre
+    // com a chave errada: agents_lazy_init_store (chamado quando alguem abre a empresa no
+    // editor) so' cria um store novo se gemini_store_name estiver VAZIO — se ja' tiver um
+    // nome salvo, ele reusa sem checar se a chave de quem abriu consegue le-lo.
     //
-    // This used to also run whenever $storeName was empty ("heal the missing store"), which was
-    // the exact opposite of a heal: if the store could not be created (e.g. the stored name
-    // belongs to a rotated-out Gemini project, so get_or_create has to build one from scratch and
-    // is slow), the sync throws, $storeName stays empty — and every subsequent poll retries the
-    // same slow call. Each retry burned ~120s until the proxy cut it, turning a missing store into
-    // a hung endpoint and starving the brief the caller was polling for. The store is created by
-    // the brief worker and by any content-bearing call; a poll has no business touching it.
+    // Deixando gemini_store_name vazio aqui, o editor interno cria o store certo, com a
+    // PROPRIA chave, na primeira vez que alguem realmente precisar dele. company_form_data
+    // (logo, cores, brandVisualBrief) continua sendo salvo normalmente — e' so' o texto que
+    // o Gemini vai indexar quando isso acontecer.
     $storeWarning = null;
-    if ($hasNewContent) {
-        // A chave TEM que ser a de quem chamou. File Search store e' escopado por PROJETO do
-        // Google: um store criado com a chave do servidor e' ilegivel para a chave que gera o
-        // anuncio depois, e toda leitura volta 403 PERMISSION_DENIED. Aconteceu em producao —
-        // job 91, 20/08/2026, store company520brandguide. Indexar com uma chave e ler com outra
-        // e' pagar para montar uma base que ninguem consegue abrir: o custo sai, o RAG nao entra.
-        //
-        // A versao anterior usava a chave PRODUCTION do servidor de proposito, para fugir do
-        // limite de free tier na indexacao. O raciocinio do free tier estava certo; o do escopo
-        // nao. Sem chave do chamador nao existe store possivel — pular sai mais barato e mais
-        // honesto que criar um inutil.
-        if ($geminiApiKey === '') {
-            $storeWarning = 'store nao sincronizado: gemini_api_key ausente no payload';
-            error_log('[company-assets] store pulado para company ' . $companyId . ': sem gemini_api_key do chamador');
-        } else {
-            try {
-                $storeName = agents_sync_company_store(
-                    $conn, $companyId, $formData, $accountType, $userId, ($storeName ?: null), $geminiApiKey,
-                    CAA_WEB_EDGE_TIMEOUT
-                );
-            } catch (Throwable $se) {
-                $storeWarning = $se->getMessage();
-                error_log('[company-assets] store sync failed: ' . $se->getMessage());
-            }
-        }
-    }
 
     // Surface the async job lifecycle (processing/ready/failed) stored on the company.
     // 'processing' EXPIRES: it is written when the job is enqueued, but nothing guarantees the

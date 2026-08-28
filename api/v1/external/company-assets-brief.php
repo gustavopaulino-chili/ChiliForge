@@ -176,19 +176,10 @@ if (!function_exists('caa_run_brief_job')) {
             $u->bind_param('si', $fj, $companyId); $u->execute(); $u->close();
         }
 
-        // ── Re-sync the Gemini company store (best effort) ────────────────────
-        // Mesma regra do caminho inline: o store PRECISA nascer na chave de quem chamou, senao
-        // a geracao le 403. Ver a nota longa em company-assets.php.
-        if ($geminiApiKey === '') {
-            error_log('[company-assets-worker] store pulado no job ' . $jobId . ': sem gemini_api_key do chamador');
-        } else {
-            try {
-                agents_reconnect_mysqli_if_needed($conn);
-                agents_sync_company_store($conn, $companyId, $formData, $accountType, $userId, ($storeName ?: null), $geminiApiKey);
-            } catch (Throwable $se) {
-                error_log('[company-assets-worker] store sync failed for job ' . $jobId . ': ' . $se->getMessage());
-            }
-        }
+        // Gemini company store: NAO sincronizado mais aqui — mesmo motivo da nota longa em
+        // company-assets.php. Pre-criar com a chave do n8n deixaria o store travado pra
+        // chave diferente que o editor interno usa. gemini_store_name fica vazio ate' o
+        // editor interno criar o dele proprio (agents_lazy_init_store) na hora certa.
 
         // ── Finalize the job row (drop the stored key for hygiene) ────────────
         agents_reconnect_mysqli_if_needed($conn);
