@@ -822,8 +822,18 @@ try {
     if ($generationTypeRaw === '' && array_key_exists('generate_as_image', $body)) {
         $generationTypeRaw = !empty($body['generate_as_image']) ? 'image' : 'html';
     }
+    // Gemini generation (mode "render", pure HTML) foi aposentado — a geracao agora e'
+    // OpenAI-only, e a OpenAI so' produz imagem. "image" virou o unico tipo aceito, e o
+    // default quando o caller nao manda nada (nao ha mais outra opcao para omitir).
+    if ($generationTypeRaw === '') $generationTypeRaw = 'image';
+    if ($generationTypeRaw === 'html') {
+        http_response_code(400);
+        echo json_encode([
+            'error' => 'generation_type "html" foi aposentado. A geracao agora e OpenAI-only; use generation_type "image".',
+        ]);
+        exit;
+    }
     $generationAliases = [
-        'html'  => 'html',
         'image' => 'image',
         'images' => 'image',
         'png'   => 'image',
@@ -832,13 +842,13 @@ try {
     if (!isset($generationAliases[$generationTypeRaw])) {
         http_response_code(400);
         echo json_encode([
-            'error' => 'generation_type is required and must be "html" or "image".',
-            'accepted_aliases' => ['html', 'image', 'images', 'png'],
+            'error' => 'generation_type must be "image".',
+            'accepted_aliases' => ['image', 'images', 'png', 'picture'],
         ]);
         exit;
     }
     $generationType  = $generationAliases[$generationTypeRaw];
-    $generateAsImage = $generationType === 'image';
+    $generateAsImage = true;
 
     $sitesBasePath = resolve_sites_base_path();
     $browserBin    = function_exists('find_browser_binary') ? find_browser_binary() : null;
@@ -863,6 +873,22 @@ try {
         echo json_encode([
             'error'         => 'No valid formats provided',
             'valid_presets' => $validPresets,
+        ]);
+        exit;
+    }
+
+    // Sem chave OpenAI (no payload ou na env do servidor) o job nasceria fadado a falhar
+    // no worker — falhar aqui e' mais barato e mais rapido pro chamador do que criar
+    // empresa/campanha/job so' para o worker rejeitar depois. Gemini foi aposentado: nao
+    // ha' mais fallback de motor.
+    $openaiKeyCheck = trim((string)($campaign['openai_api_key'] ?? $campaign['openaiApiKey'] ?? ''));
+    if ($openaiKeyCheck === '' && function_exists('agents_env_value')) {
+        $openaiKeyCheck = trim((string)agents_env_value('OPENAI_API_KEY', ''));
+    }
+    if ($openaiKeyCheck === '') {
+        http_response_code(400);
+        echo json_encode([
+            'error' => 'openai_api_key is required. A geracao de imagem agora e OpenAI-only (Gemini foi aposentado).',
         ]);
         exit;
     }

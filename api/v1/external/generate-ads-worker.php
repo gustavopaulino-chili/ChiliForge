@@ -4,7 +4,11 @@
  * Usage: php generate-ads-worker.php <job_id>
  *
  * Reads job from DB and executes the slow path:
- * store sync → asset mirror → interpret → render → finalize
+ * store sync → asset mirror → OpenAI image generation (caminho C) → finalize
+ *
+ * Gemini image drawing (interpret / compose / render) foi aposentado — geracao e'
+ * OpenAI-only agora. Gemini continua em uso so' para brand_visual (secao 8d, brief de
+ * identidade visual) e para o mode "copy" (headline/subheadline/CTA).
  */
 
 $jobId = (int)($argv[1] ?? 0);
@@ -505,14 +509,10 @@ try {
         }
         $ssStmt->close();
     }
-    if (trim($globalAdsStore) === '') {
-        throw new RuntimeException('Global Ads Store is missing.');
-    }
-    if (!$generateAsImage && trim($globalRefStore) === '') {
-        throw new RuntimeException('Global Ads Reference Store is missing. Upload at least one ad example via "Send to Store" first.');
-    }
-    // generate_as_image now routes through COMPOSE (Gemini background + HTML overlay),
-    // which does not query the image reference store — so it is no longer required.
+    // Gemini image drawing (interpret/compose/render) foi aposentado — geracao e' OpenAI-only
+    // agora (secao 9 abaixo). Nada aqui consome mais os stores globais do Gemini, entao eles
+    // deixaram de ser obrigatorios: exigi-los travaria job OpenAI por falta de configuracao
+    // que nao tem mais efeito nenhum na peca.
 
     agents_reconnect_mysqli_if_needed($conn);
     $agentStmt = $conn->prepare(
@@ -712,173 +712,75 @@ try {
         }
     }
 
-    // Decidido aqui, antes do interpret, de proposito: o caminho C monta o prompt direto de
-    // campanha + company (extc_openai_prompt) e NAO le batchSpecs. Saber com antecedencia que
-    // ele vai rodar e' o que permite nao pagar um planejamento que seria descartado.
-    $motorOpenai = strtolower(trim((string)($campaignFormData['motorImagem'] ?? ''))) === 'openai';
+    // Gemini foi aposentado para geracao: nao ha mais motor_imagem opcional nem fallback.
+    // OpenAI e' o unico caminho — sem chave, o job falha aqui em vez de tentar o Gemini.
     $chaveOpenai = trim((string)($campaignFormData['openaiApiKey'] ?? ''));
     if ($chaveOpenai === '' && function_exists('agents_env_value')) {
         $chaveOpenai = trim((string)agents_env_value('OPENAI_API_KEY', ''));
     }
-    $vaiTentarC = $generateAsImage && $motorOpenai && $chaveOpenai !== '' && function_exists('extc_openai_gerar');
-
-    // ── 9. Interpret ──────────────────────────────────────────────────────
-
-    // Interpret is a planning aid, not a hard requirement for COMPOSE (image): the
-    // compose pipeline derives a brand spec from campaignData when no plan is given,
-    // and each batch is a separate edge call. A transient Gemini/edge 503 here must
-    // not nuke the whole image job — only the optional per-creative spec is lost.
-    // HTML render genuinely needs the spec, so for that path the failure rethrows.
-    // O interpret e' a chamada mais cara do job: gemini-3.5-flash (US$ 1,50/1M de entrada)
-    // com File Search ligado e ate' 8.000 tokens de saida — medido em 20/08, ~90% do custo
-    // Gemini de cada job. Quem consome o resultado dele e' o FLUXO ANTIGO, via creativePlan.
-    // O caminho C ignora. Entao ele passa a rodar SOB DEMANDA: so' se algum batch cair de
-    // volta no fluxo antigo, que e' quem de fato usa o spec.
-    $batchSpecs = [];
-    $interpretJaRodou = false;
-    $rodarInterpret = function () use (
-        &$batchSpecs, &$interpretJaRodou, $conn, $jobId, $agentConfig, $globalAdsStore,
-        $globalRefStore, $globalImageRefStore, $companyStoreName, $campaignFormData,
-        $passKey, $generateAsImage
-    ) {
-        if ($interpretJaRodou) return;
-        $interpretJaRodou = true;
-        try {
-            $interpretResult = agents_call_edge_function('agents-ads', [
-                'mode'                     => 'interpret',
-                'jobId'                    => $jobId,
-                'agentConfig'              => $agentConfig,
-                'globalStoreName'          => $globalAdsStore,
-                'globalReferenceStoreName' => $globalRefStore ?: null,
-                'imageReferenceStoreName'  => $globalImageRefStore ?: null,
-                'companyStoreName'         => $companyStoreName,
-                'campaignData'             => $campaignFormData,
-            ], $passKey);
-            agents_reconnect_mysqli_if_needed($conn);
-            $batchSpecs = is_array($interpretResult['batchSpecs'] ?? null) ? $interpretResult['batchSpecs'] : [];
-        } catch (Throwable $interpretErr) {
-            if (!$generateAsImage) throw $interpretErr;
-            error_log('[generate-ads-worker] interpret failed (non-fatal for image/compose): ' . $interpretErr->getMessage());
-            agents_reconnect_mysqli_if_needed($conn);
-        }
-    };
-    if ($vaiTentarC) {
-        error_log('[generate-ads-worker] interpret adiado: caminho C nao usa o spec');
-    } else {
-        $rodarInterpret();
+    if ($chaveOpenai === '' || !function_exists('extc_openai_gerar')) {
+        throw new RuntimeException('OpenAI API key is required. Gemini image generation has been retired — send openai_api_key in the payload or set OPENAI_API_KEY on the server.');
     }
 
-    // ── 10. Render each batch ────────────────────────────────────────────────
+    // interpret (planejamento gemini-3.5-flash com File Search) foi aposentado junto com o
+    // resto da geracao Gemini: extc_openai_prompt nunca leu o resultado dele (batchSpecs) —
+    // monta o prompt direto de campanha + company. Manter a chamada so' pagaria ~$0,07/job
+    // a toa. brand_visual continua rodando normalmente (secao 8d acima) — esse sim alimenta
+    // composeCompanyRefs, que o caminho C usa.
+
+    // ── 9. Render each batch — OpenAI (caminho C), unico motor ────────────────
 
     $allCreatives     = [];
     $completedBatches = 0;
     $failedBatches    = 0;
     $batchErrors      = [];
 
-    // Por REFERENCIA: com o interpret sob demanda, $batchSpecs pode ser preenchido depois
-    // desta closure ser criada. Uma copia por valor devolveria spec vazio para sempre.
-    $resolveBatchSpec = function (array $batch, $batchIdx) use (&$batchSpecs): string {
-        foreach ($batchSpecs as $bs) {
-            if (strcasecmp(trim((string)($bs['label'] ?? '')), (string)$batch['label']) === 0) {
-                return (string)($bs['spec'] ?? '');
-            }
-        }
-        return isset($batchSpecs[$batchIdx]['spec']) ? (string)$batchSpecs[$batchIdx]['spec'] : '';
-    };
+    $refs  = is_array($campaignFormData['composeCompanyRefs'] ?? null) ? $campaignFormData['composeCompanyRefs'] : [];
+    $logoC = trim((string)($companyFormData['logoUrl'] ?? ($campaignFormData['logoUrl'] ?? '')));
+    // Canto pedido no payload (logo_position / logo_strategy). Vazio = o carimbo segue
+    // escolhendo sozinho o canto mais calmo, exatamente como sempre fez.
+    $cantoC = trim((string)($campaignFormData['logoPosition'] ?? ''));
+    $qualC = strtolower(trim((string)($campaignFormData['qualidadeImagem'] ?? 'medium')));
+    if (!in_array($qualC, ['low', 'medium', 'high'], true)) $qualC = 'medium';
+    error_log('[caminho-c] job=' . $jobId . ' refs=' . count($refs) . ' qualidade=' . $qualC);
 
-    // Image (compose) path: fire EVERY batch's background generation CONCURRENTLY so the
-    // total wait ≈ the slowest batch instead of the sum of all batches. The HTML render
-    // path stays sequential in the loop below.
     $composeResults = [];
-    if ($generateAsImage) {
-        $composePayloads = [];
-        foreach ($batches as $bIdx => $b) {
-            $composePayloads[$bIdx] = [
-                'mode'             => 'compose',
-                'jobId'            => $jobId,
-                'agentConfig'      => $agentConfig,
-                'globalStoreName'  => $globalAdsStore,
-                'companyStoreName' => $companyStoreName,
-                'batchFormats'     => $b['formats'],
-                'batchIndex'       => $bIdx,
-                'totalBatches'     => $totalBatches,
-                'creativePlan'     => $resolveBatchSpec($b, $bIdx),
-                'campaignData'     => $campaignFormData,
-            ];
-            agents_reconnect_mysqli_if_needed($conn);
-            $updR = $conn->prepare("UPDATE ad_generation_job_batches SET status = 'running', attempts = attempts + 1 WHERE job_id = ? AND batch_index = ?");
-            if ($updR) { $updR->bind_param('ii', $jobId, $bIdx); $updR->execute(); $updR->close(); }
-        }
-        // ── CAMINHO C ────────────────────────────────────────────────────────────────────
-        // Quando o payload pede motor_imagem=openai, a peca inteira sai de UMA chamada ao
-        // modelo de imagem da OpenAI, com as referencias da marca anexadas e as cores vindas
-        // do cadastro. O Gemini nem e' acionado. Qualquer batch que falhar aqui cai de volta
-        // no fluxo normal, entao o pior caso e' o comportamento de hoje.
-        // $motorOpenai / $chaveOpenai / $vaiTentarC ja' foram resolvidos antes da secao 9.
-        if ($vaiTentarC) {
-            $refs = is_array($campaignFormData['composeCompanyRefs'] ?? null) ? $campaignFormData['composeCompanyRefs'] : [];
-            $logoC = trim((string)($companyFormData['logoUrl'] ?? ($campaignFormData['logoUrl'] ?? '')));
-            // Canto pedido no payload (logo_position / logo_strategy). Vazio = o carimbo segue
-            // escolhendo sozinho o canto mais calmo, exatamente como sempre fez.
-            $cantoC = trim((string)($campaignFormData['logoPosition'] ?? ''));
-            
-            $qualC = strtolower(trim((string)($campaignFormData['qualidadeImagem'] ?? 'medium')));
-            if (!in_array($qualC, ['low', 'medium', 'high'], true)) $qualC = 'medium';
-            error_log('[caminho-c] job=' . $jobId . ' ligado; refs=' . count($refs) . ' qualidade=' . $qualC);
-
-            foreach ($batches as $bIdx => $b) {
-                $bannersC = [];
-                foreach (($b['formats'] ?? []) as $iF => $fmtC) {
-                    $wC = (int)($fmtC['width'] ?? 1080);
-                    $hC = (int)($fmtC['height'] ?? 1080);
-                    $promptC = extc_openai_prompt($campaignFormData, $companyFormData, $fmtC);
-                    $bytesC = extc_openai_gerar($chaveOpenai, $refs, $promptC, $qualC, extc_tamanho_openai($wC, $hC));
-                    if ($bytesC === null) { $bannersC = []; break; }
-                    $bytesC = extc_poe_logo($bytesC, $logoC, 92, $cantoC);
-                    $tmpC = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'cforge-c-' . $jobId . '-' . $bIdx . '-' . $iF . '.jpg';
-                    if (@file_put_contents($tmpC, $bytesC) === false) { $bannersC = []; break; }
-                    $bannersC[] = [
-                        // HTML minimo so' para o registro: a peca ja' esta' pronta em pixels.
-                        'html'          => '<div class="ad-banner" data-motor="openai"></div>',
-                        'imagemPronta'  => $tmpC,
-                        'platform'      => (string)($fmtC['platform'] ?? 'other'),
-                        'format'        => (string)($fmtC['format'] ?? 'ad'),
-                        'label'         => (string)($fmtC['label'] ?? ($wC . 'x' . $hC)),
-                        'debug'         => ['motor' => 'openai', 'qualidade' => $qualC, 'refs' => count($refs), 'tamanho' => extc_tamanho_openai($wC, $hC)],
-                    ];
-                }
-                if ($bannersC) {
-                    $composeResults[$bIdx] = ['ok' => true, 'data' => ['banners' => $bannersC]];
-                } else {
-                    error_log('[caminho-c] batch ' . $bIdx . ' falhou; esse batch volta para o Gemini');
-                }
-            }
-
-            // Os batches que o caminho C nao cobriu seguem pelo fluxo normal.
-            $faltando = array_diff(array_keys($composePayloads), array_keys($composeResults));
-            if ($faltando) {
-                // Agora o spec faz falta de verdade. Roda o interpret que foi adiado e reabastece
-                // o creativePlan SO' dos batches que voltaram — os payloads foram montados antes
-                // dele existir, entao estao com o campo vazio.
-                $rodarInterpret();
-                $pendentes = array_intersect_key($composePayloads, array_flip($faltando));
-                foreach ($pendentes as $k => $pl) {
-                    $pendentes[$k]['creativePlan'] = $resolveBatchSpec($batches[$k], $k);
-                }
-                $resto = agents_call_edge_function_multi('agents-ads', $pendentes, $passKey);
-                foreach ($resto as $k => $v) $composeResults[$k] = $v;
-            }
-        } else {
-            if ($motorOpenai) error_log('[caminho-c] pedido, mas sem chave da OpenAI; seguindo pelo Gemini');
-            $composeResults = agents_call_edge_function_multi('agents-ads', $composePayloads, $passKey);
-        }
+    foreach ($batches as $bIdx => $b) {
         agents_reconnect_mysqli_if_needed($conn);
+        $updR = $conn->prepare("UPDATE ad_generation_job_batches SET status = 'running', attempts = attempts + 1 WHERE job_id = ? AND batch_index = ?");
+        if ($updR) { $updR->bind_param('ii', $jobId, $bIdx); $updR->execute(); $updR->close(); }
+
+        $bannersC = [];
+        foreach (($b['formats'] ?? []) as $iF => $fmtC) {
+            $wC = (int)($fmtC['width'] ?? 1080);
+            $hC = (int)($fmtC['height'] ?? 1080);
+            $promptC = extc_openai_prompt($campaignFormData, $companyFormData, $fmtC);
+            $bytesC = extc_openai_gerar($chaveOpenai, $refs, $promptC, $qualC, extc_tamanho_openai($wC, $hC));
+            if ($bytesC === null) { $bannersC = []; break; }
+            $bytesC = extc_poe_logo($bytesC, $logoC, 92, $cantoC);
+            $tmpC = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'cforge-c-' . $jobId . '-' . $bIdx . '-' . $iF . '.jpg';
+            if (@file_put_contents($tmpC, $bytesC) === false) { $bannersC = []; break; }
+            $bannersC[] = [
+                // HTML minimo so' para o registro: a peca ja' esta' pronta em pixels.
+                'html'          => '<div class="ad-banner" data-motor="openai"></div>',
+                'imagemPronta'  => $tmpC,
+                'platform'      => (string)($fmtC['platform'] ?? 'other'),
+                'format'        => (string)($fmtC['format'] ?? 'ad'),
+                'label'         => (string)($fmtC['label'] ?? ($wC . 'x' . $hC)),
+                'debug'         => ['motor' => 'openai', 'qualidade' => $qualC, 'refs' => count($refs), 'tamanho' => extc_tamanho_openai($wC, $hC)],
+            ];
+        }
+        // Sem fallback: um batch que a OpenAI nao produzir termina falho, ponto — nao ha
+        // mais Gemini para tentar de novo.
+        $composeResults[$bIdx] = $bannersC
+            ? ['ok' => true, 'data' => ['banners' => $bannersC]]
+            : ['ok' => false, 'error' => 'OpenAI image generation failed for this batch'];
+        if (!$bannersC) error_log('[caminho-c] batch ' . $bIdx . ' falhou');
     }
 
     foreach ($batches as $batchIdx => $batch) {
         $batchLabel = $batch['label'];
         $batchFmts  = $batch['formats'];
-        $spec       = $resolveBatchSpec($batch, $batchIdx);
 
         // Compose marked 'running' in the parallel pre-pass above; only the sequential
         // HTML render path needs to mark it here.
@@ -1120,132 +1022,11 @@ try {
                 continue;
             }
 
-            $renderResult = agents_call_edge_function('agents-ads', [
-                'mode'                     => 'render',
-                'jobId'                    => $jobId,
-                'agentConfig'              => $agentConfig,
-                'globalStoreName'          => $globalAdsStore,
-                'globalReferenceStoreName' => $globalRefStore ?: null,
-                'imageReferenceStoreName'  => $globalImageRefStore ?: null,
-                'companyStoreName'         => $companyStoreName,
-                'batchFormats'             => $batchFmts,
-                'batchIndex'               => $batchIdx,
-                'totalBatches'             => $totalBatches,
-                'creativePlan'             => $spec,
-                'campaignData'             => $campaignFormData,
-                'generateAsImage'          => $generateAsImage,
-            ], $passKey);
-            agents_reconnect_mysqli_if_needed($conn);
-
-            $snippets = is_array($renderResult['snippets'] ?? null) ? $renderResult['snippets'] : [];
-            if (empty($snippets)) {
-                $banners = ext_extract_banners_from_html((string)($renderResult['html'] ?? ''), $batchFmts);
-                foreach ($banners as $b) $snippets[] = $b['html'];
-            }
-            if (empty($snippets)) throw new RuntimeException("No banners extracted for batch {$batchIdx}");
-            $expectedCount = ext_expected_creatives_for_batch($batchFmts, $campaignFormData);
-            if (count($snippets) > $expectedCount) {
-                error_log('[generate-ads-worker] Trimming HTML batch ' . $batchIdx . ' from ' . count($snippets) . ' to expected ' . $expectedCount);
-                $snippets = array_slice($snippets, 0, $expectedCount);
-            }
-
-            $savedCount = 0;
-            foreach ($snippets as $sIdx => $snippetHtml) {
-                $fmt      = $batchFmts[$sIdx] ?? $batchFmts[0];
-                $platform = $fmt['platform'] ?? '';
-                $fmtName  = $fmt['format']   ?? '';
-                $fmtLabel = $fmt['label']    ?? $batchLabel;
-                $fmtW     = (int)($fmt['width']  ?? 1080);
-                $fmtH     = (int)($fmt['height'] ?? 1080);
-                $sortOrd  = count($allCreatives);
-                $snippetHtml = (string)$snippetHtml;
-                $snippetHtml = ext_force_visual_assets($snippetHtml, $campaignFormData);
-                // Brand font: resolved once here (campaign override -> company payload -> the family
-                // company-assets.php persisted). Empty resolves to Arial, which is also the CSS
-                // fallback, so a family that fails to load never costs us the ad.
-                $brandFont = ext_resolve_brand_font($campaignFormData, $companyFormData);
-                $snippetHtml = ext_force_minimum_copy($snippetHtml, $campaignFormData, $fmtW, $fmtH, ext_font_css_stack($brandFont));
-                // The <link> has to travel with the HTML or headless Chrome renders the fallback.
-                // It is also how the GD renderer learns the family — extgd_compose parses it back
-                // out of this exact googleapis URL.
-                $snippetHtml = ext_inject_font_head($snippetHtml, $brandFont);
-                if ($brandFont === '') {
-                    error_log('[ext_font] no usable brand font — falling back to Arial');
-                }
-
-                agents_reconnect_mysqli_if_needed($conn);
-                $insC = $conn->prepare(
-                    "INSERT INTO ads_creatives
-                       (project_id, campaign_id, name, platform, format, label, width, height, generated_html, sort_order)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                );
-                if (!$insC) {
-                    throw new RuntimeException('Error preparing creative insert: ' . $conn->error);
-                }
-                $insC->bind_param(
-                    'iissssiisi',
-                    $campaignProjectId, $campaignId, $fmtLabel,
-                    $platform, $fmtName, $fmtLabel,
-                    $fmtW, $fmtH, $snippetHtml, $sortOrd
-                );
-                if (!$insC->execute()) {
-                    $insertError = $insC->error;
-                    $insC->close();
-                    throw new RuntimeException('Error saving HTML creative: ' . $insertError);
-                }
-                $creativeId = (int)$conn->insert_id;
-                $insC->close();
-                if ($creativeId <= 0) {
-                    throw new RuntimeException('HTML creative insert returned no id.');
-                }
-
-                $htmlUrl  = null;
-                $imageUrl = null;
-                if ($creativeId && $campaignRelPath !== '') {
-                    $creativeRelPath = $campaignRelPath . '/' . $creativeId;
-                    $creativeDir     = $sitesBasePath . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $creativeRelPath);
-                    $htmlFilePath    = $creativeDir . DIRECTORY_SEPARATOR . 'index.html';
-                    $pngFilePath     = $creativeDir . DIRECTORY_SEPARATOR . 'banner.png';
-                    ensure_directory($creativeDir);
-                    if (file_put_contents($htmlFilePath, $snippetHtml) !== false) {
-                        $htmlUrl = '/projects/' . $creativeRelPath . '/index.html';
-                        agents_reconnect_mysqli_if_needed($conn);
-                        $updUrl = $conn->prepare("UPDATE ads_creatives SET public_url = ? WHERE id = ?");
-                        if ($updUrl) { $updUrl->bind_param('si', $htmlUrl, $creativeId); $updUrl->execute(); $updUrl->close(); }
-                        try {
-                            ext_render_creative_png_like_zip($browserBin ?: '', $htmlUrl, $htmlFilePath, $pngFilePath, $fmtW, $fmtH);
-                            // Flatten a JPEG sibling for Meta; deliver the JPEG when it works.
-                            $jpgName = function_exists('cf_make_jpg_sibling') ? cf_make_jpg_sibling($pngFilePath) : '';
-                            $imageUrl = '/projects/' . $creativeRelPath . '/' . ($jpgName !== '' ? $jpgName : 'banner.png');
-                        } catch (Throwable $renderErr) {
-                            error_log('[generate-ads-worker] PNG skipped for creative ' . $creativeId . ': ' . $renderErr->getMessage());
-                        }
-                    }
-                }
-                $allCreatives[] = [
-                    'id'       => $creativeId,
-                    'platform' => $platform,
-                    'format'   => $fmtName,
-                    'label'    => $fmtLabel,
-                    'width'    => $fmtW,
-                    'height'   => $fmtH,
-                    'html_url' => $htmlUrl,
-                    'image_url' => $imageUrl,
-                ];
-                $savedCount++;
-            }
-
-            if ($savedCount <= 0) {
-                throw new RuntimeException("No HTML creatives saved for batch {$batchIdx}");
-            }
-
-            agents_reconnect_mysqli_if_needed($conn);
-            $updDone = $conn->prepare(
-                "UPDATE ad_generation_job_batches SET status = 'completed', saved_count = ?
-                 WHERE job_id = ? AND batch_index = ?"
-            );
-            if ($updDone) { $updDone->bind_param('iii', $savedCount, $jobId, $batchIdx); $updDone->execute(); $updDone->close(); }
-            $completedBatches++;
+            // generation_type "html" (mode: render, Gemini) foi aposentado — generate-ads.php
+            // ja recusa esse tipo na validacao, entao chegar aqui so' acontece para um job
+            // antigo enfileirado antes deste deploy com generate_as_image=0. Falha explicita
+            // em vez de cair no Gemini, que nao existe mais neste fluxo.
+            throw new RuntimeException('generation_type "html" has been retired. Only generation_type "image" (OpenAI) is supported.');
 
         } catch (Throwable $batchErr) {
             error_log('[generate-ads-worker] Batch ' . $batchIdx . ' error: ' . $batchErr->getMessage());
