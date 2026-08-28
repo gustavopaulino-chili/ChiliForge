@@ -419,15 +419,12 @@ if ($campaignRelPath === '') {
 
 try {
 
-    // ── 6. Sync company store ─────────────────────────────────────────────
-
-    if (!$existingStoreName) {
-        $existingStoreName = agents_sync_company_store(
-            $conn, $companyId, $companyFormData, $accountType, $userId, null, $passKey
-        );
-        agents_reconnect_mysqli_if_needed($conn);
-    }
-    $companyStoreName = (string)$existingStoreName;
+    // Sync do company store (Gemini File Search) foi removido daqui: nada neste worker
+    // le mais companyStoreName desde que interpret/compose/render (Gemini) saiu — quem
+    // ainda depende do store e' o editor interno (AdsEditor), que faz seu proprio
+    // lazy-init (agents_lazy_init_store) na hora de gerar por la. company-assets.php
+    // continua sincronizando a cada push do n8n, entao o store existe e fica
+    // atualizado pra quando essa empresa for aberta no app.
 
     // ── 7. Asset mirroring ────────────────────────────────────────────────
 
@@ -489,30 +486,10 @@ try {
         }
     }
 
-    // ── 8. Global stores + agent config ──────────────────────────────────
-
-    $globalAdsStore      = '';
-    $globalRefStore      = '';
-    $globalImageRefStore = '';
-    agents_reconnect_mysqli_if_needed($conn);
-    $ssStmt = $conn->prepare(
-        "SELECT setting_key, setting_value FROM system_settings
-         WHERE setting_key IN ('gemini_global_ads_store', 'gemini_global_ads_reference_store', 'gemini_global_ads_image_reference_store')"
-    );
-    if ($ssStmt) {
-        $ssStmt->execute();
-        $ssStmt->bind_result($ssKey, $ssVal);
-        while ($ssStmt->fetch()) {
-            if ($ssKey === 'gemini_global_ads_store')                 $globalAdsStore      = (string)$ssVal;
-            if ($ssKey === 'gemini_global_ads_reference_store')       $globalRefStore      = (string)$ssVal;
-            if ($ssKey === 'gemini_global_ads_image_reference_store') $globalImageRefStore = (string)$ssVal;
-        }
-        $ssStmt->close();
-    }
-    // Gemini image drawing (interpret/compose/render) foi aposentado — geracao e' OpenAI-only
-    // agora (secao 9 abaixo). Nada aqui consome mais os stores globais do Gemini, entao eles
-    // deixaram de ser obrigatorios: exigi-los travaria job OpenAI por falta de configuracao
-    // que nao tem mais efeito nenhum na peca.
+    // ── 8. Agent config ────────────────────────────────────────────────────
+    // O SELECT dos stores globais do Gemini (gemini_global_ads_store e afins) saiu daqui:
+    // interpret/compose/render foram aposentados e eram os unicos consumidores. So' o
+    // ADS_AGENT (usado pelo mode "copy") continua sendo carregado.
 
     agents_reconnect_mysqli_if_needed($conn);
     $agentStmt = $conn->prepare(
