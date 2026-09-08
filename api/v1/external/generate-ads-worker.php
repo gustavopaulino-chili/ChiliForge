@@ -719,7 +719,11 @@ try {
     $cantoC = trim((string)($campaignFormData['logoPosition'] ?? ''));
     $qualC = strtolower(trim((string)($campaignFormData['qualidadeImagem'] ?? 'medium')));
     if (!in_array($qualC, ['low', 'medium', 'high'], true)) $qualC = 'medium';
-    error_log('[caminho-c] job=' . $jobId . ' refs=' . count($refs) . ' qualidade=' . $qualC);
+    // O que o payload PEDIU, ecoado de volta cru. Hoje o campo nao decide nada (a OpenAI e' o
+    // unico motor), mas ecoa-lo e' o que permite a quem chama distinguir "meu motor_imagem
+    // chegou" de "meu motor_imagem se perdeu no caminho" sem depender de log de servidor.
+    $motorPedido = strtolower(trim((string)($campaignFormData['motorImagem'] ?? ''))) ?: 'nao-informado';
+    error_log('[caminho-c] job=' . $jobId . ' refs=' . count($refs) . ' qualidade=' . $qualC . ' motor_pedido=' . $motorPedido);
 
     $composeResults = [];
     foreach ($batches as $bIdx => $b) {
@@ -728,15 +732,16 @@ try {
         if ($updR) { $updR->bind_param('ii', $jobId, $bIdx); $updR->execute(); $updR->close(); }
 
         $bannersC = [];
+        $motivoC  = null;
         foreach (($b['formats'] ?? []) as $iF => $fmtC) {
             $wC = (int)($fmtC['width'] ?? 1080);
             $hC = (int)($fmtC['height'] ?? 1080);
             $promptC = extc_openai_prompt($campaignFormData, $companyFormData, $fmtC);
-            $bytesC = extc_openai_gerar($chaveOpenai, $refs, $promptC, $qualC, extc_tamanho_openai($wC, $hC));
+            $bytesC = extc_openai_gerar($chaveOpenai, $refs, $promptC, $qualC, extc_tamanho_openai($wC, $hC), $motivoC);
             if ($bytesC === null) { $bannersC = []; break; }
             $bytesC = extc_poe_logo($bytesC, $logoC, 92, $cantoC);
             $tmpC = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'cforge-c-' . $jobId . '-' . $bIdx . '-' . $iF . '.jpg';
-            if (@file_put_contents($tmpC, $bytesC) === false) { $bannersC = []; break; }
+            if (@file_put_contents($tmpC, $bytesC) === false) { $bannersC = []; $motivoC = 'falha-ao-gravar-temporario'; break; }
             $bannersC[] = [
                 // HTML minimo so' para o registro: a peca ja' esta' pronta em pixels.
                 'html'          => '<div class="ad-banner" data-motor="openai"></div>',
@@ -744,15 +749,29 @@ try {
                 'platform'      => (string)($fmtC['platform'] ?? 'other'),
                 'format'        => (string)($fmtC['format'] ?? 'ad'),
                 'label'         => (string)($fmtC['label'] ?? ($wC . 'x' . $hC)),
-                'debug'         => ['motor' => 'openai', 'qualidade' => $qualC, 'refs' => count($refs), 'tamanho' => extc_tamanho_openai($wC, $hC)],
+                // motor_pedido/motor_usado/fallback saem em TODA peca, com os mesmos nomes em
+                // qualquer motor, para que quem consome o job detecte um desvio comparando dois
+                // campos em vez de inferir do formato do objeto de debug — que ate' aqui mudava
+                // de forma conforme o caminho e nao dava para comparar programaticamente.
+                'debug'         => [
+                    'motor'         => 'openai',
+                    'motor_pedido'  => $motorPedido,
+                    'motor_usado'   => 'gpt-image-2',
+                    'fallback'      => false,
+                    'fallback_motivo' => null,
+                    'qualidade'     => $qualC,
+                    'refs'          => count($refs),
+                    'tamanho'       => extc_tamanho_openai($wC, $hC),
+                ],
             ];
         }
         // Sem fallback: um batch que a OpenAI nao produzir termina falho, ponto — nao ha
-        // mais Gemini para tentar de novo.
+        // mais Gemini para tentar de novo. O motivo viaja junto do erro do batch porque
+        // job-status.php so' devolve batch_errors — sem creative, nao ha' debug onde grava-lo.
         $composeResults[$bIdx] = $bannersC
             ? ['ok' => true, 'data' => ['banners' => $bannersC]]
-            : ['ok' => false, 'error' => 'OpenAI image generation failed for this batch'];
-        if (!$bannersC) error_log('[caminho-c] batch ' . $bIdx . ' falhou');
+            : ['ok' => false, 'error' => 'OpenAI image generation failed for this batch: ' . ($motivoC ?: 'motivo-desconhecido')];
+        if (!$bannersC) error_log('[caminho-c] batch ' . $bIdx . ' falhou: ' . ($motivoC ?: 'motivo-desconhecido'));
     }
 
     foreach ($batches as $batchIdx => $batch) {

@@ -1816,10 +1816,17 @@ if (!function_exists('extc_openai_prompt')) {
     }
     /**
      * Gera a peca. Devolve os bytes da imagem, ou null em qualquer problema — nunca lanca,
-     * porque a falha aqui tem que cair de volta no caminho do Gemini sem derrubar o job.
+     * para que a falha reprove o batch em vez de derrubar o job inteiro.
+     *
+     * $motivo sai preenchido com a CAUSA sempre que o retorno e' null. Sem ele a unica pista
+     * de por que uma peca nao saiu pela OpenAI ficava no error_log do servidor, que quem chama
+     * a API externa nao le — foi exatamente esse buraco que deixou um desvio de motor passar
+     * despercebido ate' alguem reparar na arte.
      */
-    function extc_openai_gerar(string $apiKey, array $refUrls, string $prompt, string $qualidade = 'medium', string $tamanho = '1024x1024'): ?string {
-        if ($apiKey === '' || !function_exists('curl_init')) return null;
+    function extc_openai_gerar(string $apiKey, array $refUrls, string $prompt, string $qualidade = 'medium', string $tamanho = '1024x1024', ?string &$motivo = null): ?string {
+        $motivo = null;
+        if ($apiKey === '')             { $motivo = 'sem-chave-openai'; return null; }
+        if (!function_exists('curl_init')) { $motivo = 'sem-curl';      return null; }
 
         $nl = "\r\n";
         $bound = '----chiliforge' . bin2hex(random_bytes(8));
@@ -1852,7 +1859,7 @@ if (!function_exists('extc_openai_prompt')) {
         // Se referencias FORAM pedidas e nenhuma baixou, o aborto de sempre continua valendo —
         // ali e' falha de download, nao escolha de quem chamou.
         $doZero = empty($refUrls);
-        if ($anexadas === 0 && !$doZero) { error_log('[caminho-c] nenhuma referencia baixou; abortando'); return null; }
+        if ($anexadas === 0 && !$doZero) { $motivo = 'nenhuma-referencia-baixou'; error_log('[caminho-c] nenhuma referencia baixou; abortando'); return null; }
         $corpo .= '--' . $bound . '--' . $nl;
 
         $url   = 'https://api.openai.com/v1/images/edits';
@@ -1884,12 +1891,13 @@ if (!function_exists('extc_openai_prompt')) {
         $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
         if ($resp === false || $code < 200 || $code >= 300) {
+            $motivo = 'openai-http-' . ($code > 0 ? $code : 'sem-resposta');
             error_log('[caminho-c] OpenAI HTTP ' . $code . ': ' . substr((string)$resp, 0, 300));
             return null;
         }
         $j = json_decode((string)$resp, true);
         $b64 = is_array($j) ? ($j['data'][0]['b64_json'] ?? '') : '';
-        if (!is_string($b64) || $b64 === '') { error_log('[caminho-c] resposta sem imagem'); return null; }
+        if (!is_string($b64) || $b64 === '') { $motivo = 'resposta-sem-imagem'; error_log('[caminho-c] resposta sem imagem'); return null; }
 
         // Custo real, lido do proprio campo de uso da chamada.
         $u = is_array($j) ? ($j['usage'] ?? []) : [];
@@ -1900,7 +1908,8 @@ if (!function_exists('extc_openai_prompt')) {
         error_log(sprintf('[caminho-c] ok refs=%d in_txt=%d in_img=%d out=%d ~USD %.4f', $anexadas, $inTxt, $inImg, $out, $usd));
 
         $bytes = base64_decode($b64, true);
-        return ($bytes === false || $bytes === '') ? null : $bytes;
+        if ($bytes === false || $bytes === '') { $motivo = 'base64-invalido'; return null; }
+        return $bytes;
     }
 
     /**
