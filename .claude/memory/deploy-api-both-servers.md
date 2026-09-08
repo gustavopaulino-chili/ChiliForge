@@ -50,13 +50,26 @@ arquivo devolve `curl: (25) Failed FTP upload: 550`, para sempre. O arquivo real
 com a versão ANTIGA — o deploy "falha", mas o sistema segue funcionando, então é fácil não
 perceber. É a hipótese mais provável para o live ter congelado em 25/08.
 
-**Como sair:** apagar o órfão e reenviar. O `deploy-*.ps1` não faz isso sozinho.
+**Não dá para apagar o órfão por FTP.** O ProFTPD esconde o hidden-store de todo comando
+menos o `LIST`: `DELE` e `RNFR` respondem `550 ... No such file or directory` para o mesmo
+nome que o `LIST` acabou de mostrar, em caminho absoluto, relativo ou pós-CWD. Só o
+Gerenciador de Arquivos do hPanel (com "mostrar ocultos") ou SSH removem.
 
-```powershell
-curl.exe -s --ssl-reqd --insecure "ftp://$($cfg['FTP_HOST'])/api/v1/external/" `
-  --user "$($cfg['FTP_USER']):$($cfg['FTP_PASS'])" `
-  -Q "DELE /api/v1/external/.in.generate-ads-worker.php." -o NUL
+**Como publicar mesmo com o órfão lá:** subir com OUTRO nome e renomear por cima — o
+rename não passa pelo HiddenStores. Testado nos dois servidores (08/09/2026):
+
+```bash
+H=$(sed -n 's/^FTP_HOST=//p' .deploy.live.env | tr -d '"\r')
+U=$(sed -n 's/^FTP_USER=//p' .deploy.live.env | tr -d '"\r')
+P=$(sed -n 's/^FTP_PASS=//p' .deploy.live.env | tr -d '"\r')
+curl -s --ssl-reqd --insecure -T api/v1/external/ARQ.php \
+  "ftp://$H/api/v1/external/ARQ.deploy-tmp.php" --user "$U:$P"
+curl -s --ssl-reqd --insecure "ftp://$H/api/v1/external/" --user "$U:$P" \
+  -Q "-RNFR ARQ.deploy-tmp.php" -Q "-RNTO ARQ.php"   # < 250 Rename successful
 ```
+
+O órfão do live sumiu sozinho depois de um STOR bem-sucedido na mesma pasta; o do teste
+continuou. Ou seja: pode evaporar, mas não conte com isso.
 
 **Regra:** depois de qualquer deploy que reporte `FALHOU`, listar a pasta remota e conferir
 data/tamanho — nunca assumir que uma retentativa bem-sucedida depois de um timeout resolveu.
