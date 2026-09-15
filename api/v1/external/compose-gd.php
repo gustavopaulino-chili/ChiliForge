@@ -1759,6 +1759,37 @@ if (!function_exists('extc_openai_prompt')) {
                . "This decides the subject. You still decide the styling, the crop and the light.")
             : '';
 
+        // COMO a peca e' montada. Terceiro eixo, independente dos dois de cima: o genero diz o
+        // que aparece, o estilo diz o tratamento, e este diz onde a copy mora e como o quadro se
+        // divide. O campo ja' chegava mapeado (ext_map_campaign) e o worker ja' o validava contra
+        // esta mesma lista de 12, mas so' o caminho Gemini o consumia — aposentado o Gemini, o
+        // valor viajava ate' aqui e morria. E' o eixo que trava a continuidade de um carrossel:
+        // fixar o mesmo token nos N slides da' a eles a mesma logica de composicao.
+        // Lista identica a' $VALID_LAYOUTS do generate-ads-worker.php: se uma mudar, a outra tem
+        // de mudar junto, senao o worker apaga um token que aqui seria valido.
+        $layouts = [
+            'hero-full-bleed'        => 'one image bleeding to all four edges, with the copy sitting directly on top of it',
+            'top-image-bottom-text'  => 'the image occupies the upper portion, the copy sits below it on a clean field',
+            'bold-headline-first'    => 'the headline is the dominant object in the frame and everything else yields to it',
+            'centered-minimal'       => 'everything centred on a generous, quiet field, with a lot of empty space',
+            'left-panel-right-image' => 'a vertical panel on the left carries the copy, the image fills the right',
+            'diagonal-split'         => 'the frame is cut by a diagonal, copy on one side and image on the other',
+            'top-left-editorial'     => 'the copy is anchored to the top-left, ranged left, like a magazine opener',
+            'top-right-editorial'    => 'the copy is anchored to the top-right, like a magazine opener',
+            'bottom-right-editorial' => 'the copy is anchored to the bottom-right, like a magazine caption',
+            'frame-product'          => 'a border or frame surrounds the subject, and the copy lives in that margin',
+            'vertical-story-stack'   => 'the copy is stacked vertically, one line above the other, reading top to bottom',
+            'floating-islands'       => 'the copy sits in separate blocks that float apart over the image, not in one column',
+        ];
+        // Mesmo contrato do genero: token desconhecido vira '' e o array_filter do return apaga o
+        // bloco, em vez de mandar ao modelo uma instrucao de layout que ninguem escreveu.
+        $lay = strtolower(trim((string)($campaign['textLayout'] ?? '')));
+        $blocoLayout = isset($layouts[$lay])
+            ? ("HOW THE PIECE IS LAID OUT, chosen by the client: {$layouts[$lay]}.\n"
+               . "This decides the skeleton — where the copy lives and how the frame divides. "
+               . "Inside it you still decide the scene, the crop, the type scale and the colour.")
+            : '';
+
         // O canto que o prompt manda deixar livre tem de ser o MESMO que o extc_poe_logo() vai
         // carimbar, senao o modelo limpa um canto e a logo cai noutro. Sem pedido no payload,
         // BOTTOM-RIGHT: o carimbo escolhe o canto mais calmo, e o canto reservado e' o candidato
@@ -1779,6 +1810,7 @@ if (!function_exists('extc_openai_prompt')) {
             "Make the best advertisement you can for this theme. You have complete freedom over the scene, composition, cropping, lighting, staging, typography, scale, and how and where the copy lives in the image. Integrate the type with the scene however serves the idea - in front of it, behind it, cut out of it, on a surface. Surprise me.",
             $direcao,
             $blocoGenero,
+            $blocoLayout,
             extc_bloco_rede($fmt),
             "FIRST RULE, absolute: these texts must appear EXACTLY as written, character for character, in {$lang}, every accent intact. Not paraphrased, not translated, nothing added or dropped:\n" . $copy,
             "SECOND RULE, and it outranks every creative instinct: LEGIBILITY.\n"
