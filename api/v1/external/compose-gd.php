@@ -1988,14 +1988,34 @@ if (!function_exists('extc_openai_prompt')) {
                 'bottom-right' => [$W - $m - $nw, $H - $m - $nh],
             ];
             $pedido = strtolower(trim($canto));
-            if (isset($pedidos[$pedido])) $cantos = [$pedidos[$pedido]];
+            $cantoForcado = isset($pedidos[$pedido]);
+            if ($cantoForcado) $cantos = [$pedidos[$pedido]];
+
+            // Cor media da propria logo (só pixels que não são quase-transparentes), calculada
+            // ANTES da escolha de canto: tanto a deteccao de "fundo com a mesma cor" quanto a
+            // cor da placa de proteção mais abaixo dependem dela.
+            $somaLumLogo = 0.0; $somaRLogo = 0.0; $somaGLogo = 0.0; $somaBLogo = 0.0; $nLumLogo = 0;
+            for ($yy = 0; $yy < $lh; $yy += 2) {
+                for ($xx = 0; $xx < $lw; $xx += 2) {
+                    $c = imagecolorat($logo, $xx, $yy);
+                    if ((($c >> 24) & 0x7F) > 40) continue; // pixel quase-transparente, ignora
+                    $r = ($c >> 16) & 255; $g2 = ($c >> 8) & 255; $b = $c & 255;
+                    $somaLumLogo += $r * 0.21 + $g2 * 0.72 + $b * 0.07;
+                    $somaRLogo += $r; $somaGLogo += $g2; $somaBLogo += $b;
+                    $nLumLogo++;
+                }
+            }
+            $logoLum = $nLumLogo ? $somaLumLogo / $nLumLogo : 128.0;
+            $logoR   = $nLumLogo ? $somaRLogo / $nLumLogo : 128.0;
+            $logoG   = $nLumLogo ? $somaGLogo / $nLumLogo : 128.0;
+            $logoB   = $nLumLogo ? $somaBLogo / $nLumLogo : 128.0;
 
             $melhor = $cantos[0];
             $mv = INF;
-            $melhorLumBg = 128.0;
+            $melhorFracaoParecida = 0.0;
             foreach ($cantos as $c) {
                 $x = $c[0]; $y = $c[1];
-                $s2 = 0.0; $n = 0; $somaLum = 0.0;
+                $s2 = 0.0; $n = 0; $parecidos = 0;
                 for ($yy = max(0, $y - $folga); $yy < min($H, $y + $nh + $folga) - 1; $yy += 3) {
                     for ($xx = max(0, $x - $folga); $xx < min($W, $x + $nw + $folga) - 1; $xx += 3) {
                         $c1 = imagecolorat($base, $xx, $yy);
@@ -2004,37 +2024,31 @@ if (!function_exists('extc_openai_prompt')) {
                         $l2 = (($c2 >> 16 & 255) * 0.21 + ($c2 >> 8 & 255) * 0.72 + ($c2 & 255) * 0.07);
                         $g = abs($l1 - $l2);
                         $s2 += $g * $g; $n++;
-                        $somaLum += ($l1 + $l2) / 2;
+
+                        // Distancia de COR (nao so' luminancia) entre este pixel de fundo e a
+                        // cor da logo — pega o caso em que so' um TRECHO do canto tem a cor que
+                        // engole a logo (ex.: uma faixa diagonal cruzando so' metade do carimbo),
+                        // que uma media do canto inteiro dilui e deixa passar.
+                        $r1 = ($c1 >> 16) & 255; $gg1 = ($c1 >> 8) & 255; $b1 = $c1 & 255;
+                        $dist = sqrt((($r1 - $logoR) ** 2) + (($gg1 - $logoG) ** 2) + (($b1 - $logoB) ** 2));
+                        if ($dist < 70) $parecidos++;
                     }
                 }
                 $v = $n ? sqrt($s2 / $n) : INF;
-                if ($v < $mv) { $mv = $v; $melhor = [$x, $y]; $melhorLumBg = $n ? $somaLum / $n : 128.0; }
+                $fracaoParecida = $n ? $parecidos / $n : 0.0;
+                if ($v < $mv) { $mv = $v; $melhor = [$x, $y]; $melhorFracaoParecida = $fracaoParecida; }
             }
 
-            // Luminancia media da propria logo (só pixels que não são quase-transparentes). A
-            // placa de proteção abaixo tem de contrastar com a LOGO, não com o fundo — é ela
-            // quem vai cobrir o fundo debaixo do carimbo, então é irrelevante o que havia ali.
-            $somaLumLogo = 0.0; $nLumLogo = 0;
-            for ($yy = 0; $yy < $lh; $yy += 2) {
-                for ($xx = 0; $xx < $lw; $xx += 2) {
-                    $c = imagecolorat($logo, $xx, $yy);
-                    if ((($c >> 24) & 0x7F) > 40) continue; // pixel quase-transparente, ignora
-                    $r = ($c >> 16) & 255; $g2 = ($c >> 8) & 255; $b = $c & 255;
-                    $somaLumLogo += $r * 0.21 + $g2 * 0.72 + $b * 0.07;
-                    $nLumLogo++;
-                }
-            }
-            $logoLum = $nLumLogo ? $somaLumLogo / $nLumLogo : 128.0;
-
-            // Dois casos pedem uma placa atrás da logo, mesmo com o canto reservado no prompt:
-            // o fundo tem luminância parecida com a da própria logo (ela some — logo rosa sobre
-            // faixa magenta) ou o fundo debaixo do carimbo está visualmente agitado (elemento
-            // gráfico forte por baixo, tipo borda de mesa/notebook — o prompt pede o canto livre
-            // mas a composição da imagem não garante isso). Limiares empíricos, a calibrar com
-            // mais casos reais.
-            $baixoContraste = abs($logoLum - $melhorLumBg) < 45;
-            $fundoAgitado   = $mv > 20;
-            if ($baixoContraste || $fundoAgitado) {
+            // Quando o canto vem do payload (logo_position), ele e' o UNICO candidato — não há
+            // para onde mover a logo se colidir, então a placa é sempre desenhada. Sem canto
+            // forçado, a escolha automática entre os 4 cantos já evita o mais agitado; a placa
+            // ainda entra se uma fatia real do canto escolhido tiver cor parecida com a da logo
+            // ou se estiver agitado. (Antes disto media a luminância do canto INTEIRO contra a
+            // da logo — uma faixa colorida cobrindo só parte do canto, com o resto em preto,
+            // diluía a média e não disparava a placa; foi o caso do job 643: fundo majoritariamente
+            // preto, só o "AP" de "FIAP" cruzando a faixa magenta por baixo.)
+            $precisaPlaca = $cantoForcado || $melhorFracaoParecida > 0.12 || $mv > 20;
+            if ($precisaPlaca) {
                 $clara = $logoLum < 128; // logo escura -> placa clara; logo clara -> placa escura
                 $corPlaca = $clara
                     ? imagecolorallocatealpha($base, 255, 255, 255, 45)
