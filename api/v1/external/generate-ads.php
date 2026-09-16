@@ -341,9 +341,12 @@ function ext_enrich_campaign_for_generation(array $campaignData, array $companyD
             ? mb_substr("Built for {$audience}", 0, 90)
             : 'A clear offer designed to convert.';
     }
-    if (empty($campaignData['ctaText'])) {
-        $campaignData['ctaText'] = 'Get Started';
-    }
+    // No hardcoded default here, unlike headline/subheadline above: a CTA is optional by
+    // design (a carousel's middle slides are argument, not action, and omit `cta` on purpose),
+    // so absent must render as "no CTA", not as an invented one. A silent 'Get Started' default
+    // used to fire here regardless of useAiCopy, and extc_openai_prompt()'s exact-copy rule then
+    // forced the model to render that literal English string even when language was pt-BR —
+    // this is also why the ghost CTA never respected `language`, not a separate bug.
 
     // Ready-made copy from the caller is used VERBATIM — skip the AI copywriter rewrite, since
     // the text sent in the payload is already final. A caller can still force a rewrite by
