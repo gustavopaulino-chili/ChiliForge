@@ -71,6 +71,12 @@ curl -s --ssl-reqd --insecure "ftp://$H/api/v1/external/" --user "$U:$P" \
 O órfão do live sumiu sozinho depois de um STOR bem-sucedido na mesma pasta; o do teste
 continuou. Ou seja: pode evaporar, mas não conte com isso.
 
+**Reincidente confirmado: `generate-ads-worker.php`.** Bateu em curl exit 28 (timeout) nos
+dois servidores em 17/09/2026, em duas rodadas de deploy separadas na mesma sessão — é o
+maior arquivo de `api/v1/external/` (~60KB) e o mais lento de subir. Ao editar este arquivo
+específico, pule direto para a receita do nome temporário + rename em vez de tentar
+`deploy-ftp.ps1`/`deploy-live.ps1` primeiro — o timeout tende a se repetir.
+
 **Regra:** depois de qualquer deploy que reporte `FALHOU`, listar a pasta remota e conferir
 data/tamanho — nunca assumir que uma retentativa bem-sucedida depois de um timeout resolveu.
 Ver [[nao-reformular-o-que-funciona]] (o fix é cirúrgico: apagar o órfão, não refazer o
