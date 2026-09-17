@@ -1998,7 +1998,7 @@ if (!function_exists('extc_openai_prompt')) {
      * de proposito: sem essa folga, um canto liso vizinho de um bloco de texto e' escolhido
      * como "calmo" e a logo encosta na primeira letra — aconteceu no teste.
      */
-    function extc_poe_logo(string $imgBytes, string $logoUrl, int $q = 92, string $canto = '', string $corMarca = ''): string {
+    function extc_poe_logo(string $imgBytes, string $logoUrl, int $q = 92, string $canto = ''): string {
         if ($logoUrl === '' || !function_exists('imagecreatetruecolor')) return $imgBytes;
         try {
             $base = extgd_image_from_bytes($imgBytes);
@@ -2020,15 +2020,15 @@ if (!function_exists('extc_openai_prompt')) {
             $m = (int)round($W * 0.05);
             $folga = (int)round($W * 0.06);
 
-            $cantos = [
-                [$W - $m - $nw, $m], [$m, $m],
-                [$W - $m - $nw, $H - $m - $nh], [$m, $H - $m - $nh],
-            ];
-
-            // Canto pedido no payload: e' o mesmo que o prompt mandou reservar, entao a logo cai
-            // onde o modelo deixou espaco de proposito. Vira o UNICO candidato — a pontuacao por
-            // agitacao continua rodando igual, so' que sem concorrente. Payload sem logoPosition
-            // nao passa por aqui e a escolha automatica entre os quatro cantos fica intacta.
+            // 17/09: "tira todo tipo de overlay, quero APENAS A LOGO no melhor lugar possivel" —
+            // sem placa nem filete de cor por baixo. A UNICA defesa contra a logo sumir num
+            // fundo ruim volta a ser o POSICIONAMENTO: em vez de testar so' os 4 cantos fixos
+            // (auto) ou 1 unico ponto (canto pedido no payload), cada canto candidato ganha
+            // varios passos deslizando pra DENTRO da imagem (nunca pra fora — a margem da borda
+            // e' fixa por design), e o loop de pontuacao de colisao abaixo escolhe o ponto menos
+            // colidido entre TODOS eles. Canto pedido no payload = so' os passos daquele canto
+            // (o prompt reservou espaco ali de proposito); sem pedido = os 4 cantos, cada um com
+            // seus proprios passos.
             $pedidos = [
                 'top-left'     => [$m, $m],
                 'top-right'    => [$W - $m - $nw, $m],
@@ -2036,54 +2036,44 @@ if (!function_exists('extc_openai_prompt')) {
                 'bottom-left'  => [$m, $H - $m - $nh],
                 'bottom-right' => [$W - $m - $nw, $H - $m - $nh],
             ];
+            $direcaoDentro = [
+                'top-left'     => [1, 1],
+                'top-right'    => [-1, 1],
+                'top-center'   => [0, 1],
+                'bottom-left'  => [1, -1],
+                'bottom-right' => [-1, -1],
+            ];
             $pedido = strtolower(trim($canto));
             $cantoForcado = isset($pedidos[$pedido]);
-            if ($cantoForcado) {
-                // 17/09: um UNICO ponto fixo no canto pedido nao tinha pra onde fugir de uma
-                // colisao real - a peca inteira dependia da sorte da composicao bater limpa
-                // bem ali, e quando nao batia a unica saida era desenhar a placa por cima.
-                // "Posicionamento melhor": desliza o MESMO canto pra DENTRO da imagem em passos
-                // pequenos (nunca pra fora — a margem da borda e' fixa por design) e deixa o
-                // loop de pontuacao de colisao logo abaixo (ja existia, so' rodava sobre 1
-                // candidato) escolher o menos colidido entre eles. Ainda e' "aquele canto" — so'
-                // com folga pra nao cair bem em cima do pior pixel.
-                $direcaoDentro = [
-                    'top-left'     => [1, 1],
-                    'top-right'    => [-1, 1],
-                    'top-center'   => [0, 1],
-                    'bottom-left'  => [1, -1],
-                    'bottom-right' => [-1, -1],
-                ][$pedido];
-                [$cx, $cy] = $pedidos[$pedido];
-                [$ix, $iy] = $direcaoDentro;
-                $cantos = [];
-                for ($k = 0; $k <= 2; $k++) {
-                    $cantos[] = [$cx + $ix * $folga * $k, $cy + $iy * $folga * $k];
-                }
-            }
+            $chaves = $cantoForcado ? [$pedido] : ['top-right', 'top-left', 'bottom-right', 'bottom-left'];
 
-            // Cor media da propria logo (só pixels que não são quase-transparentes), calculada
-            // ANTES da escolha de canto: tanto a deteccao de "fundo com a mesma cor" quanto a
-            // cor da placa de proteção mais abaixo dependem dela.
-            $somaLumLogo = 0.0; $somaRLogo = 0.0; $somaGLogo = 0.0; $somaBLogo = 0.0; $nLumLogo = 0;
+            // Cor media da propria logo (só pixels que não são quase-transparentes) — usada so'
+            // pra PONTUAR colisao (distancia de cor abaixo), nao pra desenhar nada mais.
+            $somaRLogo = 0.0; $somaGLogo = 0.0; $somaBLogo = 0.0; $nLumLogo = 0;
             for ($yy = 0; $yy < $lh; $yy += 2) {
                 for ($xx = 0; $xx < $lw; $xx += 2) {
                     $c = imagecolorat($logo, $xx, $yy);
                     if ((($c >> 24) & 0x7F) > 40) continue; // pixel quase-transparente, ignora
                     $r = ($c >> 16) & 255; $g2 = ($c >> 8) & 255; $b = $c & 255;
-                    $somaLumLogo += $r * 0.21 + $g2 * 0.72 + $b * 0.07;
                     $somaRLogo += $r; $somaGLogo += $g2; $somaBLogo += $b;
                     $nLumLogo++;
                 }
             }
-            $logoLum = $nLumLogo ? $somaLumLogo / $nLumLogo : 128.0;
-            $logoR   = $nLumLogo ? $somaRLogo / $nLumLogo : 128.0;
-            $logoG   = $nLumLogo ? $somaGLogo / $nLumLogo : 128.0;
-            $logoB   = $nLumLogo ? $somaBLogo / $nLumLogo : 128.0;
+            $logoR = $nLumLogo ? $somaRLogo / $nLumLogo : 128.0;
+            $logoG = $nLumLogo ? $somaGLogo / $nLumLogo : 128.0;
+            $logoB = $nLumLogo ? $somaBLogo / $nLumLogo : 128.0;
+
+            $cantos = [];
+            foreach ($chaves as $k) {
+                [$cx, $cy] = $pedidos[$k];
+                [$ix, $iy] = $direcaoDentro[$k];
+                for ($p = 0; $p <= 3; $p++) {
+                    $cantos[] = [$cx + $ix * $folga * $p, $cy + $iy * $folga * $p];
+                }
+            }
 
             $melhor = $cantos[0];
             $mv = INF;
-            $melhorFracaoParecida = 0.0;
             foreach ($cantos as $c) {
                 $x = $c[0]; $y = $c[1];
                 $s2 = 0.0; $n = 0; $parecidos = 0;
@@ -2105,63 +2095,14 @@ if (!function_exists('extc_openai_prompt')) {
                         if ($dist < 70) $parecidos++;
                     }
                 }
-                $v = $n ? sqrt($s2 / $n) : INF;
+                // Pontuacao combinada: agitacao (variancia de luminancia local) MAIS a fracao
+                // de pixels parecidos com a cor da logo — um canto liso mas da MESMA cor da logo
+                // (a logo "some" nele) tem que perder pra um canto com um pouco mais de agitacao
+                // mas cor bem diferente. Peso 40 na fracao (0..1) coloca as duas escalas na mesma
+                // ordem de grandeza do desvio de luminancia (0..~130).
                 $fracaoParecida = $n ? $parecidos / $n : 0.0;
-                if ($v < $mv) { $mv = $v; $melhor = [$x, $y]; $melhorFracaoParecida = $fracaoParecida; }
-            }
-
-            // 17/09: "canto forçado sempre desenha a placa" (linha de baixo, versão anterior)
-            // virou o problema oposto — qualquer geração com logo_position no payload (o caso
-            // comum: FIAP manda canto fixo pra manter o carrossel consistente) saía com um bloco
-            // sólido atrás da logo mesmo num canto limpo, sem NENHUMA colisão real. O canto vindo
-            // do payload não tem pra onde se mover se colidir, mas isso não significa que colidiu
-            // — a decisão de desenhar a placa continua sendo só a heurística de cor/agitação
-            // abaixo, forçado ou não. (O motivo de trocar a média de luminância do canto INTEIRO
-            // pela fração de pixels com cor parecida com a da logo continua valendo — foi o job
-            // 643: fundo majoritariamente preto, só o "AP" de "FIAP" cruzando a faixa magenta por
-            // baixo, que uma média do canto inteiro diluía e não disparava a placa.)
-            $precisaPlaca = $melhorFracaoParecida > 0.12 || $mv > 20;
-            if ($precisaPlaca) {
-                $clara = $logoLum < 128; // logo escura -> placa clara; logo clara -> placa escura
-                $corPlaca = $clara
-                    ? imagecolorallocatealpha($base, 255, 255, 255, 45)
-                    : imagecolorallocatealpha($base, 16, 16, 18, 45);
-                $padX = (int)round($nw * 0.14);
-                $padY = (int)round($nh * 0.22);
-                $raio = (int)round(min($nw, $nh) * 0.16);
-                imagealphablending($base, true);
-                extgd_filled_round_rect(
-                    $base,
-                    $melhor[0] - $padX, $melhor[1] - $padY,
-                    $melhor[0] + $nw + $padX, $melhor[1] + $nh + $padY,
-                    $raio,
-                    $corPlaca
-                );
-
-                // 17/09: "se for colocar um overlay, pelo menos faca ser criativo" — a placa
-                // lisa branca/preta e' so' o pano de fundo NEUTRO que garante legibilidade em
-                // qualquer cena (funciona pra qualquer marca, de proposito). O toque de marca
-                // entra por cima: uma tarja fina de cor, encostada na borda da placa mais
-                // proxima do canto da imagem (em cima quando a logo esta na metade de cima,
-                // embaixo quando esta na de baixo) — um filete, nao um bloco.
-                // Cor do filete: a de ACENTO cadastrada da marca quando existe (intencao
-                // explicita do cliente vence); sem isso, a cor da PROPRIA LOGO (ja' calculada
-                // acima em logoR/G/B) — sempre viva e sempre disponivel, ao contrario da
-                // primaria, que num teste real (FIAP) era quase-preto e saiu um filete sem
-                // graca nenhuma, do mesmo tom neutro da placa.
-                $rgbAcento = $corMarca !== '' ? extgd_color($corMarca, [-1, -1, -1, -1]) : [-1, -1, -1, -1];
-                if ($rgbAcento[0] < 0) $rgbAcento = [(int)round($logoR), (int)round($logoG), (int)round($logoB), 0];
-                $acento = imagecolorallocatealpha($base, $rgbAcento[0], $rgbAcento[1], $rgbAcento[2], 20);
-                $inset  = (int)round($raio * 0.6);
-                $barX1  = $melhor[0] - $padX + $inset;
-                $barX2  = $melhor[0] + $nw + $padX - $inset;
-                $barH   = max(2, (int)round(min($nw, $nh) * 0.08));
-                $emCimaMetade = ($melhor[1] + $nh / 2) < ($H / 2);
-                $barY1  = $emCimaMetade
-                    ? ($melhor[1] - $padY)
-                    : ($melhor[1] + $nh + $padY - $barH);
-                imagealphablending($base, true);
-                imagefilledrectangle($base, $barX1, $barY1, $barX2, $barY1 + $barH, $acento);
+                $v = ($n ? sqrt($s2 / $n) : INF) + $fracaoParecida * 40;
+                if ($v < $mv) { $mv = $v; $melhor = [$x, $y]; }
             }
 
             imagealphablending($base, true);
