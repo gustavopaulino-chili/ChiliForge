@@ -1697,13 +1697,25 @@ if (!function_exists('extc_openai_prompt')) {
         // referencia que o cliente escolheu. Aqui o primeiro anexo passa a ser nomeado como a
         // referencia PRINCIPAL desta peca; os demais (brand_posts/site) seguem anexados, so' que
         // como contexto de identidade, nao mais como direcao principal.
+        //
+        // 17/09: carrossel FIAP real testou isso com uma referencia que era uma FOTO DE ROSTO de
+        // uma pessoa. "Siga de perto composicao, sujeito e mood" foi lido, literalmente, como
+        // "recrie este rosto" - saiu um slide com o rosto da pessoa desenhado em word-art (as
+        // letras do copy formando os tracos do rosto), reconhecivel. Alem de visualmente errado,
+        // estampa o rosto de uma pessoa real (nao necessariamente o cliente, nem com direito de
+        // uso comercial daquele rosto) numa peca publicitaria - risco serio, nao so' estetico.
+        // A intencao SEMPRE foi priorizar estilo/composicao/paleta da referencia, nunca reproduzir
+        // pessoas especificas que aparecam nela. $semRosto carrega essa ressalva, anexada nos dois
+        // ramos do heroRef (proxy e normal) - sem ela a peca de "siga de perto" fica sem contrapeso
+        // e o modelo volta a tratar a referencia como algo a copiar literalmente.
         $heroRef = !empty($campaign['composeHeroRef']);
+        $semRosto = " CRITICAL SAFETY RULE, overrides everything else about this reference: take ONLY its STYLE - composition, framing, colour palette, lighting, mood, and any non-human elements (props, setting, typographic treatment). If it features a real person, you must NOT reproduce, recreate or make that specific person's face or likeness recognisable anywhere in the output - not photorealistically, not stylised, not built out of letters or words, not as a silhouette or outline. This is a real individual's photo, not a model release; you have no right to depict their likeness. If the reference's subject is a person, either leave people out of this piece entirely, or use a generic, anonymous figure that bears no resemblance to them.";
         $refs = !empty($campaign['ignoreReferences'])
             ? "NO REFERENCE IMAGES are attached for this piece, on purpose. Build it from the brand fields alone - the colours, the typeface and the direction above. Do not imitate any particular look you might assume this brand has."
             : ($heroRef
             ? ($proxy
-                ? "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction. Follow it closely for composition, subject, mood and styling. The remaining attached images are posts by OTHER companies in the same market, given only so you can see the conventions of the category - they are secondary context, not the direction. Take NO identity from them (not colour, not logo style, not typography, not graphic devices)."
-                : "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction. Follow it closely for composition, subject, mood and styling; do not let it be diluted by the other attachments. The remaining attached images are this brand's own posts and, where present, a screenshot of its website - secondary context for the brand's graphic vocabulary (its devices, its photographic treatment, its rhythm), not the main direction for this piece.")
+                ? "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction.{$semRosto} The remaining attached images are posts by OTHER companies in the same market, given only so you can see the conventions of the category - they are secondary context, not the direction. Take NO identity from them (not colour, not logo style, not typography, not graphic devices)."
+                : "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction; do not let it be diluted by the other attachments.{$semRosto} The remaining attached images are this brand's own posts and, where present, a screenshot of its website - secondary context for the brand's graphic vocabulary (its devices, its photographic treatment, its rhythm), not the main direction for this piece.")
             : ($proxy
             ? "ABOUT THE ATTACHED IMAGES: this client has NO posts of its own yet. They are posts by OTHER companies in the same market, attached ONLY so you can see the conventions of the category. Take NO identity from them - not their colour, not their logo style, not their typography, not their graphic devices. They are a briefing about the market, never a style guide."
             : "ABOUT THE ATTACHED IMAGES: these are the brand's OWN posts and, where present, a screenshot of its website. They are the source of truth for this brand's graphic vocabulary - its devices, its photographic treatment, its rhythm. Match that language."));
