@@ -2065,15 +2065,17 @@ if (!function_exists('extc_openai_prompt')) {
                 if ($v < $mv) { $mv = $v; $melhor = [$x, $y]; $melhorFracaoParecida = $fracaoParecida; }
             }
 
-            // Quando o canto vem do payload (logo_position), ele e' o UNICO candidato — não há
-            // para onde mover a logo se colidir, então a placa é sempre desenhada. Sem canto
-            // forçado, a escolha automática entre os 4 cantos já evita o mais agitado; a placa
-            // ainda entra se uma fatia real do canto escolhido tiver cor parecida com a da logo
-            // ou se estiver agitado. (Antes disto media a luminância do canto INTEIRO contra a
-            // da logo — uma faixa colorida cobrindo só parte do canto, com o resto em preto,
-            // diluía a média e não disparava a placa; foi o caso do job 643: fundo majoritariamente
-            // preto, só o "AP" de "FIAP" cruzando a faixa magenta por baixo.)
-            $precisaPlaca = $cantoForcado || $melhorFracaoParecida > 0.12 || $mv > 20;
+            // 17/09: "canto forçado sempre desenha a placa" (linha de baixo, versão anterior)
+            // virou o problema oposto — qualquer geração com logo_position no payload (o caso
+            // comum: FIAP manda canto fixo pra manter o carrossel consistente) saía com um bloco
+            // sólido atrás da logo mesmo num canto limpo, sem NENHUMA colisão real. O canto vindo
+            // do payload não tem pra onde se mover se colidir, mas isso não significa que colidiu
+            // — a decisão de desenhar a placa continua sendo só a heurística de cor/agitação
+            // abaixo, forçado ou não. (O motivo de trocar a média de luminância do canto INTEIRO
+            // pela fração de pixels com cor parecida com a da logo continua valendo — foi o job
+            // 643: fundo majoritariamente preto, só o "AP" de "FIAP" cruzando a faixa magenta por
+            // baixo, que uma média do canto inteiro diluía e não disparava a placa.)
+            $precisaPlaca = $melhorFracaoParecida > 0.12 || $mv > 20;
             if ($precisaPlaca) {
                 $clara = $logoLum < 128; // logo escura -> placa clara; logo clara -> placa escura
                 $corPlaca = $clara
