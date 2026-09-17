@@ -495,12 +495,35 @@ if (!function_exists('extgd_wrap_lines')) {
 if (!function_exists('extgd_filled_round_rect')) {
     function extgd_filled_round_rect($img, int $x1, int $y1, int $x2, int $y2, int $r, int $color): void {
         $r = max(0, min($r, (int)(($x2 - $x1) / 2), (int)(($y2 - $y1) / 2)));
-        imagefilledrectangle($img, $x1 + $r, $y1, $x2 - $r, $y2, $color);
-        imagefilledrectangle($img, $x1, $y1 + $r, $x2, $y2 - $r, $color);
-        imagefilledellipse($img, $x1 + $r, $y1 + $r, $r * 2, $r * 2, $color);
-        imagefilledellipse($img, $x2 - $r, $y1 + $r, $r * 2, $r * 2, $color);
-        imagefilledellipse($img, $x1 + $r, $y2 - $r, $r * 2, $r * 2, $color);
-        imagefilledellipse($img, $x2 - $r, $y2 - $r, $r * 2, $r * 2, $color);
+        $w = $x2 - $x1; $h = $y2 - $y1;
+        if ($w <= 0 || $h <= 0) return;
+
+        // 17/09 (job 679): the old version drew 2 overlapping filled rectangles + 4 overlapping
+        // filled ellipses DIRECTLY on $img with alpha blending ON. That is fine for an OPAQUE
+        // color (the only other caller, the button background) but for a SEMI-TRANSPARENT one —
+        // the logo backing plate, alpha 45 — every place two of those six shapes overlap (the
+        // rectangle∩rectangle centre, and each corner circle over the rectangle arms) got the
+        // alpha blended TWICE+, so the plate came out with a visibly darker/more-opaque centre
+        // and four bright corner blobs instead of a uniform rounded rectangle ("bloco atras mt
+        // feio"). FIX: build the shape on an isolated temp canvas with blending OFF (so the six
+        // draws just SET each pixel once, no compounding) and composite it onto $img in a single
+        // blend pass.
+        $tmp = imagecreatetruecolor($w, $h);
+        imagesavealpha($tmp, true);
+        imagealphablending($tmp, false);
+        $transparent = imagecolorallocatealpha($tmp, 0, 0, 0, 127);
+        imagefilledrectangle($tmp, 0, 0, $w - 1, $h - 1, $transparent);
+
+        imagefilledrectangle($tmp, $r, 0, $w - 1 - $r, $h - 1, $color);
+        imagefilledrectangle($tmp, 0, $r, $w - 1, $h - 1 - $r, $color);
+        imagefilledellipse($tmp, $r, $r, $r * 2, $r * 2, $color);
+        imagefilledellipse($tmp, $w - 1 - $r, $r, $r * 2, $r * 2, $color);
+        imagefilledellipse($tmp, $r, $h - 1 - $r, $r * 2, $r * 2, $color);
+        imagefilledellipse($tmp, $w - 1 - $r, $h - 1 - $r, $r * 2, $r * 2, $color);
+
+        imagealphablending($img, true);
+        imagecopy($img, $tmp, $x1, $y1, 0, 0, $w, $h);
+        imagedestroy($tmp);
     }
 }
 
