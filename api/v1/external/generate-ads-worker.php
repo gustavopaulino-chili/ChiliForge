@@ -717,6 +717,9 @@ try {
     // Canto pedido no payload (logo_position / logo_strategy). Vazio = o carimbo segue
     // escolhendo sozinho o canto mais calmo, exatamente como sempre fez.
     $cantoC = trim((string)($campaignFormData['logoPosition'] ?? ''));
+    // Cor de acento da marca (preferida) ou primaria, so' pro filete decorativo da placa da
+    // logo em extc_poe_logo — nunca inventa uma cor que a marca nao cadastrou.
+    $corMarcaC = trim((string)($companyFormData['accentColor'] ?? $companyFormData['primaryColor'] ?? ''));
     $qualC = strtolower(trim((string)($campaignFormData['qualidadeImagem'] ?? 'medium')));
     if (!in_array($qualC, ['low', 'medium', 'high'], true)) $qualC = 'medium';
     // O que o payload PEDIU, ecoado de volta cru. Hoje o campo nao decide nada (a OpenAI e' o
@@ -739,7 +742,7 @@ try {
             $promptC = extc_openai_prompt($campaignFormData, $companyFormData, $fmtC);
             $bytesC = extc_openai_gerar($chaveOpenai, $refs, $promptC, $qualC, extc_tamanho_openai($wC, $hC), $motivoC);
             if ($bytesC === null) { $bannersC = []; break; }
-            $bytesC = extc_poe_logo($bytesC, $logoC, 92, $cantoC);
+            $bytesC = extc_poe_logo($bytesC, $logoC, 92, $cantoC, $corMarcaC);
             $tmpC = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'cforge-c-' . $jobId . '-' . $bIdx . '-' . $iF . '.jpg';
             if (@file_put_contents($tmpC, $bytesC) === false) { $bannersC = []; $motivoC = 'falha-ao-gravar-temporario'; break; }
             $bannersC[] = [

@@ -1998,7 +1998,7 @@ if (!function_exists('extc_openai_prompt')) {
      * de proposito: sem essa folga, um canto liso vizinho de um bloco de texto e' escolhido
      * como "calmo" e a logo encosta na primeira letra — aconteceu no teste.
      */
-    function extc_poe_logo(string $imgBytes, string $logoUrl, int $q = 92, string $canto = ''): string {
+    function extc_poe_logo(string $imgBytes, string $logoUrl, int $q = 92, string $canto = '', string $corMarca = ''): string {
         if ($logoUrl === '' || !function_exists('imagecreatetruecolor')) return $imgBytes;
         try {
             $base = extgd_image_from_bytes($imgBytes);
@@ -2038,7 +2038,29 @@ if (!function_exists('extc_openai_prompt')) {
             ];
             $pedido = strtolower(trim($canto));
             $cantoForcado = isset($pedidos[$pedido]);
-            if ($cantoForcado) $cantos = [$pedidos[$pedido]];
+            if ($cantoForcado) {
+                // 17/09: um UNICO ponto fixo no canto pedido nao tinha pra onde fugir de uma
+                // colisao real - a peca inteira dependia da sorte da composicao bater limpa
+                // bem ali, e quando nao batia a unica saida era desenhar a placa por cima.
+                // "Posicionamento melhor": desliza o MESMO canto pra DENTRO da imagem em passos
+                // pequenos (nunca pra fora — a margem da borda e' fixa por design) e deixa o
+                // loop de pontuacao de colisao logo abaixo (ja existia, so' rodava sobre 1
+                // candidato) escolher o menos colidido entre eles. Ainda e' "aquele canto" — so'
+                // com folga pra nao cair bem em cima do pior pixel.
+                $direcaoDentro = [
+                    'top-left'     => [1, 1],
+                    'top-right'    => [-1, 1],
+                    'top-center'   => [0, 1],
+                    'bottom-left'  => [1, -1],
+                    'bottom-right' => [-1, -1],
+                ][$pedido];
+                [$cx, $cy] = $pedidos[$pedido];
+                [$ix, $iy] = $direcaoDentro;
+                $cantos = [];
+                for ($k = 0; $k <= 2; $k++) {
+                    $cantos[] = [$cx + $ix * $folga * $k, $cy + $iy * $folga * $k];
+                }
+            }
 
             // Cor media da propria logo (só pixels que não são quase-transparentes), calculada
             // ANTES da escolha de canto: tanto a deteccao de "fundo com a mesma cor" quanto a
@@ -2106,14 +2128,40 @@ if (!function_exists('extc_openai_prompt')) {
                     : imagecolorallocatealpha($base, 16, 16, 18, 45);
                 $padX = (int)round($nw * 0.14);
                 $padY = (int)round($nh * 0.22);
+                $raio = (int)round(min($nw, $nh) * 0.16);
                 imagealphablending($base, true);
                 extgd_filled_round_rect(
                     $base,
                     $melhor[0] - $padX, $melhor[1] - $padY,
                     $melhor[0] + $nw + $padX, $melhor[1] + $nh + $padY,
-                    (int)round(min($nw, $nh) * 0.16),
+                    $raio,
                     $corPlaca
                 );
+
+                // 17/09: "se for colocar um overlay, pelo menos faca ser criativo" — a placa
+                // lisa branca/preta e' so' o pano de fundo NEUTRO que garante legibilidade em
+                // qualquer cena (funciona pra qualquer marca, de proposito). O toque de marca
+                // entra por cima: uma tarja fina na cor de ACENTO do cliente, encostada na borda
+                // da placa mais proxima do canto da imagem (em cima quando a logo esta na metade
+                // de cima, embaixo quando esta na de baixo) — um filete de cor, nao um bloco.
+                // So' desenha se a marca tem cor de acento cadastrada; sem isso a placa fica so'
+                // no neutro (sem inventar uma cor que a marca nao pediu).
+                if ($corMarca !== '') {
+                    $rgbAcento = extgd_color($corMarca, [-1, -1, -1, -1]);
+                    if ($rgbAcento[0] >= 0) {
+                        $acento = imagecolorallocatealpha($base, $rgbAcento[0], $rgbAcento[1], $rgbAcento[2], 20);
+                        $inset  = (int)round($raio * 0.6);
+                        $barX1  = $melhor[0] - $padX + $inset;
+                        $barX2  = $melhor[0] + $nw + $padX - $inset;
+                        $barH   = max(2, (int)round(min($nw, $nh) * 0.08));
+                        $emCimaMetade = ($melhor[1] + $nh / 2) < ($H / 2);
+                        $barY1  = $emCimaMetade
+                            ? ($melhor[1] - $padY)
+                            : ($melhor[1] + $nh + $padY - $barH);
+                        imagealphablending($base, true);
+                        imagefilledrectangle($base, $barX1, $barY1, $barX2, $barY1 + $barH, $acento);
+                    }
+                }
             }
 
             imagealphablending($base, true);
