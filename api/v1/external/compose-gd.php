@@ -1688,11 +1688,25 @@ if (!function_exists('extc_openai_prompt')) {
         // Terceiro caso: ignore_references pediu a peca do zero, sem anexo nenhum. Sem esta
         // ramificacao o prompt continua afirmando que ha' imagens anexadas quando nao ha', e o
         // modelo passa a descrever referencias que nunca recebeu.
+        // Quarto caso: composeHeroRef - o cliente mandou uma referencia de criacao ESPECIFICA
+        // para esta peca (campaign.reference_image_url), que generate-ads.php sempre coloca em
+        // PRIMEIRO lugar em composeCompanyRefs. Ate' aqui o prompt tratava esse anexo com o MESMO
+        // peso dos ~8 brand_posts que viajam em toda geracao (identidade geral da marca, nao
+        // referencia desta peca) - o modelo tinha liberdade total para escolher qual dos anexos
+        // seguir, e o caso FIAP (16/09/2026, ref-fiap-8.jpeg) mostrou o resultado nao refletindo a
+        // referencia que o cliente escolheu. Aqui o primeiro anexo passa a ser nomeado como a
+        // referencia PRINCIPAL desta peca; os demais (brand_posts/site) seguem anexados, so' que
+        // como contexto de identidade, nao mais como direcao principal.
+        $heroRef = !empty($campaign['composeHeroRef']);
         $refs = !empty($campaign['ignoreReferences'])
             ? "NO REFERENCE IMAGES are attached for this piece, on purpose. Build it from the brand fields alone - the colours, the typeface and the direction above. Do not imitate any particular look you might assume this brand has."
+            : ($heroRef
+            ? ($proxy
+                ? "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction. Follow it closely for composition, subject, mood and styling. The remaining attached images are posts by OTHER companies in the same market, given only so you can see the conventions of the category - they are secondary context, not the direction. Take NO identity from them (not colour, not logo style, not typography, not graphic devices)."
+                : "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction. Follow it closely for composition, subject, mood and styling; do not let it be diluted by the other attachments. The remaining attached images are this brand's own posts and, where present, a screenshot of its website - secondary context for the brand's graphic vocabulary (its devices, its photographic treatment, its rhythm), not the main direction for this piece.")
             : ($proxy
             ? "ABOUT THE ATTACHED IMAGES: this client has NO posts of its own yet. They are posts by OTHER companies in the same market, attached ONLY so you can see the conventions of the category. Take NO identity from them - not their colour, not their logo style, not their typography, not their graphic devices. They are a briefing about the market, never a style guide."
-            : "ABOUT THE ATTACHED IMAGES: these are the brand's OWN posts and, where present, a screenshot of its website. They are the source of truth for this brand's graphic vocabulary - its devices, its photographic treatment, its rhythm. Match that language.");
+            : "ABOUT THE ATTACHED IMAGES: these are the brand's OWN posts and, where present, a screenshot of its website. They are the source of truth for this brand's graphic vocabulary - its devices, its photographic treatment, its rhythm. Match that language."));
 
         $tipo = $fonte !== ''
             ? "TYPEFACE: set the text in {$fonte}, or the closest possible match to it."

@@ -761,6 +761,10 @@ try {
                     'fallback_motivo' => null,
                     'qualidade'     => $qualC,
                     'refs'          => count($refs),
+                    // Sinal de que a referencia especifica do cliente (campaign.reference_image_url)
+                    // foi tratada como PRIMARIA no prompt, em vez de pesar igual aos brand_posts.
+                    // Ver extc_openai_prompt() em compose-gd.php.
+                    'ref_prioritaria' => !empty($campaignFormData['composeHeroRef']),
                     'tamanho'       => extc_tamanho_openai($wC, $hC),
                 ],
             ];
