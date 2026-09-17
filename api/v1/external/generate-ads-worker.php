@@ -717,9 +717,12 @@ try {
     // Canto pedido no payload (logo_position / logo_strategy). Vazio = o carimbo segue
     // escolhendo sozinho o canto mais calmo, exatamente como sempre fez.
     $cantoC = trim((string)($campaignFormData['logoPosition'] ?? ''));
-    // Cor de acento da marca (preferida) ou primaria, so' pro filete decorativo da placa da
-    // logo em extc_poe_logo — nunca inventa uma cor que a marca nao cadastrou.
-    $corMarcaC = trim((string)($companyFormData['accentColor'] ?? $companyFormData['primaryColor'] ?? ''));
+    // Cor de acento CADASTRADA da marca, so' pro filete decorativo da placa da logo em
+    // extc_poe_logo. So' a de acento, de proposito — a primaria caiu mal aqui num teste real
+    // (FIAP: primaria e' quase-preto, o mesmo tom neutro da placa, saiu um filete sem graca
+    // nenhuma). Sem acento cadastrado, extc_poe_logo cai pra cor da PROPRIA logo (sempre
+    // viva, sempre disponivel) em vez de inventar ou usar um neutro sem graca.
+    $corMarcaC = trim((string)($companyFormData['accentColor'] ?? ''));
     $qualC = strtolower(trim((string)($campaignFormData['qualidadeImagem'] ?? 'medium')));
     if (!in_array($qualC, ['low', 'medium', 'high'], true)) $qualC = 'medium';
     // O que o payload PEDIU, ecoado de volta cru. Hoje o campo nao decide nada (a OpenAI e' o

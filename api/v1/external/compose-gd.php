@@ -2141,27 +2141,27 @@ if (!function_exists('extc_openai_prompt')) {
                 // 17/09: "se for colocar um overlay, pelo menos faca ser criativo" — a placa
                 // lisa branca/preta e' so' o pano de fundo NEUTRO que garante legibilidade em
                 // qualquer cena (funciona pra qualquer marca, de proposito). O toque de marca
-                // entra por cima: uma tarja fina na cor de ACENTO do cliente, encostada na borda
-                // da placa mais proxima do canto da imagem (em cima quando a logo esta na metade
-                // de cima, embaixo quando esta na de baixo) — um filete de cor, nao um bloco.
-                // So' desenha se a marca tem cor de acento cadastrada; sem isso a placa fica so'
-                // no neutro (sem inventar uma cor que a marca nao pediu).
-                if ($corMarca !== '') {
-                    $rgbAcento = extgd_color($corMarca, [-1, -1, -1, -1]);
-                    if ($rgbAcento[0] >= 0) {
-                        $acento = imagecolorallocatealpha($base, $rgbAcento[0], $rgbAcento[1], $rgbAcento[2], 20);
-                        $inset  = (int)round($raio * 0.6);
-                        $barX1  = $melhor[0] - $padX + $inset;
-                        $barX2  = $melhor[0] + $nw + $padX - $inset;
-                        $barH   = max(2, (int)round(min($nw, $nh) * 0.08));
-                        $emCimaMetade = ($melhor[1] + $nh / 2) < ($H / 2);
-                        $barY1  = $emCimaMetade
-                            ? ($melhor[1] - $padY)
-                            : ($melhor[1] + $nh + $padY - $barH);
-                        imagealphablending($base, true);
-                        imagefilledrectangle($base, $barX1, $barY1, $barX2, $barY1 + $barH, $acento);
-                    }
-                }
+                // entra por cima: uma tarja fina de cor, encostada na borda da placa mais
+                // proxima do canto da imagem (em cima quando a logo esta na metade de cima,
+                // embaixo quando esta na de baixo) — um filete, nao um bloco.
+                // Cor do filete: a de ACENTO cadastrada da marca quando existe (intencao
+                // explicita do cliente vence); sem isso, a cor da PROPRIA LOGO (ja' calculada
+                // acima em logoR/G/B) — sempre viva e sempre disponivel, ao contrario da
+                // primaria, que num teste real (FIAP) era quase-preto e saiu um filete sem
+                // graca nenhuma, do mesmo tom neutro da placa.
+                $rgbAcento = $corMarca !== '' ? extgd_color($corMarca, [-1, -1, -1, -1]) : [-1, -1, -1, -1];
+                if ($rgbAcento[0] < 0) $rgbAcento = [(int)round($logoR), (int)round($logoG), (int)round($logoB), 0];
+                $acento = imagecolorallocatealpha($base, $rgbAcento[0], $rgbAcento[1], $rgbAcento[2], 20);
+                $inset  = (int)round($raio * 0.6);
+                $barX1  = $melhor[0] - $padX + $inset;
+                $barX2  = $melhor[0] + $nw + $padX - $inset;
+                $barH   = max(2, (int)round(min($nw, $nh) * 0.08));
+                $emCimaMetade = ($melhor[1] + $nh / 2) < ($H / 2);
+                $barY1  = $emCimaMetade
+                    ? ($melhor[1] - $padY)
+                    : ($melhor[1] + $nh + $padY - $barH);
+                imagealphablending($base, true);
+                imagefilledrectangle($base, $barX1, $barY1, $barX2, $barY1 + $barH, $acento);
             }
 
             imagealphablending($base, true);
