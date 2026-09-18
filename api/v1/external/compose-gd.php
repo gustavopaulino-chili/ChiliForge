@@ -1698,6 +1698,33 @@ if (!function_exists('extc_openai_prompt')) {
         $pub  = trim((string)($campaign['targetAudience'] ?? ''));
         $lang = trim((string)($campaign['language'] ?? 'pt-BR'));
         $proxy = !empty($company['brandPostsAreProxy']);
+        // 18/09: caso real de faculdade de TECH saindo com livro-e-caneca em toda peca - o
+        // prompt tinha $prod (nome do produto/proposta de valor) e $pub (publico), mas nunca a
+        // descricao nem a categoria da empresa. Sem isso o modelo so' tem o NOME da categoria
+        // para imaginar a cena ("faculdade" -> cliche' generico de ensino: livro, caneca, beca),
+        // nunca o que a empresa REALMENTE e'. $sobreNegocio da' esse chao: categoria, descricao
+        // e os arrays services/differentiators (que ja' chegavam mapeados em ext_map_company e
+        // nunca eram lidos aqui) - a mesma fonte que hoje so' aparece pro dono ver no cadastro.
+        $categoria = trim((string)($company['businessCategory'] ?? ''));
+        $descNegocio = trim((string)($company['businessDescription'] ?? ''));
+        $servicos = is_array($company['services'] ?? null)
+            ? implode(', ', array_values(array_filter(array_map(fn($v) => trim((string)$v), $company['services']), 'strlen')))
+            : '';
+        $diferenciais = is_array($company['differentiators'] ?? null)
+            ? implode(', ', array_values(array_filter(array_map(fn($v) => trim((string)$v), $company['differentiators']), 'strlen')))
+            : '';
+        $linhasNegocio = [];
+        if ($categoria !== '') $linhasNegocio[] = "- Category: {$categoria}.";
+        if ($descNegocio !== '') $linhasNegocio[] = "- What it actually is: {$descNegocio}.";
+        if ($servicos !== '') $linhasNegocio[] = "- What it offers: {$servicos}.";
+        if ($diferenciais !== '') $linhasNegocio[] = "- What sets it apart: {$diferenciais}.";
+        $sobreNegocio = empty($linhasNegocio) ? '' : (
+            "WHAT THIS BUSINESS ACTUALLY IS - ground the scene and every prop in this, not in the generic "
+            . "stereotype of its category:\n" . implode("\n", $linhasNegocio) . "\n"
+            . "If the category name alone would suggest a cliche (e.g. \"college\" pulling you toward books, "
+            . "a graduation cap, a mug; \"restaurant\" toward a plated dish shot), let the specifics above "
+            . "override it - depict what THIS business actually does, never the stock-photo default for its category."
+        );
         // A fonte pedida NESTA geracao vence a que esta' persistida na empresa — e' exatamente
         // para isso que customHeadingFontName existe no ext_map_campaign(). O Caminho C lia so'
         // a da empresa, entao pedir outra familia por peca nao tinha efeito nenhum aqui.
@@ -1875,6 +1902,7 @@ if (!function_exists('extc_openai_prompt')) {
         $partes = [
             "You are a senior art director at a top creative agency. Create a finished square advertisement"
                 . ($prod !== '' ? " for {$prod}" : '') . ($pub !== '' ? ", sold to {$pub}" : '') . ".",
+            $sobreNegocio,
             $refs,
             extc_openai_paleta($company, $campaign),
             "Make the best advertisement you can for this theme. You have complete freedom over the scene, composition, cropping, lighting, staging, typography, scale, and how and where the copy lives in the image. Integrate the type with the scene however serves the idea - in front of it, behind it, cut out of it, on a surface. Surprise me.",
