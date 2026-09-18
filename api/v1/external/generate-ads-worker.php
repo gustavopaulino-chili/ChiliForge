@@ -768,6 +768,12 @@ try {
                     // Nao confirma o que a IMAGEM RESULTANTE mostra, so' que a instrucao foi
                     // enviada. Ver extc_openai_prompt() em compose-gd.php.
                     'ref_prioritaria' => !empty($campaignFormData['composeHeroRef']),
+                    // Se a clausula anti-retrato acima foi DESLIGADA nesta geracao especifica, por
+                    // campaign.reference_face_authorized. Sem este eco nao ha' como distinguir "mandei
+                    // a flag e ela chegou" de "a flag se perdeu no caminho" olhando so' a arte - o
+                    // rosto pode faltar por escolha do modelo, nao por bloqueio nosso. Como o
+                    // ref_prioritaria, diz o que foi ENVIADO, nunca o que a imagem mostra.
+                    'rosto_autorizado' => !empty($campaignFormData['referenceFaceAuthorized']),
                     'tamanho'       => extc_tamanho_openai($wC, $hC),
                 ],
             ];

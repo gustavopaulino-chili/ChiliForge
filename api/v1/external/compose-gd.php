@@ -1728,17 +1728,38 @@ if (!function_exists('extc_openai_prompt')) {
         // estampa o rosto de uma pessoa real (nao necessariamente o cliente, nem com direito de
         // uso comercial daquele rosto) numa peca publicitaria - risco serio, nao so' estetico.
         // A intencao SEMPRE foi priorizar estilo/composicao/paleta da referencia, nunca reproduzir
-        // pessoas especificas que aparecam nela. $semRosto carrega essa ressalva, anexada nos dois
+        // pessoas especificas que aparecam nela. $clausulaRosto carrega essa ressalva, anexada nos dois
         // ramos do heroRef (proxy e normal) - sem ela a peca de "siga de perto" fica sem contrapeso
         // e o modelo volta a tratar a referencia como algo a copiar literalmente.
+        //
+        // 18/09: o caso OPOSTO apareceu no dia seguinte, na mesma conta de teste (FIAP, company 660,
+        // ref-fiap-10.jpeg): cliente que manda o PROPRIO rosto de proposito - o dono aparece no post,
+        // a equipe aparece, depoimento, bastidores - e nao ve' rosto nenhum voltar. A clausula acima
+        // continua sendo o PADRAO exatamente por isso nao ser distinguivel daqui: sem saber quem e' a
+        // pessoa da foto, o seguro e' nao reproduzir. O opt-in e' por geracao e vem de fora, em
+        // campaign.reference_face_authorized, que a Fullstop so' manda depois de perguntar ao cliente
+        // ("essa foto tem um rosto - e' seu ou de alguem que autorizou aparecer no anuncio?") e ouvir
+        // sim. Aqui NAO se valida identidade nem consentimento: a flag e' a declaracao de quem coletou,
+        // e a responsabilidade por ela e' de quem a manda. Ausente ou false = comportamento de 17/09,
+        // byte a byte - por isso a checagem e' !empty() e nao um isset(), e o default do mapeamento no
+        // generate-ads.php e' false.
         $heroRef = !empty($campaign['composeHeroRef']);
-        $semRosto = " CRITICAL SAFETY RULE, overrides everything else about this reference: take ONLY its STYLE - composition, framing, colour palette, lighting, mood, and any non-human elements (props, setting, typographic treatment). If it features a real person, you must NOT reproduce, recreate or make that specific person's face or likeness recognisable anywhere in the output - not photorealistically, not stylised, not built out of letters or words, not as a silhouette or outline. This is a real individual's photo, not a model release; you have no right to depict their likeness. If the reference's subject is a person, either leave people out of this piece entirely, or use a generic, anonymous figure that bears no resemblance to them.";
+        $rostoAutorizado = !empty($campaign['referenceFaceAuthorized']);
+        // Com autorizacao a frase nao some: vira o contrario dela. So' apagar a ressalva devolveria o
+        // comportamento de antes de 17/09, em que a referencia era ambigua e o rosto aparecia ou nao
+        // conforme o humor do modelo; dizer explicitamente que a pessoa pode aparecer e' o que faz o
+        // rosto voltar de forma confiavel, que e' o ponto do pedido. (O modelo de imagem ainda pode
+        // recusar por politica propria sobre pessoas reais - isso e' da OpenAI, nao ha' como forcar
+        // daqui; a recusa volta como batch falho com o motivo da API.)
+        $clausulaRosto = $rostoAutorizado
+            ? " ABOUT THE PERSON IN IT: the client supplied this photo deliberately and has confirmed, for this specific piece, that the person shown is themselves or someone who agreed to appear in the advertisement. So the person is not something to avoid here - if the composition calls for them, depict them as they look in the reference, faithfully. Treat their presence exactly like any other element of the reference you are following."
+            : " CRITICAL SAFETY RULE, overrides everything else about this reference: take ONLY its STYLE - composition, framing, colour palette, lighting, mood, and any non-human elements (props, setting, typographic treatment). If it features a real person, you must NOT reproduce, recreate or make that specific person's face or likeness recognisable anywhere in the output - not photorealistically, not stylised, not built out of letters or words, not as a silhouette or outline. This is a real individual's photo, not a model release; you have no right to depict their likeness. If the reference's subject is a person, either leave people out of this piece entirely, or use a generic, anonymous figure that bears no resemblance to them.";
         $refs = !empty($campaign['ignoreReferences'])
             ? "NO REFERENCE IMAGES are attached for this piece, on purpose. Build it from the brand fields alone - the colours, the typeface and the direction above. Do not imitate any particular look you might assume this brand has."
             : ($heroRef
             ? ($proxy
-                ? "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction.{$semRosto} The remaining attached images are posts by OTHER companies in the same market, given only so you can see the conventions of the category - they are secondary context, not the direction. Take NO identity from them (not colour, not logo style, not typography, not graphic devices)."
-                : "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction; do not let it be diluted by the other attachments.{$semRosto} The remaining attached images are this brand's own posts and, where present, a screenshot of its website - secondary context for the brand's graphic vocabulary (its devices, its photographic treatment, its rhythm), not the main direction for this piece.")
+                ? "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction.{$clausulaRosto} The remaining attached images are posts by OTHER companies in the same market, given only so you can see the conventions of the category - they are secondary context, not the direction. Take NO identity from them (not colour, not logo style, not typography, not graphic devices)."
+                : "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction; do not let it be diluted by the other attachments.{$clausulaRosto} The remaining attached images are this brand's own posts and, where present, a screenshot of its website - secondary context for the brand's graphic vocabulary (its devices, its photographic treatment, its rhythm), not the main direction for this piece.")
             : ($proxy
             ? "ABOUT THE ATTACHED IMAGES: this client has NO posts of its own yet. They are posts by OTHER companies in the same market, attached ONLY so you can see the conventions of the category. Take NO identity from them - not their colour, not their logo style, not their typography, not their graphic devices. They are a briefing about the market, never a style guide."
             : "ABOUT THE ATTACHED IMAGES: these are the brand's OWN posts and, where present, a screenshot of its website. They are the source of truth for this brand's graphic vocabulary - its devices, its photographic treatment, its rhythm. Match that language."));

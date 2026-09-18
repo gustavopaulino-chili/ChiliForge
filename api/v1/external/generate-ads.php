@@ -271,6 +271,15 @@ function ext_map_campaign(array $cam, array $formats): array {
         // SEMPRE anexadas e nao havia como sair do proprio padrao do cliente. false por omissao,
         // e false sobrevive ao array_filter do final (so' '', null e array vazio caem).
         'ignoreReferences'      => $bool('ignore_references', false),
+        // Opt-in, por geracao, para a referencia poder reproduzir o rosto que aparece nela. O padrao
+        // e' a clausula de seguranca de 17/09 em extc_openai_prompt() (nunca recriar o rosto de uma
+        // pessoa real de quem nao se sabe nada); esta flag so' a desliga quando quem chama afirma ter
+        // perguntado ao cliente e ouvido que o rosto e' dele ou de alguem que autorizou aparecer no
+        // anuncio. Aqui nao se verifica nada disso - a declaracao e' de quem manda. false por omissao,
+        // e false sobrevive ao array_filter do final (so' '', null e array vazio caem).
+        'referenceFaceAuthorized' => (isset($cam['reference_face_authorized']) || isset($cam['referenceFaceAuthorized']))
+            ? filter_var($cam['reference_face_authorized'] ?? $cam['referenceFaceAuthorized'], FILTER_VALIDATE_BOOLEAN)
+            : false,
         // Per-generation font override. Without this mapping the field was accepted by the
         // endpoint and then silently dropped, so sending it did nothing.
         'fontFamily'            => $first(['font_family', 'font', 'typeface']),
