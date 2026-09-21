@@ -1862,15 +1862,25 @@ if (!function_exists('extc_openai_prompt')) {
         // imagens de marca sem dizer o que cada uma era, e o modelo as pesava por igual (caso FIAP:
         // a referencia do cliente nao guiava a peca). Com os papeis calculados pelo worker, cada
         // posicao ganha uma linha do que e' e do que NAO pode tirar dela.
+        // 21/09: a referencia do cliente nao entrava na cena. O prompt a tratava como direcao de
+        // ESTILO e ainda dava "liberdade total" sobre a cena, entao o modelo podia (e fazia) montar
+        // uma peca sem o assunto dela. Aqui o assunto vira obrigatorio e heroi. Quem decide se o
+        // ROSTO de uma pessoa entra e' a flag reference_face_authorized (clausulaRosto): sem ela o
+        // lugar do heroi vai pra uma figura anonima, nunca pro rosto real. A excecao e' a referencia
+        // que e' uma peca pronta da mesma serie (slide anterior de carrossel): essa nao se cola.
+        $clausulaHeroi = " MANDATORY - THE REFERENCE MUST APPEAR IN THE SCENE: this image is not only style inspiration. What it depicts (the person, product, object or place) must be IN the finished piece as its HERO: large, unmistakable, the visual focus, with the scene, the type and the layout built around it. A piece that could have been made without ever seeing Image 1's subject has failed - never shrink it to a thumbnail, a background texture or a decorative detail. Exception: if Image 1 is itself a finished piece of the same set (a complete ad with type and layout, such as another slide of the same carousel), do not paste it in; follow the continuity rule below instead."
+            . ($rostoAutorizado
+                ? ''
+                : " If its subject is a real person, the safety rule below decides how: the hero role goes to a generic, anonymous figure in the same role and setting, never to that person's likeness.");
         $legendaRefs = $heroRef ? extc_legenda_refs((array)($campaign['composeRefRoles'] ?? []), $proxy) : '';
         $refs = !empty($campaign['ignoreReferences'])
             ? "NO REFERENCE IMAGES are attached for this piece, on purpose. Build it from the brand fields alone - the colours, the typeface and the direction above. Do not imitate any particular look you might assume this brand has."
             : ($heroRef && $legendaRefs !== ''
-            ? "ABOUT THE ATTACHED IMAGES, in the order they are attached:\n- Image 1: the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction and must never be outweighed by the other attachments.{$clausulaRosto}{$clausulaContinuidade}\n{$legendaRefs}\nEverything after Image 1 is secondary context. If it pulls in a different direction from Image 1, Image 1 wins."
+            ? "ABOUT THE ATTACHED IMAGES, in the order they are attached:\n- Image 1: the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction and must never be outweighed by the other attachments.{$clausulaHeroi}{$clausulaRosto}{$clausulaContinuidade}\n{$legendaRefs}\nEverything after Image 1 is secondary context. If it pulls in a different direction from Image 1, Image 1 wins."
             : ($heroRef
             ? ($proxy
-                ? "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction.{$clausulaRosto}{$clausulaContinuidade} The remaining attached images are posts by OTHER companies in the same market, given only so you can see the conventions of the category - they are secondary context, not the direction. Take NO identity from them (not colour, not logo style, not typography, not graphic devices)."
-                : "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction; do not let it be diluted by the other attachments.{$clausulaRosto}{$clausulaContinuidade} The remaining attached images are this brand's own posts and, where present, a screenshot of its website - secondary context for the brand's graphic vocabulary (its devices, its photographic treatment, its rhythm), not the main direction for this piece.")
+                ? "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction.{$clausulaHeroi}{$clausulaRosto}{$clausulaContinuidade} The remaining attached images are posts by OTHER companies in the same market, given only so you can see the conventions of the category - they are secondary context, not the direction. Take NO identity from them (not colour, not logo style, not typography, not graphic devices)."
+                : "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction; do not let it be diluted by the other attachments.{$clausulaHeroi}{$clausulaRosto}{$clausulaContinuidade} The remaining attached images are this brand's own posts and, where present, a screenshot of its website - secondary context for the brand's graphic vocabulary (its devices, its photographic treatment, its rhythm), not the main direction for this piece.")
             : ($proxy
             ? "ABOUT THE ATTACHED IMAGES: this client has NO posts of its own yet. They are posts by OTHER companies in the same market, attached ONLY so you can see the conventions of the category. Take NO identity from them - not their colour, not their logo style, not their typography, not their graphic devices. They are a briefing about the market, never a style guide."
             : "ABOUT THE ATTACHED IMAGES: these are the brand's OWN posts and, where present, a screenshot of its website. They are the source of truth for this brand's graphic vocabulary - its devices, its photographic treatment, its rhythm. Match that language.")));
@@ -1989,7 +1999,7 @@ if (!function_exists('extc_openai_prompt')) {
             $sobreNegocio,
             $refs,
             extc_openai_paleta($company, $campaign),
-            "Make the best advertisement you can for this theme. You have complete freedom over the scene, composition, cropping, lighting, staging, typography, scale, and how and where the copy lives in the image. Integrate the type with the scene however serves the idea - in front of it, behind it, cut out of it, on a surface. Surprise me.",
+            "Make the best advertisement you can for this theme. You have complete freedom over the scene, composition, cropping, lighting, staging, typography, scale, and how and where the copy lives in the image. Integrate the type with the scene however serves the idea - in front of it, behind it, cut out of it, on a surface. Surprise me." . ($heroRef && empty($campaign['ignoreReferences']) ? " The one thing that is NOT free: the subject of the client's reference image must appear as the hero, as described above." : ''),
             $direcao,
             $blocoGenero,
             $blocoLayout,
