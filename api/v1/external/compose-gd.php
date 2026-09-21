@@ -1711,7 +1711,7 @@ if (!function_exists('extc_openai_prompt')) {
         // primary "dominante" ainda brigava com o fundo pedido - a referencia perdia dos dois lados.
         $comRef = !empty($campaign['composeHeroRef']) && empty($campaign['ignoreReferences']);
         $l = [$comRef
-            ? "BRAND COLOURS - these come from the client's registered brand fields. The client also chose a reference image for this piece (Image 1): the reference sets the mood, the light and the colours of the scene, and the brand colours below SIGN the piece on top of it:"
+            ? "BRAND COLOURS - these come from the client's registered brand fields. The client also chose a reference image for this piece (Image 1): it decides who or what the hero is and the overall look and feel, while the scene around the hero is designed for this ad, and the brand colours below SIGN the piece on top of it:"
             : "BRAND COLOURS - these come from the client's registered brand fields, not from your reading of the references, and they are not negotiable:"];
         if ($comRef) {
             $l[] = "- PRIMARY {$p}. The brand's signature colour: the headline, the key panel or device, the accents that make the piece recognisably theirs. It does not have to be the largest field.";
@@ -1724,7 +1724,7 @@ if (!function_exists('extc_openai_prompt')) {
         if ($s !== '') $l[] = "- SECONDARY {$s}. Use it for a contrasting block, a card, or the button when the piece needs weight.";
         if ($linhaFundo !== '') $l[] = $linhaFundo;
         $l[] = $comRef
-            ? "Introduce NO other brand colour, but do not repaint the reference's scene into these colours either: keep its photographic colour, and let these be what identifies the brand on top of it."
+            ? "Introduce NO other brand colour, but do not repaint the hero into these colours either: keep the subject's natural colours, and let these be what identifies the brand around and on top of it."
             : "These are the entire palette. Introduce NO other brand colour. If a reference image pulls you elsewhere, ignore it - those are variations in a feed, not the brand.";
         return implode("\n", $l);
     }
@@ -1844,7 +1844,7 @@ if (!function_exists('extc_openai_prompt')) {
         // recusar por politica propria sobre pessoas reais - isso e' da OpenAI, nao ha' como forcar
         // daqui; a recusa volta como batch falho com o motivo da API.)
         $clausulaRosto = $rostoAutorizado
-            ? " ABOUT THE PERSON IN IT: the client supplied this photo deliberately, as the reference for this piece, and answers for the right to show the person in it. So the person is not something to avoid here - if the composition calls for them, depict them as they look in the reference, faithfully. Treat their presence exactly like any other element of the reference you are following. This applies to THIS image only: people who appear in any other attachment are never to be depicted."
+            ? " ABOUT THE PERSON IN IT: the client supplied this photo deliberately, as the reference for this piece, and answers for the right to show the person in it. So the person is not something to avoid here - if the composition calls for them, keep their face and likeness faithful to the reference, while their pose, expression, clothing and surroundings are yours to adapt to this piece. This applies to THIS image only: people who appear in any other attachment are never to be depicted."
             : " CRITICAL SAFETY RULE, overrides everything else about this reference: take ONLY its STYLE - composition, framing, colour palette, lighting, mood, and any non-human elements (props, setting, typographic treatment). If it features a real person, you must NOT reproduce, recreate or make that specific person's face or likeness recognisable anywhere in the output - not photorealistically, not stylised, not built out of letters or words, not as a silhouette or outline. This is a real individual's photo, not a model release; you have no right to depict their likeness. If the reference's subject is a person, either leave people out of this piece entirely, or use a generic, anonymous figure that bears no resemblance to them.";
         // 18/09: reclamacao de carrossel saindo com slides que nao combinam entre si. O heroRef ja'
         // priorizava a referencia certo (forge_debug confirma ref_prioritaria), mas so' pedia
@@ -1868,7 +1868,10 @@ if (!function_exists('extc_openai_prompt')) {
         // ROSTO de uma pessoa entra e' a flag reference_face_authorized (clausulaRosto): sem ela o
         // lugar do heroi vai pra uma figura anonima, nunca pro rosto real. A excecao e' a referencia
         // que e' uma peca pronta da mesma serie (slide anterior de carrossel): essa nao se cola.
-        $clausulaHeroi = " MANDATORY - THE REFERENCE MUST APPEAR IN THE SCENE: this image is not only style inspiration. What it depicts (the person, product, object or place) must be IN the finished piece as its HERO: large, unmistakable, the visual focus, with the scene, the type and the layout built around it. A piece that could have been made without ever seeing Image 1's subject has failed - never shrink it to a thumbnail, a background texture or a decorative detail. Exception: if Image 1 is itself a finished piece of the same set (a complete ad with type and layout, such as another slide of the same carousel), do not paste it in; follow the continuity rule below instead."
+        // 21/09 (tarde): com o rosto liberado a peca passou a sair como a FOTO da referencia com a copy
+        // por cima - a identidade certa, mas fundo, pose, roupa e luz copiados. O heroi mantem so' a
+        // IDENTIDADE (quem/o que e'); a cena em volta e' reencenada para o tema deste anuncio.
+        $clausulaHeroi = " MANDATORY - THE REFERENCE'S SUBJECT MUST APPEAR IN THE SCENE: this image is not only style inspiration. What it depicts (the person, product, object or place) must be IN the finished piece as its HERO: large, unmistakable, the visual focus. Keep only its IDENTITY - who or what it is: for a person their face, hair, skin tone and build; for a product or object its shape, colours and details. Do NOT copy the reference's background, setting, framing, pose, clothing or lighting: re-stage the subject inside a scene designed for THIS ad's theme and copy - a fitting activity, pose, expression, wardrobe, environment and light - and integrate it naturally (matching perspective, light direction and shadows), so it looks made for this piece and not pasted from another photo. A piece that could have been made without ever seeing the subject has failed, and so has one that is just the reference photo with type on top. Never shrink the subject to a thumbnail, a background texture or a decorative detail. Exception: if Image 1 is itself a finished piece of the same set (a complete ad with type and layout, such as another slide of the same carousel), do not paste it in; follow the continuity rule below instead."
             . ($rostoAutorizado
                 ? ''
                 : " If its subject is a real person, the safety rule below decides how: the hero role goes to a generic, anonymous figure in the same role and setting, never to that person's likeness.");
