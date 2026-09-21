@@ -1789,7 +1789,10 @@ if (!function_exists('extc_openai_prompt')) {
         // como reference_image_url pro proximo - o mecanismo de heroRef ja' suporta isso, sem
         // payload novo). $clausulaContinuidade aperta a exigencia pra elementos TECNICOS
         // (grade de cor, direcao/dureza de luz, lente, staging) em vez de so' "estilo" generico.
-        $clausulaContinuidade = " TECHNICAL CONTINUITY: match this reference's exact execution as closely as you can - the same colour grade and white balance, the same lighting direction and hardness, the same lens character and depth of field, the same level of polish, the same subject staging and framing logic. If this reference is itself another piece from the same set (for example, another slide of the same carousel), the goal is for this piece and it to read as if they belong to the same shoot or the same design system - not just a loosely related idea.";
+        // Condicional de proposito: o heroRef tambem e' uma foto de inspiracao comum que o cliente
+        // manda, e ai' "copie a execucao tecnica" superaria a intencao (estilo, nao clone). Sem flag
+        // no payload, quem decide e' o modelo, olhando se a referencia e' uma peca pronta da serie.
+        $clausulaContinuidade = " CONTINUITY, only if it applies: if this reference is itself a finished piece from the same set as this one (for example, another slide of the same carousel - recognisable by the same brand layout, type and treatment), match its exact execution as closely as you can - the same colour grade and white balance, the same lighting direction and hardness, the same lens character and depth of field, the same level of polish, the same subject staging and framing logic - so the two read as one shoot or one design system, not a loosely related idea. If it is instead a general inspiration image (a photo, a mood, someone else's post), ignore this sentence and use it only as the direction described above.";
         $refs = !empty($campaign['ignoreReferences'])
             ? "NO REFERENCE IMAGES are attached for this piece, on purpose. Build it from the brand fields alone - the colours, the typeface and the direction above. Do not imitate any particular look you might assume this brand has."
             : ($heroRef
