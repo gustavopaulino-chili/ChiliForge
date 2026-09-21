@@ -623,7 +623,7 @@ try {
         $mergedRefs = $heroRefActive
             ? array_merge($existingComposeRefs, $siteSlice, $postsSlice)
             : array_merge($siteSlice, $postsSlice, $existingComposeRefs);
-        $mergedRefs = array_values(array_unique(array_filter($mergedRefs, 'strlen')));
+        $mergedRefs = array_values(array_filter($mergedRefs, 'strlen'));
         // Absolutize — site images and brand posts are stored ROOT-RELATIVE (/projects/...). This
         // injection runs AFTER the section-7 absolutization, so without re-absolutizing here they
         // stay relative and the edge (which only fetches http(s) URLs) silently DROPS them.
@@ -634,6 +634,20 @@ try {
                 return ($u[0] === '/') ? $pubBase . $u : $u;
             }, $mergedRefs), 'strlen'));
         }
+        // Dedup DEPOIS de absolutizar. Antes era antes: o brand post que o generate-ads.php ja' tinha
+        // absolutizado ("https://host/projects/x.jpg") e o mesmo arquivo vindo do cadastro
+        // ("/projects/x.jpg") eram strings diferentes, passavam pelo array_unique e so' viravam a
+        // mesma URL no passo acima - o modelo recebia brand-post-4.jpg duas vezes e a duplicata
+        // gastava um dos 6 slots. Para /projects/ a chave ignora o host (mesmo arquivo, host so'
+        // muda conforme quem montou a URL); as demais URLs comparam inteiras.
+        $vistos = [];
+        $mergedRefs = array_values(array_filter($mergedRefs, function ($u) use (&$vistos) {
+            $p = (string)parse_url($u, PHP_URL_PATH);
+            $k = strpos($p, '/projects/') === 0 ? $p : $u;
+            if (isset($vistos[$k])) return false;
+            $vistos[$k] = true;
+            return true;
+        }));
         $campaignFormData['composeCompanyRefs'] = array_slice($mergedRefs, 0, 10);
 
         // Tell the edge how many of the LEADING refs are the client's own site (identity/colour) vs
@@ -777,12 +791,11 @@ try {
                     // Nao confirma o que a IMAGEM RESULTANTE mostra, so' que a instrucao foi
                     // enviada. Ver extc_openai_prompt() em compose-gd.php.
                     'ref_prioritaria' => !empty($campaignFormData['composeHeroRef']),
-                    // Se a clausula anti-retrato acima foi DESLIGADA nesta geracao especifica, por
-                    // campaign.reference_face_authorized. Sem este eco nao ha' como distinguir "mandei
-                    // a flag e ela chegou" de "a flag se perdeu no caminho" olhando so' a arte - o
-                    // rosto pode faltar por escolha do modelo, nao por bloqueio nosso. Como o
-                    // ref_prioritaria, diz o que foi ENVIADO, nunca o que a imagem mostra.
-                    'rosto_autorizado' => !empty($campaignFormData['referenceFaceAuthorized']),
+                    // true = ha' referencia do cliente E a clausula anti-retrato foi desligada para ela
+                    // (padrao; so' campaign.reference_face_authorized:false explicito a mantem). Sem
+                    // referencia fica false: nao ha' rosto a liberar. Como o ref_prioritaria, diz o
+                    // que foi ENVIADO ao modelo, nunca o que a imagem mostra.
+                    'rosto_autorizado' => !empty($campaignFormData['composeHeroRef']) && !empty($campaignFormData['referenceFaceAuthorized']),
                     // O que REALMENTE foi anexado ao modelo (max. 6, na ordem enviada), com o papel de
                     // cada uma: com ref_prioritaria a pos 0 e' a referencia do cliente, o resto e'
                     // contexto de marca. 'anexada' false = o download falhou e ela foi pulada.

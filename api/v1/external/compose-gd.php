@@ -1648,11 +1648,11 @@ if (!function_exists('extc_openai_prompt')) {
     function extc_legenda_refs(array $papeis, bool $proxy): string {
         if (empty($papeis)) return '';
         $desc = [
-            'site'  => "photos/screenshots of the CLIENT'S OWN website - a source for the brand's identity and colour feel only, never the direction for this piece",
+            'site'  => "photos/screenshots of the CLIENT'S OWN website - a source for the brand's identity and colour feel only, never the direction for this piece; never reproduce the face or likeness of any real person in them",
             'post'  => $proxy
-                ? "posts by OTHER companies in the same market - the conventions of the category only; take NO identity from them (not colour, logo, typography or devices)"
-                : "this brand's own past posts - its graphic vocabulary (devices, photographic treatment, rhythm) only; do NOT copy their layout or subject",
-            'outro' => "other assets of this brand (product or company photos) - you may use what they depict if it serves the piece; they are not a style direction",
+                ? "posts by OTHER companies in the same market - the conventions of the category only; take NO identity from them (not colour, logo, typography or devices); never reproduce the face or likeness of any real person in them"
+                : "this brand's own past posts - its graphic vocabulary (devices, photographic treatment, rhythm) only; do NOT copy their layout or subject, and never reproduce the face or likeness of any real person in them",
+            'outro' => "other assets of this brand (product or company photos) - you may use what they depict if it serves the piece, but never the face or likeness of any real person in them; they are not a style direction",
         ];
         $grupos = [];
         foreach ($papeis as $i => $p) {
@@ -1826,15 +1826,15 @@ if (!function_exists('extc_openai_prompt')) {
         //
         // 18/09: o caso OPOSTO apareceu no dia seguinte, na mesma conta de teste (FIAP, company 660,
         // ref-fiap-10.jpeg): cliente que manda o PROPRIO rosto de proposito - o dono aparece no post,
-        // a equipe aparece, depoimento, bastidores - e nao ve' rosto nenhum voltar. A clausula acima
-        // continua sendo o PADRAO exatamente por isso nao ser distinguivel daqui: sem saber quem e' a
-        // pessoa da foto, o seguro e' nao reproduzir. O opt-in e' por geracao e vem de fora, em
-        // campaign.reference_face_authorized, que a Fullstop so' manda depois de perguntar ao cliente
-        // ("essa foto tem um rosto - e' seu ou de alguem que autorizou aparecer no anuncio?") e ouvir
-        // sim. Aqui NAO se valida identidade nem consentimento: a flag e' a declaracao de quem coletou,
-        // e a responsabilidade por ela e' de quem a manda. Ausente ou false = comportamento de 17/09,
-        // byte a byte - por isso a checagem e' !empty() e nao um isset(), e o default do mapeamento no
-        // generate-ads.php e' false.
+        // a equipe aparece, depoimento, bastidores - e nao ve' rosto nenhum voltar. Primeiro entrou
+        // um opt-in por geracao (campaign.reference_face_authorized).
+        // 21/09: a Fullstop assumiu o consentimento pelos termos de uso do cliente e pediu o padrao
+        // invertido: com campaign.reference_image_url o rosto e' reproduzido SEM flag, e so' um
+        // reference_face_authorized:false explicito devolve a clausula de 17/09. O default vive no
+        // mapeamento (ext_map_campaign, generate-ads.php); aqui a checagem segue !empty(), entao uma
+        // campanha sem a chave (dado antigo, outro caminho) continua bloqueando. Nada aqui valida
+        // identidade nem consentimento. A liberacao e' so' da imagem 1: rostos em brand_posts, site e
+        // imagens de produto seguem sem ser recriados (extc_legenda_refs e $ctxRostos).
         $heroRef = !empty($campaign['composeHeroRef']);
         $rostoAutorizado = !empty($campaign['referenceFaceAuthorized']);
         // Com autorizacao a frase nao some: vira o contrario dela. So' apagar a ressalva devolveria o
@@ -1844,7 +1844,7 @@ if (!function_exists('extc_openai_prompt')) {
         // recusar por politica propria sobre pessoas reais - isso e' da OpenAI, nao ha' como forcar
         // daqui; a recusa volta como batch falho com o motivo da API.)
         $clausulaRosto = $rostoAutorizado
-            ? " ABOUT THE PERSON IN IT: the client supplied this photo deliberately and has confirmed, for this specific piece, that the person shown is themselves or someone who agreed to appear in the advertisement. So the person is not something to avoid here - if the composition calls for them, depict them as they look in the reference, faithfully. Treat their presence exactly like any other element of the reference you are following."
+            ? " ABOUT THE PERSON IN IT: the client supplied this photo deliberately, as the reference for this piece, and answers for the right to show the person in it. So the person is not something to avoid here - if the composition calls for them, depict them as they look in the reference, faithfully. Treat their presence exactly like any other element of the reference you are following. This applies to THIS image only: people who appear in any other attachment are never to be depicted."
             : " CRITICAL SAFETY RULE, overrides everything else about this reference: take ONLY its STYLE - composition, framing, colour palette, lighting, mood, and any non-human elements (props, setting, typographic treatment). If it features a real person, you must NOT reproduce, recreate or make that specific person's face or likeness recognisable anywhere in the output - not photorealistically, not stylised, not built out of letters or words, not as a silhouette or outline. This is a real individual's photo, not a model release; you have no right to depict their likeness. If the reference's subject is a person, either leave people out of this piece entirely, or use a generic, anonymous figure that bears no resemblance to them.";
         // 18/09: reclamacao de carrossel saindo com slides que nao combinam entre si. O heroRef ja'
         // priorizava a referencia certo (forge_debug confirma ref_prioritaria), mas so' pedia
@@ -1872,6 +1872,9 @@ if (!function_exists('extc_openai_prompt')) {
             . ($rostoAutorizado
                 ? ''
                 : " If its subject is a real person, the safety rule below decides how: the hero role goes to a generic, anonymous figure in the same role and setting, never to that person's likeness.");
+        // Brand posts, site e imagens de produto sao contexto, nunca pedido do cliente: a liberacao do
+        // rosto vale so' pra imagem de campaign.reference_image_url.
+        $ctxRostos = " If any of these attachments shows a real person, do NOT reproduce or make that person's face or likeness recognisable - they are context, not something the client asked to have depicted.";
         $legendaRefs = $heroRef ? extc_legenda_refs((array)($campaign['composeRefRoles'] ?? []), $proxy) : '';
         $refs = !empty($campaign['ignoreReferences'])
             ? "NO REFERENCE IMAGES are attached for this piece, on purpose. Build it from the brand fields alone - the colours, the typeface and the direction above. Do not imitate any particular look you might assume this brand has."
@@ -1879,11 +1882,11 @@ if (!function_exists('extc_openai_prompt')) {
             ? "ABOUT THE ATTACHED IMAGES, in the order they are attached:\n- Image 1: the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction and must never be outweighed by the other attachments.{$clausulaHeroi}{$clausulaRosto}{$clausulaContinuidade}\n{$legendaRefs}\nEverything after Image 1 is secondary context. If it pulls in a different direction from Image 1, Image 1 wins."
             : ($heroRef
             ? ($proxy
-                ? "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction.{$clausulaHeroi}{$clausulaRosto}{$clausulaContinuidade} The remaining attached images are posts by OTHER companies in the same market, given only so you can see the conventions of the category - they are secondary context, not the direction. Take NO identity from them (not colour, not logo style, not typography, not graphic devices)."
-                : "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction; do not let it be diluted by the other attachments.{$clausulaHeroi}{$clausulaRosto}{$clausulaContinuidade} The remaining attached images are this brand's own posts and, where present, a screenshot of its website - secondary context for the brand's graphic vocabulary (its devices, its photographic treatment, its rhythm), not the main direction for this piece.")
+                ? "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction.{$clausulaHeroi}{$clausulaRosto}{$clausulaContinuidade} The remaining attached images are posts by OTHER companies in the same market, given only so you can see the conventions of the category - they are secondary context, not the direction. Take NO identity from them (not colour, not logo style, not typography, not graphic devices).{$ctxRostos}"
+                : "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction; do not let it be diluted by the other attachments.{$clausulaHeroi}{$clausulaRosto}{$clausulaContinuidade} The remaining attached images are this brand's own posts and, where present, a screenshot of its website - secondary context for the brand's graphic vocabulary (its devices, its photographic treatment, its rhythm), not the main direction for this piece.{$ctxRostos}")
             : ($proxy
-            ? "ABOUT THE ATTACHED IMAGES: this client has NO posts of its own yet. They are posts by OTHER companies in the same market, attached ONLY so you can see the conventions of the category. Take NO identity from them - not their colour, not their logo style, not their typography, not their graphic devices. They are a briefing about the market, never a style guide."
-            : "ABOUT THE ATTACHED IMAGES: these are the brand's OWN posts and, where present, a screenshot of its website. They are the source of truth for this brand's graphic vocabulary - its devices, its photographic treatment, its rhythm. Match that language.")));
+            ? "ABOUT THE ATTACHED IMAGES: this client has NO posts of its own yet. They are posts by OTHER companies in the same market, attached ONLY so you can see the conventions of the category. Take NO identity from them - not their colour, not their logo style, not their typography, not their graphic devices. They are a briefing about the market, never a style guide.{$ctxRostos}"
+            : "ABOUT THE ATTACHED IMAGES: these are the brand's OWN posts and, where present, a screenshot of its website. They are the source of truth for this brand's graphic vocabulary - its devices, its photographic treatment, its rhythm. Match that language.{$ctxRostos}")));
 
         $tipo = $fonte !== ''
             ? "TYPEFACE: set the text in {$fonte}, or the closest possible match to it."

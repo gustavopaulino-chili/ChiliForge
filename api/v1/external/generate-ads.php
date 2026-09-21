@@ -271,15 +271,19 @@ function ext_map_campaign(array $cam, array $formats): array {
         // SEMPRE anexadas e nao havia como sair do proprio padrao do cliente. false por omissao,
         // e false sobrevive ao array_filter do final (so' '', null e array vazio caem).
         'ignoreReferences'      => $bool('ignore_references', false),
-        // Opt-in, por geracao, para a referencia poder reproduzir o rosto que aparece nela. O padrao
-        // e' a clausula de seguranca de 17/09 em extc_openai_prompt() (nunca recriar o rosto de uma
-        // pessoa real de quem nao se sabe nada); esta flag so' a desliga quando quem chama afirma ter
-        // perguntado ao cliente e ouvido que o rosto e' dele ou de alguem que autorizou aparecer no
-        // anuncio. Aqui nao se verifica nada disso - a declaracao e' de quem manda. false por omissao,
-        // e false sobrevive ao array_filter do final (so' '', null e array vazio caem).
-        'referenceFaceAuthorized' => (isset($cam['reference_face_authorized']) || isset($cam['referenceFaceAuthorized']))
-            ? filter_var($cam['reference_face_authorized'] ?? $cam['referenceFaceAuthorized'], FILTER_VALIDATE_BOOLEAN)
-            : false,
+        // O rosto da pessoa na imagem de campaign.reference_image_url e' reproduzido POR PADRAO (a
+        // referencia e' um pedido do cliente; o consentimento e' de quem chama, pelos termos de uso
+        // do cliente - aqui nao se verifica nada disso). So' um false EXPLICITO bloqueia e aplica a
+        // clausula de seguranca de 17/09 (nunca recriar o rosto). Ausente, null ou "" = true; um
+        // valor que nao e' booleano reconhecivel ("abc") tambem bloqueia, porque na duvida sobre um
+        // pedido explicito o seguro e' nao reproduzir. Vale so' para essa imagem: rostos em brand_posts,
+        // site e imagens de produto seguem sem ser recriados (ver extc_legenda_refs). true/false
+        // sobrevivem ao array_filter do final (so' '', null e array vazio caem).
+        'referenceFaceAuthorized' => (function () use ($cam) {
+            $v = $cam['reference_face_authorized'] ?? $cam['referenceFaceAuthorized'] ?? null;
+            if ($v === null || (is_string($v) && trim($v) === '')) return true;
+            return filter_var($v, FILTER_VALIDATE_BOOLEAN);
+        })(),
         // Per-generation font override. Without this mapping the field was accepted by the
         // endpoint and then silently dropped, so sending it did nothing.
         'fontFamily'            => $first(['font_family', 'font', 'typeface']),
