@@ -1620,6 +1620,56 @@ if (!function_exists('extc_openai_prompt')) {
 
     /** Papel de cada cor cadastrada. Vazio quando nao ha' cor — e' o sinal para o modelo
      *  tirar a paleta das referencias, que e' a regra combinada. */
+    /**
+     * Papel de cada imagem que segue ao modelo, na ORDEM enviada: 'hero' (referencia do cliente),
+     * 'site' (site do cliente), 'post' (brand_posts) ou 'outro' (produto/empresa/fundo). O hero e'
+     * decidido por POSICAO - composeHeroRef garante que ele e' o primeiro - e os demais casam por
+     * nome de arquivo, que sobrevive a absolutizacao/espelhamento de URL.
+     */
+    function extc_papeis_refs(array $refs, bool $heroRef, array $siteImages, array $brandPosts): array {
+        $nome = fn($u) => strtolower(basename((string)parse_url((string)$u, PHP_URL_PATH)));
+        $site  = array_flip(array_filter(array_map($nome, $siteImages), 'strlen'));
+        $posts = array_flip(array_filter(array_map($nome, $brandPosts), 'strlen'));
+        $papeis = [];
+        foreach (array_values($refs) as $i => $u) {
+            $n = $nome($u);
+            if ($heroRef && $i === 0)      $papeis[] = 'hero';
+            elseif (isset($site[$n]))      $papeis[] = 'site';
+            elseif (isset($posts[$n]))     $papeis[] = 'post';
+            else                           $papeis[] = 'outro';
+        }
+        return $papeis;
+    }
+
+    /**
+     * Legenda "imagem N = o que e' e para que serve", agrupando posicoes consecutivas de mesmo
+     * papel. Devolve '' se os papeis nao foram calculados (o prompt cai no texto generico).
+     */
+    function extc_legenda_refs(array $papeis, bool $proxy): string {
+        if (empty($papeis)) return '';
+        $desc = [
+            'site'  => "photos/screenshots of the CLIENT'S OWN website - a source for the brand's identity and colour feel only, never the direction for this piece",
+            'post'  => $proxy
+                ? "posts by OTHER companies in the same market - the conventions of the category only; take NO identity from them (not colour, logo, typography or devices)"
+                : "this brand's own past posts - its graphic vocabulary (devices, photographic treatment, rhythm) only; do NOT copy their layout or subject",
+            'outro' => "other assets of this brand (product or company photos) - you may use what they depict if it serves the piece; they are not a style direction",
+        ];
+        $grupos = [];
+        foreach ($papeis as $i => $p) {
+            if ($p === 'hero') continue;
+            $n = $i + 1;
+            $ult = count($grupos) - 1;
+            if ($ult >= 0 && $grupos[$ult]['p'] === $p && $grupos[$ult]['fim'] === $n - 1) { $grupos[$ult]['fim'] = $n; continue; }
+            $grupos[] = ['p' => $p, 'ini' => $n, 'fim' => $n];
+        }
+        $l = [];
+        foreach ($grupos as $g) {
+            $rot = $g['ini'] === $g['fim'] ? "Image {$g['ini']}" : "Images {$g['ini']}-{$g['fim']}";
+            $l[] = "- {$rot}: {$desc[$g['p']]}.";
+        }
+        return implode("\n", $l);
+    }
+
     function extc_openai_paleta(array $company, array $campaign = []): string {
         $hex = function ($v) {
             $v = trim((string)$v);
@@ -1655,12 +1705,27 @@ if (!function_exists('extc_openai_prompt')) {
             }
             return "BRAND COLOURS: this client has no colour registered. Read the palette from the attached brand references and stay strictly inside it — do not invent a colour that is not visibly theirs.";
         }
-        $l = ["BRAND COLOURS - these come from the client's registered brand fields, not from your reading of the references, and they are not negotiable:"];
-        $l[] = "- PRIMARY {$p}. This is the dominant colour of the piece: the large fields, the panels, the mood.";
+        // Com referencia do cliente (heroRef) a divisao muda: a imagem 1 manda no clima, na luz e nas
+        // cores da CENA, e as cores da marca assinam a peca (tipo, acentos, paineis) sem repintar a
+        // referencia. Antes o bloco dizia "ignore qualquer referencia que puxe pra outra cor" e o
+        // primary "dominante" ainda brigava com o fundo pedido - a referencia perdia dos dois lados.
+        $comRef = !empty($campaign['composeHeroRef']) && empty($campaign['ignoreReferences']);
+        $l = [$comRef
+            ? "BRAND COLOURS - these come from the client's registered brand fields. The client also chose a reference image for this piece (Image 1): the reference sets the mood, the light and the colours of the scene, and the brand colours below SIGN the piece on top of it:"
+            : "BRAND COLOURS - these come from the client's registered brand fields, not from your reading of the references, and they are not negotiable:"];
+        if ($comRef) {
+            $l[] = "- PRIMARY {$p}. The brand's signature colour: the headline, the key panel or device, the accents that make the piece recognisably theirs. It does not have to be the largest field.";
+        } elseif ($bg !== '') {
+            $l[] = "- PRIMARY {$p}. The brand's signature colour: the headline, the panels, the devices that sit on the background below - it does not replace that background.";
+        } else {
+            $l[] = "- PRIMARY {$p}. This is the dominant colour of the piece: the large fields, the panels, the mood.";
+        }
         if ($a !== '') $l[] = "- ACCENT {$a}. Use it sparingly - a highlighted word, a small device, the button.";
         if ($s !== '') $l[] = "- SECONDARY {$s}. Use it for a contrasting block, a card, or the button when the piece needs weight.";
         if ($linhaFundo !== '') $l[] = $linhaFundo;
-        $l[] = "These are the entire palette. Introduce NO other brand colour. If a reference image pulls you elsewhere, ignore it - those are variations in a feed, not the brand.";
+        $l[] = $comRef
+            ? "Introduce NO other brand colour, but do not repaint the reference's scene into these colours either: keep its photographic colour, and let these be what identifies the brand on top of it."
+            : "These are the entire palette. Introduce NO other brand colour. If a reference image pulls you elsewhere, ignore it - those are variations in a feed, not the brand.";
         return implode("\n", $l);
     }
 
@@ -1793,15 +1858,22 @@ if (!function_exists('extc_openai_prompt')) {
         // manda, e ai' "copie a execucao tecnica" superaria a intencao (estilo, nao clone). Sem flag
         // no payload, quem decide e' o modelo, olhando se a referencia e' uma peca pronta da serie.
         $clausulaContinuidade = " CONTINUITY, only if it applies: if this reference is itself a finished piece from the same set as this one (for example, another slide of the same carousel - recognisable by the same brand layout, type and treatment), match its exact execution as closely as you can - the same colour grade and white balance, the same lighting direction and hardness, the same lens character and depth of field, the same level of polish, the same subject staging and framing logic - so the two read as one shoot or one design system, not a loosely related idea. If it is instead a general inspiration image (a photo, a mood, someone else's post), ignore this sentence and use it only as the direction described above.";
+        // 21/09: o prompt dizia so' "a primeira e' a referencia, as demais sao contexto" - ate' 5
+        // imagens de marca sem dizer o que cada uma era, e o modelo as pesava por igual (caso FIAP:
+        // a referencia do cliente nao guiava a peca). Com os papeis calculados pelo worker, cada
+        // posicao ganha uma linha do que e' e do que NAO pode tirar dela.
+        $legendaRefs = $heroRef ? extc_legenda_refs((array)($campaign['composeRefRoles'] ?? []), $proxy) : '';
         $refs = !empty($campaign['ignoreReferences'])
             ? "NO REFERENCE IMAGES are attached for this piece, on purpose. Build it from the brand fields alone - the colours, the typeface and the direction above. Do not imitate any particular look you might assume this brand has."
+            : ($heroRef && $legendaRefs !== ''
+            ? "ABOUT THE ATTACHED IMAGES, in the order they are attached:\n- Image 1: the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction and must never be outweighed by the other attachments.{$clausulaRosto}{$clausulaContinuidade}\n{$legendaRefs}\nEverything after Image 1 is secondary context. If it pulls in a different direction from Image 1, Image 1 wins."
             : ($heroRef
             ? ($proxy
                 ? "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction.{$clausulaRosto}{$clausulaContinuidade} The remaining attached images are posts by OTHER companies in the same market, given only so you can see the conventions of the category - they are secondary context, not the direction. Take NO identity from them (not colour, not logo style, not typography, not graphic devices)."
                 : "ABOUT THE ATTACHED IMAGES: the FIRST attached image is the creative reference the CLIENT THEMSELVES chose specifically for THIS piece - it is the PRIMARY visual direction; do not let it be diluted by the other attachments.{$clausulaRosto}{$clausulaContinuidade} The remaining attached images are this brand's own posts and, where present, a screenshot of its website - secondary context for the brand's graphic vocabulary (its devices, its photographic treatment, its rhythm), not the main direction for this piece.")
             : ($proxy
             ? "ABOUT THE ATTACHED IMAGES: this client has NO posts of its own yet. They are posts by OTHER companies in the same market, attached ONLY so you can see the conventions of the category. Take NO identity from them - not their colour, not their logo style, not their typography, not their graphic devices. They are a briefing about the market, never a style guide."
-            : "ABOUT THE ATTACHED IMAGES: these are the brand's OWN posts and, where present, a screenshot of its website. They are the source of truth for this brand's graphic vocabulary - its devices, its photographic treatment, its rhythm. Match that language."));
+            : "ABOUT THE ATTACHED IMAGES: these are the brand's OWN posts and, where present, a screenshot of its website. They are the source of truth for this brand's graphic vocabulary - its devices, its photographic treatment, its rhythm. Match that language.")));
 
         $tipo = $fonte !== ''
             ? "TYPEFACE: set the text in {$fonte}, or the closest possible match to it."

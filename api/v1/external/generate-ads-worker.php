@@ -713,6 +713,14 @@ try {
     $batchErrors      = [];
 
     $refs  = is_array($campaignFormData['composeCompanyRefs'] ?? null) ? $campaignFormData['composeCompanyRefs'] : [];
+    // Papel de cada imagem que vai ao modelo (so' as 6 primeiras seguem - ver extc_openai_gerar).
+    // Interno: calculado aqui a partir do que o worker ja' sabe, nunca lido do payload.
+    $campaignFormData['composeRefRoles'] = extc_papeis_refs(
+        array_slice(array_values($refs), 0, 6),
+        !empty($campaignFormData['composeHeroRef']),
+        $storedSiteImages,
+        $storedBrandPosts
+    );
     $logoC = trim((string)($companyFormData['logoUrl'] ?? ($campaignFormData['logoUrl'] ?? '')));
     // Canto pedido no payload (logo_position / logo_strategy). Vazio = o carimbo segue
     // escolhendo sozinho o canto mais calmo, exatamente como sempre fez.
