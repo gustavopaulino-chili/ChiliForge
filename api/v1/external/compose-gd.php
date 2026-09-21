@@ -1965,8 +1965,9 @@ if (!function_exists('extc_openai_prompt')) {
      * a API externa nao le — foi exatamente esse buraco que deixou um desvio de motor passar
      * despercebido ate' alguem reparar na arte.
      */
-    function extc_openai_gerar(string $apiKey, array $refUrls, string $prompt, string $qualidade = 'medium', string $tamanho = '1024x1024', ?string &$motivo = null): ?string {
+    function extc_openai_gerar(string $apiKey, array $refUrls, string $prompt, string $qualidade = 'medium', string $tamanho = '1024x1024', ?string &$motivo = null, ?array &$refsInfo = null): ?string {
         $motivo = null;
+        $refsInfo = [];
         if ($apiKey === '')             { $motivo = 'sem-chave-openai'; return null; }
         if (!function_exists('curl_init')) { $motivo = 'sem-curl';      return null; }
 
@@ -1983,8 +1984,18 @@ if (!function_exists('extc_openai_prompt')) {
         $corpo .= $campo('n', '1');
 
         $anexadas = 0;
-        foreach (array_slice(array_values($refUrls), 0, 6) as $u) {
+        foreach (array_slice(array_values($refUrls), 0, 6) as $pos => $u) {
             $bytes = extgd_fetch_bytes((string)$u);
+            // So' as 6 primeiras seguem pro modelo, e uma que nao baixa e' pulada em silencio -
+            // sem este registro "refs: 10, ref_prioritaria: true" nao distingue "a referencia foi
+            // anexada" de "a referencia falhou e o primeiro anexo virou outra imagem".
+            $refsInfo[] = [
+                'pos'     => $pos,
+                'arquivo' => basename((string)parse_url((string)$u, PHP_URL_PATH)),
+                'bytes'   => strlen($bytes),
+                'anexada' => $bytes !== '',
+                'ordem'   => $bytes !== '' ? $anexadas : null,
+            ];
             if ($bytes === '') continue;
             $png = (stripos((string)$u, '.png') !== false);
             $corpo .= '--' . $bound . $nl

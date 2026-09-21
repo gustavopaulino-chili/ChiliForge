@@ -737,7 +737,8 @@ try {
             $wC = (int)($fmtC['width'] ?? 1080);
             $hC = (int)($fmtC['height'] ?? 1080);
             $promptC = extc_openai_prompt($campaignFormData, $companyFormData, $fmtC);
-            $bytesC = extc_openai_gerar($chaveOpenai, $refs, $promptC, $qualC, extc_tamanho_openai($wC, $hC), $motivoC);
+            $refsInfoC = [];
+            $bytesC = extc_openai_gerar($chaveOpenai, $refs, $promptC, $qualC, extc_tamanho_openai($wC, $hC), $motivoC, $refsInfoC);
             if ($bytesC === null) { $bannersC = []; break; }
             $bytesC = extc_poe_logo($bytesC, $logoC, 92, $cantoC);
             $tmpC = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'cforge-c-' . $jobId . '-' . $bIdx . '-' . $iF . '.jpg';
@@ -774,6 +775,13 @@ try {
                     // rosto pode faltar por escolha do modelo, nao por bloqueio nosso. Como o
                     // ref_prioritaria, diz o que foi ENVIADO, nunca o que a imagem mostra.
                     'rosto_autorizado' => !empty($campaignFormData['referenceFaceAuthorized']),
+                    // O que REALMENTE foi anexado ao modelo (max. 6, na ordem enviada), com o papel de
+                    // cada uma: com ref_prioritaria a pos 0 e' a referencia do cliente, o resto e'
+                    // contexto de marca. 'anexada' false = o download falhou e ela foi pulada.
+                    'refs_anexadas' => array_map(function ($r) use ($campaignFormData) {
+                        $r['papel'] = (!empty($campaignFormData['composeHeroRef']) && ($r['pos'] ?? -1) === 0) ? 'referencia_do_cliente' : 'contexto_de_marca';
+                        return $r;
+                    }, $refsInfoC),
                     'tamanho'       => extc_tamanho_openai($wC, $hC),
                 ],
             ];
