@@ -284,6 +284,15 @@ function ext_map_campaign(array $cam, array $formats): array {
             if ($v === null || (is_string($v) && trim($v) === '')) return true;
             return filter_var($v, FILTER_VALIDATE_BOOLEAN);
         })(),
+        // CARROSSEL: que slide esta' peca e' e de quantos. Ate' 23/09 o carrossel era invisivel
+        // daqui - o chamador gerava os N slides como N jobs independentes e so' passava o slide
+        // anterior como reference_image_url, entao a unica coisa que amarrava a serie era o modelo
+        // olhar a referencia e adivinhar. Resultado: ou slides que nao combinam, ou (quando a
+        // continuidade pegava) N variacoes da mesma peca. Com indice e total o prompt passa a dizer
+        // o que e' IGUAL em toda a serie e o que tem de MUDAR em cada slide, alem do papel deste
+        // slide na leitura (gancho / argumento / fechamento). Ausente = nada muda, peca avulsa.
+        'carouselIndex'         => max(0, (int)($cam['carousel_index'] ?? $cam['carouselIndex'] ?? $cam['slide_index'] ?? $cam['slide_number'] ?? 0)),
+        'carouselTotal'         => max(0, (int)($cam['carousel_total'] ?? $cam['carouselTotal'] ?? $cam['slide_total'] ?? $cam['carousel_slides'] ?? 0)),
         // Per-generation font override. Without this mapping the field was accepted by the
         // endpoint and then silently dropped, so sending it did nothing.
         'fontFamily'            => $first(['font_family', 'font', 'typeface']),

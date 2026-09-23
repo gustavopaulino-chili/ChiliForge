@@ -739,13 +739,21 @@ try {
     // Canto pedido no payload (logo_position / logo_strategy). Vazio = o carimbo segue
     // escolhendo sozinho o canto mais calmo, exatamente como sempre fez.
     $cantoC = trim((string)($campaignFormData['logoPosition'] ?? ''));
+    // Tom da logo medido UMA vez por job (e nao por peca): o prompt precisa dele pra pedir um canto
+    // reservado escuro pra logo clara, e vice-versa — sem isso o modelo reserva o canto as cegas e
+    // metade das pecas volta com a logo sumindo num fundo do mesmo tom. Falha (sem logo, download
+    // ruim, formato que o GD nao abre) devolve null e o prompt simplesmente nao exige tom nenhum.
+    $lumLogoC = function_exists('extc_logo_luminancia') ? extc_logo_luminancia($logoC) : null;
+    if ($lumLogoC !== null) $campaignFormData['logoLuminancia'] = $lumLogoC;
     $qualC = strtolower(trim((string)($campaignFormData['qualidadeImagem'] ?? 'medium')));
     if (!in_array($qualC, ['low', 'medium', 'high'], true)) $qualC = 'medium';
     // O que o payload PEDIU, ecoado de volta cru. Hoje o campo nao decide nada (a OpenAI e' o
     // unico motor), mas ecoa-lo e' o que permite a quem chama distinguir "meu motor_imagem
     // chegou" de "meu motor_imagem se perdeu no caminho" sem depender de log de servidor.
     $motorPedido = strtolower(trim((string)($campaignFormData['motorImagem'] ?? ''))) ?: 'nao-informado';
-    error_log('[caminho-c] job=' . $jobId . ' refs=' . count($refs) . ' qualidade=' . $qualC . ' motor_pedido=' . $motorPedido);
+    error_log('[caminho-c] job=' . $jobId . ' refs=' . count($refs) . ' qualidade=' . $qualC . ' motor_pedido=' . $motorPedido
+        . ' logo_lum=' . ($lumLogoC === null ? 'n/d' : round($lumLogoC))
+        . ' canto_pedido=' . ($cantoC !== '' ? $cantoC : 'auto'));
 
     $composeResults = [];
     foreach ($batches as $bIdx => $b) {
@@ -762,7 +770,8 @@ try {
             $refsInfoC = [];
             $bytesC = extc_openai_gerar($chaveOpenai, $refs, $promptC, $qualC, extc_tamanho_openai($wC, $hC), $motivoC, $refsInfoC);
             if ($bytesC === null) { $bannersC = []; break; }
-            $bytesC = extc_poe_logo($bytesC, $logoC, 92, $cantoC);
+            $cantoUsadoC = null;
+            $bytesC = extc_poe_logo($bytesC, $logoC, 92, $cantoC, $cantoUsadoC);
             $tmpC = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'cforge-c-' . $jobId . '-' . $bIdx . '-' . $iF . '.jpg';
             if (@file_put_contents($tmpC, $bytesC) === false) { $bannersC = []; $motivoC = 'falha-ao-gravar-temporario'; break; }
             $bannersC[] = [
@@ -791,6 +800,27 @@ try {
                     // Nao confirma o que a IMAGEM RESULTANTE mostra, so' que a instrucao foi
                     // enviada. Ver extc_openai_prompt() em compose-gd.php.
                     'ref_prioritaria' => !empty($campaignFormData['composeHeroRef']),
+                    // Onde a logo REALMENTE foi carimbada, e se aquele canto foi pedido no payload
+                    // ou escolhido pela pontuacao de contraste. Diferente dos campos acima, este
+                    // descreve a imagem pronta: e' o unico jeito de responder "por que a logo saiu
+                    // ai'?" sem abrir a peca e adivinhar. null = logo nao composta (sem logoUrl, ou
+                    // o download/decode falhou) - a peca sai sem logo nenhuma, o que tambem explica
+                    // "a logo sumiu" sem ser problema de posicao.
+                    'logo_canto'      => $cantoUsadoC,
+                    'logo_canto_pedido' => $cantoC !== '' ? $cantoC : null,
+                    // Luminancia media da tinta da logo (0..255) e o tom que o prompt exigiu do canto
+                    // reservado por causa dela. null = nao deu pra medir, e nesse caso o prompt nao
+                    // pediu tom nenhum: peca com logo sumida e logo_lum null e' problema de download
+                    // da logo, nao de composicao.
+                    'logo_lum'        => $lumLogoC === null ? null : (int)round($lumLogoC),
+                    'logo_canto_tom'  => $lumLogoC === null ? null : ($lumLogoC > 160 ? 'canto-escuro' : ($lumLogoC < 95 ? 'canto-claro' : 'sem-exigencia')),
+                    // "2/5" quando o payload declarou carrossel (carousel_index/carousel_total), null
+                    // pra peca avulsa. E' o que diz se o bloco de coerencia+variacao do prompt entrou:
+                    // sem os dois campos a peca e' gerada como post solto, e um carrossel montado
+                    // assim volta a depender so' da referencia pra combinar com os irmaos.
+                    'carrossel'       => ((int)($campaignFormData['carouselIndex'] ?? 0) >= 1 && (int)($campaignFormData['carouselTotal'] ?? 0) >= 2)
+                        ? ((int)$campaignFormData['carouselIndex'] . '/' . (int)$campaignFormData['carouselTotal'])
+                        : null,
                     // true = ha' referencia do cliente E a clausula anti-retrato foi desligada para ela
                     // (padrao; so' campaign.reference_face_authorized:false explicito a mantem). Sem
                     // referencia fica false: nao ha' rosto a liberar. Como o ref_prioritaria, diz o

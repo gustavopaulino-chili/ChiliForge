@@ -1857,7 +1857,12 @@ if (!function_exists('extc_openai_prompt')) {
         // Condicional de proposito: o heroRef tambem e' uma foto de inspiracao comum que o cliente
         // manda, e ai' "copie a execucao tecnica" superaria a intencao (estilo, nao clone). Sem flag
         // no payload, quem decide e' o modelo, olhando se a referencia e' uma peca pronta da serie.
-        $clausulaContinuidade = " CONTINUITY, only if it applies: if this reference is itself a finished piece from the same set as this one (for example, another slide of the same carousel - recognisable by the same brand layout, type and treatment), match its exact execution as closely as you can - the same colour grade and white balance, the same lighting direction and hardness, the same lens character and depth of field, the same level of polish, the same subject staging and framing logic - so the two read as one shoot or one design system, not a loosely related idea. If it is instead a general inspiration image (a photo, a mood, someone else's post), ignore this sentence and use it only as the direction described above.";
+        // 23/09: a clausula pedia tambem "o mesmo staging e a mesma logica de enquadramento", e era
+        // demais - com ela o carrossel passou do problema de 18/09 (slides que nao combinam) pro
+        // oposto, N variacoes da mesma peca. Continuidade e' tecnica (grade, luz, lente, acabamento);
+        // composicao e' justamente o que tem de mudar de slide pra slide, senao nao ha' serie, ha'
+        // repeticao. Ver tambem $blocoCarrossel, que diz isso com indice e total na mao.
+        $clausulaContinuidade = " CONTINUITY, only if it applies: if this reference is itself a finished piece from the same set as this one (for example, another slide of the same carousel - recognisable by the same brand layout, type and treatment), match its exact execution as closely as you can - the same colour grade and white balance, the same lighting direction and hardness, the same lens character and depth of field, the same level of polish - so the two read as one shoot or one design system, not a loosely related idea. What you must NOT carry over is the composition: this piece needs its own crop, its own subject distance and its own framing, or the set reads as the same slide sent twice. If it is instead a general inspiration image (a photo, a mood, someone else's post), ignore this sentence and use it only as the direction described above.";
         // 21/09: o prompt dizia so' "a primeira e' a referencia, as demais sao contexto" - ate' 5
         // imagens de marca sem dizer o que cada uma era, e o modelo as pesava por igual (caso FIAP:
         // a referencia do cliente nao guiava a peca). Com os papeis calculados pelo worker, cada
@@ -1987,10 +1992,43 @@ if (!function_exists('extc_openai_prompt')) {
                . "Inside it you still decide the scene, the crop, the type scale and the colour.")
             : '';
 
+        // CARROSSEL (campaign.carousel_index / carousel_total). 23/09: "melhorar a coerencia E a
+        // variabilidade dos carrossel". Os dois problemas sao o mesmo problema — ate' aqui cada
+        // slide era um job isolado que nao sabia ser parte de nada, e a unica amarra era o chamador
+        // passar o slide anterior como reference_image_url. Ou a referencia nao pegava (slides que
+        // nao combinam) ou pegava demais (N variacoes da mesma peca). Um carrossel bom e' o
+        // contrario dos dois: sistema IDENTICO, composicao DIFERENTE em cada slide. So' da' pra
+        // pedir isso sabendo qual slide e' de quantos — dai' os dois campos novos.
+        $cIdx = (int)($campaign['carouselIndex'] ?? 0);
+        $cTot = (int)($campaign['carouselTotal'] ?? 0);
+        $blocoCarrossel = '';
+        if ($cIdx >= 1 && $cTot >= 2 && $cIdx <= $cTot) {
+            // O papel muda o que o slide PRECISA fazer, e e' o que impede N slides intercambiaveis:
+            // o primeiro e' o unico que todo mundo ve, o ultimo e' o unico que pede a acao, e os do
+            // meio existem pra sustentar um argumento cada.
+            $papel = $cIdx === 1
+                ? "the HOOK. It is the only slide everyone sees, so it has to stop the thumb on its own: the strongest image and the largest, loudest headline of the whole set. Do not spend it on explanation."
+                : ($cIdx === $cTot
+                    ? "the CLOSE. It carries the call to action and it is the calmest frame of the set - the quietest image, the most direct copy, nothing in the frame competing with the action being asked for."
+                    : "ONE argument, and one only. It is a middle slide: it does not restate the hook and it does not try to close - it develops a single idea and hands the viewer to the next slide.");
+            // Quando ha' token de layout, ele ja' fixou o esqueleto pra serie inteira: mandar variar
+            // "onde a copy mora" aqui seria mandar desobedecer o bloco de cima. Nesse caso a variacao
+            // acontece DENTRO do esqueleto (corte, distancia, angulo, escala). Sem token, a
+            // composicao inteira e' livre pra mudar de slide pra slide.
+            $varia = $blocoLayout !== ''
+                ? "the layout instruction above fixes the skeleton for the whole set, so vary INSIDE it - the crop and how close the subject is (wide, medium, close), the angle, which part of the frame carries the weight, the scale of what is shown."
+                : "change the composition outright - the crop and how close the subject is (wide, medium, close), the angle, where the mass sits in the frame, and where the copy lives inside it.";
+            $blocoCarrossel =
+                "THIS PIECE IS SLIDE {$cIdx} OF {$cTot} OF ONE CAROUSEL. The viewer swipes the whole set in a few seconds, so it has to read as one piece of work in {$cTot} parts - never as {$cTot} unrelated posts, and never as the same post {$cTot} times.\n"
+                . "- IDENTICAL on every slide, no exceptions: the palette and which colour does what, the typeface and the type hierarchy (the same relationship between headline, support and call to action), the margins and the safe area, the corner left free for the logo, and the photographic treatment - the same colour grade and white balance, the same lighting direction and hardness, the same lens character, the same level of polish. If a reference attached here is another slide of this same set, match all of that to it exactly.\n"
+                . "- DIFFERENT on this slide, and this weighs as much as the line above: {$varia} Two slides of one carousel with the same crop, the same subject distance and the same block of type in the same place read as a duplicate, not as a series.\n"
+                . "- THIS SLIDE'S JOB: {$papel}";
+        }
+
         // O canto que o prompt manda deixar livre tem de ser o MESMO que o extc_poe_logo() vai
         // carimbar, senao o modelo limpa um canto e a logo cai noutro. Sem pedido no payload,
-        // BOTTOM-RIGHT: o carimbo escolhe o canto mais calmo, e o canto reservado e' o candidato
-        // mais calmo por construcao.
+        // BOTTOM-RIGHT dos dois lados: aqui e' o canto reservado, e la' e' o candidato que abre a
+        // lista e leva bonus de pontuacao — um so' acordo, escrito em dois lugares.
         $mapaCanto = [
             'top-left'     => 'TOP-LEFT',    'top-right'    => 'TOP-RIGHT',
             'top-center'   => 'TOP-CENTRE',  'bottom-left'  => 'BOTTOM-LEFT',
@@ -1998,6 +2036,22 @@ if (!function_exists('extc_openai_prompt')) {
         ];
         $canto = $mapaCanto[trim((string)($campaign['logoPosition'] ?? ''))]
                  ?? 'BOTTOM-RIGHT';
+
+        // De que TOM o canto reservado precisa ser pra logo se ler em cima dele. O worker mede a
+        // tinta da logo (extc_logo_luminancia) e deixa em logoLuminancia; sem medida, nao se
+        // inventa exigencia de tom — o carimbo ainda escolhe o melhor canto disponivel depois.
+        // Faixa morta no meio (95..160): logo de tom medio se vira nos dois extremos, e mandar
+        // "escureca" uma peca clara por causa dela estragaria mais do que resolve.
+        $lumLogoPrompt = $campaign['logoLuminancia'] ?? null;
+        $tomCanto = '';
+        if (is_numeric($lumLogoPrompt)) {
+            $lumLogoPrompt = (float)$lumLogoPrompt;
+            if ($lumLogoPrompt > 160) {
+                $tomCanto = " The logo that lands there is a LIGHT one, so that corner has to be clearly DARK - a deep, saturated or shadowed field, never white, pale or washed out, or the logo disappears into it.";
+            } elseif ($lumLogoPrompt < 95) {
+                $tomCanto = " The logo that lands there is a DARK one, so that corner has to be clearly LIGHT - a bright, clean field, never black, deep or heavily shadowed, or the logo disappears into it.";
+            }
+        }
 
         $partes = [
             "You are a senior art director at a top creative agency. Create a finished square advertisement"
@@ -2009,6 +2063,7 @@ if (!function_exists('extc_openai_prompt')) {
             $direcao,
             $blocoGenero,
             $blocoLayout,
+            $blocoCarrossel,
             extc_bloco_rede($fmt),
             "FIRST RULE, absolute: these texts must appear EXACTLY as written, character for character, in {$lang}, every accent intact. Not paraphrased, not translated, nothing added or dropped:\n" . $copy,
             "SECOND RULE, and it outranks every creative instinct: LEGIBILITY.\n"
@@ -2017,7 +2072,13 @@ if (!function_exists('extc_openai_prompt')) {
                 . "- No letter swallowed by a busy area, a highlight, a face, or a colour close to its own.\n"
                 . "- The headline is the loudest thing in the frame.",
             $tipo,
-            "Invent no other words: no watermark, no signature, no fake logo, no brand name, no text on props.\nLeave the {$canto} corner free of anything that would be ruined by a logo placed over it afterwards.",
+            // 23/09: "a logo ainda sai em lugar nao visivel". Metade do problema e' o carimbo
+            // (extc_poe_logo, reescrito no mesmo dia), a outra metade e' esta linha: pedir o canto
+            // "livre" nao dizia tamanho nem que tipo de fundo serve, entao vinha canto com gradiente
+            // forte, aresta de objeto ou um pedaco de foto clara embaixo de uma logo clara. Agora a
+            // reserva tem medida e tem exigencia de fundo — e' area de servico da peca, nao sobra.
+            "Invent no other words: no watermark, no signature, no fake logo, no brand name, no text on props.\n"
+                . "RESERVED AREA FOR THE LOGO: the real logo is composited over the {$canto} corner after you deliver, so that corner is not yours. Keep a band of roughly a quarter of the width and a fifth of the height in that corner as plain, even, uninterrupted surface - one flat or very softly graded colour. Nothing essential there: no text, no face, no product edge, no hard boundary between light and dark, no busy texture or detail.{$tomCanto} The rest of the frame stays entirely yours.",
         ];
         return implode("\n\n", array_filter($partes, 'strlen'));
     }
@@ -2154,11 +2215,52 @@ if (!function_exists('extc_openai_prompt')) {
     }
 
     /**
-     * Poe a logo REAL no canto mais calmo da imagem pronta. Mede uma caixa MAIOR que a logo
-     * de proposito: sem essa folga, um canto liso vizinho de um bloco de texto e' escolhido
-     * como "calmo" e a logo encosta na primeira letra — aconteceu no teste.
+     * Luminancia media da TINTA da logo (0..255), ignorando pixel quase-transparente. null quando
+     * nao ha' logo, o download falha ou a imagem nao decodifica.
+     *
+     * 23/09: existe porque o modelo de imagem nunca ve' a logo — ela e' composta depois, em PHP.
+     * Entao ele reservava o canto "livre" as cegas e, em metade dos casos, entregava um canto claro
+     * pra uma logo clara (ou escuro pra escura): a logo sumia sem nenhum dos dois lados estar
+     * errado. Medindo aqui da' pra dizer ao modelo, em palavras, de que tom o canto reservado
+     * precisa ser. Mesma conta que o extc_poe_logo() usa pra pontuar os cantos, pra que a instrucao
+     * do prompt e a escolha do carimbo falem da mesma coisa.
      */
-    function extc_poe_logo(string $imgBytes, string $logoUrl, int $q = 92, string $canto = ''): string {
+    function extc_logo_luminancia(string $logoUrl): ?float {
+        if (trim($logoUrl) === '' || !function_exists('imagecreatetruecolor')) return null;
+        try {
+            $lb = extgd_fetch_bytes($logoUrl);
+            if ($lb === '') return null;
+            $logo = extgd_image_from_bytes($lb);
+            if ($logo === false) return null;
+            $lw = imagesx($logo); $lh = imagesy($logo);
+            $soma = 0.0; $n = 0;
+            for ($yy = 0; $yy < $lh; $yy += 2) {
+                for ($xx = 0; $xx < $lw; $xx += 2) {
+                    $c = imagecolorat($logo, $xx, $yy);
+                    if ((($c >> 24) & 0x7F) > 40) continue;
+                    $soma += (($c >> 16 & 255) * 0.21 + ($c >> 8 & 255) * 0.72 + ($c & 255) * 0.07);
+                    $n++;
+                }
+            }
+            imagedestroy($logo);
+            return $n ? $soma / $n : null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Poe a logo REAL no canto onde ela mais se LE da imagem pronta — calmo e' condicao, nao
+     * criterio: o que decide e' o contraste contra a tinta da propria logo. Sempre ancorada na
+     * margem de um dos cantos, nunca solta no meio do quadro. Mede uma caixa MAIOR que a logo de
+     * proposito: sem essa folga, um canto liso vizinho de um bloco de texto e' escolhido como
+     * "calmo" e a logo encosta na primeira letra — aconteceu no teste.
+     */
+    // $cantoEscolhido sai por referencia com o canto que o carimbo REALMENTE usou ('bottom-right',
+    // 'top-left', ...) ou null se a logo nao foi composta. Existe porque a reclamacao recorrente e'
+    // "a logo saiu num lugar estranho" e ate' aqui nao havia como saber, olhando a peca pronta, se
+    // ela caiu ali por pontuacao ou por um logo_position que veio no payload sem querer.
+    function extc_poe_logo(string $imgBytes, string $logoUrl, int $q = 92, string $canto = '', ?string &$cantoEscolhido = null): string {
         if ($logoUrl === '' || !function_exists('imagecreatetruecolor')) return $imgBytes;
         try {
             $base = extgd_image_from_bytes($imgBytes);
@@ -2178,17 +2280,24 @@ if (!function_exists('extc_openai_prompt')) {
             $nw = max(1, (int)round($lw * $esc));
             $nh = max(1, (int)round($lh * $esc));
             $m = (int)round($W * 0.05);
-            $folga = (int)round($W * 0.06);
+            // Padding so' pra AMOSTRAR o fundo em volta do carimbo. Era 6% da largura porque o
+            // mesmo valor servia de passo do deslize; sem deslize, 2% e' o bastante pra pegar a
+            // vizinhanca imediata sem diluir a leitura do canto com meia peca.
+            $folga = (int)round($W * 0.02);
 
             // 17/09: "tira todo tipo de overlay, quero APENAS A LOGO no melhor lugar possivel" —
-            // sem placa nem filete de cor por baixo. A UNICA defesa contra a logo sumir num
-            // fundo ruim volta a ser o POSICIONAMENTO: em vez de testar so' os 4 cantos fixos
-            // (auto) ou 1 unico ponto (canto pedido no payload), cada canto candidato ganha
-            // varios passos deslizando pra DENTRO da imagem (nunca pra fora — a margem da borda
-            // e' fixa por design), e o loop de pontuacao de colisao abaixo escolhe o ponto menos
-            // colidido entre TODOS eles. Canto pedido no payload = so' os passos daquele canto
-            // (o prompt reservou espaco ali de proposito); sem pedido = os 4 cantos, cada um com
-            // seus proprios passos.
+            // sem placa nem filete de cor por baixo. A UNICA defesa contra a logo sumir num fundo
+            // ruim passou a ser o POSICIONAMENTO, e a tentativa daquele dia foi deslizar cada canto
+            // pra DENTRO da imagem, em ate' 3 passos de 6% da largura, ficando com o ponto menos
+            // colidido entre todos.
+            //
+            // 23/09: era esse deslize que punha a logo "no meio da tela". 3 passos = 18% da largura
+            // em CADA eixo: numa peca de 1024, a logo (195px) largava o canto e parava perto de
+            // (250,250) — nao e' canto, nao e' centro, e' boiando sobre a arte. Logo de anuncio mora
+            // ANCORADA na margem; um carimbo solto no meio do quadro le como erro de montagem, nao
+            // como design. Os candidatos voltam a ser SO' os cantos, e o que decide entre eles deixa
+            // de ser "onde colide menos" e passa a ser CONTRASTE de verdade contra a cor da propria
+            // logo (pontuacao abaixo) — que e' o que faz a logo aparecer.
             $pedidos = [
                 'top-left'     => [$m, $m],
                 'top-right'    => [$W - $m - $nw, $m],
@@ -2196,19 +2305,20 @@ if (!function_exists('extc_openai_prompt')) {
                 'bottom-left'  => [$m, $H - $m - $nh],
                 'bottom-right' => [$W - $m - $nw, $H - $m - $nh],
             ];
-            $direcaoDentro = [
-                'top-left'     => [1, 1],
-                'top-right'    => [-1, 1],
-                'top-center'   => [0, 1],
-                'bottom-left'  => [1, -1],
-                'bottom-right' => [-1, -1],
-            ];
             $pedido = strtolower(trim($canto));
             $cantoForcado = isset($pedidos[$pedido]);
-            $chaves = $cantoForcado ? [$pedido] : ['top-right', 'top-left', 'bottom-right', 'bottom-left'];
+            // Sem pedido no payload, o prompt mandou o modelo deixar livre o BOTTOM-RIGHT
+            // (extc_openai_prompt(), $canto) — e' o unico canto que a arte foi desenhada contando
+            // com a logo. Ate' aqui a lista comecava no top-right e a pontuacao nao sabia disso, ou
+            // seja: o modelo reservava um canto e o carimbo caia noutro, em cima de conteudo. Agora
+            // o canto reservado abre a lista E leva bonus na pontuacao; os outros tres so' ganham
+            // se o modelo tiver ignorado a reserva e enchido o canto que ele mesmo devia poupar.
+            $reservado = $cantoForcado ? $pedido : 'bottom-right';
+            $chaves = $cantoForcado ? [$pedido] : ['bottom-right', 'top-right', 'top-left', 'bottom-left'];
 
             // Cor media da propria logo (só pixels que não são quase-transparentes) — usada so'
-            // pra PONTUAR colisao (distancia de cor abaixo), nao pra desenhar nada mais.
+            // pra PONTUAR o canto (distancia de cor e contraste de luminancia, abaixo), nunca pra
+            // desenhar nada: a logo entra como veio, sem placa, filete ou qualquer overlay.
             $somaRLogo = 0.0; $somaGLogo = 0.0; $somaBLogo = 0.0; $nLumLogo = 0;
             for ($yy = 0; $yy < $lh; $yy += 2) {
                 for ($xx = 0; $xx < $lw; $xx += 2) {
@@ -2222,21 +2332,17 @@ if (!function_exists('extc_openai_prompt')) {
             $logoR = $nLumLogo ? $somaRLogo / $nLumLogo : 128.0;
             $logoG = $nLumLogo ? $somaGLogo / $nLumLogo : 128.0;
             $logoB = $nLumLogo ? $somaBLogo / $nLumLogo : 128.0;
+            // Luminancia media da tinta da logo. E' o que faltava pra medir VISIBILIDADE: a
+            // distancia de cor sozinha aprova casos que somem na peca — uma logo branca sobre um
+            // cinza claro liso da' distancia ~95 (passa no teste de 70) e na pratica nao se le.
+            $lumLogo = $logoR * 0.21 + $logoG * 0.72 + $logoB * 0.07;
 
-            $cantos = [];
-            foreach ($chaves as $k) {
-                [$cx, $cy] = $pedidos[$k];
-                [$ix, $iy] = $direcaoDentro[$k];
-                for ($p = 0; $p <= 3; $p++) {
-                    $cantos[] = [$cx + $ix * $folga * $p, $cy + $iy * $folga * $p];
-                }
-            }
-
-            $melhor = $cantos[0];
+            $melhor = $pedidos[$chaves[0]];
+            $melhorNome = $chaves[0];
             $mv = INF;
-            foreach ($cantos as $c) {
-                $x = $c[0]; $y = $c[1];
-                $s2 = 0.0; $n = 0; $parecidos = 0;
+            foreach ($chaves as $k) {
+                [$x, $y] = $pedidos[$k];
+                $s2 = 0.0; $n = 0; $parecidos = 0; $somaLumFundo = 0.0;
                 for ($yy = max(0, $y - $folga); $yy < min($H, $y + $nh + $folga) - 1; $yy += 3) {
                     for ($xx = max(0, $x - $folga); $xx < min($W, $x + $nw + $folga) - 1; $xx += 3) {
                         $c1 = imagecolorat($base, $xx, $yy);
@@ -2245,6 +2351,7 @@ if (!function_exists('extc_openai_prompt')) {
                         $l2 = (($c2 >> 16 & 255) * 0.21 + ($c2 >> 8 & 255) * 0.72 + ($c2 & 255) * 0.07);
                         $g = abs($l1 - $l2);
                         $s2 += $g * $g; $n++;
+                        $somaLumFundo += $l1;
 
                         // Distancia de COR (nao so' luminancia) entre este pixel de fundo e a
                         // cor da logo — pega o caso em que so' um TRECHO do canto tem a cor que
@@ -2255,15 +2362,29 @@ if (!function_exists('extc_openai_prompt')) {
                         if ($dist < 70) $parecidos++;
                     }
                 }
-                // Pontuacao combinada: agitacao (variancia de luminancia local) MAIS a fracao
-                // de pixels parecidos com a cor da logo — um canto liso mas da MESMA cor da logo
-                // (a logo "some" nele) tem que perder pra um canto com um pouco mais de agitacao
-                // mas cor bem diferente. Peso 40 na fracao (0..1) coloca as duas escalas na mesma
-                // ordem de grandeza do desvio de luminancia (0..~130).
+                // Pontuacao (menor = melhor), tres termos + um bonus:
+                //  1. agitacao: RMS da diferenca de luminancia entre vizinhos. Fundo picotado
+                //     engole a logo mesmo com cor boa.
+                //  2. fracao de pixels perto da COR da logo: pega a faixa que cruza so' metade do
+                //     carimbo, que uma media do canto inteiro dilui.
+                //  3. CONTRASTE de luminancia entre o fundo do canto e a tinta da logo — o termo
+                //     novo, e o unico que responde direto por "a logo sai em lugar nao visivel".
+                //     Abaixo de 90 (de 255) penaliza progressivamente; acima disso ja' se le e nao
+                //     ha' premio por passar de bom pra otimo, senao um canto muito contrastado mas
+                //     picotado ganharia de um canto limpo e legivel.
+                //  + bonus do canto reservado: a arte foi desenhada pra ele. So' perde se o modelo
+                //     tiver ignorado a reserva — 10 pontos e' mais ou menos "um canto visivelmente
+                //     mais sujo que o outro", nao um passe livre.
                 $fracaoParecida = $n ? $parecidos / $n : 0.0;
-                $v = ($n ? sqrt($s2 / $n) : INF) + $fracaoParecida * 40;
-                if ($v < $mv) { $mv = $v; $melhor = [$x, $y]; }
+                $lumFundo = $n ? $somaLumFundo / $n : 128.0;
+                $contraste = abs($lumFundo - $lumLogo);
+                $v = ($n ? sqrt($s2 / $n) : INF)
+                     + $fracaoParecida * 40
+                     + max(0.0, 90.0 - $contraste) * 0.9
+                     + ($k === $reservado ? -10.0 : 0.0);
+                if ($v < $mv) { $mv = $v; $melhor = [$x, $y]; $melhorNome = $k; }
             }
+            $cantoEscolhido = $melhorNome;
 
             imagealphablending($base, true);
             imagecopyresampled($base, $logo, $melhor[0], $melhor[1], 0, 0, $nw, $nh, $lw, $lh);
