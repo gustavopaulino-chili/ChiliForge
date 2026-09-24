@@ -1730,6 +1730,33 @@ if (!function_exists('extc_openai_prompt')) {
     }
 
     /**
+     * Numero de item de carrossel em lista/passo a passo. 24/09, pedido do Fullstop: "1. ..." e
+     * "Passo 1: ..." saiam como mais um caractere da frase, e em carrossel de lista o numero e' o
+     * que mostra o progresso da leitura. Separa o numero da headline para o prompt pedi-lo como
+     * ELEMENTO GRAFICO. So' vale em carrossel declarado (ou com carousel_item_number explicito):
+     * numa peca avulsa "1. ..." nao e' item de nada. O numero explicito vence o lido da headline.
+     * O ponto exige espaco depois ("1.5 milhao" nao casa). null = nao ha' numero a destacar.
+     *
+     * @return array{n:int, rotulo:string, resto:string}|null
+     */
+    function extc_numero_lista(array $campaign): ?array {
+        $head = trim((string)($campaign['mainHeadline'] ?? ''));
+        $explicito = (int)($campaign['carouselItemNumber'] ?? 0);
+        $emCarrossel = (int)($campaign['carouselIndex'] ?? 0) >= 1 && (int)($campaign['carouselTotal'] ?? 0) >= 2;
+        if (!$emCarrossel && $explicito < 1) return null;
+
+        $n = 0; $rotulo = ''; $resto = $head;
+        if (preg_match('/^(passo|etapa|step)\s*(\d{1,2})\s*[:.\x{2013}\x{2014}-]\s*(.+)$/iu', $head, $m)) {
+            $rotulo = $m[1]; $n = (int)$m[2]; $resto = trim($m[3]);
+        } elseif (preg_match('/^(\d{1,2})\s*[.)]\s+(.+)$/u', $head, $m)) {
+            $n = (int)$m[1]; $resto = trim($m[2]);
+        }
+        if ($explicito >= 1) $n = $explicito;
+        if ($n < 1 || $resto === '') return null;
+        return ['n' => $n, 'rotulo' => $rotulo, 'resto' => $resto];
+    }
+
+    /**
      * Descreve ONDE a peca vai aparecer. A deteccao e' pela PROPORCAO, nunca pelo nome do
      * preset: o 4:5 do chamador chega como objeto customizado, sem nome conhecido, e casar
      * por nome deixaria a maioria dos posts sem esse bloco — que e' justamente o que impede
@@ -1757,6 +1784,9 @@ if (!function_exists('extc_openai_prompt')) {
     /** O prompt completo. Duas travas apenas: copy exata e legibilidade. */
     function extc_openai_prompt(array $campaign, array $company, array $fmt = []): string {
         $head = trim((string)($campaign['mainHeadline'] ?? ''));
+        // Item de lista: o numero sai da frase e vira elemento grafico ($blocoNumero, abaixo).
+        $numLista = extc_numero_lista($campaign);
+        if ($numLista !== null) $head = $numLista['resto'];
         $sub  = trim((string)($campaign['subheadline'] ?? ''));
         $cta  = trim((string)($campaign['ctaText'] ?? ''));
         $prod = trim((string)($campaign['productName'] ?? ($campaign['valueProposition'] ?? '')));
@@ -1901,9 +1931,28 @@ if (!function_exists('extc_openai_prompt')) {
             : "TYPEFACE: choose a typeface that belongs to this brand's world, and stay with one family throughout.";
 
         $copy = '';
+        if ($numLista !== null) {
+            if ($numLista['rotulo'] !== '') $copy .= "\"{$numLista['rotulo']}\" (small label beside the list number)\n";
+            $copy .= "\"{$numLista['n']}\" (the list number - a graphic numeral, see below)\n";
+        }
         if ($head !== '') $copy .= "\"{$head}\"\n";
         if ($sub !== '')  $copy .= "\"{$sub}\"\n";
         if ($cta !== '')  $copy .= "\"{$cta}\"";
+
+        // 24/09: numero de lista como ELEMENTO, nao como caractere. O mesmo tratamento em todos os
+        // slides numerados e' o que faz o numero mostrar o progresso da leitura.
+        $blocoNumero = $numLista === null ? '' : (
+            "LIST NUMBER: this slide is item {$numLista['n']} of a numbered sequence. Render the number {$numLista['n']} as a GRAPHIC ELEMENT of its own, never as a character inside the headline: an oversized numeral, or the numeral inside a solid seal or badge, sitting next to or above the headline. It is the one graphic element allowed to be bigger than the headline - it reads as a shape, while the headline stays the loudest TEXT in the frame."
+            . ($numLista['rotulo'] !== '' ? " The word \"{$numLista['rotulo']}\" goes small beside or above the numeral, as its label." : '')
+            . " Use the same numeral treatment - style, size, colour and position - on every numbered slide of the set: the number is what shows the viewer how far they are in the list."
+        );
+
+        // 24/09: o apoio dos slides do meio pode vir mais longo (ate' ~120) pra ensinar alguma
+        // coisa. Sem esta linha o modelo tende a esmagar texto longo em letra miuda ou a quebrar
+        // em blocos soltos, e as duas coisas custam legibilidade no celular.
+        $blocoApoioLongo = mb_strlen($sub) > 70
+            ? "THE SUPPORT TEXT IS LONG - a short explanatory paragraph. Set it as body copy in two or three comfortable lines, in one block, clearly smaller than the headline but still readable at phone size. Never shrink it into fine print and never split it into separate floating pieces."
+            : '';
 
         // Direcao de arte. Os dois campos ja' chegavam mapeados ate' aqui e
         // nunca eram lidos — mandar "minimal" ou "bold" dava exatamente a mesma peca. Entra logo
@@ -2006,11 +2055,52 @@ if (!function_exists('extc_openai_prompt')) {
             // O papel muda o que o slide PRECISA fazer, e e' o que impede N slides intercambiaveis:
             // o primeiro e' o unico que todo mundo ve, o ultimo e' o unico que pede a acao, e os do
             // meio existem pra sustentar um argumento cada.
+            // 24/09 (Fullstop): o fechamento e' o convite pro WhatsApp e tem de ser o slide MAIS LIMPO
+            // e visivelmente diferente dos outros - fundo chapado na cor da marca, pouca ou nenhuma
+            // foto. Continua valendo o sistema (tipografia, hierarquia), o que muda e' o campo.
+            $primCarr = preg_match('/^#[0-9a-f]{6}$/i', trim((string)($company['primaryColor'] ?? '')))
+                ? strtolower(trim((string)$company['primaryColor'])) : '';
+            $campoFecho = $primCarr !== '' ? "a flat field of the PRIMARY colour {$primCarr}" : "a flat field of the brand's main colour";
+            // Icone so' quando o texto fala de WhatsApp: fora disso o convite pode ser pra outro
+            // canal, e um icone de WhatsApp ao lado de "agende no site" seria desinformacao.
+            $falaWhats = (bool)preg_match('/whats|\bzap\b|\bwpp\b/iu', $head . ' ' . $sub . ' ' . $cta);
             $papel = $cIdx === 1
                 ? "the HOOK. It is the only slide everyone sees, so it has to stop the thumb on its own: the strongest image and the largest, loudest headline of the whole set. Do not spend it on explanation."
                 : ($cIdx === $cTot
-                    ? "the CLOSE. It carries the call to action and it is the calmest frame of the set - the quietest image, the most direct copy, nothing in the frame competing with the action being asked for."
+                    ? "the CLOSE - the invitation to act, and the CLEANEST slide of the set. It must look different from the others: {$campoFecho}, little or no photography (at most a small cut-out or a soft texture - for this slide only this overrides any rule above about showing the reference's subject as a large hero), the copy large, calm and direct, nothing in the frame competing with the action being asked for. Type, hierarchy and margins stay those of the set; only the field changes."
+                        . ($falaWhats ? " Right next to the call to action, a simple WhatsApp glyph (the speech bubble with a phone handset), small, in white or in a colour that contrasts with the field - an icon beside the words, not a button." : '')
                     : "ONE argument, and one only. It is a middle slide: it does not restate the hook and it does not try to close - it develops a single idea and hands the viewer to the next slide.");
+
+            // Pedido 2: sinal de "continua" em todo slide menos o ultimo, sempre no mesmo lugar.
+            $sinal = $cIdx < $cTot
+                ? "- SWIPE CUE: in the bottom-right, sitting just above the thread line described below, set the small text \"{$cIdx}/{$cTot}\" followed by a thin arrow pointing right. Discreet - about 2.5% of the frame height - but legible, in the same size, position and style on every slide except the last. It must never compete with the copy."
+                : "- NO SWIPE CUE on this slide: it is the last one, so no page number, no \"{$cIdx}/{$cTot}\", no arrow pointing onward.";
+
+            // Pedido 3: continuidade entre slides. Cada slide e' uma chamada separada, entao um
+            // elemento "livre" que sai por uma borda e entra pela outra nao casa - o modelo nao ve o
+            // vizinho. O que casa e' uma geometria FIXA dita em numeros: a mesma linha, na mesma
+            // altura, tocando as bordas certas conforme a posicao do slide. Ao deslizar, a ponta
+            // da direita de um encontra a ponta da esquerda do proximo.
+            $corLinha = $primCarr !== '' ? "the PRIMARY colour {$primCarr}" : "the brand's main colour";
+            $trecho = $cIdx === 1
+                ? "on this FIRST slide it starts about a third of the way in from the left and runs OFF the right edge"
+                : ($cIdx === $cTot
+                    ? "on this LAST slide it enters from the left edge and stops about two thirds of the way across; since this slide's field is the brand colour, draw it in white or in a colour that contrasts with that field"
+                    : "on this middle slide it runs the FULL width, entering at the left edge and leaving at the right edge");
+            $linha = "- THE THREAD, which ties the set together: one straight horizontal line in {$corLinha}, about 0.6% of the frame height thick, at exactly 88% of the height from the top. {$trecho}. Same height, thickness and colour on every slide, so that as the viewer swipes it reads as one line continuing from slide to slide. No text crosses it; the copy lives above it.";
+
+            $estruturas = [
+                'lista'         => 'a numbered list - after the hook, each slide is one item of it',
+                'passo_a_passo' => 'a step-by-step - after the hook, each slide is one step, in order',
+                'explicacao'    => 'a quick explanation - each slide moves the explanation one step forward',
+                'mito'          => 'myth or truth - the slides set up a belief and then correct it',
+                'case'          => 'a case study - before, challenge, what was done, after',
+                'narrativa'     => 'a story told in chronological order',
+                'opiniao'       => 'a strong opinion, argued slide by slide',
+                'checklist'     => 'a checklist the viewer saves to consult later',
+            ];
+            $est = (string)($campaign['carouselStructure'] ?? '');
+            $linhaEstrutura = isset($estruturas[$est]) ? "- THE SET IS {$estruturas[$est]}.\n" : '';
             // Quando ha' token de layout, ele ja' fixou o esqueleto pra serie inteira: mandar variar
             // "onde a copy mora" aqui seria mandar desobedecer o bloco de cima. Nesse caso a variacao
             // acontece DENTRO do esqueleto (corte, distancia, angulo, escala). Sem token, a
@@ -2022,7 +2112,12 @@ if (!function_exists('extc_openai_prompt')) {
                 "THIS PIECE IS SLIDE {$cIdx} OF {$cTot} OF ONE CAROUSEL. The viewer swipes the whole set in a few seconds, so it has to read as one piece of work in {$cTot} parts - never as {$cTot} unrelated posts, and never as the same post {$cTot} times.\n"
                 . "- IDENTICAL on every slide, no exceptions: the palette and which colour does what, the typeface and the type hierarchy (the same relationship between headline, support and call to action), the margins and the safe area, the corner left free for the logo, and the photographic treatment - the same colour grade and white balance, the same lighting direction and hardness, the same lens character, the same level of polish. If a reference attached here is another slide of this same set, match all of that to it exactly.\n"
                 . "- DIFFERENT on this slide, and this weighs as much as the line above: {$varia} Two slides of one carousel with the same crop, the same subject distance and the same block of type in the same place read as a duplicate, not as a series.\n"
-                . "- THIS SLIDE'S JOB: {$papel}";
+                . $linhaEstrutura
+                . "- THIS SLIDE'S JOB: {$papel}\n"
+                . $sinal . "\n"
+                . $linha . "\n"
+                // Pedido 6: no Instagram os pontinhos do carrossel ficam sobre a base da imagem.
+                . "- PLATFORM STRIP: keep the bottom 6% of the frame free of text, logo, the swipe cue and anything essential - the platform draws its carousel dots there. The background may run through it.";
         }
 
         // O canto que o prompt manda deixar livre tem de ser o MESMO que o extc_poe_logo() vai
@@ -2053,8 +2148,18 @@ if (!function_exists('extc_openai_prompt')) {
             }
         }
 
+        // O prompt dizia "square" pra qualquer formato - o 4:5 do carrossel (1080x1350) incluso.
+        $fw = max(1, (int)($fmt['width'] ?? 1080)); $fh = max(1, (int)($fmt['height'] ?? 1080));
+        $forma = $fw / $fh >= 1.05 ? 'landscape' : ($fw / $fh <= 0.95 ? 'portrait' : 'square');
+        // Sinal de "deslize" e icone do WhatsApp sao desenhados pelo modelo, e a trava de baixo
+        // proibe exatamente isso (palavras inventadas, logo falsa) - sem a excecao as duas regras
+        // brigam e o modelo escolhe uma ao acaso.
+        $excecaoCarr = $blocoCarrossel !== ''
+            ? ' The only exceptions are the ones this brief itself asks for above: the swipe cue and, where requested, the WhatsApp glyph.'
+            : '';
+
         $partes = [
-            "You are a senior art director at a top creative agency. Create a finished square advertisement"
+            "You are a senior art director at a top creative agency. Create a finished {$forma} advertisement"
                 . ($prod !== '' ? " for {$prod}" : '') . ($pub !== '' ? ", sold to {$pub}" : '') . ".",
             $sobreNegocio,
             $refs,
@@ -2064,6 +2169,7 @@ if (!function_exists('extc_openai_prompt')) {
             $blocoGenero,
             $blocoLayout,
             $blocoCarrossel,
+            $blocoNumero,
             extc_bloco_rede($fmt),
             "FIRST RULE, absolute: these texts must appear EXACTLY as written, character for character, in {$lang}, every accent intact. Not paraphrased, not translated, nothing added or dropped:\n" . $copy,
             "SECOND RULE, and it outranks every creative instinct: LEGIBILITY.\n"
@@ -2071,13 +2177,14 @@ if (!function_exists('extc_openai_prompt')) {
                 . "- Contrast between the type and whatever sits behind it must be unmistakable. Judge it by the colour actually behind each word: over a light field use dark type, over a dark field use light type.\n"
                 . "- No letter swallowed by a busy area, a highlight, a face, or a colour close to its own.\n"
                 . "- The headline is the loudest thing in the frame.",
+            $blocoApoioLongo,
             $tipo,
             // 23/09: "a logo ainda sai em lugar nao visivel". Metade do problema e' o carimbo
             // (extc_poe_logo, reescrito no mesmo dia), a outra metade e' esta linha: pedir o canto
             // "livre" nao dizia tamanho nem que tipo de fundo serve, entao vinha canto com gradiente
             // forte, aresta de objeto ou um pedaco de foto clara embaixo de uma logo clara. Agora a
             // reserva tem medida e tem exigencia de fundo — e' area de servico da peca, nao sobra.
-            "Invent no other words: no watermark, no signature, no fake logo, no brand name, no text on props.\n"
+            "Invent no other words: no watermark, no signature, no fake logo, no brand name, no text on props.{$excecaoCarr}\n"
                 . "RESERVED AREA FOR THE LOGO: the real logo is composited over the {$canto} corner after you deliver, so that corner is not yours. Keep a band of roughly a quarter of the width and a fifth of the height in that corner as plain, even, uninterrupted surface - one flat or very softly graded colour. Nothing essential there: no text, no face, no product edge, no hard boundary between light and dark, no busy texture or detail.{$tomCanto} The rest of the frame stays entirely yours.",
         ];
         return implode("\n\n", array_filter($partes, 'strlen'));

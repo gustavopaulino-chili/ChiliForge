@@ -293,6 +293,19 @@ function ext_map_campaign(array $cam, array $formats): array {
         // slide na leitura (gancho / argumento / fechamento). Ausente = nada muda, peca avulsa.
         'carouselIndex'         => max(0, (int)($cam['carousel_index'] ?? $cam['carouselIndex'] ?? $cam['slide_index'] ?? $cam['slide_number'] ?? 0)),
         'carouselTotal'         => max(0, (int)($cam['carousel_total'] ?? $cam['carouselTotal'] ?? $cam['slide_total'] ?? $cam['carousel_slides'] ?? 0)),
+        // 24/09: o roteiro do carrossel passou a escolher uma ESTRUTURA por pilar (lista, passo a
+        // passo, case...). Os dois campos sao opcionais: ausentes, o prompt tenta ler o numero da
+        // propria headline ("2. ..." / "Passo 2: ...") e o resto segue como antes. Token fora da
+        // lista vira '' e cai no array_filter — nunca chega ao prompt uma estrutura inventada.
+        'carouselStructure'     => (function () use ($cam) {
+            $s = strtolower(trim((string)($cam['carousel_structure'] ?? $cam['carouselStructure'] ?? '')));
+            $validas = ['lista', 'passo_a_passo', 'explicacao', 'mito', 'case', 'narrativa', 'opiniao', 'checklist'];
+            return in_array($s, $validas, true) ? $s : '';
+        })(),
+        'carouselItemNumber'    => (function () use ($cam) {
+            $v = $cam['carousel_item_number'] ?? $cam['carouselItemNumber'] ?? null;
+            return (is_numeric($v) && (int)$v >= 1 && (int)$v <= 99) ? (int)$v : null;
+        })(),
         // Per-generation font override. Without this mapping the field was accepted by the
         // endpoint and then silently dropped, so sending it did nothing.
         'fontFamily'            => $first(['font_family', 'font', 'typeface']),

@@ -821,6 +821,11 @@ try {
                     'carrossel'       => ((int)($campaignFormData['carouselIndex'] ?? 0) >= 1 && (int)($campaignFormData['carouselTotal'] ?? 0) >= 2)
                         ? ((int)$campaignFormData['carouselIndex'] . '/' . (int)$campaignFormData['carouselTotal'])
                         : null,
+                    // Numero de lista que o prompt pediu como elemento grafico (extc_numero_lista):
+                    // lido da headline ("2. ..."/"Passo 2: ...") ou de carousel_item_number. null =
+                    // o numero, se havia, ficou dentro da frase.
+                    'carrossel_numero' => (extc_numero_lista($campaignFormData)['n'] ?? null),
+                    'carrossel_estrutura' => ($campaignFormData['carouselStructure'] ?? null) ?: null,
                     // true = ha' referencia do cliente E a clausula anti-retrato foi desligada para ela
                     // (padrao; so' campaign.reference_face_authorized:false explicito a mantem). Sem
                     // referencia fica false: nao ha' rosto a liberar. Como o ref_prioritaria, diz o
