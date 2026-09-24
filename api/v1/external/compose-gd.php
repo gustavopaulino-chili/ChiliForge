@@ -2118,44 +2118,36 @@ if (!function_exists('extc_openai_prompt')) {
             // 24/09: "as cores entre eles nao estao alinhadas, o primeiro parecido com os posts da
             // empresa, os outros nao, uns com gradiente outros sem". O "IDENTICAL" logo abaixo mandava
             // repetir um sistema que ninguem definia - cada chamada e' cega aos outros slides, entao
-            // cada uma inventava o seu (gradiente aqui, chapado ali). E com reference_image_url o
-            // bloco de paleta passa a deixar a referencia mandar na cor da cena, entao so' o slide
-            // sem referencia saia com a cara da marca. A folha abaixo DECIDE o sistema aqui, com
-            // texto identico nos N slides: so' entra o que nao varia entre eles (cadastro de cores,
-            // brief visual da marca), nada que dependa do indice ou da referencia do slide.
-            $hexC = function ($v) { $v = trim((string)$v); return preg_match('/^#[0-9a-f]{6}$/i', $v) ? strtolower($v) : ''; };
-            $secC = $hexC($company['secondaryColor'] ?? '');
-            $acC  = $hexC($company['accentColor'] ?? '');
-            $bgC  = $hexC($campaign['backgroundColorRequested'] ?? '');
-            $campoC = $bgC !== '' ? $bgC : $primCarr;
-            // Cor do texto decidida pela luminancia do campo, pra nao ficar a criterio de cada slide.
-            $corTextoC = '';
-            if ($campoC !== '') {
-                $lumC = hexdec(substr($campoC, 1, 2)) * 0.21 + hexdec(substr($campoC, 3, 2)) * 0.72 + hexdec(substr($campoC, 5, 2)) * 0.07;
-                $corTextoC = $lumC < 140 ? 'white or a very light tint' : 'near-black or a very dark shade of the primary';
-            }
+            // cada uma inventava o seu (gradiente aqui, chapado ali). A folha abaixo vai com texto
+            // identico nos N slides e so' usa o que nao varia entre eles.
+            // 24/09 (tarde): a 1a versao da folha DECIDIA o sistema sozinha (chapado por padrao, grade
+            // neutra, "sem filtro/duotone") e dizia que vencia TODO anexo - inclusive os posts da
+            // marca. Resultado: carrossel sem nenhuma identidade dos posts. O sistema da serie nao se
+            // inventa aqui: e' o dos POSTS DA MARCA. A folha so' exige que ele seja o MESMO nos N
+            // slides (um tratamento, sem alternar) e vence apenas o que puxa pra fora dele: a
+            // referencia do cliente e os outros slides. Sem posts/site proprios anexados (proxy de
+            // concorrente, ignore_references), ai' sim a folha fixa um sistema pelo cadastro de cores.
+            $papeisC = array_slice((array)($campaign['composeRefRoles'] ?? []), 0, 6);
+            $postsProprios = !$proxy && empty($campaign['ignoreReferences'])
+                && (in_array('post', $papeisC, true) || in_array('site', $papeisC, true));
             // Brief visual da marca: o worker o calcula a partir dos proprios posts e nada no Caminho
-            // C o lia. E' a mesma fonte pros N slides, entao ancora todos na cara da marca, nao so' o 1o.
-            $briefC = trim(preg_replace('/\s+/u', ' ', (string)($campaign['brandVisualBrief'] ?? '')));
+            // C o lia. Mesma fonte pros N slides, entao descreve a MESMA cara em todos. Em proxy ele
+            // descreveria concorrentes, entao nao entra.
+            $briefC = $proxy ? '' : trim(preg_replace('/\s+/u', ' ', (string)($campaign['brandVisualBrief'] ?? '')));
             if (mb_strlen($briefC) > 700) $briefC = rtrim(mb_substr($briefC, 0, 700)) . '...';
-            // Gradiente ou chapado: decisao unica pra serie. So' vira gradiente se o brief da marca
-            // disser que ela usa gradiente (e nao "sem gradiente"); na duvida, chapado, que e' o
-            // tratamento que o modelo mais consegue repetir igual de uma chamada pra outra.
-            $usaGrad = $briefC !== ''
-                && preg_match('/gradient|degrad/iu', $briefC)
-                && !preg_match('/\b(no|sem|without|avoid\w*|evit\w*|never|nunca)\s+(\S+\s+){0,2}(gradient|degrad)/iu', $briefC);
-            $nomeCampo = $campoC !== '' ? $campoC : "the brand's main colour";
-            $fundoC = $usaGrad
-                ? "one linear gradient, top to bottom, from {$nomeCampo} to " . ($secC !== '' ? $secC : 'a deeper shade of that same colour') . " - the same two colours, the same direction and the same smoothness on every slide. No other gradient anywhere, no vignette, no glow."
-                : "FLAT colour - the field is a solid {$nomeCampo}. NO gradients of any kind, no vignettes, no glows, no light leaks, no colour fades, on any slide.";
-            $folha = ["SERIES STYLE SHEET - the same sheet is given to every slide of this carousel, word for word, so follow it literally: it is what makes the slides match. On colour and background it outranks every attached image, including another slide of the set and the client's reference - if an attachment shows other colours or another background treatment, follow this sheet, not the image."];
-            $folha[] = "- Background treatment: {$fundoC}";
-            $folha[] = "- Dominant field colour: {$nomeCampo}. Wherever the slide is not photograph, it is this field.";
-            if ($corTextoC !== '') $folha[] = "- Headline and support text: {$corTextoC}, on every slide.";
-            if ($acC !== '') $folha[] = "- Accent {$acC}: only for one highlighted word or small device per slide, never as a field.";
-            if ($secC !== '' && !$usaGrad) $folha[] = "- Secondary {$secC}: only for a card or block, the same way on every slide it appears.";
-            $folha[] = "- Photography: the same natural, neutral colour grade on every slide - no filters, no tints, no duotone, nothing that pulls the image away from the colours above.";
-            if ($briefC !== '') $folha[] = "- The brand's own look, read from its real posts - EVERY slide follows it, not only the first: {$briefC}";
+            $nomeCampo = $primCarr !== '' ? $primCarr : "the brand's main colour";
+            if ($postsProprios || $briefC !== '') {
+                $folha = ["SERIES STYLE SHEET - the same sheet is given to every slide of this carousel, word for word. THE LOOK OF THE WHOLE SERIES IS THE LOOK OF THIS BRAND'S OWN POSTS" . ($postsProprios ? ' (attached)' : '') . " - on EVERY slide, not only the first: their colour use, their background treatment, their graphic devices, their photographic treatment and filters. Someone who knows the brand's feed must recognise every slide as theirs."];
+                $folha[] = "- ONE treatment for the whole set: take the background treatment the brand's posts mostly use (flat colour, gradient, texture, photo with overlay - whichever it is) and their dominant photo treatment, and use exactly that on this slide. Never alternate - no gradient on one slide and flat colour on the next, no filter on one and none on the next. If the posts mix treatments, use the most frequent one.";
+                $folha[] = "- The same graphic devices on every slide, used the same way: if the brand uses a shape, a band, a frame, a texture or a way of cutting photos, it appears here in that same form.";
+                $folha[] = "- Other slides of this set and the client's reference image may be among the attachments: they give the subject and the continuity, but where their colours or background treatment differ from the brand's posts, the brand's posts win.";
+                if ($briefC !== '') $folha[] = "- The brand's look, as read from its real posts: {$briefC}";
+            } else {
+                // Sem posts proprios nao ha' cara a copiar: fixa um sistema simples e repetivel.
+                $folha = ["SERIES STYLE SHEET - the same sheet is given to every slide of this carousel, word for word, so follow it literally: it is what makes the slides match."];
+                $folha[] = "- Background treatment: FLAT colour, a solid {$nomeCampo} wherever the slide is not photograph. No gradients, vignettes or glows on any slide.";
+                $folha[] = "- Photography: the same colour grade on every slide - never a filter on one slide and none on the next.";
+            }
             $folhaEstilo = implode("\n", $folha);
 
             $blocoCarrossel =
