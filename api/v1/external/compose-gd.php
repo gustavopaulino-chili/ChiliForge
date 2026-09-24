@@ -2074,9 +2074,13 @@ if (!function_exists('extc_openai_prompt')) {
                     : "ONE argument, and one only. It is a middle slide: it does not restate the hook and it does not try to close - it develops a single idea and hands the viewer to the next slide.");
 
             // Pedido 2: sinal de "continua" em todo slide menos o ultimo, sempre no mesmo lugar.
+            // 24/09: o "2/5" em texto nao agradou ("deixar o numero do slide na imagem nao e' legal").
+            // O progresso vira ELEMENTO GRAFICO, sem digito nenhum, desenhado no vocabulario visual da
+            // marca pra parecer parte da peca e nao um contador colado por cima. A posicao do slide
+            // vai por extenso na instrucao, nunca como texto a renderizar.
             $sinal = $cIdx < $cTot
-                ? "- SWIPE CUE: in the bottom-right, sitting just above the thread line described below, set the small text \"{$cIdx}/{$cTot}\" followed by a thin arrow pointing right. Discreet - about 2.5% of the frame height - but legible, in the same size, position and style on every slide except the last. It must never compete with the copy."
-                : "- NO SWIPE CUE on this slide: it is the last one, so no page number, no \"{$cIdx}/{$cTot}\", no arrow pointing onward.";
+                ? "- SWIPE CUE, drawn as a graphic element - NO numbers, NO letters, no \"{$cIdx}/{$cTot}\": in the bottom-right, sitting just above the thread line described below, a small row of {$cTot} marks, one per slide, where the mark in position {$cIdx} counting from the left is filled and slightly larger and the others are lighter or outlined, followed by a small chevron or arrow shape pointing right. Draw the marks in the brand's own graphic vocabulary - the same shape family as the devices in its posts (dots, short bars, small squares, little brand shapes - whichever fits the brand) and in its colours - so it reads as part of the design, not a counter stuck on top. Discreet - about 2.5% of the frame height - in the same size, position and style on every slide except the last. It must never compete with the copy."
+                : "- NO SWIPE CUE on this slide: it is the last one, so no progress marks, no page number, no arrow pointing onward.";
 
             // Pedido 3: continuidade entre slides. Cada slide e' uma chamada separada, entao um
             // elemento "livre" que sai por uma borda e entra pela outra nao casa - o modelo nao ve o
@@ -2198,7 +2202,7 @@ if (!function_exists('extc_openai_prompt')) {
         // proibe exatamente isso (palavras inventadas, logo falsa) - sem a excecao as duas regras
         // brigam e o modelo escolhe uma ao acaso.
         $excecaoCarr = $blocoCarrossel !== ''
-            ? ' The only exceptions are the ones this brief itself asks for above: the swipe cue and, where requested, the WhatsApp glyph.'
+            ? ' The only exceptions are the ones this brief itself asks for above: the swipe-cue marks (shapes, never numbers) and, where requested, the WhatsApp glyph.'
             : '';
 
         $partes = [
