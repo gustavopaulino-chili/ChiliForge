@@ -2060,7 +2060,9 @@ if (!function_exists('extc_openai_prompt')) {
             // foto. Continua valendo o sistema (tipografia, hierarquia), o que muda e' o campo.
             $primCarr = preg_match('/^#[0-9a-f]{6}$/i', trim((string)($company['primaryColor'] ?? '')))
                 ? strtolower(trim((string)$company['primaryColor'])) : '';
-            $campoFecho = $primCarr !== '' ? "a flat field of the PRIMARY colour {$primCarr}" : "a flat field of the brand's main colour";
+            // O campo segue a folha de estilo da serie (chapado ou o mesmo gradiente) - o fechamento
+            // se diferencia por tirar a foto, nao por trocar o tratamento de fundo.
+            $campoFecho = "the series background from the style sheet above, filling the whole frame with nothing over it";
             // Icone so' quando o texto fala de WhatsApp: fora disso o convite pode ser pra outro
             // canal, e um icone de WhatsApp ao lado de "agende no site" seria desinformacao.
             $falaWhats = (bool)preg_match('/whats|\bzap\b|\bwpp\b/iu', $head . ' ' . $sub . ' ' . $cta);
@@ -2081,11 +2083,16 @@ if (!function_exists('extc_openai_prompt')) {
             // vizinho. O que casa e' uma geometria FIXA dita em numeros: a mesma linha, na mesma
             // altura, tocando as bordas certas conforme a posicao do slide. Ao deslizar, a ponta
             // da direita de um encontra a ponta da esquerda do proximo.
-            $corLinha = $primCarr !== '' ? "the PRIMARY colour {$primCarr}" : "the brand's main colour";
+            // Nao usa a primaria: com a folha de estilo (abaixo) o campo da serie e' a primaria, e a
+            // linha sumiria nele. Acento, senao secundaria, senao a cor do texto da serie.
+            $acLinha  = preg_match('/^#[0-9a-f]{6}$/i', trim((string)($company['accentColor'] ?? ''))) ? strtolower(trim((string)$company['accentColor'])) : '';
+            $secLinha = preg_match('/^#[0-9a-f]{6}$/i', trim((string)($company['secondaryColor'] ?? ''))) ? strtolower(trim((string)$company['secondaryColor'])) : '';
+            $corLinha = $acLinha !== '' ? "the ACCENT colour {$acLinha}"
+                : ($secLinha !== '' ? "the SECONDARY colour {$secLinha}" : "the same colour as the series' text");
             $trecho = $cIdx === 1
                 ? "on this FIRST slide it starts about a third of the way in from the left and runs OFF the right edge"
                 : ($cIdx === $cTot
-                    ? "on this LAST slide it enters from the left edge and stops about two thirds of the way across; since this slide's field is the brand colour, draw it in white or in a colour that contrasts with that field"
+                    ? "on this LAST slide it enters from the left edge and stops about two thirds of the way across"
                     : "on this middle slide it runs the FULL width, entering at the left edge and leaving at the right edge");
             $linha = "- THE THREAD, which ties the set together: one straight horizontal line in {$corLinha}, about 0.6% of the frame height thick, at exactly 88% of the height from the top. {$trecho}. Same height, thickness and colour on every slide, so that as the viewer swipes it reads as one line continuing from slide to slide. No text crosses it; the copy lives above it.";
 
@@ -2108,8 +2115,52 @@ if (!function_exists('extc_openai_prompt')) {
             $varia = $blocoLayout !== ''
                 ? "the layout instruction above fixes the skeleton for the whole set, so vary INSIDE it - the crop and how close the subject is (wide, medium, close), the angle, which part of the frame carries the weight, the scale of what is shown."
                 : "change the composition outright - the crop and how close the subject is (wide, medium, close), the angle, where the mass sits in the frame, and where the copy lives inside it.";
+            // 24/09: "as cores entre eles nao estao alinhadas, o primeiro parecido com os posts da
+            // empresa, os outros nao, uns com gradiente outros sem". O "IDENTICAL" logo abaixo mandava
+            // repetir um sistema que ninguem definia - cada chamada e' cega aos outros slides, entao
+            // cada uma inventava o seu (gradiente aqui, chapado ali). E com reference_image_url o
+            // bloco de paleta passa a deixar a referencia mandar na cor da cena, entao so' o slide
+            // sem referencia saia com a cara da marca. A folha abaixo DECIDE o sistema aqui, com
+            // texto identico nos N slides: so' entra o que nao varia entre eles (cadastro de cores,
+            // brief visual da marca), nada que dependa do indice ou da referencia do slide.
+            $hexC = function ($v) { $v = trim((string)$v); return preg_match('/^#[0-9a-f]{6}$/i', $v) ? strtolower($v) : ''; };
+            $secC = $hexC($company['secondaryColor'] ?? '');
+            $acC  = $hexC($company['accentColor'] ?? '');
+            $bgC  = $hexC($campaign['backgroundColorRequested'] ?? '');
+            $campoC = $bgC !== '' ? $bgC : $primCarr;
+            // Cor do texto decidida pela luminancia do campo, pra nao ficar a criterio de cada slide.
+            $corTextoC = '';
+            if ($campoC !== '') {
+                $lumC = hexdec(substr($campoC, 1, 2)) * 0.21 + hexdec(substr($campoC, 3, 2)) * 0.72 + hexdec(substr($campoC, 5, 2)) * 0.07;
+                $corTextoC = $lumC < 140 ? 'white or a very light tint' : 'near-black or a very dark shade of the primary';
+            }
+            // Brief visual da marca: o worker o calcula a partir dos proprios posts e nada no Caminho
+            // C o lia. E' a mesma fonte pros N slides, entao ancora todos na cara da marca, nao so' o 1o.
+            $briefC = trim(preg_replace('/\s+/u', ' ', (string)($campaign['brandVisualBrief'] ?? '')));
+            if (mb_strlen($briefC) > 700) $briefC = rtrim(mb_substr($briefC, 0, 700)) . '...';
+            // Gradiente ou chapado: decisao unica pra serie. So' vira gradiente se o brief da marca
+            // disser que ela usa gradiente (e nao "sem gradiente"); na duvida, chapado, que e' o
+            // tratamento que o modelo mais consegue repetir igual de uma chamada pra outra.
+            $usaGrad = $briefC !== ''
+                && preg_match('/gradient|degrad/iu', $briefC)
+                && !preg_match('/\b(no|sem|without|avoid\w*|evit\w*|never|nunca)\s+(\S+\s+){0,2}(gradient|degrad)/iu', $briefC);
+            $nomeCampo = $campoC !== '' ? $campoC : "the brand's main colour";
+            $fundoC = $usaGrad
+                ? "one linear gradient, top to bottom, from {$nomeCampo} to " . ($secC !== '' ? $secC : 'a deeper shade of that same colour') . " - the same two colours, the same direction and the same smoothness on every slide. No other gradient anywhere, no vignette, no glow."
+                : "FLAT colour - the field is a solid {$nomeCampo}. NO gradients of any kind, no vignettes, no glows, no light leaks, no colour fades, on any slide.";
+            $folha = ["SERIES STYLE SHEET - the same sheet is given to every slide of this carousel, word for word, so follow it literally: it is what makes the slides match. On colour and background it outranks every attached image, including another slide of the set and the client's reference - if an attachment shows other colours or another background treatment, follow this sheet, not the image."];
+            $folha[] = "- Background treatment: {$fundoC}";
+            $folha[] = "- Dominant field colour: {$nomeCampo}. Wherever the slide is not photograph, it is this field.";
+            if ($corTextoC !== '') $folha[] = "- Headline and support text: {$corTextoC}, on every slide.";
+            if ($acC !== '') $folha[] = "- Accent {$acC}: only for one highlighted word or small device per slide, never as a field.";
+            if ($secC !== '' && !$usaGrad) $folha[] = "- Secondary {$secC}: only for a card or block, the same way on every slide it appears.";
+            $folha[] = "- Photography: the same natural, neutral colour grade on every slide - no filters, no tints, no duotone, nothing that pulls the image away from the colours above.";
+            if ($briefC !== '') $folha[] = "- The brand's own look, read from its real posts - EVERY slide follows it, not only the first: {$briefC}";
+            $folhaEstilo = implode("\n", $folha);
+
             $blocoCarrossel =
-                "THIS PIECE IS SLIDE {$cIdx} OF {$cTot} OF ONE CAROUSEL. The viewer swipes the whole set in a few seconds, so it has to read as one piece of work in {$cTot} parts - never as {$cTot} unrelated posts, and never as the same post {$cTot} times.\n"
+                $folhaEstilo . "\n\n"
+                . "THIS PIECE IS SLIDE {$cIdx} OF {$cTot} OF ONE CAROUSEL. The viewer swipes the whole set in a few seconds, so it has to read as one piece of work in {$cTot} parts - never as {$cTot} unrelated posts, and never as the same post {$cTot} times.\n"
                 . "- IDENTICAL on every slide, no exceptions: the palette and which colour does what, the typeface and the type hierarchy (the same relationship between headline, support and call to action), the margins and the safe area, the corner left free for the logo, and the photographic treatment - the same colour grade and white balance, the same lighting direction and hardness, the same lens character, the same level of polish. If a reference attached here is another slide of this same set, match all of that to it exactly.\n"
                 . "- DIFFERENT on this slide, and this weighs as much as the line above: {$varia} Two slides of one carousel with the same crop, the same subject distance and the same block of type in the same place read as a duplicate, not as a series.\n"
                 . $linhaEstrutura
@@ -2164,7 +2215,7 @@ if (!function_exists('extc_openai_prompt')) {
             $sobreNegocio,
             $refs,
             extc_openai_paleta($company, $campaign),
-            "Make the best advertisement you can for this theme. You have complete freedom over the scene, composition, cropping, lighting, staging, typography, scale, and how and where the copy lives in the image. Integrate the type with the scene however serves the idea - in front of it, behind it, cut out of it, on a surface. Surprise me." . ($heroRef && empty($campaign['ignoreReferences']) ? " The one thing that is NOT free: the subject of the client's reference image must appear as the hero, as described above." : ''),
+            "Make the best advertisement you can for this theme. You have complete freedom over the scene, composition, cropping, lighting, staging, typography, scale, and how and where the copy lives in the image. Integrate the type with the scene however serves the idea - in front of it, behind it, cut out of it, on a surface. Surprise me." . ($blocoCarrossel !== '' ? " This piece is part of a carousel, so that freedom covers the scene and the composition only: colour and background treatment are fixed by the SERIES STYLE SHEET below." : '') . ($heroRef && empty($campaign['ignoreReferences']) ? " The one thing that is NOT free: the subject of the client's reference image must appear as the hero, as described above." : ''),
             $direcao,
             $blocoGenero,
             $blocoLayout,
