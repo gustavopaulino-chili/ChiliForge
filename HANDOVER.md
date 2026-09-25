@@ -797,9 +797,8 @@ fora do escopo deste documento. Do lado do ChiliForge, o que você precisa saber
   - sinal de "deslize" como elemento gráfico da marca;
   - logo ancorada e legível por contraste.
 
-  Foi feito para a Fullstop. A regra era publicar nos dois servidores, mas não conferi os
-  arquivos remotos ao escrever isto: na dúvida, compare os tamanhos (seção 7.4). Não há tarefa
-  pela metade no git: a árvore de trabalho estava limpa.
+  Foi feito para a Fullstop e está **publicado nos dois servidores**. Não há tarefa pela
+  metade no git: a árvore de trabalho estava limpa.
 - **Antes disso (15 a 21/09):** tratamento da referência do cliente:
   - a referência passou a ser a primária;
   - opt-in de rosto com `reference_face_authorized`;
@@ -808,9 +807,9 @@ fora do escopo deste documento. Do lado do ChiliForge, o que você precisa saber
   - `forge_debug` com a lista das referências anexadas.
 - **Branch não mergeada:** `worktree-fix-brand-color-lock` (parada desde 04/08). É um experimento
   da época do Gemini. Revise antes de apagar, mas provavelmente está obsoleta.
-- **Frontend no live:** o `CLAUDE.md` só manda publicar o front no teste. Não sei se o app no
-  live está igual ao do teste. Antes de publicar o app no live, compare `forge.chili.pa` com
-  `testforge.chili.pa`.
+- **Teste e live estão iguais** em 25/09/2026 (API e app). O `CLAUDE.md` só manda publicar o
+  front no teste; quando mudar o front, lembre de rodar também `deploy-live.ps1 -Frontend`
+  para manter os dois iguais.
 - **Ideias levantadas e não feitas:**
   - espelhar no servidor a `reference_image` do chamador antes de gerar, para hosts que a
     OpenAI/edge não conseguem baixar;
