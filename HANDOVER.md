@@ -32,8 +32,10 @@
    Duas `api_key`s diferentes = duas companies diferentes para o mesmo telefone.
 9. Deploy por FTP pode **falhar em silêncio** (arquivo `.in.*` órfão → erro 550 para sempre).
    Depois de todo deploy, **confira o tamanho/data do arquivo remoto**. Receita na seção 7.4.
-10. Teste de geração **custa dinheiro real** (~US$ 0,05–0,13 por peça). Gere **uma peça por
-    teste**.
+10. Teste de geração **custa dinheiro real** (~US$ 0,10–0,14 por peça na OpenAI). Gere **uma
+    peça por teste**.
+11. **Se você usar o Claude Code aqui**, o hook do `.claude/settings.json` faz **commit + push
+    na `dev` e deploy das edge functions alteradas sozinho** ao fim de cada resposta (seção 3.2).
 
 ---
 
@@ -103,7 +105,7 @@ ChiliForge/
 │   └── components/project/      tela da empresa, import do ClickUp
 │
 ├── api/                         BACKEND PHP (Hostinger)
-│   ├── db.php                   conexão MySQL (lê DB_* do ambiente)
+│   ├── db.php                   conexão MySQL (ver 8.1: no servidor vale o db.php de lá)
 │   ├── *.php                    endpoints do app (login, projetos, criativos, FTP, ClickUp…)
 │   ├── _render.php / _browserless.php   render HTML→PNG (Chrome headless / Browserless)
 │   ├── site_helpers.php         caminhos de disco, URLs públicas, download seguro de assets
@@ -128,6 +130,8 @@ ChiliForge/
 ├── fonts/                       fontes Raleway usadas pelo compositor GD
 ├── public/                      estáticos do Vite; public/.htaccess é o .htaccess do site!
 ├── docs/                        briefs (ClickUp), plano de IA, manual .docx, skills exportadas
+│                                (*.skill e external.zip = pacotes de skills do Claude, não são código)
+├── auto-commit-dev.ps1          script ANTIGO de auto-commit (caminho de outra máquina); não é usado
 └── .claude/                     memória, skills e hooks do Claude Code (versionados)
 ```
 
@@ -173,6 +177,27 @@ e o banco MySQL só existe na Hostinger. Então:
 
 Se quiser montar ambiente local de verdade: adicionar `server.proxy: { '/api': 'https://testforge.chili.pa' }`
 no `vite.config.ts` (o front local passa a usar o PHP e o banco de teste).
+
+### 3.2 Automação do Claude Code já configurada (hooks)
+
+`.claude/settings.json` (versionado) tem hooks que rodam **sozinhos** quando se usa o Claude Code
+neste repo:
+
+- **Ao editar qualquer arquivo** → cria um marcador `.git/.cf-edited`.
+- **Ao fim de cada resposta (Stop)**:
+  1. faz `npx supabase functions deploy` de **toda** pasta de `supabase/functions/` com mudança
+     não commitada;
+  2. se houve edição: `git add -A` + commit `"auto: commit automatico na dev ao fim do request"`
+     + **`git push origin dev`**.
+- O deploy **FTP (PHP/front) não** é automático: o Claude roda os scripts seguindo o `CLAUDE.md`.
+
+Consequência: qualquer arquivo não ignorado que estiver modificado na pasta vai para o GitHub
+no fim da resposta. Para desligar, remova o bloco `"Stop"` de `.claude/settings.json`. Se não
+usar o Claude Code, nada disso roda.
+
+Arquivos do Claude versionados: `CLAUDE.md` (regras), `.claude/memory/` (fatos históricos),
+`.claude/skills/` (roteiros: `chiliforge-nova-feature`, `chiliforge-ia-gemini`,
+`chiliforge-editores-grandes`, `brainstorming`). Guia de uso: `TRABALHANDO-COM-CLAUDE.md`.
 
 ---
 
@@ -297,6 +322,19 @@ virando word-art, CTA em inglês, carrossel que não combina…).
 Detalhes e histórico de testes: `.claude/memory/external-ads-api-test-procedure.md` e
 `.claude/memory/ads-test-run-counter.md`.
 
+### 4.7 Modelos de IA e custo
+
+| Etapa (API externa) | Modelo | Onde se troca |
+|---|---|---|
+| Peça final (imagem) | OpenAI `gpt-image-2`, qualidade `medium` | modelo fixo em `extc_openai_gerar` (`compose-gd.php`); qualidade por payload `qualidade_imagem` ou default no worker |
+| Copy (headline/sub/CTA) | Gemini `gemini-2.5-flash` (edge `agents-ads` modo `copy`) | código da edge |
+| Brief visual da marca + tradução PT | Gemini `gemini-2.5-flash` (modo `brand_visual`) | código da edge |
+
+Custo: ~US$ 0,10–0,14 por peça na OpenAI (`medium`), estimado a partir de uma leva de 8 peças
+registrada num commit, mais centavos de Gemini. No app
+interno, o modelo de imagem Gemini vem do secret `GEMINI_IMAGE_MODELS` do Supabase.
+O ledger `gemini_usage` registra só o Gemini; o gasto da OpenAI se vê no painel da OpenAI.
+
 ---
 
 ## 5. App web (frontend + PHP do app)
@@ -342,7 +380,15 @@ Ordem: SQL → PHP → tipos TS (`src/types/`) → `api.ts` → componente. Guia
 automaticamente**: rode o SQL à mão no phpMyAdmin da Hostinger, **nos dois bancos** (teste e live),
 e atualize `database.sql`.
 
-### 5.5 Integração ClickUp
+### 5.5 Formulário de lead das LPs (mailer)
+
+`resources/mailer/` é um PHPMailer autocontido que é **copiado para dentro de cada LP
+publicada** (`api/lpMailer.php` instala e configura pelo Visual Editor). O formulário da LP faz
+POST para `send_lead.php` da própria LP, que envia o lead por SMTP. A configuração (SMTP, e-mail
+de destino live/teste) fica num `config.php` **por LP**, no servidor, gerado a partir de
+`config.example.php`. A senha SMTP nunca é devolvida à UI.
+
+### 5.6 Integração ClickUp
 
 `api/clickup_*.php` + `database_clickup.sql` + `docs/clickup-integration-brief*.md`. OAuth
 (`CLICKUP_CLIENT_ID/SECRET/REDIRECT_URI/TOKEN_KEY` no `.env`), importa empresas a partir de
@@ -642,6 +688,16 @@ Nenhum destes valores está no git. Peça ao gestor / dono das contas:
 | OpenAI | conta/billing da `OPENAI_API_KEY` |
 | `api_key` de teste (`cf_…`) | para testar a API externa |
 
+### 8.1 De onde o PHP tira as credenciais NO SERVIDOR
+
+- **Chaves de IA, Pexels, ClickUp, Browserless**: `public_html/.env` de cada servidor, lido por
+  `agents_env_value()` (`api/v1/agents/helpers.php`). Mudar uma chave = editar esse arquivo pelo
+  Gerenciador de Arquivos do hPanel (não há deploy de `.env`: os dois scripts não o enviam).
+- **Banco**: `api/db.php` usa `getenv('DB_*')`, mas o servidor **não** define essas variáveis.
+  Na prática vale o valor de fallback escrito dentro do `db.php` **que está em cada servidor**.
+  O `deploy-live.ps1` bloqueia o envio do `db.php`, mas o `deploy-ftp.ps1` (teste) **não**:
+  nunca envie `api/db.php` para o teste sem conferir, ou o teste passa a apontar para outro banco.
+
 Cuidados:
 - Os valores no `.env` vêm **entre aspas**; ao usar num script, remova as aspas, senão a
   Gemini responde `API_KEY_INVALID`.
@@ -715,6 +771,8 @@ fora do escopo deste documento. Do lado do ChiliForge, o que você precisa saber
 3. **O app não tem sessão no servidor**: os endpoints confiam no `user_id` enviado pelo front.
    Em especial, **`api/getApiKey.php` devolve a `api_key` de qualquer `user_id`** para quem
    chamar. Precisa de autenticação real (sessão/JWT) antes de expor o app para fora da equipe.
+3b. **`api/getGeminiKey.php` devolve a chave Gemini pessoal de qualquer `user_id`**, também
+   sem autenticação. E `api/testFtp.php` recebe senha FTP por GET. Apagar/proteger os dois.
 4. `.env` com chaves reais em cada servidor (`public_html/.env`): garantir que o Apache não
    serve o arquivo (testar `https://forge.chili.pa/.env` → deve dar 403/404).
 5. Branches `main`/`release`/`testing` abandonadas; considerar fazer `dev` → `main` e adotar
@@ -727,6 +785,82 @@ fora do escopo deste documento. Do lado do ChiliForge, o que você precisa saber
    `.claude/memory/ads-test-run-counter.md`): texto/ícone "queimado" ocasional no fundo, logo
    colidindo com CTA em alguns layouts.
 9. Ledger de custo (`gemini_usage`) subconta chamadas Gemini disparadas em fire-and-forget.
+
+---
+
+## 12b. Onde o trabalho parou (estado em 25/09/2026)
+
+- **Último trabalho:** carrossel na API externa (commits de 23 e 24/09, `git log --grep caminho-c`):
+  - campos `carousel_*`;
+  - folha de estilo idêntica em todos os slides, ancorada nos posts da marca;
+  - número de lista;
+  - sinal de "deslize" como elemento gráfico da marca;
+  - logo ancorada e legível por contraste.
+
+  Foi feito para a Fullstop. A regra era publicar nos dois servidores, mas não conferi os
+  arquivos remotos ao escrever isto: na dúvida, compare os tamanhos (seção 7.4). Não há tarefa
+  pela metade no git: a árvore de trabalho estava limpa.
+- **Antes disso (15 a 21/09):** tratamento da referência do cliente:
+  - a referência passou a ser a primária;
+  - opt-in de rosto com `reference_face_authorized`;
+  - o herói da referência mantém a identidade e é reencenado na cena do anúncio;
+  - dedup de `brand_posts`;
+  - `forge_debug` com a lista das referências anexadas.
+- **Branch não mergeada:** `worktree-fix-brand-color-lock` (parada desde 04/08). É um experimento
+  da época do Gemini. Revise antes de apagar, mas provavelmente está obsoleta.
+- **Frontend no live:** o `CLAUDE.md` só manda publicar o front no teste. Não sei se o app no
+  live está igual ao do teste. Antes de publicar o app no live, compare `forge.chili.pa` com
+  `testforge.chili.pa`.
+- **Ideias levantadas e não feitas:**
+  - espelhar no servidor a `reference_image` do chamador antes de gerar, para hosts que a
+    OpenAI/edge não conseguem baixar;
+  - reforçar a proibição de ícones decorativos no fundo.
+
+---
+
+## 12c. Receitas de tarefas comuns
+
+**Investigar um job da API externa** (phpMyAdmin do banco **live**):
+```sql
+SELECT * FROM ad_generation_jobs WHERE id = <job_id>;
+SELECT batch_index, status, error, attempts FROM ad_generation_job_batches WHERE job_id = <job_id>;
+SELECT id, platform, format, public_url, created_at FROM ads_creatives WHERE campaign_id = <campaign_id>;
+```
+Logs do PHP: hPanel → site → Logs (erros), e o `error_log` da pasta. O worker loga com prefixo
+`[caminho-c]` e `[generate-ads-worker]`.
+
+**Ver uma company pelo telefone:**
+```sql
+SELECT id, user_id, HEX(phone), project_type, created_at FROM projects WHERE phone LIKE '%<digitos>%';
+```
+
+**Criar usuário admin:** cadastrar em `/auth` com e-mail `@chili.pa` (ou incluir o domínio em
+`ADMIN_EMAIL_DOMAINS`). O tipo de conta é recalculado no login.
+
+**Gerar `api_key` para um novo cliente da API:** logar no app com o usuário dono das companies
+→ botão "API key" (chama `getApiKey.php`). Cada usuário é um espaço separado de companies.
+
+**Desativar uma `api_key`:** `UPDATE api_keys SET is_active = 0 WHERE api_key = '<cf_…>';`
+
+**Adicionar um formato novo na API externa:** incluir o preset em `ext_format_presets()`
+(`generate-ads.php`). Deploy nos 2 servidores e avise a Fullstop (é mudança de contrato).
+
+**Trocar a qualidade/modelo da imagem:** a qualidade vem do payload (`qualidade_imagem`) ou do
+default `medium` no worker; o modelo `gpt-image-2` está fixo em `extc_openai_gerar`.
+
+**Trocar a chave OpenAI/Gemini do servidor:** editar `public_html/.env` dos 2 servidores pelo
+hPanel. Se trocar a Gemini de projeto Google, recriar os stores (seção 8).
+
+**Adicionar/atualizar diretrizes (guidelines) do app:** tela `/admin/global-stores` (admin),
+que usa `sync-global-store.php` e indexa no store Gemini global. Os textos-base estão em
+`guidelines/*.txt`.
+
+**Mudar o system prompt dos agentes do app:** fica na tabela `agents` (`ADS_AGENT`,
+`LP_AGENT`) do banco, não no código.
+
+**Conferir qual versão de um PHP está no servidor:** listar a pasta por FTP (seção 7.4) e
+comparar o tamanho com `git cat-file -s $(git rev-parse <commit>:<caminho>)`. Com CRLF, o
+tamanho no servidor é o tamanho do blob mais o número de linhas.
 
 ---
 
