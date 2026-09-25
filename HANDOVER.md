@@ -467,7 +467,6 @@ bancos e registre em `database.sql`.
 | **Pexels** | Fotos de banco para ancorar cenas / LPs | `PEXELS_API_KEY` | `.env` + secrets Supabase |
 | **Browserless** | Renderizar HTML→imagem sem Chrome local | `BROWSERLESS_URL/TOKEN` | `.env` |
 | **ClickUp** | Importar empresas (lists/wikis) para o Forge | OAuth app (`CLICKUP_CLIENT_ID/SECRET`) ou token pessoal `pk_…` por usuário | `.env` + tela da empresa no app |
-| **n8n** | Orquestração da Fullstop; chama a API externa | instância n8n da empresa | ver seção 9 |
 | **Meta (Instagram/Facebook)** | Destino final dos criativos (publicados pela Fullstop) | contas dos clientes | lado Fullstop |
 
 ---
@@ -488,7 +487,7 @@ bancos e registre em `database.sql`.
 - `api_key` no formato `cf_<40 hex>`, tabela `api_keys` (`user_id`, `is_active`, `requests_count`, `last_used_at`).
 - Gerada/consultada em `api/getApiKey.php` (botão "API key" no app). Cada usuário tem 1 ativa.
 - **A `api_key` define o `user_id`**, e o `user_id` define o "espaço" de companies. Por isso
-  todos os nós do n8n precisam usar **a mesma** `api_key`.
+  todas as chamadas de um mesmo cliente da API precisam usar **a mesma** `api_key`.
 - Desativar uma chave: `UPDATE api_keys SET is_active=0 WHERE api_key='…'` (no banco certo!).
 - As chaves de live e de teste são diferentes (bancos diferentes).
 
@@ -641,7 +640,6 @@ Nenhum destes valores está no git. Peça ao gestor / dono das contas:
 | GitHub | acesso de escrita a `gustavopaulino-chili/ChiliForge` (repo está na conta pessoal de quem saiu — **transferir para uma org da empresa**) |
 | Google AI Studio / Cloud | projetos das chaves Gemini (billing) |
 | OpenAI | conta/billing da `OPENAI_API_KEY` |
-| n8n | instância onde rodam os workflows da Fullstop |
 | `api_key` de teste (`cf_…`) | para testar a API externa |
 
 Cuidados:
@@ -654,15 +652,21 @@ Cuidados:
 
 ---
 
-## 9. n8n / Fullstop
+## 9. Integrações externas (quem consome o ChiliForge)
 
-A Fullstop é um produto (bot de WhatsApp de marketing) orquestrado no n8n. Os workflows que
-consomem o ChiliForge:
+**O ChiliForge não tem workflow n8n próprio.** Ele só expõe a API externa (seção 4). Quem a
+chama hoje é a **Fullstop**, um produto separado com equipe e workflows próprios, que ficam
+fora do escopo deste documento. Do lado do ChiliForge, o que você precisa saber da integração:
 
-<!-- N8N_SECTION -->
-
-Edições feitas no n8n pela API/MCP ficam como **rascunho**: é preciso publicar
-(`versionId` ≠ `activeVersionId` indica rascunho não publicado).
+- A Fullstop chama **só o LIVE** (`forge.chili.pa`): `company-assets.php` (cadastro da marca,
+  logo, cor, posts, e o poll do brief) e `generate-ads.php` + `job-status.php` (geração e poll).
+- Ela manda `api_key` e `gemini_api_key` no payload e **não** manda `openai_api_key`: usa a
+  `OPENAI_API_KEY` do `.env` do servidor live. Se essa chave acabar ou for trocada no servidor,
+  a geração da Fullstop para de funcionar.
+- Se você **desativar ou trocar a `api_key`** que ela usa, avise antes: a chave fica
+  configurada nos workflows deles.
+- Qualquer mudança de contrato (campo novo, renomeado, removido, mudança de default) → avisar
+  a equipe da Fullstop (seção 4.2).
 
 ---
 
@@ -673,7 +677,7 @@ Edições feitas no n8n pela API/MCP ficam como **rascunho**: é preciso publica
 | Fullstop diz que "nada mudou" depois do deploy | Só subiu no testforge, ou upload falhou com 550 | `deploy-live.ps1` + conferir tamanho remoto (7.4) |
 | Job fica `running` para sempre | Worker não foi disparado / morreu | Log PHP no hPanel; verificar `/usr/bin/php` e `exec` habilitado (`_check_wk.php`) |
 | `400 openai_api_key is required` | Sem chave no payload e sem `OPENAI_API_KEY` no `.env` do servidor | Conferir `public_html/.env` do servidor |
-| Anúncio sai com logo/cor de **outra** marca | Company duplicada, ou n8n usando `api_key`s de contas diferentes | `SELECT id,user_id,HEX(phone),project_type FROM projects WHERE phone LIKE '%<num>%'` — se só `user_id` difere, é a `api_key` no n8n |
+| Anúncio sai com logo/cor de **outra** marca | Company duplicada, ou n8n usando `api_key`s de contas diferentes | `SELECT id,user_id,HEX(phone),project_type FROM projects WHERE phone LIKE '%<num>%'` — se só `user_id` difere, é o chamador usando `api_key`s diferentes |
 | Anúncio genérico, sem identidade | Company vazia (telefone com/sem `+`), sem `brand_posts` | Rodar `company-assets.php` com posts; conferir `brand_posts_stored` |
 | Pessoa da referência não aparece | `reference_image` fora do objeto `campaign`, ou URL não baixável | Mover para `campaign.reference_image`; usar host acessível |
 | `403 PERMISSION_DENIED` em store Gemini | Chave Gemini trocada de projeto Google | Zerar colunas de store (seção 8) |
